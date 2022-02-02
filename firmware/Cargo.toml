@@ -1,0 +1,66 @@
+[package]
+name = "anyleaf_quadcopter_firmware"
+version = "0.1.0"
+authors = ["David O'Connor <david.alan.oconnor@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+cortex-m = "0.7.3"
+cortex-m-rt = "0.7.0"
+
+defmt = "0.3.0"
+defmt-rtt = "0.3.0"
+panic-probe = { version = "0.3.0", features = ["print-defmt"] }
+
+cortex-m-rtic = "1.0.0"
+
+#stm32-hal2 = { path = "../../../stm32-hal", features = ["h743v", "h7rt"]}
+#stm32-hal2 = { path = "../../../stm32-hal", features = ["h747cm7", "h7rt"]}
+stm32-hal2 = { path = "../../stm32-hal", features = ["h747cm7", "h7rt"]}  # todo temp dir for TDY
+
+# CMSIS-DSP, for FFTs, FIR etc. C lib wrapped with FFI.
+# Trouble with LIBCLANG. See this: https://github.com/rust-lang/rust-bindgen/blob/master/book/src/requirements.md
+#cmsis-dsp-sys = "0.3.1"
+cmsis-dsp-sys = { git = "https://github.com/jacobrosenthal/cmsis-dsp-sys", branch = "master" }
+#cmsis-dsp-api = { path = "../../../cmsis-dsp-api"}
+cmsis-dsp-api = { path = "../../cmsis-dsp-api"}  # todo temp dir for TDY
+
+num-traits = { version = "0.2.14", default-features = false, features=["libm"] }  # For trig functions.
+
+# cargo build/run
+[profile.dev]
+codegen-units = 1
+debug = 2
+debug-assertions = true # <-
+incremental = false
+opt-level = 3 # <-
+overflow-checks = true # <-
+
+# cargo test
+[profile.test]
+codegen-units = 1
+debug = 2
+debug-assertions = true # <-
+incremental = false
+opt-level = 3 # <-
+overflow-checks = true # <-
+
+# cargo build/run --release
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false # <-
+incremental = false
+lto = 'fat'
+opt-level = 3 # <-
+overflow-checks = false # <-
+
+# cargo test --release
+[profile.bench]
+codegen-units = 1
+debug = 2
+debug-assertions = false # <-
+incremental = false
+lto = 'fat'
+opt-level = 3 # <-
+overflow-checks = false # <-
