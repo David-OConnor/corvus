@@ -6,7 +6,7 @@
 
 use core::{
     ops::Sub,
-    sync::atomic::{AtomicBool, AtomicI8, AtomicU8, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicI8, AtomicU32, AtomicUsize, Ordering},
 };
 
 use cortex_m::{self, asm, delay::Delay};
@@ -47,6 +47,9 @@ const UPDATE_RATE: f32 = 500.;
 
 // Speed in meters per second commanded by full scale "left stick" deflection
 const V_FULL_DEFLECTION: f32 = 20.;
+
+// `POWER_USED` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
+static POWER_USED: AtomicU32 = AtomicU32::new(0);
 
 /// A vector in 3 dimensions
 struct Vector {
@@ -106,17 +109,31 @@ pub enum SwarmRole {
     Worker(u16), // id
 }
 
-/// Represents positional parameters at a fixed instant.
+/// Represents parameters at a fixed instant. Can be position, velocity, or accel.
 #[derive(Default)]
 pub struct ParamsInst {
     x: f32,
     y: f32,
     /// Altitude
     z: f32,
-    /// Heading
-    h: f32,
     pitch: f32,
     roll: f32,
+    yaw: f32,
+}
+
+impl Sub for ParamsInst {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self::Output {
+        Self {
+            x: self.x - other.x,
+            y: self.y - other.y,
+            z: self.z - other.z,
+            pitch: self.pitch - other.pitch,
+            roll: self.roll - other.roll,
+            yaw: self.yaw - other.yaw,
+        }
+    }
 }
 
 // todo: Quaternions? 
@@ -125,28 +142,32 @@ pub struct ParamsInst {
 #[derive(Default)]
 pub struct Params {
     // todo: Do we want to use this full struct, or store multiple (3+) instantaneous ones?
-    x: f32,
-    y: f32,
+    s_x: f32,
+    s_y: f32,
     /// Altitude
-    z: f32,
-    /// Heading
-    h: f32,
-    pitch: f32,
-    roll: f32,
+    s_z: f32,
+
+    s_pitch: f32,
+    s_roll: f32,
+    s_yaw: f32,
+
     // Velocity
-    vx: f32,
-    vy: f32,
-    vz: f32,
-    vh: f32,
-    vpitch: f32,
-    vroll: f32,
+    v_x: f32,
+    v_y: f32,
+    v_z: f32,
+
+    v_pitch: f32,
+    v_roll: f32,
+    v_yaw: f32,
+
     // Acceleration
-    ax: f32,
-    ay: f32,
-    az: f32,
-    ah: f32,
-    apitch: f32,
-    aroll: f32,
+    a_x: f32,
+    a_y: f32,
+    a_z: f32,
+
+    a_pitch: f32,
+    a_roll: f32,
+    a_yaw: f32,
 }
 
 pub enum FlightProfile {
@@ -180,6 +201,12 @@ pub struct RotorPower {
     p2: f32,
     p3: f32,
     p4: f32,
+}
+
+impl RotorPower {
+    pub fn total(&self) -> f32 {
+        self.p1 + self.p2 + self.p3 + self.p4
+    }
 }
 
 /// Execute a hovering profile
@@ -232,7 +259,14 @@ mod app {
     #[shared]
     struct Shared {
         profile: FlightProfile,
+        // todo: current_params vs
         current_params: Params,
+        v_prev: ParamsInst,
+        v_diff_prev: ParamsInst,
+        v_integral_prev: ParamsInst,
+        /// Proportional, Integral, Differential error
+        // pid_error: (f32, f32, f32),
+        pid_error_v: (ParamsInst, ParamsInst, ParamsInst),
         manual_inputs: ManualInputs,
         current_power: RotorPower,
         dma: Dma<DMA1>,
@@ -320,6 +354,9 @@ mod app {
         rotor_timer.enable_pwm_output(TimChannel::C3, OutputCompare::Pwm1, 0.);
         rotor_timer.enable_pwm_output(TimChannel::C4, OutputCompare::Pwm1, 0.);
 
+        // We use the RTC to assist with power use measurement.
+        let rtc = Rtc::new(dp.RTC, Default::default());
+
         let imu_cs = Pin::new(Port::A, 0, PinMode::Alt(0));
 
         let mut dma = Dma::new(dp.DMA1);
@@ -328,9 +365,15 @@ mod app {
         let mut flash = Flash::new(dp.FLASH); // todo temp mut to test
 
         (
+            // todo: Make these local as able.
             Shared {
                 profile: FlightProfile::OnGround,
                 current_params: Default::default(),
+                v_prev: Default::default(),
+                v_diff_prev: Default::default(),
+                v_integ_prev: Default::default(),
+                // pid_error: (0., 0., 0.),
+                pid_error_v: (Default::default(), Default::default(), Default::default()),
                 manual_inputs: Default::default(),
                 current_power: Default::default(),
                 dma,
@@ -343,7 +386,7 @@ mod app {
         )
     }
 
-    #[idle(shared = [], local = [])]
+    #[idle(shared = [], local = [])],
     fn idle(mut cx: idle::Context) -> ! {
 
         loop {
@@ -351,9 +394,45 @@ mod app {
         }
     }
 
-    #[task(binds = TIM15, shared = [current_params, manual_inputs, rotor_timer], local = [], priority = 1)]
+    #[task(binds = TIM15, shared = [current_params, manual_inputs, rotor_timer, v_diff_prev, current_power], local = [], priority = 1)]
     fn update_isr(cx: update_isr::Context) {
-        (cx.shared.current_params, cx.shared.manual_inputs).lock(|params, inputs| {
+        (cx.shared.current_params, cx.shared.manual_inputs, cx.shared.v_diff_prev, cx.shared.current_power, cx.shared.pid_error)
+            .lock(|params, inputs, v_diff_prev, current_power, pid_error| {
+            // todo: Placeholder for sensor inputs/fusion.
+
+            // Sensors:
+            // - IMU 1: 
+            // - IMU 2: (Mount perpendicular to IMU1, and avg the result)
+            // - magnetometer?
+            // - barometer
+            // - fwd airspeed
+            // - Side airspeed
+            // - laser facing down
+            // - ultrasonic facing down?
+
+            // todo: Don't just use IMU; use sensor fusion. Starting with this by default
+            imu_data = imu_driver::read_all();
+
+            // We have acceleration data: Integrate to get velocity and position.
+            let v_x = v_x_prev + imu_data.a_x;
+            let s_x = s_x_prev + v_x;
+
+            let s_pitch = imu_data.s_pitch;
+            let v_pitch = imu_data.s_pitch - s_pitch_prev;
+
+
+            let updated_params = Params.default();
+            
+            params = updated_params;
+
+            // let v_diff = inputs - v_current;
+
+            // v_diff_prev = v_diff
+
+            // Find appropriate control inputs using a PID loop.
+            error_p = inputs - v_current;
+            error_i = error
+
             let dv1 = Vector::new(inputs.xy_dir, inputs.xy_mag, 1.)
                 - Vector::new(params.vx, params.vy, params.vz);
 
@@ -363,7 +442,8 @@ mod app {
             // rot_dir: f32,
             // rot_mag: f32,
             // up_dn: f32, // -1. to 1.
-        });
+
+            POWER_USED.fetch_add(current_power.total() / UPDATE_FREQ, Ordering::Relaxed);
     }
 }
 
