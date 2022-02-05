@@ -1,5 +1,7 @@
+//! This module contains code for the _ inertial measuring unit.
+
 /// Represents sensor readings from a 6-axis accelerometer + gyro. Similar to
-`ParamsInst`.
+/// `ParamsInst`.
 #[derive(Default)]
 pub struct ImuReadings {
     a_x: f32,

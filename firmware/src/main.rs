@@ -19,11 +19,11 @@ use stm32_hal2::{
     flash::Flash,
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::I2c,
-    pac::{self, DMA1, EXTI, I2C1, SPI1, TIM2, TIM3, TIM4, TIM5, TIM15},
+    pac::{self, DMA1, EXTI, I2C1, SPI1, TIM15, TIM2, TIM3, TIM4, TIM5},
     power::{SupplyConfig, VoltageLevel},
     rtc::{Rtc, RtcConfig},
-    spi::{Spi, SpiConfig, BaudRate},
-    timer::{OutputCompare, Timer, TimChannel, TimerConfig, TimerInterrupt},
+    spi::{BaudRate, Spi, SpiConfig},
+    timer::{OutputCompare, TimChannel, Timer, TimerConfig, TimerInterrupt},
 };
 
 use cmsis_dsp_api as dsp_api;
@@ -32,6 +32,8 @@ use cmsis_dsp_sys as sys;
 use defmt_rtt as _; // global logger
 use panic_probe as _;
 
+mod atmos_model;
+mod baro_driver;
 mod imu_driver;
 
 // The frequency our motor-driving PWM operates at, in Hz.
@@ -43,13 +45,25 @@ const PWM_PSC: u32 = 100; // todo set properly
 const PWM_ARR: u32 = 100; // todo set properly
 
 // The rate our main program updates, in Hz.
-const UPDATE_RATE: f32 = 500.;
+const UPDATE_RATE: f32 = 8_000.; // todo: increase
+const DT: f32 = 1. / UPDATE_RATE;
 
 // Speed in meters per second commanded by full scale "left stick" deflection
 const V_FULL_DEFLECTION: f32 = 20.;
 
+const GRAVITY: f32 = 9.8; // m/s
+
 // `POWER_USED` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
 static POWER_USED: AtomicU32 = AtomicU32::new(0);
+
+// todo: Start with a PID loop that dynamically adjusts its
+// constants based on conditions and performance of the loop.
+// (ie oscillations detected etc. Maybe FFT flight history?)
+
+// todo: Course set mode. Eg, point at thing using controls, activate a button,
+// todo then the thing flies directly at the target.
+
+// With this in mind: Store params in a global array. Maybe [ParamsInst; N], or maybe a numerical array for each param.
 
 /// A vector in 3 dimensions
 struct Vector {
@@ -76,6 +90,24 @@ impl Vector {
     }
 }
 
+/// Represents a complete quadcopter. Used for setting control parameters.
+struct aircraft_properties {
+    mass: f32,               // grams
+    arm_len: f32,            // meters
+    drag_coeff: f32,         // unitless
+    thrust_coeff: f32,       // N/m^2
+    moment_of_intertia: f32, // kg x m^2
+    rotor_inertia: f32,      // kg x m^2
+}
+
+impl aircraft_properties {
+    pub fn level_pwr(&self, alt: f32) -> f32 {
+        /// Calculate the power level required, applied to each rotor, to maintain level flight
+        /// at a given MSL altitude. (Alt is in meters)
+        return 0.1; // todo
+    }
+}
+
 /// Specify the rotor
 #[derive(Clone, Copy)]
 pub enum Rotor {
@@ -94,6 +126,21 @@ impl Rotor {
             Self::R4 => TimerChannel::C4,
         }
     }
+}
+
+/// Categories of control mode, in regards to which parameters are held fixed.
+/// todo: Perhaps reconsider how this is set up, but this is an OK starting point.
+enum AutopilotMode {
+    /// There are no specific position targets to hold
+    FreeFlight,
+    /// Altitude is fixed at a given altimeter (AGL)
+    AltHold,
+    /// Heading is fixed.
+    HdgHold,
+    /// Altidude and heading are fixed
+    AltHdgHold,
+    /// The aircraft will fly a fixed profile between sequence points
+    Sequence,
 }
 
 #[derive(Clone, Copy)]
@@ -136,7 +183,7 @@ impl Sub for ParamsInst {
     }
 }
 
-// todo: Quaternions? 
+// todo: Quaternions?
 
 /// Represents a first-order status of the drone. todo: What grid/reference are we using?
 #[derive(Default)]
@@ -144,7 +191,7 @@ pub struct Params {
     // todo: Do we want to use this full struct, or store multiple (3+) instantaneous ones?
     s_x: f32,
     s_y: f32,
-    /// Altitude
+    /// Altitude, in AGL. We treat MSL as a varying offset from this.
     s_z: f32,
 
     s_pitch: f32,
@@ -207,6 +254,54 @@ impl RotorPower {
     pub fn total(&self) -> f32 {
         self.p1 + self.p2 + self.p3 + self.p4
     }
+
+    /// Send this power command to the rotors
+    pub fn set(&self, pwm_timer: &mut Timer<TIM2>) {
+        set_power(Rotor::R1, self.p1, timer);
+        set_power(Rotor::R2, self.p2, timer);
+        set_power(Rotor::R3, self.p3, timer);
+        set_power(Rotor::R4, self.p4, timer);
+    }
+}
+
+// todo: DMA for timer? How?
+
+/// Set rotor speed for all 4 rotors, based on 6-axis control adjustments. Params here are power levels,
+/// from 0. to 1. This translates and applies settings to rotor controls.
+/// todo: This needs conceptual/fundamental work
+fn set_attitude(
+    pitch: f32,
+    roll: f32,
+    yaw: f32,
+    throttle: f32,
+    current_power: &mut RotorPower,
+    pwm_timer: &mut Timer<TIM2>,
+) {
+    // todo: Start with `current_power` instead of zeroing?
+    let mut power = RotorPower::default();
+
+    power.p1 += pitch / pitch_coeff;
+    power.p2 += pitch / pitch_coeff;
+    power.p3 -= pitch / pitch_coeff;
+    power.p4 -= pitch / pitch_coeff;
+
+    power.p1 += roll / roll_coeff;
+    power.p2 -= roll / roll_coeff;
+    power.p3 -= roll / roll_coeff;
+    power.p4 += roll / roll_coeff;
+
+    power.p1 += yaw / yaw_coeff;
+    power.p2 -= yaw / yaw_coeff;
+    power.p3 += yaw / yaw_coeff;
+    power.p4 -= yaw / yaw_coeff;
+
+    power.p1 *= throttle;
+    power.p2 *= throttle;
+    power.p3 *= throttle;
+    power.p4 *= throttle;
+
+    power.set(pwm_timer);
+    current_power = power;
 }
 
 /// Execute a hovering profile
@@ -373,6 +468,7 @@ mod app {
                 v_diff_prev: Default::default(),
                 v_integ_prev: Default::default(),
                 // pid_error: (0., 0., 0.),
+                // todo: Probably use a struct for PID error, with the 3 fields, as applicable
                 pid_error_v: (Default::default(), Default::default(), Default::default()),
                 manual_inputs: Default::default(),
                 current_power: Default::default(),
@@ -386,9 +482,8 @@ mod app {
         )
     }
 
-    #[idle(shared = [], local = [])],
+    #[idle(shared = [], local = [])]
     fn idle(mut cx: idle::Context) -> ! {
-
         loop {
             asm::nop();
         }
@@ -396,54 +491,62 @@ mod app {
 
     #[task(binds = TIM15, shared = [current_params, manual_inputs, rotor_timer, v_diff_prev, current_power], local = [], priority = 1)]
     fn update_isr(cx: update_isr::Context) {
-        (cx.shared.current_params, cx.shared.manual_inputs, cx.shared.v_diff_prev, cx.shared.current_power, cx.shared.pid_error)
+        (
+            cx.shared.current_params,
+            cx.shared.manual_inputs,
+            cx.shared.v_diff_prev,
+            cx.shared.current_power,
+            cx.shared.pid_error,
+        )
             .lock(|params, inputs, v_diff_prev, current_power, pid_error| {
-            // todo: Placeholder for sensor inputs/fusion.
+                // todo: Placeholder for sensor inputs/fusion.
 
-            // Sensors:
-            // - IMU 1: 
-            // - IMU 2: (Mount perpendicular to IMU1, and avg the result)
-            // - magnetometer?
-            // - barometer
-            // - fwd airspeed
-            // - Side airspeed
-            // - laser facing down
-            // - ultrasonic facing down?
+                // Sensors:
+                // - IMU 1:
+                // - IMU 2: (Mount perpendicular to IMU1, and avg the result)
+                // - magnetometer?
+                // - barometer
+                // - fwd airspeed
+                // - Side airspeed
+                // - laser facing down
+                // - ultrasonic facing down?
 
-            // todo: Don't just use IMU; use sensor fusion. Starting with this by default
-            imu_data = imu_driver::read_all();
+                // todo: Don't just use IMU; use sensor fusion. Starting with this by default
+                imu_data = imu_driver::read_all();
 
-            // We have acceleration data: Integrate to get velocity and position.
-            let v_x = v_x_prev + imu_data.a_x;
-            let s_x = s_x_prev + v_x;
+                // PID "constants"
+                let k_p = 0.1;
+                let k_i = 0.05;
+                let k_d = 0.;
 
-            let s_pitch = imu_data.s_pitch;
-            let v_pitch = imu_data.s_pitch - s_pitch_prev;
+                // We have acceleration data: Integrate to get velocity and position.
+                let v_x = v_x_prev + imu_data.a_x;
+                let s_x = s_x_prev + v_x;
 
+                let s_pitch = imu_data.s_pitch;
+                let v_pitch = imu_data.s_pitch - s_pitch_prev;
 
-            let updated_params = Params.default();
-            
-            params = updated_params;
+                let updated_params = Params.default();
 
-            // let v_diff = inputs - v_current;
+                params = updated_params;
 
-            // v_diff_prev = v_diff
+                // Find appropriate control inputs using PID control.
+                error_p = v_current - inputs;
+                error_i += pid_error.1 + error_p * DT;
+                error_d = -k_d * (error_p - pid_error.2) / DT;
 
-            // Find appropriate control inputs using a PID loop.
-            error_p = inputs - v_current;
-            error_i = error
+                let dv1 = Vector::new(inputs.xy_dir, inputs.xy_mag, 1.)
+                    - Vector::new(params.vx, params.vy, params.vz);
 
-            let dv1 = Vector::new(inputs.xy_dir, inputs.xy_mag, 1.)
-                - Vector::new(params.vx, params.vy, params.vz);
+                // xy_dir: f32, // radians
+                // xy_mag: f32, // 0. to 1.
+                // /// rot can be thought of as gamepad "right stick"
+                // rot_dir: f32,
+                // rot_mag: f32,
+                // up_dn: f32, // -1. to 1.
 
-            // xy_dir: f32, // radians
-            // xy_mag: f32, // 0. to 1.
-            // /// rot can be thought of as gamepad "right stick"
-            // rot_dir: f32,
-            // rot_mag: f32,
-            // up_dn: f32, // -1. to 1.
-
-            POWER_USED.fetch_add(current_power.total() / UPDATE_FREQ, Ordering::Relaxed);
+                POWER_USED.fetch_add(current_power.total() / UPDATE_FREQ, Ordering::Relaxed);
+            })
     }
 }
 
