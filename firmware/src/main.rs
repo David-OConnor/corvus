@@ -1,13 +1,12 @@
 #![no_main]
 #![no_std]
 
-// #![allow(non_snake_case)]
-// #![allow(clippy::needless_range_loop)]
+// #![allow(non_ascii_idents)] // todo: May no longer be required
 
 use core::{
     f32::consts::TAU,
     ops::Sub,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicU32, AtomicBool, Ordering},
 };
 
 use cortex_m::{self, asm, delay::Delay};
@@ -38,12 +37,13 @@ mod baro_driver_dps310;
 mod flight_ctrls;
 mod imu_driver_icm42605;
 mod lidar_driver;
+mod sensor_fusion;
 
 use baro_driver_dps310 as baro;
 use imu_driver_icm42605 as imu;
 use lidar_driver as lidar;
 
-use flight_ctrls::{FlightCmd, ManualInputs, Params, ParamsInst, PidError, RotorPower, PidDerivFilters};
+use flight_ctrls::{FlightCmd, ManualInputs, Params, ParamsInst, PidState, RotorPower, PidDerivFilters};
 
 // The frequency our motor-driving PWM operates at, in Hz.
 const PWM_FREQ: f32 = 96_000.;
@@ -54,7 +54,7 @@ const PWM_PSC: u32 = 100; // todo set properly
 const PWM_ARR: u32 = 100; // todo set properly
 
 // The rate our main program updates, in Hz.
-const UPDATE_RATE: f32 = 8_000.; // todo: increase
+const UPDATE_RATE: f32 = 32_000.; // todo: increase
 const DT: f32 = 1. / UPDATE_RATE;
 
 // Speed in meters per second commanded by full power.
@@ -62,14 +62,14 @@ const DT: f32 = 1. / UPDATE_RATE;
 // full speed.
 const V_FULL_DEFLECTION: f32 = 20.;
 
-const GRAVITY: f32 = 9.8; // m/s
-
 // Outside these thresholds, ignore LIDAR data. // todo: Set these
 const LIDAR_THRESH_DIST: f32 = 10.; // meters
 const LIDAR_THRESH_ANGLE: f32 = 0.03 * TAU; // radians, from level, in any direction.
 
 // We use `LOOP_I` to manage inner vs outer loops.
 static LOOP_I: AtomicU32 = AtomicU32::new(0);
+
+static ARMED: AtomicBool = AtomicBool::new(false);
 
 // todo: Start with a PID loop that dynamically adjusts its
 // constants based on conditions and performance of the loop.
@@ -271,9 +271,9 @@ mod app {
         current_params: Params,
         /// Proportional, Integral, Differential error
         // todo: Re-think how you store and manage PID error.
-        pid_error_s: PidError,
-        pid_error_v: PidError,
-        pid_error_a: PidError,
+        pid_error_s: PidState,
+        pid_error_v: PidState,
+        pid_error_a: PidState,
         manual_inputs: ManualInputs,
         current_pwr: RotorPower,
         dma: Dma<DMA1>,

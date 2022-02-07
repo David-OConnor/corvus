@@ -20,6 +20,25 @@ const K_P: f32 = 0.1;
 const K_I: f32 = 0.05;
 const K_D: f32 = 0.;
 
+// todo: What should these be?
+const INTEGRATOR_CLAMP_MIN: f32 = -10.;
+const INTEGRATOR_CLAMP_MAX: f32 = 10.;
+
+// one stage.
+static mut FILTER_STATE_S_X: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_S_Y: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_S_Z: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_S_PITCH: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_S_ROLL: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_S_YAW: [f32; 4] = [0.; 4];
+
+static mut FILTER_STATE_V_X: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_V_Y: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_V_Z: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_V_PITCH: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_V_ROLL: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_V_YAW: [f32; 4] = [0.; 4];
+
 /// Used to satisfy RTIC resource Send requirements.
 pub struct IirInstWrapper {
     pub inner: sys::arm_biquad_casd_df1_inst_f32,
@@ -57,69 +76,98 @@ pub struct PidDerivFilters {
 
 impl PidDerivFilters {
     pub fn new() -> Self {
-        Self {
+        // todo: Instead of initing empty here, maybe we use the proper constructor?
+        // todo: Maybe you can use this cleaner approach for Headphones too?
+
+        // todo: Put useful params here.
+        // filter_ = signal.iirfilter(1, 60, btype="lowpass", ftype="bessel", output="sos", fs=32_000)
+        // coeffs = []
+        // for row in filter_:
+        //     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
+
+        let coeffs = [0.00585605892206321, 0.00585605892206321, 0.0, 0.9882878821558736, -0.0];
+
+        let mut result = Self {
             s_x: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-             s_y: IirInstWrapper {
+            s_y: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-             s_z: IirInstWrapper {
+            s_z: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
 
-             s_pitch: IirInstWrapper {
+            s_pitch: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-             s_roll: IirInstWrapper {
+            s_roll: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-             s_yaw: IirInstWrapper {
+            s_yaw: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
 
             // Velocity
-             v_x: IirInstWrapper {
+            v_x: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-             v_y: IirInstWrapper {
+            v_y: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-             v_z: IirInstWrapper {
+            v_z: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
 
-             v_pitch: IirInstWrapper {
+            v_pitch: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-             v_roll: IirInstWrapper {
+            v_roll: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-             v_yaw: IirInstWrapper {
+            v_yaw: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
 
             // Acceleration
-             a_x: IirInstWrapper {
+            a_x: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-             a_y: IirInstWrapper {
+            a_y: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-             a_z: IirInstWrapper {
+            a_z: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
 
-             a_pitch: IirInstWrapper {
+            a_pitch: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-             a_roll: IirInstWrapper {
+            a_roll: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-             a_yaw: IirInstWrapper {
+            a_yaw: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
+        };
+
+        unsafe {
+            dsp_api::biquad_cascade_df1_init_f32(result.s_x, &coeffs, &mut FILTER_STATE_S_X);
+            dsp_api::biquad_cascade_df1_init_f32(result.s_y, &coeffs, &mut FILTER_STATE_S_Y);
+            dsp_api::biquad_cascade_df1_init_f32(result.s_z, &coeffs, &mut FILTER_STATE_S_Z);
+            dsp_api::biquad_cascade_df1_init_f32(result.s_pitch, &coeffs, &mut FILTER_STATE_S_PITCH);
+            dsp_api::biquad_cascade_df1_init_f32(result.s_roll, &coeffs, &mut FILTER_STATE_S_ROLL);
+            dsp_api::biquad_cascade_df1_init_f32(result.s_yaw, &coeffs, &mut FILTER_STATE_S_YAW);
+
+            dsp_api::biquad_cascade_df1_init_f32(result.v_x, &coeffs, &mut FILTER_STATE_V_X);
+            dsp_api::biquad_cascade_df1_init_f32(result.v_y, &coeffs, &mut FILTER_STATE_V_Y);
+            dsp_api::biquad_cascade_df1_init_f32(result.v_z, &coeffs, &mut FILTER_STATE_V_Z);
+            dsp_api::biquad_cascade_df1_init_f32(result.v_pitch, &coeffs, &mut FILTER_STATE_V_PITCH);
+            dsp_api::biquad_cascade_df1_init_f32(result.v_roll, &coeffs, &mut FILTER_STATE_V_ROLL);
+            dsp_api::biquad_cascade_df1_init_f32(result.v_yaw, &coeffs, &mut FILTER_STATE_V_YAW);
         }
+
+        result
     }
 }
 
@@ -129,8 +177,10 @@ impl PidDerivFilters {
 /// So, `p` is always `e` x `K_P`.
 /// todo: Consider using Params, eg this is the error for a whole set of params.
 #[derive(Default)]
-pub struct PidError {
-    /// Error term. (No coeff multiplication)
+pub struct PidState {
+    /// Measurement: Used for the derivative.
+    pub measurement: ParamsInst,
+    /// Error term. (No coeff multiplication). Used for the integrator
     pub e: ParamsInst,
     /// Proportional term
     pub p: ParamsInst,
@@ -138,6 +188,51 @@ pub struct PidError {
     pub i: ParamsInst,
     /// Derivative term
     pub d: ParamsInst,
+}
+
+impl PidState {
+    /// Anti-windup integrator clamp
+    pub fn anti_windup_clamp(&mut self) {
+        // todo: We should proably have separate terms for each param (x, y, z etc; s, v, a).
+        // todo: for now, single term.
+
+        // todo: DRY
+        if self.i.x > INTEGRATOR_CLAMP_MAX {
+            self.i.x = INTEGRATOR_CLAMP_MAX;
+        } else if self.i.x < INTEGRATOR_CLAMP_MIN {
+            self.i.x = INTEGRATOR_CLAMP_MIN;
+        }
+
+        if self.i.y > INTEGRATOR_CLAMP_MAX {
+            self.i.y = INTEGRATOR_CLAMP_MAX;
+        } else if self.i.y < INTEGRATOR_CLAMP_MIN {
+            self.i.y = INTEGRATOR_CLAMP_MIN;
+        }
+
+        if self.i.z > INTEGRATOR_CLAMP_MAX {
+            self.i.z = INTEGRATOR_CLAMP_MAX;
+        } else if self.i.z < INTEGRATOR_CLAMP_MIN {
+            self.i.z = INTEGRATOR_CLAMP_MIN;
+        }
+
+        if self.i.pitch > INTEGRATOR_CLAMP_MAX {
+            self.i.pitch = INTEGRATOR_CLAMP_MAX;
+        } else if self.i.pitch < INTEGRATOR_CLAMP_MIN {
+            self.i.pitch = INTEGRATOR_CLAMP_MIN;
+        }
+
+        if self.i.roll > INTEGRATOR_CLAMP_MAX {
+            self.i.roll = INTEGRATOR_CLAMP_MAX;
+        } else if self.i.roll < INTEGRATOR_CLAMP_MIN {
+            self.i.roll = INTEGRATOR_CLAMP_MIN;
+        }
+
+        if self.i.yaw > INTEGRATOR_CLAMP_MAX {
+            self.i.yaw = INTEGRATOR_CLAMP_MAX;
+        } else if self.i.yaw < INTEGRATOR_CLAMP_MIN {
+            self.i.yaw = INTEGRATOR_CLAMP_MIN;
+        }
+    }
 }
 
 /// A set of flight parameters to achieve and/or maintain. Similar values to `Parameters`,
@@ -265,6 +360,21 @@ impl Sub for ParamsInst {
             pitch: self.pitch - other.pitch,
             roll: self.roll - other.roll,
             yaw: self.yaw - other.yaw,
+        }
+    }
+}
+
+impl Mul for ParamsInst {
+    type Output = Self;
+
+    fn mul(self, other: f32) -> Self::Output {
+        Self {
+            x: self.x * other,
+            y: self.y * other,
+            z: self.z * other,
+            pitch: self.pitch * other,
+            roll: self.roll * other,
+            yaw: self.yaw * other,
         }
     }
 }
@@ -447,69 +557,97 @@ fn landing_speed(height: f32) -> f32 {
 
 /// Calculate the PID error given flight parameters, and a flight
 /// command.
+/// Example: https://github.com/pms67/PID/blob/master/PID.c
 /// todo: COnsider consolidating these instead of sep for s, v, a.
 pub fn calc_pid_error(
     params: &Params,
     flight_cmd: &FlightCmd,
-    prev_error_s: &PidError,
-    prev_error_v: &PidError,
-) -> (PidError, PidError) {
+    prev_pid_s: &PidState,
+    prev_pid_v: &PidState,
+    filters: PidDerivFilters,
+) -> (PidState, PidState) {
     // Find appropriate control inputs using PID control.
     // todo: Consider how you're using these variou structs with overlapping functionality:
     // todo Params, ParamsInst, FlightCmd. Splitting `pid_error` into 3 vars etc.
     let error_e_v = K_P * ParamsInst {
-        z: params.v_z - flight_cmd.v_z.unwrap_or(0.),
+        z: flight_cmd.v_z.unwrap_or(0.) - params.v_z,
         ..Default::default()
     };
 
     let error_e_s = K_P * ParamsInst {
-        pitch: params.s_pitch - flight_cmd.s_pitch.unwrap_or(0.),
-        roll: params.s_roll - flight_cmd.s_roll.unwrap_or(0.),
-        yaw: params.s_yaw - flight_cmd.s_yaw.unwrap_or(0.),
+        pitch: flight_cmd.s_pitch.unwrap_or(0.) - params.s_pitch,
+        roll: flight_cmd.s_roll.unwrap_or(0.) - params.s_roll,
+        yaw:  flight_cmd.s_yaw.unwrap_or(0.) - params.s_yaw,
         ..Default::default()
     };
 
     // todo: Apply lowpass to derivative term. (Anywhere in its linear sequence)
 
+    // todo: Determine if you want a deriv component at all; it's apparently not commonly used.
 
     // todo: Minor optomization: Store the constant terms once, and recall instead of calcing
     // todo them each time (eg the parts with DT, 2., tau.
     // https://www.youtube.com/watch?v=zOByx3Izf5U
     // todo: What is tau??
     let error_p_s = K_P * error_e_s;
-    let error_i_s = K_I * DT/2. * (error_e_s + prev_error.s.e) + prev_error.s.i;
-    let error_d_s = 2.*K_D / (2.*tau + DT) * (error_e_s - prev_error.s.e) + ((2.*tau - DT) / (2.*tau+DT)) * prev_error.s.d;
+    let error_i_s = K_I * DT/2. * (error_e_s + prev_pid_s.e) + prev_pid_s.i;
+    // let error_d_s = 2.*K_D / (2.*tau + DT) * (error_e_s - prev_error.s.e) + ((2.*tau - DT) / (2.*tau+DT)) * prev_error.s.d;
+    // let error_d_s_prefilt = (error_e_s - prev_error.s.e) / DT;
+    // Derivative on measurement vice error, to avoid derivative kick.
+    let error_d_s_prefilt = (params.get_s() - prev_pid_s.measurement) / DT;
 
     let error_p_v = K_P * error_e_v;
-    let error_i_v = K_I * DT/2. * (error_e_v + prev_error.v.e) + prev_error.v.i;
-    let error_d_v = 2.*K_D / (2.*tau + DT) * (error_e_v - prev_error.v.e) + ((2.*tau - DT) / (2.*tau+DT)) * prev_error.v.d;
+    let error_i_v = K_I * DT/2. * (error_e_v + prev_pid_v.e) + prev_error.v.i;
+    let error_d_v_prefilt = (params.get_v() - prev_pid_v.measurement) / DT;
 
-    (
-        PidError {
-            e: error_e_s,
-            p: error_p_s,
-            i: error_i_s,
-            d: error_d_s,
-        },
-        PidError {
-            e: error_e_s,
-            p: error_p_v,
-            i: error_i_v,
-            d: error_d_v,
-        },
-    )
+    // todo: Avoid this DRY with a method on `filter`
+    let mut error_d_v_pitch = [0.];
+    unsafe {
+        dsp_api::biquad_cascade_df1_f32(
+            filters.s_pitch,
+            &[error_d_v_prefilt.pitch],
+            &mut error_d_v_pitch,
+            1,
+        );
+
+        let mut error_d_v_roll = [0.];
+        dsp_api::biquad_cascade_df1_f32(
+            filters.s_roll,
+            &[error_d_v_prefilt.roll],
+            &mut error_d_v_roll,
+            1,
+        );
+    }
+
+    let mut error_s = PidState {
+        e: error_e_s,
+        p: error_p_s,
+        i: error_i_s,
+        d: error_d_s,
+    };
+
+    let mut error_v = PidState {
+        e: error_e_s,
+        p: error_p_v,
+        i: error_i_v,
+        d: error_d_v,
+    };
+
+    error_s.anti_windup_clamp();
+    error_v.anti_windup_clamp();
+
+    (error_s, error_v)
 }
 
 /// Adjust controls for a given flight command and PID error.
 /// todo: Separate module for code that directly updates the rotors?
 pub fn adjust_ctrls(
     // flight_cmd: FlightCmd,
-    pid_s: PidError,
-    pid_v: PidError,
+    pid_s: PidState,
+    pid_v: PidState,
     current_pwr: &mut RotorPower,
     rotor_timer: &mut Timer<TIM2>,
 ) {
-    // todo: Check sign.
     let pitch_adj = pid_s.p.pitch + pid_s.i.pitch + pid_s.d.pitch;
     let roll_adj = pid_s.p.roll + pid_s.i.roll + pid_s.d.roll;
     let yaw_adj = pid_s.p.yaw + pid_s.i.yaw + pid_s.d.yaw;
