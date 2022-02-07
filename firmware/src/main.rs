@@ -27,8 +27,8 @@ use stm32_hal2::{
     timer::{OutputCompare, TimChannel, Timer, TimerConfig, TimerInterrupt},
 };
 
-// use cmsis_dsp_api as dsp_api;
-// use cmsis_dsp_sys as sys;
+use cmsis_dsp_api as dsp_api;
+use cmsis_dsp_sys as sys;
 
 use defmt_rtt as _; // global logger
 use panic_probe as _;
@@ -43,7 +43,7 @@ use baro_driver_dps310 as baro;
 use imu_driver_icm42605 as imu;
 use lidar_driver as lidar;
 
-use flight_ctrls::{FlightCmd, ManualInputs, Params, ParamsInst, PidError, RotorPower};
+use flight_ctrls::{FlightCmd, ManualInputs, Params, ParamsInst, PidError, RotorPower, PidDerivFilters};
 
 // The frequency our motor-driving PWM operates at, in Hz.
 const PWM_FREQ: f32 = 96_000.;
@@ -282,6 +282,8 @@ mod app {
         rotor_timer: Timer<TIM2>,
         // `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
         power_used: f32,
+        // Store filter instances for the PID loop derivatives. One for each param used.
+        pid_deriv_filters: PidDerivFilters,
     }
 
     #[local]
@@ -375,6 +377,7 @@ mod app {
                 update_timer,
                 rotor_timer,
                 power_used: 0.,
+                pid_deriv_filters: PidDerivFilters::new(),
             },
             Local {},
             init::Monotonics(),
@@ -492,7 +495,8 @@ mod app {
                         pid_error_v,
                     );
 
-                    flight_ctrls::adjust_ctrls(flight_cmd, pid_s, pid_v, current_pwr, rotor_timer);
+                    // flight_ctrls::adjust_ctrls(flight_cmd, pid_s, pid_v, current_pwr, rotor_timer);
+                    flight_ctrls::adjust_ctrls(pid_s, pid_v, current_pwr, rotor_timer);
                 },
             )
     }

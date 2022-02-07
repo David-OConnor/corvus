@@ -1,6 +1,9 @@
 ///! This module contains code related to flight controls.
-use core::ops::{Add, Sub};
+use core::ops::{Add, Sub, Mul};
 use stm32_hal2::{pac::TIM2, timer::Timer};
+
+use cmsis_dsp_api as dsp_api;
+use cmsis_dsp_sys as sys;
 
 use crate::{Rotor, DT, PWM_ARR};
 
@@ -10,13 +13,130 @@ const PITCH_S_COEFF: f32 = 0.1;
 const ROLL_S_COEFF: f32 = 0.1;
 const YAW_S_COEFF: f32 = 0.1;
 
+const Z_V_COEFF: f32 = 0.1;
+
+// PID "constants
+const K_P: f32 = 0.1;
+const K_I: f32 = 0.05;
+const K_D: f32 = 0.;
+
+/// Used to satisfy RTIC resource Send requirements.
+pub struct IirInstWrapper {
+    pub inner: sys::arm_biquad_casd_df1_inst_f32,
+}
+unsafe impl Send for IirInstWrapper {}
+
+/// Store lowpass IIR filter instances, for use with the deriv terms of our PID loop.
+pub struct PidDerivFilters {
+    pub s_x: IirInstWrapper,
+    pub s_y: IirInstWrapper,
+    pub s_z: IirInstWrapper,
+
+    pub s_pitch: IirInstWrapper,
+    pub s_roll: IirInstWrapper,
+    pub s_yaw: IirInstWrapper,
+
+    // Velocity
+    pub v_x: IirInstWrapper,
+    pub v_y: IirInstWrapper,
+    pub v_z: IirInstWrapper,
+
+    pub v_pitch: IirInstWrapper,
+    pub v_roll: IirInstWrapper,
+    pub v_yaw: IirInstWrapper,
+
+    // Acceleration
+    pub a_x: IirInstWrapper,
+    pub a_y: IirInstWrapper,
+    pub a_z: IirInstWrapper,
+
+    pub a_pitch: IirInstWrapper,
+    pub a_roll: IirInstWrapper,
+    pub a_yaw: IirInstWrapper,
+}
+
+impl PidDerivFilters {
+    pub fn new() -> Self {
+        Self {
+            s_x: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+             s_y: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+             s_z: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+
+             s_pitch: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+             s_roll: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+             s_yaw: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+
+            // Velocity
+             v_x: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+             v_y: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+             v_z: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+
+             v_pitch: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+             v_roll: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+             v_yaw: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+
+            // Acceleration
+             a_x: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+             a_y: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+             a_z: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+
+             a_pitch: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+             a_roll: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+             a_yaw: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+        }
+    }
+}
+
 /// Proportional, Integral, Derivative error, for flight parameter control updates.
-/// For only a single set (s, v, a).
+/// For only a single set (s, v, a). Note that e is the error betweeen commanded
+/// and measured, while the other terms include the PID coefficients (K_P) etc.
+/// So, `p` is always `e` x `K_P`.
 /// todo: Consider using Params, eg this is the error for a whole set of params.
 #[derive(Default)]
 pub struct PidError {
+    /// Error term. (No coeff multiplication)
+    pub e: ParamsInst,
+    /// Proportional term
     pub p: ParamsInst,
+    /// Integral term
     pub i: ParamsInst,
+    /// Derivative term
     pub d: ParamsInst,
 }
 
@@ -337,31 +457,42 @@ pub fn calc_pid_error(
     // Find appropriate control inputs using PID control.
     // todo: Consider how you're using these variou structs with overlapping functionality:
     // todo Params, ParamsInst, FlightCmd. Splitting `pid_error` into 3 vars etc.
-    let error_p_v = ParamsInst {
-        z: params.v_z - flight_cmd.v_z.unwrap(),
+    let error_e_v = K_P * ParamsInst {
+        z: params.v_z - flight_cmd.v_z.unwrap_or(0.),
         ..Default::default()
     };
 
-    let error_p_s = ParamsInst {
-        pitch: params.s_pitch - flight_cmd.s_pitch.unwrap(), // todo unwrap or 0/default?
-        roll: params.s_roll - flight_cmd.s_roll.unwrap(),
-        yaw: params.s_yaw - flight_cmd.s_yaw.unwrap(),
+    let error_e_s = K_P * ParamsInst {
+        pitch: params.s_pitch - flight_cmd.s_pitch.unwrap_or(0.),
+        roll: params.s_roll - flight_cmd.s_roll.unwrap_or(0.),
+        yaw: params.s_yaw - flight_cmd.s_yaw.unwrap_or(0.),
         ..Default::default()
     };
 
-    let error_i_s = (prev_error_s.i + error_p_s) * DT;
-    let error_d_s = (error_p_s - prev_error_s.d) / DT;
+    // todo: Apply lowpass to derivative term. (Anywhere in its linear sequence)
 
-    let error_i_v = (prev_error_v.i + error_p_v) * DT;
-    let error_d_v = (error_p_v - prev_error_v.d) / DT;
+
+    // todo: Minor optomization: Store the constant terms once, and recall instead of calcing
+    // todo them each time (eg the parts with DT, 2., tau.
+    // https://www.youtube.com/watch?v=zOByx3Izf5U
+    // todo: What is tau??
+    let error_p_s = K_P * error_e_s;
+    let error_i_s = K_I * DT/2. * (error_e_s + prev_error.s.e) + prev_error.s.i;
+    let error_d_s = 2.*K_D / (2.*tau + DT) * (error_e_s - prev_error.s.e) + ((2.*tau - DT) / (2.*tau+DT)) * prev_error.s.d;
+
+    let error_p_v = K_P * error_e_v;
+    let error_i_v = K_I * DT/2. * (error_e_v + prev_error.v.e) + prev_error.v.i;
+    let error_d_v = 2.*K_D / (2.*tau + DT) * (error_e_v - prev_error.v.e) + ((2.*tau - DT) / (2.*tau+DT)) * prev_error.v.d;
 
     (
         PidError {
+            e: error_e_s,
             p: error_p_s,
             i: error_i_s,
             d: error_d_s,
         },
         PidError {
+            e: error_e_s,
             p: error_p_v,
             i: error_i_v,
             d: error_d_v,
@@ -372,29 +503,18 @@ pub fn calc_pid_error(
 /// Adjust controls for a given flight command and PID error.
 /// todo: Separate module for code that directly updates the rotors?
 pub fn adjust_ctrls(
-    flight_cmd: FlightCmd,
+    // flight_cmd: FlightCmd,
     pid_s: PidError,
     pid_v: PidError,
     current_pwr: &mut RotorPower,
     rotor_timer: &mut Timer<TIM2>,
 ) {
-    // PID "constants
-    let k_p = 0.1;
-    let k_i = 0.05;
-    let k_d = 0.;
+    // todo: Check sign.
+    let pitch_adj = pid_s.p.pitch + pid_s.i.pitch + pid_s.d.pitch;
+    let roll_adj = pid_s.p.roll + pid_s.i.roll + pid_s.d.roll;
+    let yaw_adj = pid_s.p.yaw + pid_s.i.yaw + pid_s.d.yaw;
 
-    let mut pitch_adj = 0.;
-    let mut roll_adj = 0.;
-    let mut yaw_adj = 0.;
-
-    if let Some(v) = flight_cmd.s_pitch {
-        // todo: Check sign.
-        pitch_adj = k_p * -pid_s.p.pitch + k_i * pid_s.i.pitch + k_d * pid_s.d.pitch;
-        roll_adj = k_p * -pid_s.p.roll + k_i * pid_s.i.roll + k_d * pid_s.d.roll;
-        yaw_adj = k_p * -pid_s.p.yaw + k_i * pid_s.i.yaw + k_d * pid_s.d.yaw;
-    }
-
-    let throttle_adj = 0.; // todo. eg start with adjusting for a hover.
+    let throttle_adj = pid_v.p.z + pid_v.i.z + pid_v.d.z;
 
     change_attitude(
         pitch_adj,
