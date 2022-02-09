@@ -18,7 +18,7 @@ use stm32_hal2::{
     dma::{self, Dma, DmaChannel, DmaInterrupt},
     flash::Flash,
     gpio::{self, Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
-    i2c::I2c,
+    i2c::{I2c, I2cConfig, I2cSpeed},
     pac::{self, DMA1, I2C1, SPI1, TIM15, TIM2},
     power::{SupplyConfig, VoltageLevel},
     rtc::Rtc,
@@ -36,14 +36,17 @@ mod atmos_model;
 mod baro_driver_dps310;
 mod flight_ctrls;
 mod imu_driver_icm42605;
-mod lidar_driver;
+
+// `tof_driver` uses partially-translated C code that doesn't conform to Rust naming conventions.
+#[allow(non_snake_case)]
+mod tof_driver;
 mod sensor_fusion;
 
 use baro_driver_dps310 as baro;
 use imu_driver_icm42605 as imu;
-use lidar_driver as lidar;
+use tof_driver as lidar;
 
-use flight_ctrls::{FlightCmd, ManualInputs, Params, ParamsInst, PidState, RotorPower, PidDerivFilters};
+use flight_ctrls::{FlightCmd, CtrlInputs, Params, ParamsInst, PidState, RotorPower, PidDerivFilters};
 
 // The frequency our motor-driving PWM operates at, in Hz.
 const PWM_FREQ: f32 = 96_000.;
@@ -54,7 +57,7 @@ const PWM_PSC: u32 = 100; // todo set properly
 const PWM_ARR: u32 = 100; // todo set properly
 
 // The rate our main program updates, in Hz.
-const UPDATE_RATE: f32 = 32_000.; // todo: increase
+const UPDATE_RATE: f32 = 8_000.; // todo: increase
 const DT: f32 = 1. / UPDATE_RATE;
 
 // Speed in meters per second commanded by full power.
@@ -62,18 +65,21 @@ const DT: f32 = 1. / UPDATE_RATE;
 // full speed.
 const V_FULL_DEFLECTION: f32 = 20.;
 
-// Outside these thresholds, ignore LIDAR data. // todo: Set these
-const LIDAR_THRESH_DIST: f32 = 10.; // meters
-const LIDAR_THRESH_ANGLE: f32 = 0.03 * TAU; // radians, from level, in any direction.
+// Outside these thresholds, ignore TOF data.
+const TOF_THRESH_DIST: f32 = 8.; // meters. IOC VL53L1CB specs.
+const TOF_THRESH_ANGLE: f32 = 0.03 * TAU; // radians, from level, in any direction.
+
+// Max distance from curent location, to point, then base a
+// direct-to point can be, in meters. A sanity check
+// todo: Take into account flight time left.
+const DIRECT_AUTOPILOT_MAX_RNG: f32 = 500.;
+
+const IDLE_POWR: f32 = 0.01; // Eg when on the ground, and armed.
 
 // We use `LOOP_I` to manage inner vs outer loops.
 static LOOP_I: AtomicU32 = AtomicU32::new(0);
 
 static ARMED: AtomicBool = AtomicBool::new(false);
-
-// todo: Start with a PID loop that dynamically adjusts its
-// constants based on conditions and performance of the loop.
-// (ie oscillations detected etc. Maybe FFT flight history?)
 
 // todo: Course set mode. Eg, point at thing using controls, activate a button,
 // todo then the thing flies directly at the target.
@@ -115,7 +121,12 @@ static ARMED: AtomicBool = AtomicBool::new(false);
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pQBgjxYFXSsODEF3Jqmm-y
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pFBqgd_6Bi7msgkWFKL33b
 ///
+///
+///
+/// todo: Movable camera that moves with head motion.
+/// - Ir cam to find or avoid people
 /// ///
+/// 3 level loop? S, v, angle?? Or just 2? (position cmds in outer loop)
 
 /// A vector in 3 dimensions
 struct Vector {
@@ -140,6 +151,37 @@ impl Vector {
     pub fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
     }
+}
+
+/// A quaternion. Used for attitude state
+struct Quaternion {
+    i: f32,
+    j: f32,
+    k: f32,
+    l: f32,
+}
+
+// impl Sub for Vector {
+//     type Output = Self;
+//
+//     fn sub(self, other: Self) -> Self::Output {
+//         Self {
+//             x: self.x - other.x,
+//             y: self.y - other.y,
+//             z: self.z - other.z,
+//         }
+//     }
+// }
+
+impl Vector {
+    pub fn new(i: f32, j: f32, k: f32, l: f32) -> Self {
+        Self { i, j, k, l }
+    }
+}
+
+/// A generalized quaternion
+struct RotorMath {
+
 }
 
 /// Represents a complete quadcopter. Used for setting control parameters.
@@ -182,32 +224,14 @@ impl Rotor {
 
 /// Mode used for control inputs. These are the three "industry-standard" modes.
 enum InputMode {
-    /// Rate, also know as manual, hard or Acro
+    /// Rate, also know as manual, hard or Acro. Attide and power stay the same after
+    /// releasing controls.
     Rate,
-    /// Attitude also know as self-level or Auto-level
+    /// Attitude also know as self-level or Auto-level. Attitude resets to a level
+    /// hover after releasing controls.
     Attitude,
     /// GPS-hold, also known as Loiter. Maintains a specific position.
     Loiter,
-}
-
-/// Categories of control mode, in regards to which parameters are held fixed.
-/// Use this in conjunction with `InputMode`, and control inputs.
-enum AutopilotMode {
-    /// There are no specific targets to hold
-    None,
-    /// Altitude is fixed at a given altimeter (AGL)
-    AltHold(f32),
-    /// Heading is fixed.
-    HdgHold(f32), // hdg
-    /// Altidude and heading are fixed
-    AltHdgHold(f32, f32), // alt, hdg
-    /// Continuously fly towards a path. Note that `pitch` and `yaw` for the
-    /// parameters here correspond to the flight path; not attitude.
-    VelocityVector(f32, f32), // pitch, yaw
-    /// The aircraft will fly a fixed profile between sequence points
-    Sequence,
-    /// Terrain following mode. Similar to TF radar in a jet. Require a forward-pointing sensor.
-    TerrainFollowing(f32), // AGL to hold
 }
 
 #[derive(Clone, Copy)]
@@ -245,7 +269,7 @@ pub fn setup_pins() {
     let sck = Pin::new(Port::A, 0, PinMode::Alt(0));
     let imu1_cs = Pin::new(Port::A, 0, PinMode::Alt(0));
 
-    // I2C pins for _
+    // I2C pins for the TOF sensor.
     let mut scl = Pin::new(Port::B, 6, PinMode::Alt(4));
     scl.output_type(OutputType::OpenDrain);
     scl.pull(Pull::Up);
@@ -256,6 +280,35 @@ pub fn setup_pins() {
 
     // Temp pin for initial TS.
     let mut debug_killswitch = Pin::new(Port::B, 0, PinMode::Input);
+}
+
+/// Run on startup, or when desired. Run on the ground. Gets an initial GPS fix,
+/// and other initialization functions.
+fn init(params: &mut Params, baro: Barometer, base_pt: &mut Vector, i2c: &mut I2c<I2C1>) {
+    let eps = 0.001;
+
+    // Don't init if in motion.
+    if params.v_x > eps || params.v_y > eps || params.v_z > eps || params.v_pitch > eps ||
+        params.v_roll > eps {
+        return
+    }
+
+    if let Some(agl) = tof_driver::read(i2c) {
+        if agl > 0.01 {
+            return
+        }
+    }
+
+    let fix = gps::get_fix(i2c);
+    params.s_x = fix.lon;
+    params.s_y = fix.lat;
+    params.s_z = fix.alt;
+
+    base_pt = Vector::new(fix.lon, fix.lat, fix.alt);
+
+    let temp = 0.; // todo: Which sensor reads temp? The IMU?
+
+    baro.calibrate(fix.alt, temp);
 }
 
 #[rtic::app(device = pac, peripherals = false)]
@@ -274,7 +327,7 @@ mod app {
         pid_error_s: PidState,
         pid_error_v: PidState,
         pid_error_a: PidState,
-        manual_inputs: ManualInputs,
+        manual_inputs: CtrlInputs,
         current_pwr: RotorPower,
         dma: Dma<DMA1>,
         spi: Spi<SPI1>,
@@ -284,6 +337,7 @@ mod app {
         power_used: f32,
         // Store filter instances for the PID loop derivatives. One for each param used.
         pid_deriv_filters: PidDerivFilters,
+        base_point: Vector,
     }
 
     #[local]
@@ -327,8 +381,13 @@ mod app {
         // We use SPI for the IMU
         let mut spi = Spi::new(dp.SPI1, Default::default(), BaudRate::Div32);
 
-        // We use SPI for the _
-        let mut i2c = I2c::new(dp.I2C1, Default::default(), &clock_cfg);
+        // We use I2C for the TOF sensor.
+        let i2c_cfg = I2cConfig {
+            speed: I2cSpeed::Fast1M,
+            // speed: I2cSpeed::Fast400k,
+            ..Default::default(),
+        }
+        let mut i2c = I2c::new(dp.I2C1, i2c_cfg, &clock_cfg);
 
         // todo: Do we want these to be a single timer, with 4 channels?
 
@@ -378,6 +437,7 @@ mod app {
                 rotor_timer,
                 power_used: 0.,
                 pid_deriv_filters: PidDerivFilters::new(),
+                base_point: Vector {x: 0., y: 0., z: 0.},
             },
             Local {},
             init::Monotonics(),
@@ -485,8 +545,9 @@ mod app {
                     *params = updated_params;
 
                     // Determine inputs to apply
-                    let mut flight_cmd = FlightCmd::level();
-                    // flight_cmd.add_inputs(inputs); todo. For now, make the hover work.
+                    let mut flight_cmd = FlightCmd::default();
+                    // let mut flight_cmd = FlightCmd::level();
+                    flight_cmd.add_inputs(inputs);
 
                     let (pid_s, pid_v) = flight_ctrls::calc_pid_error(
                         &updated_params,
@@ -495,8 +556,7 @@ mod app {
                         pid_error_v,
                     );
 
-                    // flight_ctrls::adjust_ctrls(flight_cmd, pid_s, pid_v, current_pwr, rotor_timer);
-                    flight_ctrls::adjust_ctrls(pid_s, pid_v, current_pwr, rotor_timer);
+                    flight_ctrls::adjust_ctrls(inputs.throttle, pid_s, pid_v, current_pwr, rotor_timer);
                 },
             )
     }
