@@ -32,7 +32,7 @@ use cmsis_dsp_sys as sys;
 use defmt_rtt as _; // global logger
 use panic_probe as _;
 
-mod atmos_model;
+// mod atmos_model;
 mod baro_driver_dps310;
 mod flight_ctrls;
 mod imu_driver_icm42605;
@@ -46,7 +46,7 @@ use baro_driver_dps310 as baro;
 use imu_driver_icm42605 as imu;
 use tof_driver as lidar;
 
-use flight_ctrls::{FlightCmd, CtrlInputs, Params, ParamsInst, PidState, RotorPower, PidDerivFilters};
+use flight_ctrls::{AutopilotMode, FlightCmd, CtrlInputs, InputMode, Params, ParamsInst, ParamType, PidState, RotorPower, PidDerivFilters};
 
 // The frequency our motor-driving PWM operates at, in Hz.
 const PWM_FREQ: f32 = 96_000.;
@@ -58,16 +58,16 @@ const PWM_ARR: u32 = 100; // todo set properly
 
 // The rate our main program updates, in Hz.
 const UPDATE_RATE: f32 = 8_000.; // todo: increase
+
+// How many inner loop ticks occur between outer loop ones.
+const OUTER_LOOP_RATIO: usize = 20;
+
 const DT: f32 = 1. / UPDATE_RATE;
 
 // Speed in meters per second commanded by full power.
 // todo: This may not be what you want; could be unachievable, or maybe you really want
 // full speed.
 const V_FULL_DEFLECTION: f32 = 20.;
-
-// Outside these thresholds, ignore TOF data.
-const TOF_THRESH_DIST: f32 = 8.; // meters. IOC VL53L1CB specs.
-const TOF_THRESH_ANGLE: f32 = 0.03 * TAU; // radians, from level, in any direction.
 
 // Max distance from curent location, to point, then base a
 // direct-to point can be, in meters. A sanity check
@@ -153,6 +153,27 @@ impl Vector {
     }
 }
 
+enum LocationType {
+    /// Lattitude and longitude. Available after a GPS fix
+    LatLon,
+    /// Start at 0, and count in meters away from it.
+    Rel0,
+}
+
+/// If type is LatLon, `x` and `y` are in degrees. If Rel0, in meters. `z` is in m MSL.
+struct Location {
+    type_: LocationType,
+    x: f32,
+    y: f32,
+    z: f32,
+}
+
+impl Location {
+    pub fn new(type_: LocationType, x: f32, y: f32, z: f32) -> Self {
+        Self { type_, x, y, z }
+    }
+}
+
 /// A quaternion. Used for attitude state
 struct Quaternion {
     i: f32,
@@ -222,17 +243,6 @@ impl Rotor {
     }
 }
 
-/// Mode used for control inputs. These are the three "industry-standard" modes.
-enum InputMode {
-    /// Rate, also know as manual, hard or Acro. Attide and power stay the same after
-    /// releasing controls.
-    Rate,
-    /// Attitude also know as self-level or Auto-level. Attitude resets to a level
-    /// hover after releasing controls.
-    Attitude,
-    /// GPS-hold, also known as Loiter. Maintains a specific position.
-    Loiter,
-}
 
 #[derive(Clone, Copy)]
 /// Role in a swarm of drones
@@ -284,7 +294,7 @@ pub fn setup_pins() {
 
 /// Run on startup, or when desired. Run on the ground. Gets an initial GPS fix,
 /// and other initialization functions.
-fn init(params: &mut Params, baro: Barometer, base_pt: &mut Vector, i2c: &mut I2c<I2C1>) {
+fn init(params: &mut Params, baro: Barometer, base_pt: &mut Location, i2c: &mut I2c<I2C1>) {
     let eps = 0.001;
 
     // Don't init if in motion.
@@ -304,7 +314,9 @@ fn init(params: &mut Params, baro: Barometer, base_pt: &mut Vector, i2c: &mut I2
     params.s_y = fix.lat;
     params.s_z = fix.alt;
 
-    base_pt = Vector::new(fix.lon, fix.lat, fix.alt);
+    base_pt = Location::new(LocationType::LatLon, .lon, fix.lat, fix.alt);
+
+    // todo: Use Rel0 location type if unable to get fix.
 
     let temp = 0.; // todo: Which sensor reads temp? The IMU?
 
@@ -320,6 +332,7 @@ mod app {
     struct Shared {
         // profile: FlightProfile,
         input_mode: InputMode,
+        autopilot_mode: AutopilotMode,
         // todo: current_params vs
         current_params: Params,
         /// Proportional, Integral, Differential error
@@ -337,7 +350,7 @@ mod app {
         power_used: f32,
         // Store filter instances for the PID loop derivatives. One for each param used.
         pid_deriv_filters: PidDerivFilters,
-        base_point: Vector,
+        base_point: Location,
     }
 
     #[local]
@@ -386,19 +399,19 @@ mod app {
             speed: I2cSpeed::Fast1M,
             // speed: I2cSpeed::Fast400k,
             ..Default::default(),
-        }
+    }
         let mut i2c = I2c::new(dp.I2C1, i2c_cfg, &clock_cfg);
 
         // todo: Do we want these to be a single timer, with 4 channels?
 
         let timer_cfg = TimerConfig {
-            // We use ARPE since we change duty with the timer running.
-            auto_reload_preload: true,
-            ..Default::default()
+        // We use ARPE since we change duty with the timer running.
+        auto_reload_preload: true,
+        ..Default::default()
         };
 
         let mut update_timer =
-            Timer::new_tim15(dp.TIM15, UPDATE_RATE, Default::default(), &clock_cfg);
+        Timer::new_tim15(dp.TIM15, UPDATE_RATE, Default::default(), &clock_cfg);
         update_timer.enable_interrupt(TimerInterrupt::Update);
 
         // Timer that periodically triggers the noise-cancelling filter to update its coefficients.
@@ -415,32 +428,39 @@ mod app {
         let imu_cs = Pin::new(Port::A, 0, PinMode::Alt(0));
 
         let mut dma = Dma::new(dp.DMA1);
-        // dma::mux(DmaChannel::C0, dma::DmaInput::Sai1A, &mut dp.DMAMUX1);
+
+        // todo: COnsider how you use DMA, and bus splitting.
+        // IMU
+        dma::mux(DmaChannel::C0, dma::DmaInput::SPI1, &mut dp.DMAMUX1);
+        // TOF sensor
+        dma::mux(DmaChannel::C1, dma::DmaInput::I2C1, &mut dp.DMAMUX1);
+        // Baro
+        dma::mux(DmaChannel::C2, dma::DmaInput::I2C2, &mut dp.DMAMUX1);
 
         let mut flash = Flash::new(dp.FLASH); // todo temp mut to test
 
         (
-            // todo: Make these local as able.
-            Shared {
-                input_mode: InputMode::Attitude,
-                // profile: FlightProfile::OnGround,
-                current_params: Default::default(),
-                // todo: Probably use a struct for PID error, with the 3 fields, as applicable
-                pid_error_s: Default::default(),
-                pid_error_v: Default::default(),
-                pid_error_a: Default::default(),
-                manual_inputs: Default::default(),
-                current_pwr: Default::default(),
-                dma,
-                spi,
-                update_timer,
-                rotor_timer,
-                power_used: 0.,
-                pid_deriv_filters: PidDerivFilters::new(),
-                base_point: Vector {x: 0., y: 0., z: 0.},
-            },
-            Local {},
-            init::Monotonics(),
+        // todo: Make these local as able.
+        Shared {
+        input_mode: InputMode::Attitude,
+        autopilot_mode: AutopilotMode::None,
+        current_params: Default::default(),
+        // todo: Probably use a struct for PID error, with the 3 fields, as applicable
+        pid_error_s: Default::default(),
+        pid_error_v: Default::default(),
+        pid_error_a: Default::default(),
+        manual_inputs: Default::default(),
+        current_pwr: Default::default(),
+        dma,
+        spi,
+        update_timer,
+        rotor_timer,
+        power_used: 0.,
+        pid_deriv_filters: PidDerivFilters::new(),
+        base_point: Location::new(LocationType::Rel0, 0., 0., 0.),
+        },
+        Local {},
+        init::Monotonics(),
         )
     }
 
@@ -452,12 +472,14 @@ mod app {
     }
 
     #[task(
-        binds = TIM15,
-        shared = [current_params, manual_inputs, rotor_timer, current_pwr, pid_error_v, pid_error_s, spi, power_used],
-        local = [],
-        priority = 1
+    binds = TIM15,
+    shared = [current_params, manual_inputs, rotor_timer, current_pwr, pid_error_v, pid_error_s, spi, power_used, input_mode, autopilot_mode],
+    local = [],
+    priority = 1
     )]
     fn update_isr(cx: update_isr::Context) {
+        // let update_isr::SharedResources { params, inputs, rotor_timer, current_pwr, pid_error_v, pid_error_s, spi, power_used, input_mode } = cx.shared;
+
         (
             cx.shared.current_params,
             cx.shared.manual_inputs,
@@ -467,6 +489,8 @@ mod app {
             cx.shared.pid_error_s,
             cx.shared.spi,
             cx.shared.power_used,
+            cx.shared.input_mode,
+            cx.shared.autopilot_mode,
         )
             .lock(
                 |params,
@@ -476,7 +500,9 @@ mod app {
                  pid_error_v,
                  pid_error_s,
                  spi,
-                 power_used| {
+                 power_used,
+                 input_mode,
+                 autopilot_mode| {
                     // todo: Placeholder for sensor inputs/fusion.
 
                     let loop_i = LOOP_I.fetch_add(1, Ordering::Relaxed);
@@ -502,37 +528,36 @@ mod app {
 
                     // todo: Move these into a `Params` method?
                     // We have acceleration data for x, y, z: Integrate to get velocity and position.
-                    let v_x = params.v_x + imu_data.a_x;
-                    let v_y = params.v_y + imu_data.a_y;
-                    let v_z = params.v_z + imu_data.a_z;
+                    let v_x = params.v_x + imu_data.a_x * DT;
+                    let v_y = params.v_y + imu_data.a_y * DT;
+                    let v_z = params.v_z + imu_data.a_z * DT;
 
-                    let s_x = params.s_x + v_x;
-                    let s_y = params.s_y + v_y;
-                    let s_z = params.s_z + v_z;
+                    let s_x = params.s_x + v_x * DT;
+                    let s_y = params.s_y + v_y * DT;
+                    let s_z_msl = params.s_z_msl + v_z * DT;
+                    let s_z_agl = params.s_z_agl + v_z * DT;
 
                     // We have position data for pitch, roll, yaw: Take derivative to get velocity and acceleration
-                    let v_pitch = imu_data.s_pitch - params.s_pitch;
-                    let v_roll = imu_data.s_roll - params.s_roll;
-                    let v_yaw = imu_data.s_yaw - params.s_yaw;
+                    let s_pitch = params.s_pitch + imu_data.v_pitch * DT;
+                    let s_roll = params.s_roll + imu_data.v_roll * DT;
+                    let s_yaw = params.s_yaw + imu_data.v_yaw * DT;
 
-                    let a_pitch = v_pitch - params.v_pitch;
-                    let a_roll = v_roll - params.v_roll;
-                    let a_yaw = v_yaw - params.v_yaw;
+                    let a_pitch = (v_pitch - params.v_pitch) / DT;
+                    let a_roll = (v_roll - params.v_roll) * DT;
+                    let a_yaw = (v_yaw - params.v_yaw) / DT;
 
                     let updated_params = Params {
                         s_x,
                         s_y,
-                        s_z,
-                        s_pitch: imu_data.s_pitch,
-                        s_roll: imu_data.s_roll,
-                        s_yaw: imu_data.s_yaw,
+                        s_z_msl,
+                        s_z_agl,
 
                         v_x,
                         v_y,
                         v_z,
-                        v_pitch,
-                        v_roll,
-                        v_yaw,
+                        v_pitch: imu_data.v_pitch,
+                        v_roll: imu_data.v_roll,
+                        v_yaw: imu_data.v_yaw,
 
                         a_x: imu_data.a_x,
                         a_y: imu_data.a_y,
@@ -544,19 +569,63 @@ mod app {
 
                     *params = updated_params;
 
-                    // Determine inputs to apply
-                    let mut flight_cmd = FlightCmd::default();
-                    // let mut flight_cmd = FlightCmd::level();
-                    flight_cmd.add_inputs(inputs);
+                    // todo: DRY. Maybe you just need to use the match to set flight_cmd?
+                    match autopilot_mode {
+                        AutopilotMode::None => {
+                            // Determine inputs to appclassly
+                            // let mut flight_cmd = FlightCmd::default();
+                            // let mut flight_cmd = FlightCmd::level();
+                            // flight_cmd.add_inputs(inputs);
+                            let flight_cmd = FlightCmd::from_inputs(inputs, input_mode);
 
-                    let (pid_s, pid_v) = flight_ctrls::calc_pid_error(
-                        &updated_params,
-                        &flight_cmd,
-                        pid_error_s,
-                        pid_error_v,
-                    );
+                            let (pid_s, pid_v) = flight_ctrls::calc_pid_error(
+                                &updated_params,
+                                &flight_cmd,
+                                pid_error_s,
+                                pid_error_v,
+                            );
 
-                    flight_ctrls::adjust_ctrls(inputs.throttle, pid_s, pid_v, current_pwr, rotor_timer);
+                            flight_ctrls::adjust_ctrls(inputs.throttle, pid_s, pid_v, current_pwr, rotor_timer);
+                        }
+                        AutopilotMode::Takeoff => {
+                            let flight_cmd = FlightCmd {
+                                y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::S, 0.)),
+                                x_roll: Some((CtrlConstraint::PitchRoll, ParamType::S, 0.)),
+                                yaw: Some((ParamType::V, 0.)),
+                                z: Some((ParamType::V, flight_ctrls::takeoff_speed(params.s_z_agl))),
+                            };
+
+                            let (pid_s, pid_v) = flight_ctrls::calc_pid_error(
+                                &updated_params,
+                                &flight_cmd,
+                                pid_error_s,
+                                pid_error_v,
+                            );
+
+                            flight_ctrls::adjust_ctrls(inputs.throttle, pid_s, pid_v, current_pwr, rotor_timer);
+
+                        }
+                        AutopilotMode::Land => {
+                            let flight_cmd = FlightCmd {
+                                y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::S, 0.)),
+                                x_roll: Some((CtrlConstraint::PitchRoll, ParamType::S, 0.)),
+                                yaw: Some((ParamType::V, 0.)),
+                                z: Some((ParamType::V, -flight_ctrls::landing_speed(params.s_z_agl))),
+                            };
+
+                            let (pid_s, pid_v) = flight_ctrls::calc_pid_error(
+                                &updated_params,
+                                &flight_cmd,
+                                pid_error_s,
+                                pid_error_v,
+                            );
+
+                            flight_ctrls::adjust_ctrls(inputs.throttle, pid_s, pid_v, current_pwr, rotor_timer);
+                        }
+                        _ => ()
+                    }
+
+
                 },
             )
     }

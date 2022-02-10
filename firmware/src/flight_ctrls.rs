@@ -5,7 +5,7 @@ use stm32_hal2::{pac::TIM2, timer::Timer};
 use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as sys;
 
-use crate::{Rotor, DT, PWM_ARR};
+use crate::{Rotor, DT, PWM_ARR, Location};
 
 // These coefficients map desired change in flight parameters to rotor power change.
 // pitch, roll, and yaw s are in power / radians
@@ -173,7 +173,7 @@ impl PidDerivFilters {
 
 /// Categories of control mode, in regards to which parameters are held fixed.
 /// Use this in conjunction with `InputMode`, and control inputs.
-enum AutopilotMode {
+pub enum AutopilotMode {
     /// There are no specific targets to hold
     None,
     /// Altitude is fixed at a given altimeter (AGL)
@@ -186,11 +186,16 @@ enum AutopilotMode {
     /// parameters here correspond to the flight path; not attitude.
     VelocityVector(f32, f32), // pitch, yaw
     /// Fly direct to a point
-    DirectToPoint(Vector),
+    DirectToPoint(Location),
     /// The aircraft will fly a fixed profile between sequence points
     Sequence,
     /// Terrain following mode. Similar to TF radar in a jet. Require a forward-pointing sensor.
+    /// todo: Add a forward (or angled) TOF sensor, identical to the downward-facing one?
     TerrainFollowing(f32), // AGL to hold
+    /// Take off automatically
+    Takeoff,
+    /// Land automatically
+    Land,
 }
 
 /// Proportional, Integral, Derivative error, for flight parameter control updates.
@@ -258,6 +263,19 @@ impl PidState {
 }
 
 
+/// Mode used for control inputs. These are the three "industry-standard" modes.
+pub enum InputMode {
+    /// Rate, also know as manual, hard or Acro. Attitude and power stay the same after
+    /// releasing controls.
+    Rate,
+    /// Attitude also know as self-level or Auto-level. Attitude resets to a level
+    /// hover after releasing controls.
+    Attitude,
+    /// GPS-hold, also known as Loiter. Maintains a specific position.
+    Loiter,
+}
+
+
 /// Stores the current manual inputs to the system. `pitch`, `yaw`, and `roll` are in range -1. to +1.
 /// `throttle` is in range 0. to 1. Corresponds to stick positions on a controller, but can
 /// also be used as a model for autonomous flight.
@@ -309,21 +327,57 @@ impl FlightCmd {
     /// Include manual inputs into the flight command. Ie, attitude velocities.
     /// Note that this only includes
     /// rotations: It doesn't affect altitude (or use the throttle input)
-    pub fn add_inputs(&mut self, inputs: CtrlInputs) {
-        self.y_pitch = match self.pitch {
-            Some(v) => Some((CtrlConstraint::PitchRoll, ParamType::V, v + inputs.pitch)),
-            None => Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.pitch)),
-        };
+    // pub fn add_inputs(&mut self, inputs: CtrlInputs, mode: InputMode) {
+    pub fn from_inputs(inputs: CtrlInputs, mode: InputMode) -> Self {
+        match mode {
+            InputMode::Rate => {
+                // let self_x = self.x_roll.unwrap_or(0.);
+                // let self_y = self.y_pitch.unwrap_or(0.);
+                // let self_z = self.z.unwrap_or(0.);
+                // let self_yaw = self.yaw.unwrap_or(0.);
 
-        self.x_roll = match self.roll {
-            Some(v) => Some((CtrlConstraint::PitchRoll, ParamType::V, v + inputs.roll)),
-            None => Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.roll)),
-        };
+                // self.y_pitch = Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.pitch));
+                // self.x_roll = Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.roll));
+                // self.yaw =  Some((ParamType::V, self_yaw +
+                Self {
+                    y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.pitch)),
+                    x_roll: Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.roll)),
+                    yaw: Some((ParamType::V, inputs.yaw)),
+                    z: None,
+                }
+            }
+            InputMode::Attitude => {
+                Self {
+                    // todo: Does this require an inner/outer loop scheme to manage
+                    // todo pitch and roll?
+                    y_pitch: Some((CtrlConstraint::Xy, ParamType::V, inputs.pitch)),
+                    x_roll: Some((CtrlConstraint::Xy, ParamType::V, inputs.roll)),
+                    // y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::V, 0.)),
+                    // x_roll: Some((CtrlConstraint::PitchRoll, ParamType::V, 0.)),
+                    z: Some((ParamType::V, inputs.throttle)),
+                    yaw: Some((ParamType::V, inputs.yaw)),
+                }
+            }
+            InputMode::Loiter => {
+                // todo: Does this require an inner/outer loop scheme to manage
+                // todo pitch and roll? Or 3 loop scheme for position, V, pitch/roll?
+                Self {
+                    y_pitch: Some((CtrlConstraint::Xy, ParamType::S, inputs.pitch)),
+                    x_roll: Some((CtrlConstraint::Xy, ParamType::S, inputs.roll)),
+                    // throttle could control altitude set point; make sure the throttle input
+                    // in this case is altitude.
+                    z: Some((ParamType::S, inputs.pitch)),
+                    // todo: S or V for yaw? Subjective. Go with existing drone schemes?
+                    yaw: Some((ParamType::V, inputs.yaw)),
+                }
 
-        self.yaw = match self.yaw {
-            Some(v) => Some((ParamType::V, v + inputs.yaw)),
-            None => Some((ParamType::V, inputs.yaw)),
-        };
+                // todo
+                // self.y_pitch = Some((CtrlConstraint::PitchRoll, ParamType::V, self_y + inputs.pitch));
+                // self.x_roll = Some((CtrlConstraint::PitchRoll, ParamType::V, self_x + inputs.roll));
+                // self.yaw =  Some((ParamType::V, self_yaw + inputs.yaw));
+            }
+        }
+
     }
 
     // Command a basic hover. Maintains an altitude and pitch, and attempts to maintain position,
@@ -364,7 +418,8 @@ impl FlightCmd {
 pub struct ParamsInst {
     pub x: f32,
     pub y: f32,
-    pub z: f32,
+    pub z_msl: f32,
+    pub z_agl: f32,
     pub pitch: f32,
     pub roll: f32,
     pub yaw: f32,
@@ -377,7 +432,8 @@ impl Add for ParamsInst {
         Self {
             x: self.x + other.x,
             y: self.y + other.y,
-            z: self.z + other.z,
+            z_msl: self.z_msl + other.z_msl,
+            z_agl: self.z_agl + other.z_agl,
             pitch: self.pitch + other.pitch,
             roll: self.roll + other.roll,
             yaw: self.yaw + other.yaw,
@@ -392,7 +448,8 @@ impl Sub for ParamsInst {
         Self {
             x: self.x - other.x,
             y: self.y - other.y,
-            z: self.z - other.z,
+            z_msl: self.z_msl - other.z_msl,
+            z_agl: self.z_agl - other.z_agl,
             pitch: self.pitch - other.pitch,
             roll: self.roll - other.roll,
             yaw: self.yaw - other.yaw,
@@ -407,7 +464,8 @@ impl Mul for ParamsInst {
         Self {
             x: self.x * other,
             y: self.y * other,
-            z: self.z * other,
+            z_msl: self.z_msl * other,
+            z_agl: self.z_agl * other,
             pitch: self.pitch * other,
             roll: self.roll * other,
             yaw: self.yaw * other,
@@ -423,8 +481,10 @@ pub struct Params {
     // todo: Do we want to use this full struct, or store multiple (3+) instantaneous ones?
     pub s_x: f32,
     pub s_y: f32,
-    /// Altitude, in AGL. We treat MSL as a varying offset from this.
-    pub s_z: f32,
+    // Note that we only need to specify MSL vs AGL for position; velocity and accel should
+    // be equiv for them.
+    pub s_z_msl: f32,
+    pub s_z_agl: f32,
 
     pub s_pitch: f32,
     pub s_roll: f32,
@@ -570,14 +630,24 @@ fn set_power(rotor: Rotor, power: f32, timer: &mut Timer<TIM2>) {
     timer.set_duty(rotor.tim_channel(), arr_portion as u32);
 }
 
-/// Calculate the vertical velocity (m/s), for a given height above the ground (m).
-fn landing_speed(height: f32) -> f32 {
+/// Calculate the landing vertical velocity (m/s), for a given height above the ground (m).
+pub fn landing_speed(height: f32) -> f32 {
     // todo: LUT?
 
     if height > 2. {
         return 0.5
     }
     height / 4.
+}
+
+/// Calculate the takeoff vertical velocity (m/s), for a given height above the ground (m).
+pub fn takeoff_speed(height: f32) -> f32 {
+    // todo: LUT?
+
+    if height > 2. {
+        return 0.
+    }
+    height / 4. + 0.01
 }
 
 /// Calculate the PID error given flight parameters, and a flight

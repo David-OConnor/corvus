@@ -11,11 +11,15 @@ use stm32_hal2::{
     pac::I2C1,
 };
 
-use crate::{TOF_THRESH_ANGLE, TOF_THRESH_DIST};
-
 const ADDR: u8 = 0x52;
 
 // todo: Make sure to compensate for A/C angle.
+
+
+// Outside these thresholds, ignore TOF data.
+const THRESH_DIST: f32 = 12.; // meters. IOC VL53L1CB specs, and extended
+const THRESH_ANGLE: f32 = 0.03 * TAU; // radians, from level, in any direction.
+const READING_QUAL_THRESH: f32 = 0.7;
 
 
 pub fn setup(i2c: &mut I2c<I2C1>) {
@@ -42,7 +46,7 @@ pub fn read(pitch: f32, roll: f32, i2c: &mut I2c<I2C1>) -> Option<f32> {
     // todo: THis is a quick approximation that's perhaps valid
     // todo for small angles. What should we actually use?
     let aircraft_angle = (pitch.pow(2) + roll.pow(2)).pow(0.5);
-    if aircraft_angle > TOF_THRESH_ANGLE {
+    if aircraft_angle > THRESH_ANGLE {
         return None
     }
 
@@ -51,12 +55,11 @@ pub fn read(pitch: f32, roll: f32, i2c: &mut I2c<I2C1>) -> Option<f32> {
 
     let reading = result[0];
 
-    if reading > TOF_THRESH_DIST {
+    if reading > THRESH_DIST || reading.quality < READING_QUAL_THRESH {
         return None
     }
 
-    Some(reading)
-
+    Some(reading * aircraft_angle.cos())
 }
 
 // todo: Consider if you want to move the ST lib to one or more separate files, or a module.

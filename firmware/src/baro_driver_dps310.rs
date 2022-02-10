@@ -28,6 +28,15 @@ impl Barometer {
 
     /// Read atmospheric pressure, in kPa
     pub fn read(i2c: &mut I2c<I2C1>) -> f32 {
+        // let reading = i2c.write_read()
+
         0.
     }
+}
+
+/// Interpret pressure as altitude. Pressure is in kPa.
+pub fn pressure_to_alt(pressure: f32 ) -> f32 {
+    // todo: If you use more than one baro driver, move this outside this module; it's a general fn.
+    // P = 101.29 * (((T + 273.1))/288.08)^5.256   (in kPa)
+    // T = 150.4 - .00649h
 }
