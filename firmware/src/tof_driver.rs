@@ -456,10 +456,11 @@ fn VL53L1X_CheckForDataReady(dev: u16, isDataReady: &mut u8) -> VL53L1X_ERROR
     status |= VL53L1_RdByte(dev, GPIO__TIO_HV_STATUS, &Temp);
     /* Read in the register to check if a new value is available */
     if (status == 0){
-        if ((Temp & 1) == IntPol)
+        if ((Temp & 1) == IntPol) {
             *isDataReady = 1;
-        else
-        *isDataReady = 0;
+        } else {
+            *isDataReady = 0;
+        }
     }
     return status;
 }
@@ -469,7 +470,7 @@ fn VL53L1X_SetTimingBudgetInMs(dev: u16, TimingBudgetInMs: u16) -> VL53L1X_ERROR
     let mut DM;
     let mut status= 0;
 
-    status |= VL53L1X_GetDistanceMode(dev, &DM);
+    status |= VL53L1X_GetDistanceMode(dev, DM);
     if (DM == 0) {
         return 1;
     }
@@ -567,97 +568,100 @@ fn VL53L1X_SetTimingBudgetInMs(dev: u16, TimingBudgetInMs: u16) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_GetTimingBudgetInMs(dev: u16, u16 *pTimingBudget) -> VL53L1X_ERROR
+fn VL53L1X_GetTimingBudgetInMs(dev: u16, pTimingBudget: &mut u16) -> VL53L1X_ERROR
 {
-    u16 Temp;
+    let mut Temp;
     let mut status = 0;
 
     status |= VL53L1_RdWord(dev, RANGE_CONFIG__TIMEOUT_MACROP_A_HI, &Temp);
-    switch (Temp) {
-    case 0x001D :
-        *pTimingBudget = 15;
-    break;
-    case 0x0051 :
-        case 0x001E :
-        *pTimingBudget = 20;
-    break;
-    case 0x00D6 :
-        case 0x0060 :
-        *pTimingBudget = 33;
-    break;
-    case 0x1AE :
-        case 0x00AD :
-        *pTimingBudget = 50;
-    break;
-    case 0x02E1 :
-        case 0x01CC :
-        *pTimingBudget = 100;
-    break;
-    case 0x03E1 :
-        case 0x02D9 :
-        *pTimingBudget = 200;
-    break;
-    case 0x0591 :
-        case 0x048F :
-        *pTimingBudget = 500;
-    break;
-    default:
-        status = 1;
-    *pTimingBudget = 0;
-}
+
+    // todo: SHould these |s be range (..) ??
+    match Temp {
+        0x001D => {
+            *pTimingBudget = 15;
+        }
+        0x0051 | 0x001E  => {
+            *pTimingBudget = 20;
+        }
+        0x00D6 | 0x0060=> {
+            *pTimingBudget = 33;
+        }
+        0x1AE | 0x00AD => {
+            *pTimingBudget = 50;
+        }
+        0x02E1 | 0x01CC=> {
+            *pTimingBudget = 100;
+        }
+        0x03E1 | 0x02D9 => {
+            *pTimingBudget = 200;
+        }
+        0x0591 | 0x048F => {
+            *pTimingBudget = 500;
+        }
+        _=> {
+            status = 1;
+            *pTimingBudget = 0;
+        }
+
+    }
     return status;
 }
 
-fn VL53L1X_SetDistanceMode(dev: u16, u16 DM) -> VL53L1X_ERROR
+fn VL53L1X_SetDistanceMode(dev: u16, DM: u16) -> VL53L1X_ERROR
 {
-    u16 TB;
+    let mut TB;
     let mut status = 0;
 
-    status |= VL53L1X_GetTimingBudgetInMs(dev, &TB);
-    if (status != 0)
-    return 1;
-    switch (DM) {
-    case 1:
-        status = VL53L1_WrByte(dev, PHASECAL_CONFIG__TIMEOUT_MACROP, 0x14);
-    status = VL53L1_WrByte(dev, RANGE_CONFIG__VCSEL_PERIOD_A, 0x07);
-    status = VL53L1_WrByte(dev, RANGE_CONFIG__VCSEL_PERIOD_B, 0x05);
-    status = VL53L1_WrByte(dev, RANGE_CONFIG__VALID_PHASE_HIGH, 0x38);
-    status = VL53L1_WrWord(dev, SD_CONFIG__WOI_SD0, 0x0705);
-    status = VL53L1_WrWord(dev, SD_CONFIG__INITIAL_PHASE_SD0, 0x0606);
-    break;
-    case 2:
-        status = VL53L1_WrByte(dev, PHASECAL_CONFIG__TIMEOUT_MACROP, 0x0A);
-    status = VL53L1_WrByte(dev, RANGE_CONFIG__VCSEL_PERIOD_A, 0x0F);
-    status = VL53L1_WrByte(dev, RANGE_CONFIG__VCSEL_PERIOD_B, 0x0D);
-    status = VL53L1_WrByte(dev, RANGE_CONFIG__VALID_PHASE_HIGH, 0xB8);
-    status = VL53L1_WrWord(dev, SD_CONFIG__WOI_SD0, 0x0F0D);
-    status = VL53L1_WrWord(dev, SD_CONFIG__INITIAL_PHASE_SD0, 0x0E0E);
-    break;
-    default:
-        status = 1;
-    break;
-}
+    status |= VL53L1X_GetTimingBudgetInMs(dev, &mut TB);
+    if (status != 0) {
+        return 1;
+    }
+    match DM {
+        1 => {
+            status = VL53L1_WrByte(dev, PHASECAL_CONFIG__TIMEOUT_MACROP, 0x14);
+            status = VL53L1_WrByte(dev, RANGE_CONFIG__VCSEL_PERIOD_A, 0x07);
+            status = VL53L1_WrByte(dev, RANGE_CONFIG__VCSEL_PERIOD_B, 0x05);
+            status = VL53L1_WrByte(dev, RANGE_CONFIG__VALID_PHASE_HIGH, 0x38);
+            status = VL53L1_WrWord(dev, SD_CONFIG__WOI_SD0, 0x0705);
+            status = VL53L1_WrWord(dev, SD_CONFIG__INITIAL_PHASE_SD0, 0x0606);
+        }
+        2 => {
+            status = VL53L1_WrByte(dev, PHASECAL_CONFIG__TIMEOUT_MACROP, 0x0A);
+            status = VL53L1_WrByte(dev, RANGE_CONFIG__VCSEL_PERIOD_A, 0x0F);
+            status = VL53L1_WrByte(dev, RANGE_CONFIG__VCSEL_PERIOD_B, 0x0D);
+            status = VL53L1_WrByte(dev, RANGE_CONFIG__VALID_PHASE_HIGH, 0xB8);
+            status = VL53L1_WrWord(dev, SD_CONFIG__WOI_SD0, 0x0F0D);
+            status = VL53L1_WrWord(dev, SD_CONFIG__INITIAL_PHASE_SD0, 0x0E0E);
+        }
+        _ => {
+            status = 1;
+        }
+    }
 
-    if (status == 0)
-    status |= VL53L1X_SetTimingBudgetInMs(dev, TB);
+    if (status == 0) {
+        status |= VL53L1X_SetTimingBudgetInMs(dev, TB);
+    }
     return status;
 }
 
 fn VL53L1X_GetDistanceMode(dev: u16, u16 *DM) -> VL53L1X_ERROR
 {
-    u8 TempDM, status=0;
+    let mut TempDM;
+    let mut status= 0;
 
     status |= VL53L1_RdByte(dev,PHASECAL_CONFIG__TIMEOUT_MACROP, &TempDM);
-    if (TempDM == 0x14)
-        *DM=1;
-    if(TempDM == 0x0A)
-        *DM=2;
+    if (TempDM == 0x14) {
+        *DM = 1;
+    }
+    if(TempDM == 0x0A) {
+        *DM = 2;
+    }
     return status;
 }
 
-fn VL53L1X_SetInterMeasurementInMs(dev: u16, u32 InterMeasMs) -> VL53L1X_ERROR
+fn VL53L1X_SetInterMeasurementInMs(dev: u16, InterMeasMs: u32) -> VL53L1X_ERROR
 {
-    u16 ClockPLL;
+    let mut ClockPLL;
     let mut status = 0;
 
     status |= VL53L1_RdWord(dev, VL53L1_RESULT__OSC_CALIBRATE_VAL, &ClockPLL);
@@ -668,44 +672,44 @@ fn VL53L1X_SetInterMeasurementInMs(dev: u16, u32 InterMeasMs) -> VL53L1X_ERROR
 
 }
 
-fn VL53L1X_GetInterMeasurementInMs(dev: u16, u16 *pIM) -> VL53L1X_ERROR
+fn VL53L1X_GetInterMeasurementInMs(dev: u16, pIM: &mut u16) -> VL53L1X_ERROR
 {
-    u16 ClockPLL;
+    let mut ClockPLL;
     let mut status = 0;
-    u32 tmp;
+    let mut tmp;
 
     status |= VL53L1_RdDWord(dev,VL53L1_SYSTEM__INTERMEASUREMENT_PERIOD, &tmp);
-    *pIM = (u16)tmp;
+    *pIM = tmp as u16;
     status |= VL53L1_RdWord(dev, VL53L1_RESULT__OSC_CALIBRATE_VAL, &ClockPLL);
     ClockPLL = ClockPLL&0x3FF;
     *pIM= (u16)(*pIM/(ClockPLL*1.065));
     return status;
 }
 
-fn VL53L1X_BootState(dev: u16, u8 *state) -> VL53L1X_ERROR
+fn VL53L1X_BootState(dev: u16, state: &mut u8) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u8 tmp = 0;
+    let mut tmp = 0;
 
     status |= VL53L1_RdByte(dev,VL53L1_FIRMWARE__SYSTEM_STATUS, &tmp);
     *state = tmp;
     return status;
 }
 
-fn VL53L1X_GetSensorId(dev: u16, u16 *sensorId) -> VL53L1X_ERROR
+fn VL53L1X_GetSensorId(dev: u16, sensorId: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u16 tmp = 0;
+    let mut tmp = 0;
 
     status |= VL53L1_RdWord(dev, VL53L1_IDENTIFICATION__MODEL_ID, &tmp);
     *sensorId = tmp;
     return status;
 }
 
-fn VL53L1X_GetDistance(dev: u16, u16 *distance) -> VL53L1X_ERROR
+fn VL53L1X_GetDistance(dev: u16, distance: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u16 tmp;
+    let mut  tmp;
 
     status |= (VL53L1_RdWord(dev,
                              VL53L1_RESULT__FINAL_CROSSTALK_CORRECTED_RANGE_MM_SD0, &tmp));
@@ -713,10 +717,11 @@ fn VL53L1X_GetDistance(dev: u16, u16 *distance) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_GetSignalPerSpad(dev: u16, u16 *signalRate) -> VL53L1X_ERROR
+fn VL53L1X_GetSignalPerSpad(dev: u16, signalRate: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u16 SpNb=1, signal;
+    let mut SpNb=1
+    let mut signal;
 
     status |= VL53L1_RdWord(dev,
                             VL53L1_RESULT__PEAK_SIGNAL_COUNT_RATE_CROSSTALK_CORRECTED_MCPS_SD0, &signal);
@@ -726,10 +731,11 @@ fn VL53L1X_GetSignalPerSpad(dev: u16, u16 *signalRate) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_GetAmbientPerSpad(dev: u16, u16 *ambPerSp) -> VL53L1X_ERROR
+fn VL53L1X_GetAmbientPerSpad(dev: u16, ambPerSp: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u16 AmbientRate, SpNb = 1;
+    let mut AmbientRate;
+    let mut SpNb = 1;
 
     status |= VL53L1_RdWord(dev, RESULT__AMBIENT_COUNT_RATE_MCPS_SD, &AmbientRate);
     status |= VL53L1_RdWord(dev, VL53L1_RESULT__DSS_ACTUAL_EFFECTIVE_SPADS_SD0, &SpNb);
@@ -737,10 +743,10 @@ fn VL53L1X_GetAmbientPerSpad(dev: u16, u16 *ambPerSp) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_GetSignalRate(dev: u16, u16 *signal) -> VL53L1X_ERROR
+fn VL53L1X_GetSignalRate(dev: u16, signal: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u16 tmp;
+    let mut tmp;
 
     status |= VL53L1_RdWord(dev,
                             VL53L1_RESULT__PEAK_SIGNAL_COUNT_RATE_CROSSTALK_CORRECTED_MCPS_SD0, &tmp);
@@ -748,10 +754,10 @@ fn VL53L1X_GetSignalRate(dev: u16, u16 *signal) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_GetSpadNb(dev: u16, u16 *spNb) -> VL53L1X_ERROR
+fn VL53L1X_GetSpadNb(dev: u16, *spNb: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u16 tmp;
+    let mut tmp;
 
     status |= VL53L1_RdWord(dev,
                             VL53L1_RESULT__DSS_ACTUAL_EFFECTIVE_SPADS_SD0, &tmp);
@@ -759,17 +765,17 @@ fn VL53L1X_GetSpadNb(dev: u16, u16 *spNb) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_GetAmbientRate(dev: u16, u16 *ambRate) -> VL53L1X_ERROR
+fn VL53L1X_GetAmbientRate(dev: u16, ambRate: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u16 tmp;
+    let mut tmp;
 
     status |= VL53L1_RdWord(dev, RESULT__AMBIENT_COUNT_RATE_MCPS_SD, &tmp);
     *ambRate = tmp*8;
     return status;
 }
 
-fn VL53L1X_GetRangeStatus(dev: u16, u8 *rangeStatus) -> VL53L1X_ERROR
+fn VL53L1X_GetRangeStatus(dev: u16, rangeStatus: &mut u8) -> VL53L1X_ERROR
 {
     let mut status = 0;
     let mut RgSt;
@@ -782,16 +788,17 @@ fn VL53L1X_GetRangeStatus(dev: u16, u8 *rangeStatus) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_GetResult(dev: u16, VL53L1X_Result_t *pResult) -> VL53L1X_ERROR
+fn VL53L1X_GetResult(dev: u16, pResult: &mut VL53L1X_Result_t) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u8 Temp[17];
-    u8 RgSt = 255;
+    let mut  Temp[17];
+    let mut RgSt = 255;
 
     status |= VL53L1_ReadMulti(dev, VL53L1_RESULT__RANGE_STATUS, Temp, 17);
     RgSt = Temp[0] & 0x1F;
-    if (RgSt < 24)
-    RgSt = status_rtn[RgSt];
+    if (RgSt < 24) {
+        RgSt = status_rtn[RgSt];
+    }
     pResult->Status = RgSt;
     pResult->Ambient = (Temp[7] << 8 | Temp[8]) * 8;
     pResult->NumSPADs = Temp[3];
@@ -801,10 +808,10 @@ fn VL53L1X_GetResult(dev: u16, VL53L1X_Result_t *pResult) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_SetOffset(dev: u16, int16_t OffsetValue) -> VL53L1X_ERROR
+fn VL53L1X_SetOffset(dev: u16, OffsetValue: i16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    int16_t Temp;
+    let mut Temp;
 
     Temp = (OffsetValue*4);
     status |= VL53L1_WrWord(dev, ALGO__PART_TO_PART_RANGE_OFFSET_MM,
@@ -814,10 +821,10 @@ fn VL53L1X_SetOffset(dev: u16, int16_t OffsetValue) -> VL53L1X_ERROR
     return status;
 }
 
-fn  VL53L1X_GetOffset(dev: u16, int16_t *offset) -> VL53L1X_ERROR
+fn  VL53L1X_GetOffset(dev: u16, offset: &mut i16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u16 Temp;
+    let mut Temp;
 
     status |= VL53L1_RdWord(dev,ALGO__PART_TO_PART_RANGE_OFFSET_MM, &Temp);
     Temp = Temp<<3;
@@ -826,7 +833,7 @@ fn  VL53L1X_GetOffset(dev: u16, int16_t *offset) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_SetXtalk(dev: u16, u16 XtalkValue) -> VL53L1X_ERROR
+fn VL53L1X_SetXtalk(dev: u16, XtalkValue: u16) -> VL53L1X_ERROR
 {
     /* XTalkValue in count per second to avoid float type */
     let mut status = 0;
@@ -841,7 +848,7 @@ fn VL53L1X_SetXtalk(dev: u16, u16 XtalkValue) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_GetXtalk(dev: u16, u16 *xtalk ) -> VL53L1X_ERROR
+fn VL53L1X_GetXtalk(dev: u16, xtalk: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
 
@@ -850,12 +857,12 @@ fn VL53L1X_GetXtalk(dev: u16, u16 *xtalk ) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_SetDistanceThreshold(dev: u16, u16 ThreshLow,
-                                u16 ThreshHigh, u8 Window,
-                                u8 IntOnNoTarget) -> VL53L1X_ERROR
+fn VL53L1X_SetDistanceThreshold(dev: u16, hreshLow: u16,
+                                ThreshHigh: u16, Window: u8,
+                                IntOnNoTarget: u8) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u8 Temp = 0;
+    let mut Temp = 0;
 
     status |= VL53L1_RdByte(dev, SYSTEM__INTERRUPT_CONFIG_GPIO, &Temp);
     Temp = Temp & 0x47;
@@ -871,52 +878,52 @@ fn VL53L1X_SetDistanceThreshold(dev: u16, u16 ThreshLow,
     return status;
 }
 
-fn VL53L1X_GetDistanceThresholdWindow(dev: u16, u16 *window) -> VL53L1X_ERROR
+fn VL53L1X_GetDistanceThresholdWindow(dev: u16, window: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u8 tmp;
+    let mut tmp;
     status |= VL53L1_RdByte(dev,SYSTEM__INTERRUPT_CONFIG_GPIO, &tmp);
     *window = (u16)(tmp & 0x7);
     return status;
 }
 
-fn VL53L1X_GetDistanceThresholdLow(dev: u16, u16 *low) -> VL53L1X_ERROR
+fn VL53L1X_GetDistanceThresholdLow(dev: u16, low: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u16 tmp;
+    let mut tmp;
 
     status |= VL53L1_RdWord(dev,SYSTEM__THRESH_LOW, &tmp);
     *low = tmp;
     return status;
 }
 
-fn VL53L1X_GetDistanceThresholdHigh(dev: u16, u16 *high) -> VL53L1X_ERROR
+fn VL53L1X_GetDistanceThresholdHigh(dev: u16, high: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u16 tmp;
+    let mut mp;
 
     status |= VL53L1_RdWord(dev,SYSTEM__THRESH_HIGH, &tmp);
     *high = tmp;
     return status;
 }
 
-fn VL53L1X_SetROICenter(dev: u16, u8 ROICenter) -> VL53L1X_ERROR
+fn VL53L1X_SetROICenter(dev: u16, ROICenter: u8) -> VL53L1X_ERROR
 {
     let mut status = 0;
     status |= VL53L1_WrByte(dev, ROI_CONFIG__USER_ROI_CENTRE_SPAD, ROICenter);
     return status;
 }
 
-fn VL53L1X_GetROICenter(dev: u16, u8 *ROICenter) -> VL53L1X_ERROR
+fn VL53L1X_GetROICenter(dev: u16, ROICenter: &mut u8) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u8 tmp;
+    let mut tmp;
     status |= VL53L1_RdByte(dev, ROI_CONFIG__USER_ROI_CENTRE_SPAD, &tmp);
     *ROICenter = tmp;
     return status;
 }
 
-fn VL53L1X_SetROI(dev: u16, u16 X, u16 Y) -> VL53L1X_ERROR
+fn VL53L1X_SetROI(dev: u16, X: u16, Y: u16) -> VL53L1X_ERROR
 {
     let mut OpticalCenter;
     let mut status = 0;
@@ -935,7 +942,7 @@ fn VL53L1X_SetROI(dev: u16, u16 X, u16 Y) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_GetROI_XY(dev: u16, u16 *ROI_X, u16 *ROI_Y) -> VL53L1X_ERROR
+fn VL53L1X_GetROI_XY(dev: u16, ROI_X: &mut u16, ROI_Y: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
     let mut tmp;
