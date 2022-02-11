@@ -6,6 +6,8 @@
 //! In particular, use the Ultra light driver: https://www.st.com/en/embedded-software/stsw-img009.html
 //! the User Manual doesn't include the actual reg writes, and there are thousands or regs!
 
+// todo: Multi-zone TOF for fwd or both TOF sensors?
+
 use stm32_hal2::{
     i2c::I2c,
     pac::I2C1,
@@ -64,15 +66,87 @@ pub fn read(pitch: f32, roll: f32, i2c: &mut I2c<I2C1>) -> Option<f32> {
 
 // todo: Consider if you want to move the ST lib to one or more separate files, or a module.
 
-// This function is used with our translated C code to perform I2C writes.
-fn VL53L1_WrByte(addr: u8, data: &[u8]) {
+// From VL53L1_platform.c
+
+// todo: These `platform` I2C read/write fns are listed as returning i8, but most
+// uses expect u8.
+
+// These i2c function is used with our translated C code to perform I2C writes.
+fn VL53L1_WrByte(dev: u16, index: u16, data: u8) -> u8 {
+    // todo: Make sure this and read are correct! Why 16 bit addr?
     let mut i2c = unsafe {&(*I2C1::ptr())};
-    i2c.write(addr, data);
+
+    i2c.write(dev as u8, &[(index>>8) as u8, index as u8, data]).ok();
+    0
 }
 
-fn VL53L1_RdWord(addr: u8, data: &[u8], buf: &mut[u8]) {
+fn VL53L1_WrWord(dev: u16, index: u16, data: u16) -> u8 {
+    // todo: Make sure this and read are correct! Why 16 bit addr?
     let mut i2c = unsafe {&(*I2C1::ptr())};
-    i2c.write(addr, data, buf);
+
+
+    i2c.write(dev as u8, &[(index >> 8) as u8, index as u8, (data >>8) as u8, data as u8]).ok();
+    0
+}
+
+fn VL53L1_WrDWord(dev: u16, index: u16, data: u32) -> u8 {
+    // todo: Make sure this and read are correct! Why 16 bit addr?
+    let mut i2c = unsafe {&(*I2C1::ptr())};
+
+
+    i2c.write(dev as u8, &[
+        (index >> 8) as u8,
+        index as u8,
+        (data >> 24) as u8,
+        (data >> 16) as u8,
+        (data >> 8) as u8,
+        data as u8
+    ]).ok();
+    0
+}
+
+fn VL53L1_RdByte(dev: u16, index: u16, data: &mut u8) -> u8 {
+    let mut i2c = unsafe {&(*I2C1::ptr())};
+
+    let mut buf = [0];
+    i2c.write_read(dev as u8, &[(index >> 8) as u8, index as u8], &mut buf).ok();
+
+    *data = buf[0];
+    0
+}
+
+fn VL53L1_RdWord(dev: u16, index: u16, data: &mut u16) -> u8 {
+    let mut i2c = unsafe {&(*I2C1::ptr())};
+
+    let mut buf = [0, 0];
+    i2c.write_read(dev as u8, &[(index >> 8) as u8, index as u8], &mut buf).ok();
+
+    *data = ((buf[0] as u16) << 8) | buf[1];
+    0
+}
+
+fn VL53L1_RdDWord(dev: u16, index: u16, data: &mut u32) -> u8 {
+    let mut i2c = unsafe {&(*I2C1::ptr())};
+
+    let mut buf = [0, 0, 0, 0];
+    i2c.write_read(dev as u8, &[(index >> 8) as u8, index as u8], &mut buf).ok();
+
+    *data = ((buf[0] as u32) << 24) | ((buf[1] as u32) << 16) | ((buf[2] as u32) << 8) | buf[1];
+    0
+}
+
+fn VL53L1_ReadMulti(dev: u16, index: u16, pdata: &mut u8, count: u32) -> u8 {
+    let mut i2c = unsafe {&(*I2C1::ptr())};
+
+    let mut buf = [0];
+    // todo: FIgure this out.
+
+    for i in 0..count as usize {
+        i2c.write_read(dev as u8, &[(index >> 8) as u8, index as u8], &mut buf).ok();
+
+        *pdata |= buf[0] // todo: Is this what we want?
+    }
+    0
 }
 
 // start VL53L1X_api.h
@@ -139,10 +213,10 @@ fn VL53L1_RdWord(addr: u8, data: &[u8], buf: &mut[u8]) {
 *
 */
 
-const VL53L1X_IMPLEMENTATION_VER_MAJOR: u16 =       3;
-const VL53L1X_IMPLEMENTATION_VER_MINOR : u16 =       5;
-const VL53L1X_IMPLEMENTATION_VER_SUB  : u16 =        1;
-const VL53L1X_IMPLEMENTATION_VER_REVISION : u16 =  0000;
+const VL53L1X_IMPLEMENTATION_VER_MAJOR: u8 =       3;
+const VL53L1X_IMPLEMENTATION_VER_MINOR : u8 =       5;
+const VL53L1X_IMPLEMENTATION_VER_SUB  : u8 =        1;
+const VL53L1X_IMPLEMENTATION_VER_REVISION : u8 =  0000;
 
 type VL53L1X_ERROR = u8;
 
@@ -220,9 +294,7 @@ struct VL53L1X_Result_t {
 // todo: Apply doc strings from the header.
 
 
-
-
-u8 VL51L1X_NVM_CONFIGURATION[] = {
+static mut VL51L1X_NVM_CONFIGURATION: [u8; 34] = [
 0x00, /* 0x00 : not user-modifiable */
 0x29, /* 0x01 : 7 bits I2C address (default=0x29), use SetI2CAddress(). Warning: after changing the register value to a new I2C address, the device will only answer to the new address */
 0x00, /* 0x02 : not user-modifiable */
@@ -257,7 +329,7 @@ u8 VL51L1X_NVM_CONFIGURATION[] = {
 0x00, /* 0x21 : not user-modifiable */
 0x00, /* 0x22 : not user-modifiable */
 0x00, /* 0x23 : not user-modifiable */
-}
+];
 
 const VL51L1X_DEFAULT_CONFIGURATION: [u8; 91] = [
     0x00, /* 0x2d : set bit 2 and 5 to 1 for fast plus mode (1MHz I2C), else don't touch */
@@ -366,31 +438,36 @@ fn VL53L1X_GetSWVersion(pVersion: &mut VL53L1X_Version_t) -> VL53L1X_ERROR
     pVersion.major = VL53L1X_IMPLEMENTATION_VER_MAJOR;
     pVersion.minor = VL53L1X_IMPLEMENTATION_VER_MINOR;
     pVersion.build = VL53L1X_IMPLEMENTATION_VER_SUB;
-    pVersion.revision = VL53L1X_IMPLEMENTATION_VER_REVISION;
+    pVersion.revision = VL53L1X_IMPLEMENTATION_VER_REVISION as u32;
     return Status;
 }
 
-VL53L1X_SetI2CAddress(dev: u16, new_address: u8) -> VL53L1X_ERROR
+/// This function sets the sensor I2C address used in case multiple devices application, default address 0x52
+fn VL53L1X_SetI2CAddress(dev: u16, new_address: u8) -> VL53L1X_ERROR
 {
-let mut status = 0;
+    let mut status = 0;
 
-status |= VL53L1_WrByte(dev, VL53L1_I2C_SLAVE__DEVICE_ADDRESS, new_address >> 1);
-return status;
+    status |= VL53L1_WrByte(dev, VL53L1_I2C_SLAVE__DEVICE_ADDRESS, new_address >> 1);
+    return status;
 }
 
+///  This function loads the 135 bytes default values to initialize the sensor.
+///  * @param dev Device address
+///  * @return 0:success, != 0:failed
 fn VL53L1X_SensorInit(dev: u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let Addr = 0x00;
-    let tmp;
+    // let Addr = 0x00;
+    let mut tmp;
 
-    for (Addr = 0x2D; Addr <= 0x87; Addr++){
+    for Addr in 0x2D..=0x87 {
+    // for (Addr = 0x2D; Addr <= 0x87; Addr++){
         status |= VL53L1_WrByte(dev, Addr, VL51L1X_DEFAULT_CONFIGURATION[Addr - 0x2D]);
     }
     status |= VL53L1X_StartRanging(dev);
     tmp  = 0;
     while(tmp==0){
-        status |= VL53L1X_CheckForDataReady(dev, &tmp);
+        status |= VL53L1X_CheckForDataReady(dev, &mut tmp);
     }
     status |= VL53L1X_ClearInterrupt(dev);
     status |= VL53L1X_StopRanging(dev);
@@ -399,6 +476,8 @@ fn VL53L1X_SensorInit(dev: u16) -> VL53L1X_ERROR
     return status;
 }
 
+///  This function clears the interrupt, to be called after a ranging data reading
+///  * to arm the interrupt for the next data ready event.
 fn VL53L1X_ClearInterrupt(dev: u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
@@ -407,28 +486,36 @@ fn VL53L1X_ClearInterrupt(dev: u16) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_SetInterruptPolarity(dev: u16, u8 NewPolarity) -> VL53L1X_ERROR
+///  This function programs the interrupt polarity\n
+///  * 1=active high (default), 0=active low
+fn VL53L1X_SetInterruptPolarity(dev: u16, NewPolarity: u8) -> VL53L1X_ERROR
 {
-    let mut Temp;
+    let mut Temp = 0;
     let mut status = 0;
 
-    status |= VL53L1_RdByte(dev, GPIO_HV_MUX__CTRL, &Temp);
+    status |= VL53L1_RdByte(dev, GPIO_HV_MUX__CTRL, &mut Temp);
     Temp = Temp & 0xEF;
     status |= VL53L1_WrByte(dev, GPIO_HV_MUX__CTRL, Temp | (!(NewPolarity & 1)) << 4);
     return status;
 }
 
-fn VL53L1X_GetInterruptPolarity(dev: u16, u8 *pInterruptPolarity) -> VL53L1X_ERROR
+/// /**
+///  This function returns the current interrupt polarity\n
+///  * 1=active high (default), 0=active low
+fn VL53L1X_GetInterruptPolarity(dev: u16, pInterruptPolarity: &mut u8) -> VL53L1X_ERROR
 {
-    let mut Temp;
+    let mut Temp = 0;
     let mut status = 0;
 
-    status |= VL53L1_RdByte(dev, GPIO_HV_MUX__CTRL, &Temp);
+    status |= VL53L1_RdByte(dev, GPIO_HV_MUX__CTRL, &mut Temp);
     Temp = Temp & 0x10;
     *pInterruptPolarity = !(Temp>>4);
     return status;
 }
 
+///  This function starts the ranging distance operation\n
+///  * The ranging operation is continuous. The clear interrupt has to be done after each get data to allow the interrupt to raise when the next data is ready\n
+///  * 1=active high (default), 0=active low, use SetInterruptPolarity() to change the interrupt polarity if required.
 fn VL53L1X_StartRanging(dev: u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
@@ -437,6 +524,7 @@ fn VL53L1X_StartRanging(dev: u16) -> VL53L1X_ERROR
     return status;
 }
 
+/// This function stops the ranging.
 fn VL53L1X_StopRanging(dev: u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
@@ -446,14 +534,16 @@ fn VL53L1X_StopRanging(dev: u16) -> VL53L1X_ERROR
     return status;
 }
 
+///  This function checks if the new ranging data is available by polling the dedicated register.
+///  * @param : isDataReady==0 -> not ready; isDataReady==1 -> ready
 fn VL53L1X_CheckForDataReady(dev: u16, isDataReady: &mut u8) -> VL53L1X_ERROR
 {
-    let mut Temp;
-    let mut IntPol;
+    let mut Temp = 0;
+    let mut IntPol = 0;
     let mut status = 0;
 
-    status |= VL53L1X_GetInterruptPolarity(dev, &IntPol);
-    status |= VL53L1_RdByte(dev, GPIO__TIO_HV_STATUS, &Temp);
+    status |= VL53L1X_GetInterruptPolarity(dev, &mut IntPol);
+    status |= VL53L1_RdByte(dev, GPIO__TIO_HV_STATUS, &mut Temp);
     /* Read in the register to check if a new value is available */
     if (status == 0){
         if ((Temp & 1) == IntPol) {
@@ -465,12 +555,14 @@ fn VL53L1X_CheckForDataReady(dev: u16, isDataReady: &mut u8) -> VL53L1X_ERROR
     return status;
 }
 
+///  This function programs the timing budget in ms.
+///  * Predefined values = 15, 20, 33, 50, 100(default), 200, 500.
 fn VL53L1X_SetTimingBudgetInMs(dev: u16, TimingBudgetInMs: u16) -> VL53L1X_ERROR
 {
-    let mut DM;
+    let mut DM = 0;
     let mut status= 0;
 
-    status |= VL53L1X_GetDistanceMode(dev, DM);
+    status |= VL53L1X_GetDistanceMode(dev, &mut DM);
     if (DM == 0) {
         return 1;
     }
@@ -568,12 +660,13 @@ fn VL53L1X_SetTimingBudgetInMs(dev: u16, TimingBudgetInMs: u16) -> VL53L1X_ERROR
     return status;
 }
 
+/// This function returns the current timing budget in ms.
 fn VL53L1X_GetTimingBudgetInMs(dev: u16, pTimingBudget: &mut u16) -> VL53L1X_ERROR
 {
-    let mut Temp;
+    let mut Temp = 0;
     let mut status = 0;
 
-    status |= VL53L1_RdWord(dev, RANGE_CONFIG__TIMEOUT_MACROP_A_HI, &Temp);
+    status |= VL53L1_RdWord(dev, RANGE_CONFIG__TIMEOUT_MACROP_A_HI, &mut Temp);
 
     // todo: SHould these |s be range (..) ??
     match Temp {
@@ -607,9 +700,12 @@ fn VL53L1X_GetTimingBudgetInMs(dev: u16, pTimingBudget: &mut u16) -> VL53L1X_ERR
     return status;
 }
 
+///  This function programs the distance mode (1=short, 2=long(default)).
+///  * Short mode max distance is limited to 1.3 m but better ambient immunity.\n
+///  * Long mode can range up to 4 m in the dark with 200 ms timing budget.
 fn VL53L1X_SetDistanceMode(dev: u16, DM: u16) -> VL53L1X_ERROR
 {
-    let mut TB;
+    let mut TB = 0;
     let mut status = 0;
 
     status |= VL53L1X_GetTimingBudgetInMs(dev, &mut TB);
@@ -644,12 +740,13 @@ fn VL53L1X_SetDistanceMode(dev: u16, DM: u16) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_GetDistanceMode(dev: u16, u16 *DM) -> VL53L1X_ERROR
+/// This function returns the current distance mode (1=short, 2=long).
+fn VL53L1X_GetDistanceMode(dev: u16, DM: &mut u16) -> VL53L1X_ERROR
 {
-    let mut TempDM;
+    let mut TempDM = 0;
     let mut status= 0;
 
-    status |= VL53L1_RdByte(dev,PHASECAL_CONFIG__TIMEOUT_MACROP, &TempDM);
+    status |= VL53L1_RdByte(dev, PHASECAL_CONFIG__TIMEOUT_MACROP, &TempDM);
     if (TempDM == 0x14) {
         *DM = 1;
     }
@@ -659,22 +756,26 @@ fn VL53L1X_GetDistanceMode(dev: u16, u16 *DM) -> VL53L1X_ERROR
     return status;
 }
 
+///  This function programs the Intermeasurement period in ms\n
+///  * Intermeasurement period must be >/= timing budget. This condition is not checked by the API,
+///  * the customer has the duty to check the condition. Default = 100 ms
 fn VL53L1X_SetInterMeasurementInMs(dev: u16, InterMeasMs: u32) -> VL53L1X_ERROR
 {
-    let mut ClockPLL;
+    let mut ClockPLL = 0;
     let mut status = 0;
 
     status |= VL53L1_RdWord(dev, VL53L1_RESULT__OSC_CALIBRATE_VAL, &ClockPLL);
-    ClockPLL = ClockPLL&0x3FF;
+    ClockPLL = ClockPLL & 0x3FF;
     VL53L1_WrDWord(dev, VL53L1_SYSTEM__INTERMEASUREMENT_PERIOD,
                    (u32)(ClockPLL * InterMeasMs * 1.075));
     return status;
 
 }
 
+/// This function returns the Intermeasurement period in ms.
 fn VL53L1X_GetInterMeasurementInMs(dev: u16, pIM: &mut u16) -> VL53L1X_ERROR
 {
-    let mut ClockPLL;
+    let mut ClockPLL = 0;
     let mut status = 0;
     let mut tmp;
 
@@ -686,6 +787,7 @@ fn VL53L1X_GetInterMeasurementInMs(dev: u16, pIM: &mut u16) -> VL53L1X_ERROR
     return status;
 }
 
+/// This function returns the boot state of the device (1:booted, 0:not booted)
 fn VL53L1X_BootState(dev: u16, state: &mut u8) -> VL53L1X_ERROR
 {
     let mut status = 0;
@@ -696,6 +798,7 @@ fn VL53L1X_BootState(dev: u16, state: &mut u8) -> VL53L1X_ERROR
     return status;
 }
 
+/// This function returns the sensor id, sensor Id must be 0xEEAC
 fn VL53L1X_GetSensorId(dev: u16, sensorId: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
@@ -706,133 +809,148 @@ fn VL53L1X_GetSensorId(dev: u16, sensorId: &mut u16) -> VL53L1X_ERROR
     return status;
 }
 
+/// This function returns the distance measured by the sensor in mm
 fn VL53L1X_GetDistance(dev: u16, distance: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut  tmp;
+    let mut  tmp = 0;
 
     status |= (VL53L1_RdWord(dev,
-                             VL53L1_RESULT__FINAL_CROSSTALK_CORRECTED_RANGE_MM_SD0, &tmp));
+                             VL53L1_RESULT__FINAL_CROSSTALK_CORRECTED_RANGE_MM_SD0, &mut tmp));
     *distance = tmp;
     return status;
 }
 
+///  This function returns the returned signal per SPAD in kcps/SPAD.
+///  * With kcps stands for Kilo Count Per Second
 fn VL53L1X_GetSignalPerSpad(dev: u16, signalRate: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut SpNb=1
-    let mut signal;
+    let mut SpNb= 1;
+    let mut signal = 0;
 
     status |= VL53L1_RdWord(dev,
-                            VL53L1_RESULT__PEAK_SIGNAL_COUNT_RATE_CROSSTALK_CORRECTED_MCPS_SD0, &signal);
+                            VL53L1_RESULT__PEAK_SIGNAL_COUNT_RATE_CROSSTALK_CORRECTED_MCPS_SD0, &mut signal);
     status |= VL53L1_RdWord(dev,
-                            VL53L1_RESULT__DSS_ACTUAL_EFFECTIVE_SPADS_SD0, &SpNb);
+                            VL53L1_RESULT__DSS_ACTUAL_EFFECTIVE_SPADS_SD0, &mut SpNb);
     *signalRate = (u16) (200.0*signal/SpNb);
     return status;
 }
 
+/// This function returns the ambient per SPAD in kcps/SPAD
 fn VL53L1X_GetAmbientPerSpad(dev: u16, ambPerSp: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut AmbientRate;
+    let mut AmbientRate = 0;
     let mut SpNb = 1;
 
-    status |= VL53L1_RdWord(dev, RESULT__AMBIENT_COUNT_RATE_MCPS_SD, &AmbientRate);
-    status |= VL53L1_RdWord(dev, VL53L1_RESULT__DSS_ACTUAL_EFFECTIVE_SPADS_SD0, &SpNb);
+    status |= VL53L1_RdWord(dev, RESULT__AMBIENT_COUNT_RATE_MCPS_SD, &mut AmbientRate);
+    status |= VL53L1_RdWord(dev, VL53L1_RESULT__DSS_ACTUAL_EFFECTIVE_SPADS_SD0, &mut SpNb);
     *ambPerSp=(u16) (200.0 * AmbientRate / SpNb);
     return status;
 }
 
+/// This function returns the returned signal in kcps.
 fn VL53L1X_GetSignalRate(dev: u16, signal: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut tmp;
+    let mut tmp = 0;
 
     status |= VL53L1_RdWord(dev,
-                            VL53L1_RESULT__PEAK_SIGNAL_COUNT_RATE_CROSSTALK_CORRECTED_MCPS_SD0, &tmp);
+                            VL53L1_RESULT__PEAK_SIGNAL_COUNT_RATE_CROSSTALK_CORRECTED_MCPS_SD0, &mut tmp);
     *signal = tmp*8;
     return status;
 }
 
-fn VL53L1X_GetSpadNb(dev: u16, *spNb: &mut u16) -> VL53L1X_ERROR
+/// This function returns the current number of enabled SPADs
+fn VL53L1X_GetSpadNb(dev: u16, spNb: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut tmp;
+    let mut tmp = 0;
 
     status |= VL53L1_RdWord(dev,
-                            VL53L1_RESULT__DSS_ACTUAL_EFFECTIVE_SPADS_SD0, &tmp);
+                            VL53L1_RESULT__DSS_ACTUAL_EFFECTIVE_SPADS_SD0, &mut tmp);
     *spNb = tmp >> 8;
     return status;
 }
 
+/// This function returns the ambient rate in kcps
 fn VL53L1X_GetAmbientRate(dev: u16, ambRate: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut tmp;
+    let mut tmp = 0;
 
-    status |= VL53L1_RdWord(dev, RESULT__AMBIENT_COUNT_RATE_MCPS_SD, &tmp);
+    status |= VL53L1_RdWord(dev, RESULT__AMBIENT_COUNT_RATE_MCPS_SD, &mut tmp);
     *ambRate = tmp*8;
     return status;
 }
 
+///  This function returns the ranging status error \n
+//  * (0:no error, 1:sigma failed, 2:signal failed, ..., 7:wrap-around)
 fn VL53L1X_GetRangeStatus(dev: u16, rangeStatus: &mut u8) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut RgSt;
+    let mut RgSt = 0;
 
     *rangeStatus = 255;
-    status |= VL53L1_RdByte(dev, VL53L1_RESULT__RANGE_STATUS, &RgSt);
+    status |= VL53L1_RdByte(dev, VL53L1_RESULT__RANGE_STATUS, &mut RgSt);
     RgSt = RgSt & 0x1F;
     if (RgSt < 24)
         *rangeStatus = status_rtn[RgSt];
     return status;
 }
 
+/// This function returns measurements and the range status in a single read access
 fn VL53L1X_GetResult(dev: u16, pResult: &mut VL53L1X_Result_t) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut  Temp[17];
-    let mut RgSt = 255;
+    let mut Temp = [0_u8; 17];
+    let mut RgSt: u8 = 255;
 
     status |= VL53L1_ReadMulti(dev, VL53L1_RESULT__RANGE_STATUS, Temp, 17);
     RgSt = Temp[0] & 0x1F;
     if (RgSt < 24) {
         RgSt = status_rtn[RgSt];
     }
-    pResult->Status = RgSt;
-    pResult->Ambient = (Temp[7] << 8 | Temp[8]) * 8;
-    pResult->NumSPADs = Temp[3];
-    pResult->SigPerSPAD = (Temp[15] << 8 | Temp[16]) * 8;
-    pResult->Distance = Temp[13] << 8 | Temp[14];
+    pResult.Status = RgSt;
+    pResult.Ambient = (Temp[7] << 8 | Temp[8]) * 8;
+    pResult.NumSPADs = Temp[3];
+    pResult.SigPerSPAD = (Temp[15] << 8 | Temp[16]) * 8;
+    pResult.Distance = Temp[13] << 8 | Temp[14];
 
     return status;
 }
 
+///  This function programs the offset correction in mm
+///  * @param OffsetValue:the offset correction value to program in mm
 fn VL53L1X_SetOffset(dev: u16, OffsetValue: i16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut Temp;
+    let mut Temp = 0;
 
     Temp = (OffsetValue*4);
     status |= VL53L1_WrWord(dev, ALGO__PART_TO_PART_RANGE_OFFSET_MM,
-                            (u16)Temp);
+                            Temp as u16);
     status |= VL53L1_WrWord(dev, MM_CONFIG__INNER_OFFSET_MM, 0x0);
     status |= VL53L1_WrWord(dev, MM_CONFIG__OUTER_OFFSET_MM, 0x0);
     return status;
 }
 
+/// This function returns the programmed offset correction value in mm
 fn  VL53L1X_GetOffset(dev: u16, offset: &mut i16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut Temp;
+    let mut Temp = 0;
 
-    status |= VL53L1_RdWord(dev,ALGO__PART_TO_PART_RANGE_OFFSET_MM, &Temp);
+    status |= VL53L1_RdWord(dev,ALGO__PART_TO_PART_RANGE_OFFSET_MM, &mut Temp);
     Temp = Temp<<3;
     Temp = Temp>>5;
     *offset = (int16_t)(Temp);
     return status;
 }
 
+///  This function programs the xtalk correction value in cps (Count Per Second).\n
+///  * This is the number of photons reflected back from the cover glass in cps.
 fn VL53L1X_SetXtalk(dev: u16, XtalkValue: u16) -> VL53L1X_ERROR
 {
     /* XTalkValue in count per second to avoid float type */
@@ -848,6 +966,7 @@ fn VL53L1X_SetXtalk(dev: u16, XtalkValue: u16) -> VL53L1X_ERROR
     return status;
 }
 
+/// This function returns the current programmed xtalk correction value in cps
 fn VL53L1X_GetXtalk(dev: u16, xtalk: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
@@ -857,6 +976,18 @@ fn VL53L1X_GetXtalk(dev: u16, xtalk: &mut u16) -> VL53L1X_ERROR
     return status;
 }
 
+/// /**
+///  This function programs the threshold detection mode\n
+///  * Example:\n
+///  * VL53L1X_SetDistanceThreshold(dev,100,300,0,1): Below 100 \n
+///  * VL53L1X_SetDistanceThreshold(dev,100,300,1,1): Above 300 \n
+///  * VL53L1X_SetDistanceThreshold(dev,100,300,2,1): Out of window \n
+///  * VL53L1X_SetDistanceThreshold(dev,100,300,3,1): In window \n
+///  * @param   dev : device address
+///  * @param  	ThreshLow(in mm) : the threshold under which one the device raises an interrupt if Window = 0
+///  * @param 	ThreshHigh(in mm) :  the threshold above which one the device raises an interrupt if Window = 1
+///  * @param   Window detection mode : 0=below, 1=above, 2=out, 3=in
+///  * @param   IntOnNo
 fn VL53L1X_SetDistanceThreshold(dev: u16, hreshLow: u16,
                                 ThreshHigh: u16, Window: u8,
                                 IntOnNoTarget: u8) -> VL53L1X_ERROR
@@ -864,7 +995,7 @@ fn VL53L1X_SetDistanceThreshold(dev: u16, hreshLow: u16,
     let mut status = 0;
     let mut Temp = 0;
 
-    status |= VL53L1_RdByte(dev, SYSTEM__INTERRUPT_CONFIG_GPIO, &Temp);
+    status |= VL53L1_RdByte(dev, SYSTEM__INTERRUPT_CONFIG_GPIO, &mut Temp);
     Temp = Temp & 0x47;
     if (IntOnNoTarget == 0) {
         status = VL53L1_WrByte(dev, SYSTEM__INTERRUPT_CONFIG_GPIO,
@@ -878,35 +1009,42 @@ fn VL53L1X_SetDistanceThreshold(dev: u16, hreshLow: u16,
     return status;
 }
 
+///  This function returns the window detection mode (0=below; 1=above; 2=out; 3=in)
 fn VL53L1X_GetDistanceThresholdWindow(dev: u16, window: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut tmp;
-    status |= VL53L1_RdByte(dev,SYSTEM__INTERRUPT_CONFIG_GPIO, &tmp);
+    let mut tmp = 0;
+    status |= VL53L1_RdByte(dev,SYSTEM__INTERRUPT_CONFIG_GPIO, &mut tmp);
     *window = (u16)(tmp & 0x7);
     return status;
 }
 
+/// This function returns the low threshold in mm
 fn VL53L1X_GetDistanceThresholdLow(dev: u16, low: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut tmp;
+    let mut tmp = 0;
 
-    status |= VL53L1_RdWord(dev,SYSTEM__THRESH_LOW, &tmp);
+    status |= VL53L1_RdWord(dev,SYSTEM__THRESH_LOW, &mut tmp);
     *low = tmp;
     return status;
 }
 
+/// This function returns the high threshold in mm
 fn VL53L1X_GetDistanceThresholdHigh(dev: u16, high: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut mp;
+    let mut tmp = 0;
 
-    status |= VL53L1_RdWord(dev,SYSTEM__THRESH_HIGH, &tmp);
+    status |= VL53L1_RdWord(dev, SYSTEM__THRESH_HIGH, &mut tmp);
     *high = tmp;
     return status;
 }
 
+///  This function programs the ROI (Region of Interest)\n
+///  * The ROI position is centered, only the ROI size can be reprogrammed.\n
+///  * The smallest acceptable ROI size = 4\n
+///  * @param X:ROI Width; Y=ROI Height
 fn VL53L1X_SetROICenter(dev: u16, ROICenter: u8) -> VL53L1X_ERROR
 {
     let mut status = 0;
@@ -914,25 +1052,33 @@ fn VL53L1X_SetROICenter(dev: u16, ROICenter: u8) -> VL53L1X_ERROR
     return status;
 }
 
+///  This function returns the current user ROI center
 fn VL53L1X_GetROICenter(dev: u16, ROICenter: &mut u8) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut tmp;
-    status |= VL53L1_RdByte(dev, ROI_CONFIG__USER_ROI_CENTRE_SPAD, &tmp);
+    let mut tmp = 0;
+    status |= VL53L1_RdByte(dev, ROI_CONFIG__USER_ROI_CENTRE_SPAD, &mut tmp);
     *ROICenter = tmp;
     return status;
 }
 
-fn VL53L1X_SetROI(dev: u16, X: u16, Y: u16) -> VL53L1X_ERROR
+///  This function programs the ROI (Region of Interest)\n
+///  * The ROI position is centered, only the ROI size can be reprogrammed.\n
+///  * The smallest acceptable ROI size = 4\n
+///  * @param X:ROI Width; Y=ROI Height
+///  */
+fn VL53L1X_SetROI(dev: u16, mut X: u16, mut Y: u16) -> VL53L1X_ERROR
 {
     let mut OpticalCenter;
     let mut status = 0;
 
-    status |=VL53L1_RdByte(dev, VL53L1_ROI_CONFIG__MODE_ROI_CENTRE_SPAD, &OpticalCenter);
-    if (X > 16)
-    X = 16;
-    if (Y > 16)
-    Y = 16;
+    status |=VL53L1_RdByte(dev, VL53L1_ROI_CONFIG__MODE_ROI_CENTRE_SPAD, &mut OpticalCenter);
+    if (X > 16) {
+        X = 16;
+    }
+    if (Y > 16) {
+        Y = 16;
+    }
     if (X > 10 || Y > 10){
         OpticalCenter = 199;
     }
@@ -942,18 +1088,20 @@ fn VL53L1X_SetROI(dev: u16, X: u16, Y: u16) -> VL53L1X_ERROR
     return status;
 }
 
+///  This function returns width X and height Y
 fn VL53L1X_GetROI_XY(dev: u16, ROI_X: &mut u16, ROI_Y: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut tmp;
+    let mut tmp = 0;
 
-    status = VL53L1_RdByte(dev,ROI_CONFIG__USER_ROI_REQUESTED_GLOBAL_XY_SIZE, &tmp);
-    *ROI_X |= ((u16)tmp & 0x0F) + 1;
-    *ROI_Y |= (((u16)tmp & 0xF0) >> 4) + 1;
+    status = VL53L1_RdByte(dev,ROI_CONFIG__USER_ROI_REQUESTED_GLOBAL_XY_SIZE, &mut tmp);
+    *ROI_X |= (tmp as u16 & 0x0F) + 1;
+    *ROI_Y |= (tmp as u16 & 0xF0) >> 4) + 1;
     return status;
 }
 
-fn VL53L1X_SetSignalThreshold(dev: u16, u16 Signal) -> VL53L1X_ERROR
+/// This function programs a new signal threshold in kcps (default=1024 kcps)
+fn VL53L1X_SetSignalThreshold(dev: u16, Signal: u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
 
@@ -961,18 +1109,20 @@ fn VL53L1X_SetSignalThreshold(dev: u16, u16 Signal) -> VL53L1X_ERROR
     return status;
 }
 
-fn VL53L1X_GetSignalThreshold(dev: u16, u16 *signal) -> VL53L1X_ERROR
+/// This function returns the current signal threshold in kcps
+fn VL53L1X_GetSignalThreshold(dev: u16, signal: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u16 tmp;
+    let mut tmp = 0;
 
     status |= VL53L1_RdWord(dev,
-                            RANGE_CONFIG__MIN_COUNT_RATE_RTN_LIMIT_MCPS, &tmp);
+                            RANGE_CONFIG__MIN_COUNT_RATE_RTN_LIMIT_MCPS, &mut tmp);
     *signal = tmp <<3;
     return status;
 }
 
-fn VL53L1X_SetSigmaThreshold(dev: u16, u16 Sigma) -> VL53L1X_ERROR
+/// This function programs a new sigma threshold in mm (default=15 mm)
+fn VL53L1X_SetSigmaThreshold(dev: u16, Sigma: u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
 
@@ -980,14 +1130,15 @@ fn VL53L1X_SetSigmaThreshold(dev: u16, u16 Sigma) -> VL53L1X_ERROR
         return 1;
     }
     /* 16 bits register 14.2 format */
-    status |= VL53L1_WrWord(dev,RANGE_CONFIG__SIGMA_THRESH,Sigma<<2);
+    status |= VL53L1_WrWord(dev, RANGE_CONFIG__SIGMA_THRESH, Sigma<<2);
     return status;
 }
 
+/// This function returns the current sigma threshold in mm
 fn VL53L1X_GetSigmaThreshold(dev: u16, sigma: &mut u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    let mut tmp;
+    let mut tmp = 0;
 
     status |= VL53L1_RdWord(dev,RANGE_CONFIG__SIGMA_THRESH, &tmp);
     *sigma = tmp >> 2;
@@ -995,10 +1146,13 @@ fn VL53L1X_GetSigmaThreshold(dev: u16, sigma: &mut u16) -> VL53L1X_ERROR
 
 }
 
+///  This function performs the temperature calibration.
+///  * It is recommended to call this function any time the temperature might have changed by more than 8 deg C
+///  * without sensor ranging activity for an extended period.
 fn VL53L1X_StartTemperatureUpdate(dev: u16) -> VL53L1X_ERROR
 {
     let mut status = 0;
-    u8 tmp=0;
+    let mut tmp= 0;
 
     status |= VL53L1_WrByte(dev,VL53L1_VHV_CONFIG__TIMEOUT_MACROP_LOOP_BOUND,0x81); /* full VHV */
     status |= VL53L1_WrByte(dev,0x0B,0x92);
@@ -1014,54 +1168,47 @@ fn VL53L1X_StartTemperatureUpdate(dev: u16) -> VL53L1X_ERROR
     return status;
 }
 
-/**
- * @file  vl53l1x_calibration.c
- * @brief Calibration functions implementation
- */
-#include "VL53L1X_api.h"
-#include "VL53L1X_calibration.h"
-
-const ALGO__PART_TO_PART_RANGE_OFFSET_MM	0x001E
-const MM_CONFIG__INNER_OFFSET_MM			0x0020
-const MM_CONFIG__OUTER_OFFSET_MM 			0x0022
+// Start of VL53L1X_calibration.c
 
 /**
- * @brief This function performs the offset calibration.\n
+ This function performs the offset calibration.\n
  * The function returns the offset value found and programs the offset compensation into the device.
  * @param TargetDistInMm target distance in mm, ST recommended 100 mm
  * Target reflectance = grey17%
  * @return 0:success, !=0: failed
  * @return offset pointer contains the offset found in mm
  */
-fn VL53L1X_CalibrateOffset(dev: u16, u16 TargetDistInMm, int16_t *offset) -> i8
+fn VL53L1X_CalibrateOffset(dev: u16, TargetDistInMm: u16, offset: &mut i16) -> i8
 {
-    u8 i, tmp;
-    int16_t AverageDistance = 0;
-    u16 distance;
-    let mut status = 0;
+    let mut i = 0;
+    let mut tmp = 0;
+    let mut AverageDistance = 0;
+    let mut distance = 0;
+    let mut status: i8 = 0;
 
     status |= VL53L1_WrWord(dev, ALGO__PART_TO_PART_RANGE_OFFSET_MM, 0x0);
     status |= VL53L1_WrWord(dev, MM_CONFIG__INNER_OFFSET_MM, 0x0);
     status |= VL53L1_WrWord(dev, MM_CONFIG__OUTER_OFFSET_MM, 0x0);
     status |= VL53L1X_StartRanging(dev);	/* Enable VL53L1X sensor */
-    for (i = 0; i < 50; i++) {
+
+    for i in 0..50 {
         tmp = 0;
         while (tmp == 0){
-            status |= VL53L1X_CheckForDataReady(dev, &tmp);
+            status |= VL53L1X_CheckForDataReady(dev, &mut tmp);
         }
-        status |= VL53L1X_GetDistance(dev, &distance);
+        status |= VL53L1X_GetDistance(dev, &mut distance);
         status |= VL53L1X_ClearInterrupt(dev);
         AverageDistance = AverageDistance + distance;
     }
     status |= VL53L1X_StopRanging(dev);
     AverageDistance = AverageDistance / 50;
-    *offset = TargetDistInMm - AverageDistance;
-    status |= VL53L1_WrWord(dev, ALGO__PART_TO_PART_RANGE_OFFSET_MM, *offset*4);
+    *offset = TargetDistInMm as i16 - AverageDistance as i16;
+    status |= VL53L1_WrWord(dev, ALGO__PART_TO_PART_RANGE_OFFSET_MM, offset*4);
     return status;
 }
 
 /**
- * @brief This function performs the xtalk calibration.\n
+ This function performs the xtalk calibration.\n
  * The function returns the xtalk value found and programs the xtalk compensation to the device
  * @param TargetDistInMm target distance in mm\n
  * The target distance : the distance where the sensor start to "under range"\n
@@ -1071,29 +1218,32 @@ fn VL53L1X_CalibrateOffset(dev: u16, u16 TargetDistInMm, int16_t *offset) -> i8
  * @return 0: success, !=0: failed
  * @return xtalk pointer contains the xtalk value found in cps (number of photons in count per second)
  */
-fn VL53L1X_CalibrateXtalk(dev: u16, u16 TargetDistInMm, u16 *xtalk) -> i8
+fn VL53L1X_CalibrateXtalk(dev: u16, TargetDistInMm: u16, xtalk: &mut u16) -> i8
 {
-    u8 i, tmp;
-    float AverageSignalRate = 0;
-    float AverageDistance = 0;
-    float AverageSpadNb = 0;
-    u16 distance = 0, spadNum;
-    u16 sr;
+    let mut tmp = 0;
+    let mut i = 0;
+    let mut AverageSignalRate = 0;
+    let mut AverageDistance = 0;
+    let mut verageSpadNb = 0;
+    let mut distance = 0;
+    let mut spadNum = 0;
+    let mut sr = 0;
     let mut status = 0;
-    u32 calXtalk;
+    let mut calXtalk = 0;
 
     status |= VL53L1_WrWord(dev, 0x0016,0);
     status |= VL53L1X_StartRanging(dev);
-    for (i = 0; i < 50; i++) {
+    for i in 0..50 {
+    // for (i = 0; i < 50; i++) {
         tmp = 0;
         while (tmp == 0){
-            status |= VL53L1X_CheckForDataReady(dev, &tmp);
+            status |= VL53L1X_CheckForDataReady(dev, &mut tmp);
         }
-        status |= VL53L1X_GetSignalRate(dev, &sr);
-        status |= VL53L1X_GetDistance(dev, &distance);
+        status |= VL53L1X_GetSignalRate(dev, &mut sr);
+        status |= VL53L1X_GetDistance(dev, &mut distance);
         status |= VL53L1X_ClearInterrupt(dev);
         AverageDistance = AverageDistance + distance;
-        status = VL53L1X_GetSpadNb(dev, &spadNum);
+        status = VL53L1X_GetSpadNb(dev, &mut spadNum);
         AverageSpadNb = AverageSpadNb + spadNum;
         AverageSignalRate =
             AverageSignalRate + sr;
@@ -1104,11 +1254,12 @@ fn VL53L1X_CalibrateXtalk(dev: u16, u16 TargetDistInMm, u16 *xtalk) -> i8
     AverageSignalRate = AverageSignalRate / 50;
     /* Calculate Xtalk value */
     calXtalk = (u16)(512*(AverageSignalRate*(1-(AverageDistance/TargetDistInMm)))/AverageSpadNb);
-    if(calXtalk  > 0xffff)
-    calXtalk = 0xffff;
+    if (calXtalk  > 0xffff) {
+        calXtalk = 0xffff;
+    }
     *xtalk = (u16)((calXtalk*1000)>>9);
     status |= VL53L1_WrWord(dev, 0x0016, (u16)calXtalk);
-    return status;
+    return status as i8;
 }
 
 

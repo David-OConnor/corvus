@@ -1,24 +1,14 @@
 ///! This module contains code related to flight controls.
-use core::ops::{Add, Sub, Mul};
+use core::{
+    ops::{Add, Sub, Mul},
+    f32::TAU,
+};
 use stm32_hal2::{pac::TIM2, timer::Timer};
 
 use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as sys;
 
 use crate::{Rotor, DT, PWM_ARR, Location};
-
-// These coefficients map desired change in flight parameters to rotor power change.
-// pitch, roll, and yaw s are in power / radians
-const PITCH_S_COEFF: f32 = 0.1;
-const ROLL_S_COEFF: f32 = 0.1;
-const YAW_S_COEFF: f32 = 0.1;
-
-const Z_V_COEFF: f32 = 0.1;
-
-// PID "constants
-const K_P: f32 = 0.1;
-const K_I: f32 = 0.05;
-const K_D: f32 = 0.;
 
 // todo: What should these be?
 const INTEGRATOR_CLAMP_MIN: f32 = -10.;
@@ -38,6 +28,38 @@ static mut FILTER_STATE_V_Z: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_V_PITCH: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_V_ROLL: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_V_YAW: [f32; 4] = [0.; 4];
+
+// In Attitude and related control modes, max pitch angle (from straight up), ie
+// full speed, without going horizontal or further.
+const MAX_PITCH: f32 = TAU * 0.22;
+
+/// Coefficients and other configurable parameters for controls.
+pub struct CtrlCoeffs {
+    // These coefficients map desired change in flight parameters to rotor power change.
+    // pitch, roll, and yaw s are in power / radians
+    pid_pitch_s: f32,
+    pid_roll_s: f32,
+    pid_yaw_s: f32,
+    pid_z_s: f32,
+    
+    k_p: f32,
+    k_i: f32,
+    k_d: f32
+}
+
+impl Default for CtrlCoeffs {
+    fn default() -> Self {
+        Self {
+            pid_pitch_s: 0.1,
+            pid_roll_s: 0.1,
+            pid_yaw_s: 0.1,
+            pid_z_s: 0.1,
+            k_p: 0.1,
+            k_i: 0.05,
+            k_d: 0.01,
+        }
+    }
+}
 
 /// Used to satisfy RTIC resource Send requirements.
 pub struct IirInstWrapper {
@@ -262,6 +284,41 @@ impl PidState {
     }
 }
 
+/// Proportional, Integral, Derivative error, for flight parameter control updates.
+/// For only a single set (s, v, a). Note that e is the error betweeen commanded
+/// and measured, while the other terms include the PID coefficients (K_P) etc.
+/// So, `p` is always `e` x `K_P`.
+/// todo: Consider using Params, eg this is the error for a whole set of params.
+#[derive(Default)]
+pub struct PidState2 {
+    /// Measurement: Used for the derivative.
+    pub measurement: f32,
+    /// Error term. (No coeff multiplication). Used for the integrator
+    pub e: f32,
+    /// Proportional term
+    pub p: f32,
+    /// Integral term
+    pub i: f32,
+    /// Derivative term
+    pub d: f32,
+}
+
+impl PidState2 {
+    /// Anti-windup integrator clamp
+    pub fn anti_windup_clamp(&mut self) {
+        if self.i > INTEGRATOR_CLAMP_MAX {
+            self.i = INTEGRATOR_CLAMP_MAX;
+        } else if self.i < INTEGRATOR_CLAMP_MIN {
+            self.i = INTEGRATOR_CLAMP_MIN;
+        }
+    }
+
+    pub fn out(&self) -> f32 {
+        // todo: Consider where you want this. This is fine for now; maybe even in general.
+        self.p + self.i + self.d
+    }
+}
+
 
 /// Mode used for control inputs. These are the three "industry-standard" modes.
 pub enum InputMode {
@@ -343,24 +400,29 @@ impl FlightCmd {
                     y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.pitch)),
                     x_roll: Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.roll)),
                     yaw: Some((ParamType::V, inputs.yaw)),
-                    z: None,
+                    // z: None,
+                    // todo: Is this right?
+                    z: Some((ParamType::V, inputs.throttle)),
                 }
             }
             InputMode::Attitude => {
                 Self {
                     // todo: Does this require an inner/outer loop scheme to manage
                     // todo pitch and roll?
-                    y_pitch: Some((CtrlConstraint::Xy, ParamType::V, inputs.pitch)),
-                    x_roll: Some((CtrlConstraint::Xy, ParamType::V, inputs.roll)),
-                    // y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::V, 0.)),
-                    // x_roll: Some((CtrlConstraint::PitchRoll, ParamType::V, 0.)),
-                    z: Some((ParamType::V, inputs.throttle)),
+                    // y_pitch: Some((CtrlConstraint::Xy, ParamType::V, inputs.pitch)),
+                    // x_roll: Some((CtrlConstraint::Xy, ParamType::V, inputs.roll)),
+                    y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::S, inputs.pitch)),
+                    x_roll: Some((CtrlConstraint::PitchRoll, ParamType::S, inputs.roll)),
+                    // z: Some((ParamType::V, inputs.throttle)),
                     yaw: Some((ParamType::V, inputs.yaw)),
+                    // z: None,
+                    z: Some((ParamType::V, inputs.throttle)),
                 }
             }
             InputMode::Loiter => {
                 // todo: Does this require an inner/outer loop scheme to manage
                 // todo pitch and roll? Or 3 loop scheme for position, V, pitch/roll?
+                // todo: EIther way: Don't use this yet!!
                 Self {
                     y_pitch: Some((CtrlConstraint::Xy, ParamType::S, inputs.pitch)),
                     x_roll: Some((CtrlConstraint::Xy, ParamType::S, inputs.roll)),
@@ -655,30 +717,37 @@ pub fn takeoff_speed(height: f32) -> f32 {
 /// Example: https://github.com/pms67/PID/blob/master/PID.c
 /// todo: COnsider consolidating these instead of sep for s, v, a.
 pub fn calc_pid_error(
-    params: &Params,
-    flight_cmd: &FlightCmd,
-    prev_pid_s: &PidState,
-    prev_pid_v: &PidState,
-    filters: PidDerivFilters,
-) -> (PidState, PidState) {
+    set_pt: f32,
+    measurement: f32,
+    // params: &Params,
+    // flight_cmd: &FlightCmd,
+    // coeffs: &CtrlCoeffs,
+    // prev_pid_s: &PidState,
+    // prev_pid_v: &PidState,
+    prev_pid: &PidState2,
+    coeffs: CtrlCoeffs,
+    // filters: PidDerivFilters,
+    filter: IirInstWrapper,
+    // This `dt` is dynamic, since we don't necessarily run this function at a fixed interval.
+    dt: f32,
+// ) -> (PidState, PidState) {
+) -> PidState2{
     // Find appropriate control inputs using PID control.
 
 
-    match flight_cmd.z {
-        Some(cmd) => ,
-        None =>
-    }
-    let error_e_v = K_P * ParamsInst {
-        z: flight_cmd.z.unwrap_or((ParamType::V, 0.)).1 - params.v_z,
-        ..Default::default()
-    };
+    // let error_e_v = coeffs.k_p * ParamsInst {
+    //     z: flight_cmd.z.unwrap_or((ParamType::V, 0.)).1 - params.v_z,
+    //     ..Default::default()
+    // };
 
-    let error_e_s = K_P * ParamsInst {
-        pitch: flight_cmd.y_pitch.unwrap_or((CtrlConstraint::PitchRoll, ParamType::S, 0.)).2 - params.s_pitch,
-        roll: flight_cmd.x_roll.unwrap_or((CtrlConstraint::PitchRoll, ParamType::S, 0.)).2 - params.s_roll,
-        yaw:  flight_cmd.yaw.unwrap_or((ParamType::S, 0.)).1 - params.s_yaw,
-        ..Default::default()
-    };
+    // let error_e_s = K_P * ParamsInst {
+    //     pitch: flight_cmd.y_pitch.unwrap_or((CtrlConstraint::PitchRoll, ParamType::S, 0.)).2 - params.s_pitch,
+    //     roll: flight_cmd.x_roll.unwrap_or((CtrlConstraint::PitchRoll, ParamType::S, 0.)).2 - params.s_roll,
+    //     yaw:  flight_cmd.yaw.unwrap_or((ParamType::S, 0.)).1 - params.s_yaw,
+    //     ..Default::default()
+    // };
+
+    let error = set_pt - measurement;
 
     // todo: Apply lowpass to derivative term. (Anywhere in its linear sequence)
 
@@ -687,71 +756,96 @@ pub fn calc_pid_error(
     // todo: Minor optomization: Store the constant terms once, and recall instead of calcing
     // todo them each time (eg the parts with DT, 2., tau.
     // https://www.youtube.com/watch?v=zOByx3Izf5U
-    // todo: What is tau??
-    let error_p_s = K_P * error_e_s;
-    let error_i_s = K_I * DT/2. * (error_e_s + prev_pid_s.e) + prev_pid_s.i;
+    // let error_p_s = K_P * error_e_s;
+    let error_p = coeffs.k_p * error_e_s;
+    // let error_i_s = K_I * DT/2. * (error_e_s + prev_pid_s.e) + prev_pid_s.i;
+    let error_i = coeffs.k_i * dt/2. * (error + prev_pid.e) + prev_pid.i;
     // let error_d_s = 2.*K_D / (2.*tau + DT) * (error_e_s - prev_error.s.e) + ((2.*tau - DT) / (2.*tau+DT)) * prev_error.s.d;
     // let error_d_s_prefilt = (error_e_s - prev_error.s.e) / DT;
     // Derivative on measurement vice error, to avoid derivative kick.
-    let error_d_s_prefilt = (params.get_s() - prev_pid_s.measurement) / DT;
+    // let error_d_s_prefilt = (params.get_s() - prev_pid_s.measurement) / DT;
 
-    let error_p_v = K_P * error_e_v;
-    let error_i_v = K_I * DT/2. * (error_e_v + prev_pid_v.e) + prev_error.v.i;
-    let error_d_v_prefilt = (params.get_v() - prev_pid_v.measurement) / DT;
+    let error_d_prefilt = coeffs.k_d * (measurement - prev_pid.measurement) / dt;
+    //
+    // let error_p_v = K_P * error_e_v;
+    // let error_i_v = K_I * DT/2. * (error_e_v + prev_pid_v.e) + prev_error.v.i;
+    // let error_d_v_prefilt = (params.get_v() - prev_pid_v.measurement) / DT;
 
     // todo: Avoid this DRY with a method on `filter`
-    let mut error_d_v_pitch = [0.];
+    // let mut error_d_v_pitch = [0.];
+    let mut error_d = [0.];
     unsafe {
-        dsp_api::biquad_cascade_df1_f32(
-            filters.s_pitch,
-            &[error_d_v_prefilt.pitch],
-            &mut error_d_v_pitch,
-            1,
-        );
+        // dsp_api::biquad_cascade_df1_f32(
+        //     filters.s_pitch,
+        //     &[error_d_v_prefilt.pitch],
+        //     &mut error_d_v_pitch,
+        //     1,
+        // );
 
-        let mut error_d_v_roll = [0.];
+        // let mut error_d_v_roll = [0.];
         dsp_api::biquad_cascade_df1_f32(
-            filters.s_roll,
-            &[error_d_v_prefilt.roll],
-            &mut error_d_v_roll,
+            filters.inner,
+            &[error_d_prefilt],
+            &mut error_d,
             1,
         );
     }
 
-    let mut error_s = PidState {
-        e: error_e_s,
-        p: error_p_s,
-        i: error_i_s,
-        d: error_d_s,
+    // let mut error_s = PidState {
+    //     measurement: Default::default(),
+    //     e: error_e_s,
+    //     p: error_p_s,
+    //     i: error_i_s,
+    //     d: error_d_s,
+    // };
+
+    let mut error = PidState2 {
+        measurement,
+        e: error_e,
+        p: error_p,
+        i: error_i,
+        d: error_d[0],
     };
 
-    let mut error_v = PidState {
-        e: error_e_s,
-        p: error_p_v,
-        i: error_i_v,
-        d: error_d_v,
-    };
+    // let mut error_v = PidState {
+    //     e: error_e_s,
+    //     p: error_p_v,
+    //     i: error_i_v,
+    //     d: error_d_v,
+    // };
 
-    error_s.anti_windup_clamp();
-    error_v.anti_windup_clamp();
+    error.anti_windup_clamp();
+    // error_v.anti_windup_clamp();
 
-    (error_s, error_v)
+    // (error_s, error_v)
+    error
 }
 
 /// Adjust controls for a given flight command and PID error.
 /// todo: Separate module for code that directly updates the rotors?
 pub fn adjust_ctrls(
-    throttle_adj: f32, // temp for acro?
-    pid_s: PidState,
-    pid_v: PidState,
+    // throttle_adj: f32, // temp for acro?
+    // pid_s: PidState,
+    // pid_v: PidState,
+    pid_pitch: PidState2,
+    pid_roll: PidState2,
+    pid_yaw: PidState2,
+    pid_pwr: PidState2,
     current_pwr: &mut RotorPower,
     rotor_pwm: &mut Timer<TIM2>,
 ) {
 
     // todo: Expand and populate this. Currently set up for "acro" controls only.
-    let pitch_adj = pid_v.p.pitch + pid_v.i.pitch + pid_v.d.pitch;
-    let roll_adj = pid_v.p.roll + pid_v.i.roll + pid_v.d.roll;
-    let yaw_adj = pid_v.p.yaw + pid_v.i.yaw + pid_v.d.yaw;
+    // let pitch_adj = pid_v.p.pitch + pid_v.i.pitch + pid_v.d.pitch;
+    // let roll_adj = pid_v.p.roll + pid_v.i.roll + pid_v.d.roll;
+    // let yaw_adj = pid_v.p.yaw + pid_v.i.yaw + pid_v.d.yaw;
+
+    // todo: Is this fn superfluous?
+
+    let pitch_adj = pid_pitch.out();
+    let roll_adj = pid_roll.out();
+    let yaw_adj = pid_yaw.out();
+    let pwr_adj = pid_pwr.out();
 
     // alternatively:
     // let throttle_adj = pid_v.p.z + pid_v.i.z + pid_v.d.z;
@@ -762,7 +856,7 @@ pub fn adjust_ctrls(
         pitch_adj,
         roll_adj,
         yaw_adj,
-        throttle_adj,
+        pwr_adj,
         current_pwr, // modified in place, and therefore upstream.
         rotor_pwm,
     );
