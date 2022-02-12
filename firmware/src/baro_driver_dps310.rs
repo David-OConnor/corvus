@@ -1,20 +1,17 @@
 //! This module contains code for the Infineon DPS310 barometer.
 
-use stm32_hal2::{
-    i2c::I2c,
-    pac::I2C1,
-};
+use stm32_hal2::{i2c::I2c, pac::I2C1};
 
 /// Used to calibrate. Can use a single point, in conjunction with a standard
 /// atmosphere model.
 struct BaroCalPt {
     pressure: f32, // Pa
     altitude: f32, // MSL, via GPS, in meters
-    temp: f32,  // C
+    temp: f32,     // C
 }
 
 pub struct Barometer {
-    calibration: BaroCalPt
+    calibration: BaroCalPt,
 }
 
 impl Barometer {
@@ -22,7 +19,7 @@ impl Barometer {
         self.calibration = BaroCalPt {
             pressure: self.read(),
             altitude,
-            temp
+            temp,
         }
     }
 
@@ -35,7 +32,7 @@ impl Barometer {
 }
 
 /// Interpret pressure as altitude. Pressure is in kPa.
-pub fn pressure_to_alt(pressure: f32 ) -> f32 {
+pub fn pressure_to_alt(pressure: f32) -> f32 {
     // todo: If you use more than one baro driver, move this outside this module; it's a general fn.
     // P = 101.29 * (((T + 273.1))/288.08)^5.256   (in kPa)
     // T = 150.4 - .00649h

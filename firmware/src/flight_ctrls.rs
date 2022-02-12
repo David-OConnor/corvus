@@ -1,14 +1,15 @@
 ///! This module contains code related to flight controls.
 use core::{
-    ops::{Add, Sub, Mul},
     f32::TAU,
+    ops::{Add, Mul, Sub},
 };
+
 use stm32_hal2::{pac::TIM2, timer::Timer};
 
 use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as sys;
 
-use crate::{Rotor, DT, PWM_ARR, Location};
+use crate::{Location, Rotor, DT, PWM_ARR};
 
 // todo: What should these be?
 const INTEGRATOR_CLAMP_MIN: f32 = -10.;
@@ -29,9 +30,14 @@ static mut FILTER_STATE_V_PITCH: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_V_ROLL: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_V_YAW: [f32; 4] = [0.; 4];
 
-// In Attitude and related control modes, max pitch angle (from straight up), ie
-// full speed, without going horizontal or further.
-const MAX_PITCH: f32 = TAU * 0.22;
+/// Cutoff frequency for our PID lowpass frequency,m in Hz
+enum LowpassCuttoff {
+    // todo: What values should these be?
+    H500,
+    H1k,
+    H10k,
+    H20k,
+}
 
 /// Coefficients and other configurable parameters for controls.
 pub struct CtrlCoeffs {
@@ -41,10 +47,12 @@ pub struct CtrlCoeffs {
     pid_roll_s: f32,
     pid_yaw_s: f32,
     pid_z_s: f32,
-    
+
     k_p: f32,
     k_i: f32,
-    k_d: f32
+    k_d: f32,
+
+    pid_deriv_lowpass_cutoff: LowpassCuttoff,
 }
 
 impl Default for CtrlCoeffs {
@@ -57,6 +65,7 @@ impl Default for CtrlCoeffs {
             k_p: 0.1,
             k_i: 0.05,
             k_d: 0.01,
+            pid_deriv_lowpass_cutoff: LowpassCutoff::H1k,
         }
     }
 }
@@ -107,7 +116,13 @@ impl PidDerivFilters {
         // for row in filter_:
         //     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
 
-        let coeffs = [0.00585605892206321, 0.00585605892206321, 0.0, 0.9882878821558736, -0.0];
+        let coeffs = [
+            0.00585605892206321,
+            0.00585605892206321,
+            0.0,
+            0.9882878821558736,
+            -0.0,
+        ];
 
         let mut result = Self {
             s_x: IirInstWrapper {
@@ -177,14 +192,22 @@ impl PidDerivFilters {
             dsp_api::biquad_cascade_df1_init_f32(result.s_x, &coeffs, &mut FILTER_STATE_S_X);
             dsp_api::biquad_cascade_df1_init_f32(result.s_y, &coeffs, &mut FILTER_STATE_S_Y);
             dsp_api::biquad_cascade_df1_init_f32(result.s_z, &coeffs, &mut FILTER_STATE_S_Z);
-            dsp_api::biquad_cascade_df1_init_f32(result.s_pitch, &coeffs, &mut FILTER_STATE_S_PITCH);
+            dsp_api::biquad_cascade_df1_init_f32(
+                result.s_pitch,
+                &coeffs,
+                &mut FILTER_STATE_S_PITCH,
+            );
             dsp_api::biquad_cascade_df1_init_f32(result.s_roll, &coeffs, &mut FILTER_STATE_S_ROLL);
             dsp_api::biquad_cascade_df1_init_f32(result.s_yaw, &coeffs, &mut FILTER_STATE_S_YAW);
 
             dsp_api::biquad_cascade_df1_init_f32(result.v_x, &coeffs, &mut FILTER_STATE_V_X);
             dsp_api::biquad_cascade_df1_init_f32(result.v_y, &coeffs, &mut FILTER_STATE_V_Y);
             dsp_api::biquad_cascade_df1_init_f32(result.v_z, &coeffs, &mut FILTER_STATE_V_Z);
-            dsp_api::biquad_cascade_df1_init_f32(result.v_pitch, &coeffs, &mut FILTER_STATE_V_PITCH);
+            dsp_api::biquad_cascade_df1_init_f32(
+                result.v_pitch,
+                &coeffs,
+                &mut FILTER_STATE_V_PITCH,
+            );
             dsp_api::biquad_cascade_df1_init_f32(result.v_roll, &coeffs, &mut FILTER_STATE_V_ROLL);
             dsp_api::biquad_cascade_df1_init_f32(result.v_yaw, &coeffs, &mut FILTER_STATE_V_YAW);
         }
@@ -219,69 +242,77 @@ pub enum AutopilotMode {
     /// Land automatically
     Land,
 }
+//
+// /// Proportional, Integral, Derivative error, for flight parameter control updates.
+// /// For only a single set (s, v, a). Note that e is the error betweeen commanded
+// /// and measured, while the other terms include the PID coefficients (K_P) etc.
+// /// So, `p` is always `e` x `K_P`.
+// /// todo: Consider using Params, eg this is the error for a whole set of params.
+// #[derive(Default)]
+// pub struct PidState {
+//     /// Measurement: Used for the derivative.
+//     pub measurement: ParamsInst,
+//     /// Error term. (No coeff multiplication). Used for the integrator
+//     pub e: ParamsInst,
+//     /// Proportional term
+//     pub p: ParamsInst,
+//     /// Integral term
+//     pub i: ParamsInst,
+//     /// Derivative term
+//     pub d: ParamsInst,
+// }
+//
+// impl PidState {
+//     /// Anti-windup integrator clamp
+//     pub fn anti_windup_clamp(&mut self) {
+//         // todo: We should proably have separate terms for each param (x, y, z etc; s, v, a).
+//         // todo: for now, single term.
+//
+//         // todo: DRY
+//         if self.i.x > INTEGRATOR_CLAMP_MAX {
+//             self.i.x = INTEGRATOR_CLAMP_MAX;
+//         } else if self.i.x < INTEGRATOR_CLAMP_MIN {
+//             self.i.x = INTEGRATOR_CLAMP_MIN;
+//         }
+//
+//         if self.i.y > INTEGRATOR_CLAMP_MAX {
+//             self.i.y = INTEGRATOR_CLAMP_MAX;
+//         } else if self.i.y < INTEGRATOR_CLAMP_MIN {
+//             self.i.y = INTEGRATOR_CLAMP_MIN;
+//         }
+//
+//         if self.i.z > INTEGRATOR_CLAMP_MAX {
+//             self.i.z = INTEGRATOR_CLAMP_MAX;
+//         } else if self.i.z < INTEGRATOR_CLAMP_MIN {
+//             self.i.z = INTEGRATOR_CLAMP_MIN;
+//         }
+//
+//         if self.i.pitch > INTEGRATOR_CLAMP_MAX {
+//             self.i.pitch = INTEGRATOR_CLAMP_MAX;
+//         } else if self.i.pitch < INTEGRATOR_CLAMP_MIN {
+//             self.i.pitch = INTEGRATOR_CLAMP_MIN;
+//         }
+//
+//         if self.i.roll > INTEGRATOR_CLAMP_MAX {
+//             self.i.roll = INTEGRATOR_CLAMP_MAX;
+//         } else if self.i.roll < INTEGRATOR_CLAMP_MIN {
+//             self.i.roll = INTEGRATOR_CLAMP_MIN;
+//         }
+//
+//         if self.i.yaw > INTEGRATOR_CLAMP_MAX {
+//             self.i.yaw = INTEGRATOR_CLAMP_MAX;
+//         } else if self.i.yaw < INTEGRATOR_CLAMP_MIN {
+//             self.i.yaw = INTEGRATOR_CLAMP_MIN;
+//         }
+//     }
+// }
 
-/// Proportional, Integral, Derivative error, for flight parameter control updates.
-/// For only a single set (s, v, a). Note that e is the error betweeen commanded
-/// and measured, while the other terms include the PID coefficients (K_P) etc.
-/// So, `p` is always `e` x `K_P`.
-/// todo: Consider using Params, eg this is the error for a whole set of params.
 #[derive(Default)]
-pub struct PidState {
-    /// Measurement: Used for the derivative.
-    pub measurement: ParamsInst,
-    /// Error term. (No coeff multiplication). Used for the integrator
-    pub e: ParamsInst,
-    /// Proportional term
-    pub p: ParamsInst,
-    /// Integral term
-    pub i: ParamsInst,
-    /// Derivative term
-    pub d: ParamsInst,
-}
-
-impl PidState {
-    /// Anti-windup integrator clamp
-    pub fn anti_windup_clamp(&mut self) {
-        // todo: We should proably have separate terms for each param (x, y, z etc; s, v, a).
-        // todo: for now, single term.
-
-        // todo: DRY
-        if self.i.x > INTEGRATOR_CLAMP_MAX {
-            self.i.x = INTEGRATOR_CLAMP_MAX;
-        } else if self.i.x < INTEGRATOR_CLAMP_MIN {
-            self.i.x = INTEGRATOR_CLAMP_MIN;
-        }
-
-        if self.i.y > INTEGRATOR_CLAMP_MAX {
-            self.i.y = INTEGRATOR_CLAMP_MAX;
-        } else if self.i.y < INTEGRATOR_CLAMP_MIN {
-            self.i.y = INTEGRATOR_CLAMP_MIN;
-        }
-
-        if self.i.z > INTEGRATOR_CLAMP_MAX {
-            self.i.z = INTEGRATOR_CLAMP_MAX;
-        } else if self.i.z < INTEGRATOR_CLAMP_MIN {
-            self.i.z = INTEGRATOR_CLAMP_MIN;
-        }
-
-        if self.i.pitch > INTEGRATOR_CLAMP_MAX {
-            self.i.pitch = INTEGRATOR_CLAMP_MAX;
-        } else if self.i.pitch < INTEGRATOR_CLAMP_MIN {
-            self.i.pitch = INTEGRATOR_CLAMP_MIN;
-        }
-
-        if self.i.roll > INTEGRATOR_CLAMP_MAX {
-            self.i.roll = INTEGRATOR_CLAMP_MAX;
-        } else if self.i.roll < INTEGRATOR_CLAMP_MIN {
-            self.i.roll = INTEGRATOR_CLAMP_MIN;
-        }
-
-        if self.i.yaw > INTEGRATOR_CLAMP_MAX {
-            self.i.yaw = INTEGRATOR_CLAMP_MAX;
-        } else if self.i.yaw < INTEGRATOR_CLAMP_MIN {
-            self.i.yaw = INTEGRATOR_CLAMP_MIN;
-        }
-    }
+struct PidGroup {
+    pitch: PidState2,
+    roll: PidState2,
+    yaw: PidState2,
+    z: PidState2,
 }
 
 /// Proportional, Integral, Derivative error, for flight parameter control updates.
@@ -319,19 +350,20 @@ impl PidState2 {
     }
 }
 
-
 /// Mode used for control inputs. These are the three "industry-standard" modes.
 pub enum InputMode {
     /// Rate, also know as manual, hard or Acro. Attitude and power stay the same after
     /// releasing controls.
-    Rate,
-    /// Attitude also know as self-level or Auto-level. Attitude resets to a level
-    /// hover after releasing controls.
+    Acro,
+    /// Attitude also know as self-level, angle, or Auto-level. Attitude resets to a level
+    /// hover after releasing controls.  When moving the
+    /// roll/pitch stick to its maximum position, the drone will also reach the maximum angle
+    /// it’s allowed to tilt (defined by the user), and it won’t flip over. As you release the
+    /// stick back to centre, the aircraft will also return to its level position.
     Attitude,
     /// GPS-hold, also known as Loiter. Maintains a specific position.
     Loiter,
 }
-
 
 /// Stores the current manual inputs to the system. `pitch`, `yaw`, and `roll` are in range -1. to +1.
 /// `throttle` is in range 0. to 1. Corresponds to stick positions on a controller, but can
@@ -364,7 +396,7 @@ pub enum ParamType {
 /// The quadcopter is an under-actuated system. So, some motions are coupled.
 /// Eg to command x or y motion, we just also command pitch and roll respectively.
 /// This enum specifies which we're using.
-enum CtrlConstraint {
+pub enum CtrlConstraint {
     Xy,
     PitchRoll,
 }
@@ -376,8 +408,8 @@ enum CtrlConstraint {
 pub struct FlightCmd {
     pub x_roll: Option<(CtrlConstraint, ParamType, f32)>,
     pub y_pitch: Option<(CtrlConstraint, ParamType, f32)>,
-    pub z: Option<(ParamType, f32)>,
     pub yaw: Option<(ParamType, f32)>,
+    pub z: Option<(ParamType, f32)>,
 }
 
 impl FlightCmd {
@@ -387,7 +419,7 @@ impl FlightCmd {
     // pub fn add_inputs(&mut self, inputs: CtrlInputs, mode: InputMode) {
     pub fn from_inputs(inputs: CtrlInputs, mode: InputMode) -> Self {
         match mode {
-            InputMode::Rate => {
+            InputMode::Acro => {
                 // let self_x = self.x_roll.unwrap_or(0.);
                 // let self_y = self.y_pitch.unwrap_or(0.);
                 // let self_z = self.z.unwrap_or(0.);
@@ -400,17 +432,15 @@ impl FlightCmd {
                     y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.pitch)),
                     x_roll: Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.roll)),
                     yaw: Some((ParamType::V, inputs.yaw)),
-                    // z: None,
                     // todo: Is this right?
                     z: Some((ParamType::V, inputs.throttle)),
                 }
             }
             InputMode::Attitude => {
                 Self {
-                    // todo: Does this require an inner/outer loop scheme to manage
-                    // todo pitch and roll?
                     // y_pitch: Some((CtrlConstraint::Xy, ParamType::V, inputs.pitch)),
                     // x_roll: Some((CtrlConstraint::Xy, ParamType::V, inputs.roll)),
+                    // todo: Naive approach commented out below, with hard set
                     y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::S, inputs.pitch)),
                     x_roll: Some((CtrlConstraint::PitchRoll, ParamType::S, inputs.roll)),
                     // z: Some((ParamType::V, inputs.throttle)),
@@ -439,7 +469,6 @@ impl FlightCmd {
                 // self.yaw =  Some((ParamType::V, self_yaw + inputs.yaw));
             }
         }
-
     }
 
     // Command a basic hover. Maintains an altitude and pitch, and attempts to maintain position,
@@ -697,7 +726,7 @@ pub fn landing_speed(height: f32) -> f32 {
     // todo: LUT?
 
     if height > 2. {
-        return 0.5
+        return 0.5;
     }
     height / 4.
 }
@@ -707,7 +736,7 @@ pub fn takeoff_speed(height: f32) -> f32 {
     // todo: LUT?
 
     if height > 2. {
-        return 0.
+        return 0.;
     }
     height / 4. + 0.01
 }
@@ -715,89 +744,35 @@ pub fn takeoff_speed(height: f32) -> f32 {
 /// Calculate the PID error given flight parameters, and a flight
 /// command.
 /// Example: https://github.com/pms67/PID/blob/master/PID.c
-/// todo: COnsider consolidating these instead of sep for s, v, a.
 pub fn calc_pid_error(
     set_pt: f32,
     measurement: f32,
-    // params: &Params,
-    // flight_cmd: &FlightCmd,
-    // coeffs: &CtrlCoeffs,
-    // prev_pid_s: &PidState,
-    // prev_pid_v: &PidState,
     prev_pid: &PidState2,
     coeffs: CtrlCoeffs,
-    // filters: PidDerivFilters,
     filter: IirInstWrapper,
     // This `dt` is dynamic, since we don't necessarily run this function at a fixed interval.
     dt: f32,
-// ) -> (PidState, PidState) {
-) -> PidState2{
+) -> PidState2 {
     // Find appropriate control inputs using PID control.
 
-
-    // let error_e_v = coeffs.k_p * ParamsInst {
-    //     z: flight_cmd.z.unwrap_or((ParamType::V, 0.)).1 - params.v_z,
-    //     ..Default::default()
-    // };
-
-    // let error_e_s = K_P * ParamsInst {
-    //     pitch: flight_cmd.y_pitch.unwrap_or((CtrlConstraint::PitchRoll, ParamType::S, 0.)).2 - params.s_pitch,
-    //     roll: flight_cmd.x_roll.unwrap_or((CtrlConstraint::PitchRoll, ParamType::S, 0.)).2 - params.s_roll,
-    //     yaw:  flight_cmd.yaw.unwrap_or((ParamType::S, 0.)).1 - params.s_yaw,
-    //     ..Default::default()
-    // };
-
     let error = set_pt - measurement;
-
-    // todo: Apply lowpass to derivative term. (Anywhere in its linear sequence)
 
     // todo: Determine if you want a deriv component at all; it's apparently not commonly used.
 
     // todo: Minor optomization: Store the constant terms once, and recall instead of calcing
     // todo them each time (eg the parts with DT, 2., tau.
     // https://www.youtube.com/watch?v=zOByx3Izf5U
-    // let error_p_s = K_P * error_e_s;
     let error_p = coeffs.k_p * error_e_s;
-    // let error_i_s = K_I * DT/2. * (error_e_s + prev_pid_s.e) + prev_pid_s.i;
-    let error_i = coeffs.k_i * dt/2. * (error + prev_pid.e) + prev_pid.i;
-    // let error_d_s = 2.*K_D / (2.*tau + DT) * (error_e_s - prev_error.s.e) + ((2.*tau - DT) / (2.*tau+DT)) * prev_error.s.d;
-    // let error_d_s_prefilt = (error_e_s - prev_error.s.e) / DT;
+    let error_i = coeffs.k_i * dt / 2. * (error + prev_pid.e) + prev_pid.i;
     // Derivative on measurement vice error, to avoid derivative kick.
-    // let error_d_s_prefilt = (params.get_s() - prev_pid_s.measurement) / DT;
-
     let error_d_prefilt = coeffs.k_d * (measurement - prev_pid.measurement) / dt;
-    //
-    // let error_p_v = K_P * error_e_v;
-    // let error_i_v = K_I * DT/2. * (error_e_v + prev_pid_v.e) + prev_error.v.i;
-    // let error_d_v_prefilt = (params.get_v() - prev_pid_v.measurement) / DT;
 
     // todo: Avoid this DRY with a method on `filter`
     // let mut error_d_v_pitch = [0.];
     let mut error_d = [0.];
     unsafe {
-        // dsp_api::biquad_cascade_df1_f32(
-        //     filters.s_pitch,
-        //     &[error_d_v_prefilt.pitch],
-        //     &mut error_d_v_pitch,
-        //     1,
-        // );
-
-        // let mut error_d_v_roll = [0.];
-        dsp_api::biquad_cascade_df1_f32(
-            filters.inner,
-            &[error_d_prefilt],
-            &mut error_d,
-            1,
-        );
+        dsp_api::biquad_cascade_df1_f32(filters.inner, &[error_d_prefilt], &mut error_d, 1);
     }
-
-    // let mut error_s = PidState {
-    //     measurement: Default::default(),
-    //     e: error_e_s,
-    //     p: error_p_s,
-    //     i: error_i_s,
-    //     d: error_d_s,
-    // };
 
     let mut error = PidState2 {
         measurement,
@@ -807,26 +782,14 @@ pub fn calc_pid_error(
         d: error_d[0],
     };
 
-    // let mut error_v = PidState {
-    //     e: error_e_s,
-    //     p: error_p_v,
-    //     i: error_i_v,
-    //     d: error_d_v,
-    // };
-
     error.anti_windup_clamp();
-    // error_v.anti_windup_clamp();
 
-    // (error_s, error_v)
     error
 }
 
 /// Adjust controls for a given flight command and PID error.
 /// todo: Separate module for code that directly updates the rotors?
 pub fn adjust_ctrls(
-    // throttle_adj: f32, // temp for acro?
-    // pid_s: PidState,
-    // pid_v: PidState,
     pid_pitch: PidState2,
     pid_roll: PidState2,
     pid_yaw: PidState2,
@@ -834,23 +797,12 @@ pub fn adjust_ctrls(
     current_pwr: &mut RotorPower,
     rotor_pwm: &mut Timer<TIM2>,
 ) {
-
-    // todo: Expand and populate this. Currently set up for "acro" controls only.
-    // let pitch_adj = pid_v.p.pitch + pid_v.i.pitch + pid_v.d.pitch;
-    // let roll_adj = pid_v.p.roll + pid_v.i.roll + pid_v.d.roll;
-    // let yaw_adj = pid_v.p.yaw + pid_v.i.yaw + pid_v.d.yaw;
-
     // todo: Is this fn superfluous?
 
     let pitch_adj = pid_pitch.out();
     let roll_adj = pid_roll.out();
     let yaw_adj = pid_yaw.out();
     let pwr_adj = pid_pwr.out();
-
-    // alternatively:
-    // let throttle_adj = pid_v.p.z + pid_v.i.z + pid_v.d.z;
-    // this lets throttle control altitude, albeit coupled with speed if not level.
-    // (Assuming PID argument are set up correctly for this)
 
     change_attitude(
         pitch_adj,

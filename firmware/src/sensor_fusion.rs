@@ -15,7 +15,6 @@
 //!
 //!
 
-
 // C file with impl of EKF for quaternion rotation:
 // https://github.com/pms67/EKF-Quaternion-Attitude-Estimation/blob/master/EKF.h
 // https://github.com/pms67/EKF-Quaternion-Attitude-Estimation/blob/master/updateEKFQuatAtt.m
@@ -85,5 +84,4 @@ pub fn estimate_attitude(readings: ImuReadings) {
     // Integrate Euler rates to get estimate of roll and pitch angles.
     ϕ_est = ϕ_hat + DT * v_ϕ;
     θ_est = θ_hat + DT * v_θ;
-
 }
