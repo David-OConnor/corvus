@@ -4,7 +4,7 @@ use core::{
     ops::{Add, Mul, Sub},
 };
 
-use stm32_hal2::{pac::TIM2, timer::Timer};
+use stm32_hal2::{pac::{TIM3, TIM5}, timer::Timer};
 
 use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as sys;
@@ -48,9 +48,13 @@ pub struct CtrlCoeffs {
     pid_yaw_s: f32,
     pid_z_s: f32,
 
-    k_p: f32,
-    k_i: f32,
-    k_d: f32,
+    k_p_s: f32,
+    k_i_s: f32,
+    k_d_s: f32,
+
+    k_p_v: f32,
+    k_i_v: f32,
+    k_d_v: f32,
 
     pid_deriv_lowpass_cutoff: LowpassCuttoff,
 }
@@ -62,12 +66,25 @@ impl Default for CtrlCoeffs {
             pid_roll_s: 0.1,
             pid_yaw_s: 0.1,
             pid_z_s: 0.1,
-            k_p: 0.1,
-            k_i: 0.05,
-            k_d: 0.01,
+
+            // todo: Diff coeffs for diff cases;
+            k_p_s: 0.1,
+            k_i_s: 0.00,
+            k_d_s: 0.00,
+            k_p_v: 0.1,
+            k_i_v: 0.00,
+            k_d_v: 0.00,
             pid_deriv_lowpass_cutoff: LowpassCutoff::H1k,
         }
     }
+}
+
+#[derive(Default)]
+// todo: Do we use this, or something more general like FlightCmd
+pub struct CommandState {
+    x: f32,
+    y: f32,
+    alt: f32, // m MSL
 }
 
 /// Used to satisfy RTIC resource Send requirements.
@@ -78,31 +95,41 @@ unsafe impl Send for IirInstWrapper {}
 
 /// Store lowpass IIR filter instances, for use with the deriv terms of our PID loop.
 pub struct PidDerivFilters {
-    pub s_x: IirInstWrapper,
-    pub s_y: IirInstWrapper,
-    pub s_z: IirInstWrapper,
-
-    pub s_pitch: IirInstWrapper,
-    pub s_roll: IirInstWrapper,
-    pub s_yaw: IirInstWrapper,
-
-    // Velocity
-    pub v_x: IirInstWrapper,
-    pub v_y: IirInstWrapper,
-    pub v_z: IirInstWrapper,
-
-    pub v_pitch: IirInstWrapper,
-    pub v_roll: IirInstWrapper,
-    pub v_yaw: IirInstWrapper,
-
-    // Acceleration
-    pub a_x: IirInstWrapper,
-    pub a_y: IirInstWrapper,
-    pub a_z: IirInstWrapper,
-
-    pub a_pitch: IirInstWrapper,
-    pub a_roll: IirInstWrapper,
-    pub a_yaw: IirInstWrapper,
+    // pub s_x: IirInstWrapper,
+    // pub s_y: IirInstWrapper,
+    // pub s_z: IirInstWrapper,
+    // 
+    // pub s_pitch: IirInstWrapper,
+    // pub s_roll: IirInstWrapper,
+    // pub s_yaw: IirInstWrapper,
+    // 
+    // // Velocity
+    // pub v_x: IirInstWrapper,
+    // pub v_y: IirInstWrapper,
+    // pub v_z: IirInstWrapper,
+    // 
+    // pub v_pitch: IirInstWrapper,
+    // pub v_roll: IirInstWrapper,
+    // pub v_yaw: IirInstWrapper,
+    // 
+    // // Acceleration
+    // pub a_x: IirInstWrapper,
+    // pub a_y: IirInstWrapper,
+    // pub a_z: IirInstWrapper,
+    // 
+    // pub a_pitch: IirInstWrapper,
+    // pub a_roll: IirInstWrapper,
+    // pub a_yaw: IirInstWrapper,
+    // 
+    pub mid_x: IirInstWrapper,
+    pub mid_y: IirInstWrapper,
+    pub mid_yaw: IirInstWrapper,
+    pub mid_z: IirInstWrapper,
+    
+    pub inner_x: IirInstWrapper,
+    pub inner_y: IirInstWrapper,
+    pub inner_yaw: IirInstWrapper,
+    pub inner_z: IirInstWrapper,
 }
 
 impl PidDerivFilters {
@@ -125,67 +152,94 @@ impl PidDerivFilters {
         ];
 
         let mut result = Self {
-            s_x: IirInstWrapper {
+            // s_x: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // s_y: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // s_z: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // 
+            // s_pitch: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // s_roll: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // s_yaw: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // 
+            // // Velocity
+            // v_x: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // v_y: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // v_z: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // 
+            // v_pitch: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // v_roll: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // v_yaw: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // 
+            // // Acceleration
+            // a_x: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // a_y: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // a_z: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // 
+            // a_pitch: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // a_roll: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // a_yaw: IirInstWrapper {
+            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            // },
+            // 
+            mid_x: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-            s_y: IirInstWrapper {
+            mid_y: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-            s_z: IirInstWrapper {
+            mid_z: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+            mid_yaw: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+            
+            inner_x: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+            inner_y: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+            inner_z: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+            inner_yaw: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
 
-            s_pitch: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            s_roll: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            s_yaw: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-
-            // Velocity
-            v_x: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            v_y: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            v_z: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-
-            v_pitch: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            v_roll: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            v_yaw: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-
-            // Acceleration
-            a_x: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            a_y: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            a_z: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-
-            a_pitch: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            a_roll: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            a_yaw: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
         };
 
         unsafe {
@@ -312,7 +366,7 @@ struct PidGroup {
     pitch: PidState2,
     roll: PidState2,
     yaw: PidState2,
-    z: PidState2,
+    thrust: PidState2,
 }
 
 /// Proportional, Integral, Derivative error, for flight parameter control updates.
@@ -361,8 +415,10 @@ pub enum InputMode {
     /// it’s allowed to tilt (defined by the user), and it won’t flip over. As you release the
     /// stick back to centre, the aircraft will also return to its level position.
     Attitude,
-    /// GPS-hold, also known as Loiter. Maintains a specific position.
-    Loiter,
+    // GPS-hold, also known as Loiter. Maintains a specific position.
+    /// In `Command` mode, the device loiters when idle. Otherwise, it flies at specific velocities,
+    /// and altitudes commanded by the controller.
+    Command,
 }
 
 /// Stores the current manual inputs to the system. `pitch`, `yaw`, and `roll` are in range -1. to +1.
@@ -404,69 +460,58 @@ pub enum CtrlConstraint {
 /// A set of flight parameters to achieve and/or maintain. Similar values to `Parameters`,
 /// but Options, specifying only the parameters we wish to achieve.
 /// Note:
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct FlightCmd {
     pub x_roll: Option<(CtrlConstraint, ParamType, f32)>,
     pub y_pitch: Option<(CtrlConstraint, ParamType, f32)>,
     pub yaw: Option<(ParamType, f32)>,
-    pub z: Option<(ParamType, f32)>,
+    pub thrust: Option<(ParamType, f32)>,
+    //
+    // pub x_roll: f32,
+    // pub y_pitch: f32,
+    // pub yaw: f32,
+    // pub thrust: f32,
 }
 
 impl FlightCmd {
     /// Include manual inputs into the flight command. Ie, attitude velocities.
     /// Note that this only includes
     /// rotations: It doesn't affect altitude (or use the throttle input)
-    // pub fn add_inputs(&mut self, inputs: CtrlInputs, mode: InputMode) {
     pub fn from_inputs(inputs: CtrlInputs, mode: InputMode) -> Self {
+        // todo: map to input range here, or elsewhere?
         match mode {
             InputMode::Acro => {
-                // let self_x = self.x_roll.unwrap_or(0.);
-                // let self_y = self.y_pitch.unwrap_or(0.);
-                // let self_z = self.z.unwrap_or(0.);
-                // let self_yaw = self.yaw.unwrap_or(0.);
-
-                // self.y_pitch = Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.pitch));
-                // self.x_roll = Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.roll));
-                // self.yaw =  Some((ParamType::V, self_yaw +
                 Self {
                     y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.pitch)),
                     x_roll: Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.roll)),
                     yaw: Some((ParamType::V, inputs.yaw)),
-                    // todo: Is this right?
-                    z: Some((ParamType::V, inputs.throttle)),
+                    thrust: Some((ParamType::V, inputs.throttle)),
                 }
             }
             InputMode::Attitude => {
                 Self {
-                    // y_pitch: Some((CtrlConstraint::Xy, ParamType::V, inputs.pitch)),
-                    // x_roll: Some((CtrlConstraint::Xy, ParamType::V, inputs.roll)),
-                    // todo: Naive approach commented out below, with hard set
                     y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::S, inputs.pitch)),
                     x_roll: Some((CtrlConstraint::PitchRoll, ParamType::S, inputs.roll)),
-                    // z: Some((ParamType::V, inputs.throttle)),
                     yaw: Some((ParamType::V, inputs.yaw)),
-                    // z: None,
-                    z: Some((ParamType::V, inputs.throttle)),
+                    thrust: Some((ParamType::V, inputs.throttle)),
                 }
             }
-            InputMode::Loiter => {
+            InputMode::Command => {
                 // todo: Does this require an inner/outer loop scheme to manage
                 // todo pitch and roll? Or 3 loop scheme for position, V, pitch/roll?
                 // todo: EIther way: Don't use this yet!!
+                // Note that this is for the `mid` flight command. The inner command (where we set
+                // pitch and roll) is handled upstream, in the update ISR.
                 Self {
-                    y_pitch: Some((CtrlConstraint::Xy, ParamType::S, inputs.pitch)),
-                    x_roll: Some((CtrlConstraint::Xy, ParamType::S, inputs.roll)),
+                    y_pitch: Some((CtrlConstraint::Xy, ParamType::V, inputs.pitch)),
+                    x_roll: Some((CtrlConstraint::Xy, ParamType::V, inputs.roll)),
+                    yaw: Some((ParamType::V, inputs.yaw)),
                     // throttle could control altitude set point; make sure the throttle input
                     // in this case is altitude.
-                    z: Some((ParamType::S, inputs.pitch)),
-                    // todo: S or V for yaw? Subjective. Go with existing drone schemes?
-                    yaw: Some((ParamType::V, inputs.yaw)),
+                    // todo: set Z upstream for this, eg you need to store and modify a commanded alt.
+                    // Note: This is misleading. We keep track of set point upstream.
+                    thrust: Some((ParamType::S, inputs.pitch)),
                 }
-
-                // todo
-                // self.y_pitch = Some((CtrlConstraint::PitchRoll, ParamType::V, self_y + inputs.pitch));
-                // self.x_roll = Some((CtrlConstraint::PitchRoll, ParamType::V, self_x + inputs.roll));
-                // self.yaw =  Some((ParamType::V, self_yaw + inputs.yaw));
             }
         }
     }
@@ -479,7 +524,7 @@ impl FlightCmd {
             // Maintaining attitude isn't enough. We need to compensate for wind etc.
             x_roll: Some((CtrlConstraint::Xy, ParamType::V, 0.)),
             y_pitch: Some((CtrlConstraint::Xy, ParamType::V, 0.)),
-            z: Some((ParamType::V, 0.)),
+            thrust: Some((ParamType::V, 0.)),
 
             // todo: Hover at a fixed position, using more advanced logic. Eg command an acceleration
             // todo to reach it, then slow down and alt hold while near it?
@@ -493,7 +538,7 @@ impl FlightCmd {
             y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::S, 0.)),
             x_roll: Some((CtrlConstraint::PitchRoll, ParamType::S, 0.)),
             yaw: Some((ParamType::S, 0.)),
-            z: Some((ParamType::V, 0.)),
+            thrust: Some((ParamType::V, 0.)),
             ..Default::default()
         }
     }
@@ -666,13 +711,13 @@ impl RotorPower {
     }
 
     /// Send this power command to the rotors
-    pub fn set(&mut self, rotor_timer: &mut Timer<TIM2>) {
+    pub fn set(&mut self, rotor_pwm_a: &mut Timer<TIM3>, rotor_pwm_b: &mut Timer<TIM5>) {
         self.clamp();
 
-        set_power(Rotor::R1, self.p1, rotor_timer);
-        set_power(Rotor::R2, self.p2, rotor_timer);
-        set_power(Rotor::R3, self.p3, rotor_timer);
-        set_power(Rotor::R4, self.p4, rotor_timer);
+        set_power_a(Rotor::R1, self.p1, rotor_pwm_a);
+        set_power_a(Rotor::R2, self.p2, rotor_pwm_a);
+        set_power_b(Rotor::R3, self.p3, rotor_pwm_b);
+        set_power_b(Rotor::R4, self.p4, rotor_pwm_b);
     }
 }
 
@@ -688,7 +733,8 @@ fn change_attitude(
     yaw: f32,
     throttle: f32,
     current_pwr: &mut RotorPower,
-    rotor_timer: &mut Timer<TIM2>,
+    rotor_pwm_a: &mut Timer<TIM3>,
+    rotor_pwm_b: &mut Timer<TIM5>,
 ) {
     current_pwr.p1 += pitch / PITCH_S_COEFF;
     current_pwr.p2 += pitch / PITCH_S_COEFF;
@@ -710,11 +756,19 @@ fn change_attitude(
     current_pwr.p3 *= throttle;
     current_pwr.p4 *= throttle;
 
-    current_pwr.set(rotor_timer);
+    current_pwr.set(rotor_pwm_a, rotor_pwm_b);
 }
 
 /// Set an individual rotor's power. Power ranges from 0. to 1.
-fn set_power(rotor: Rotor, power: f32, timer: &mut Timer<TIM2>) {
+fn set_power_a(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>) {
+    // todo: Use a LUT or something for performance.
+    let arr_portion = power * PWM_ARR as f32;
+
+    timer.set_duty(rotor.tim_channel(), arr_portion as u32);
+}
+
+// todo: DRY due to diff TIM types.
+fn set_power_b(rotor: Rotor, power: f32, timer: &mut Timer<TIM5>) {
     // todo: Use a LUT or something for performance.
     let arr_portion = power * PWM_ARR as f32;
 
@@ -795,7 +849,8 @@ pub fn adjust_ctrls(
     pid_yaw: PidState2,
     pid_pwr: PidState2,
     current_pwr: &mut RotorPower,
-    rotor_pwm: &mut Timer<TIM2>,
+    rotor_pwm_a: &mut Timer<TIM3>,
+    rotor_pwm_b: &mut Timer<TIM5>,
 ) {
     // todo: Is this fn superfluous?
 
@@ -810,6 +865,7 @@ pub fn adjust_ctrls(
         yaw_adj,
         pwr_adj,
         current_pwr, // modified in place, and therefore upstream.
-        rotor_pwm,
+        rotor_pwm_a,
+        rotor_pwm_b,
     );
 }

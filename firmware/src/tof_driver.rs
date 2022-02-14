@@ -5,10 +5,23 @@
 //! See Imaging software here: https://www.st.com/en/embedded-software/stsw-img019.html
 //! In particular, use the Ultra light driver: https://www.st.com/en/embedded-software/stsw-img009.html
 //! the User Manual doesn't include the actual reg writes, and there are thousands or regs!
+//!
+//! Note: 60Hz update rate.
+
+
+// Use 'Ranging mode' for AGL alt.
+// Or maybe 'Lite ranging mode, intended for MCUs, to minimize post-prcessing.
+// Perhaps `Multimode scanning mode` for terrain mapping or TF>
+
 
 // todo: Multi-zone TOF for fwd or both TOF sensors?
 
 use stm32_hal2::{i2c::I2c, pac::I2C1};
+
+use cmsis_dsp_sys::{
+    arm_sin_f32 as sin,
+    arm_cos_f32 as cos,
+};
 
 const ADDR: u8 = 0x52;
 
