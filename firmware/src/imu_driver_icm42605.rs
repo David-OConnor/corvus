@@ -1,6 +1,8 @@
 //! This module contains code for the ICM42605 inertial measuring unit.
 //! This IMU has a 8kHz maximum update rate.
 //! SPI speed max is 24Mhz.
+//!
+//! Note that both this and the DPS310 barometer read temperature.
 
 use stm32_hal2::{gpio::Pin, pac::SPI4, spi::Spi};
 

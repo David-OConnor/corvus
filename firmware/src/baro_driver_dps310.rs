@@ -1,4 +1,6 @@
 //! This module contains code for the Infineon DPS310 barometer.
+//!
+//! Note that both this and the ICM-42605 IMU read temperature.
 
 use stm32_hal2::{i2c::I2c, pac::I2C1};
 
