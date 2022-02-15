@@ -31,7 +31,6 @@ const ACCEL_CONFIG0: u8 = 0x50;
 const GYRO_CONFIG1: u8 = 0x51;
 const GYRO_ACCEL_CONFIG0: u8 = 0x52;
 
-
 const INST_SOURCE0: u8 = 0x65;
 const INST_SOURCE1: u8 = 0x66;
 const INST_SOURCE3: u8 = 0x68;
@@ -78,7 +77,6 @@ pub fn setup(spi: &mut Spi<SPI4>, cs: &mut Pin) {
     cs.set_high();
 
     // todo: Set filters?
-
 }
 
 // todo: Low power fn
@@ -123,6 +121,11 @@ pub fn read_all(spi: &mut Spi<SPI4>, cs: &mut Pin) -> ImuReadings {
     // todo: How do we map these to radians per second and m/s^2?
 
     ImuReadings {
-        a_x, a_y, a_z, v_pitch, v_roll, v_yaw
+        a_x,
+        a_y,
+        a_z,
+        v_pitch,
+        v_roll,
+        v_yaw,
     }
 }

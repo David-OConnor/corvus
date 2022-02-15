@@ -14,12 +14,9 @@
 //! to the gravity vector)."
 //!
 
-use cmsis_dsp_sys::{
-    arm_sin_f32 as sin,
-    arm_cos_f32 as cos,
-};
+use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sin_f32 as sin};
 
-use crate::flight_ctrls::{Params};
+use crate::flight_ctrls::Params;
 
 // C file with impl of EKF for quaternion rotation:
 // https://github.com/pms67/EKF-Quaternion-Attitude-Estimation/blob/master/EKF.h
@@ -39,7 +36,7 @@ use crate::flight_ctrls::{Params};
 const G: f32 = 9.8; // m/s
 
 fn tan(val: f32) -> f32 {
-    arm_sin(val) / arm_cos(val)
+    sin(val) / cos(val)
 }
 
 /// Represents sensor readings from a 6-axis accelerometer + gyro. Similar to
@@ -75,8 +72,8 @@ pub fn estimate_attitude(readings: ImuReadings) -> Params {
     // todo: time-varying bias?
 
     // Pitch and roll from accel readings alone, using gravity.
-    let ϕ_est = (ay / az).atan();
-    let θ_est = (ax / G).asin();
+    // let ϕ_est = (ay / az).atan();
+    // let θ_est = (ax / G).asin();
 
     // hat = est
 
@@ -88,12 +85,12 @@ pub fn estimate_attitude(readings: ImuReadings) -> Params {
 
     // Transform body rates to Euler angles. (Matrix multiplication)
     // todo: rename from dot etc
-    v_ϕ = readings.p + tan(θ_est) * sin(ϕ_est) * readings.q + cos(ϕ_est) * readings.r;
-    v_θ = cos(ϕ_est) * readings.q - sin(ϕ_est) * readings.r;
+    // v_ϕ = readings.p + tan(θ_est) * sin(ϕ_est) * readings.q + cos(ϕ_est) * readings.r;
+    // v_θ = cos(ϕ_est) * readings.q - sin(ϕ_est) * readings.r;
 
     // Integrate Euler rates to get estimate of roll and pitch angles.
-    ϕ_est = ϕ_hat + DT * v_ϕ;
-    θ_est = θ_hat + DT * v_θ;
+    // ϕ_est = ϕ_hat + DT * v_ϕ;
+    // θ_est = θ_hat + DT * v_θ;
 
     Params {
         ..Default::default()
