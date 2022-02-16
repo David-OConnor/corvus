@@ -14,6 +14,8 @@
 //! to the gravity vector)."
 //!
 
+// todo: Try this : https://github.com/Mayitzin/ahrs/blob/master/ahrs/filters/ekf.py
+
 use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sin_f32 as sin};
 
 use crate::flight_ctrls::Params;

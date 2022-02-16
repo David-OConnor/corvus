@@ -381,6 +381,16 @@ impl RotorPower {
 
 // todo: DMA for timer? How?
 
+/// Estimate the (single-axis) rotor tilt angle (relative to a level aircraft) to produce
+/// a desired amount of acceleration, with a given current velocity.
+/// todo: Assume level flight?
+/// // todo: come back to this later.
+fn estimate_rotor_angle(a_desired: f32, v_current: f32, ac_properties: &crate::AircraftProperties) -> f32 {
+    let drag = ac_properties.drag_coeff * v_current; // todo
+    1. / ac_properties.thrust_coeff; // todo
+    0. // todo
+}
+
 /// Set rotor speed for all 4 rotors, based on 6-axis control adjustments. Params here are power levels,
 /// from 0. to 1. This translates and applies settings to rotor controls. Modifies existing settings
 /// with the value specified.
