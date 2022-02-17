@@ -18,7 +18,8 @@ use core::f32::consts::TAU;
 
 use stm32_hal2::{i2c::I2c, pac::I2C1};
 
-use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sqrt_f32};
+// use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sqrt_f32}; // todo: sqrt missing?
+use cmsis_dsp_sys::arm_cos_f32;
 
 /// Square a number.
 /// todo: Alternatively, use the `num_traits` dep
@@ -27,13 +28,18 @@ fn sq(val: f32) -> f32 {
     val * val
 }
 
-/// API improvement wrapper for `CMSIS-DSP`'s real-number square root fn. Doesn't check for
-/// negative inputs.
-fn sqrt(val: f32) -> f32 {
-    let mut result = 0.;
-    arm_sqrt_f32(val, &mut result);
+// /// API improvement wrapper for `CMSIS-DSP`'s real-number square root fn. Doesn't check for
+// /// negative inputs.
+// fn sqrt(val: f32) -> f32 {
+//     let mut result = 0.;
+//     arm_sqrt_f32(val, &mut result);
+//
+//     result
+// }
 
-    result
+/// Helper to wrap the unsafe, making code below more legible.
+fn cos(val: f32) -> f32 {
+    unsafe { arm_cos_f32(val) }
 }
 
 const ADDR: u8 = 0x52;
@@ -74,7 +80,9 @@ pub fn read(pitch: f32, roll: f32, i2c: &mut I2c<I2C1>) -> Option<f32> {
     // todo for small angles. What should we actually use?
 
     // todo: Abs etc to make sure not negative? May need num_traits for that.
-    let aircraft_angle = sqrt(sq(pitch) + sq(roll));
+    // let aircraft_angle = sqrt(sq(pitch) + sq(roll));
+
+    let aircraft_angle = crate::max(pitch, roll); // todo?
     if aircraft_angle > THRESH_ANGLE {
         return None;
     }
@@ -111,16 +119,16 @@ macro_rules! busy_wait {
                 break;
             } else if isr.berr().bit_is_set() {
                 $regs.icr.write(|w| w.berrcf().set_bit());
-                return Err(Error::Bus);
+                // return Err(Error::Bus);
             } else if isr.arlo().bit_is_set() {
                 $regs.icr.write(|w| w.arlocf().set_bit());
-                return Err(Error::Arbitration);
+                // return Err(Error::Arbitration);
             } else if isr.nackf().bit_is_set() {
                 $regs.icr.write(|w| w.stopcf().set_bit().nackcf().set_bit());
 
                 // If a pending TXIS flag is set, write dummy data to TXDR
                 if $regs.isr.read().txis().bit_is_set() {
-                    $regs.txdr.write(|w| unsafe { w.txdata().bits(0) });
+                    $regs.txdr.write(|w| w.txdata().bits(0));
                 }
 
                 // If TXDR is not flagged as empty, write 1 to flush it
@@ -128,7 +136,7 @@ macro_rules! busy_wait {
                     $regs.isr.write(|w| w.txe().set_bit());
                 }
 
-                return Err(Error::Nack);
+                // return Err(Error::Nack);
             } else {
                 // try again
             }
@@ -144,15 +152,13 @@ fn set_cr2_write(addr: u8, len: u8, autoend: bool) {
     // In order to initiate the communication, the user must program the following parameters for
     // the addressed slave in the I2C_CR2 register:
     regs.cr2.write(|w| {
-        unsafe {
-            // Addressing mode (7-bit or 10-bit): ADD10
-            w.sadd().bits((addr << 1) as u16);
-            // Transfer direction: RD_WRN
-            w.rd_wrn().clear_bit();
-            w.nbytes().bits(len);
-            w.autoend().bit(autoend);
-            w.start().set_bit()
-        }
+        // Addressing mode (7-bit or 10-bit): ADD10
+        w.sadd().bits((addr << 1) as u16);
+        // Transfer direction: RD_WRN
+        w.rd_wrn().clear_bit();
+        w.nbytes().bits(len);
+        w.autoend().bit(autoend);
+        w.start().set_bit()
     });
     // Note on start bit (RM):
     // If the I2C is already in master mode with AUTOEND = 0, setting this bit generates a
@@ -166,13 +172,11 @@ fn set_cr2_read(addr: u8, len: u8) {
     let mut regs = unsafe { &(*I2C1::ptr()) };
 
     regs.cr2.write(|w| {
-        unsafe {
-            w.sadd().bits((addr << 1) as u16);
-            w.rd_wrn().set_bit(); // read
-            w.nbytes().bits(len);
-            w.autoend().set_bit();
-            w.start().set_bit()
-        }
+        w.sadd().bits((addr << 1) as u16);
+        w.rd_wrn().set_bit(); // read
+        w.nbytes().bits(len);
+        w.autoend().set_bit();
+        w.start().set_bit()
     });
 }
 
@@ -185,7 +189,7 @@ fn i2c_write(addr: u8, bytes: &[u8]) {
 
     for byte in bytes {
         busy_wait!(regs, txis); // TXDR register is empty
-        regs.txdr.write(|w| unsafe { w.txdata().bits(*byte) });
+        regs.txdr.write(|w| w.txdata().bits(*byte));
     }
 }
 
@@ -198,7 +202,7 @@ fn i2c_write_read(addr: u8, bytes: &[u8], buffer: &mut [u8]) {
 
     for byte in bytes {
         busy_wait!(regs, txis); // TXDR register is empty
-        regs.txdr.write(|w| unsafe { w.txdata().bits(*byte) });
+        regs.txdr.write(|w| w.txdata().bits(*byte));
     }
 
     busy_wait!(regs, tc); // transfer is complete

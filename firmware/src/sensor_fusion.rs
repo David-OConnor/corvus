@@ -38,7 +38,7 @@ use crate::flight_ctrls::Params;
 const G: f32 = 9.8; // m/s
 
 fn tan(val: f32) -> f32 {
-    sin(val) / cos(val)
+    unsafe { sin(val) / cos(val) }
 }
 
 /// Represents sensor readings from a 6-axis accelerometer + gyro. Similar to
@@ -54,7 +54,7 @@ pub struct ImuReadings {
 }
 
 /// Estimate attitude, based on IMU data of accelerations and roll rates.
-pub fn estimate_attitude(readings: ImuReadings) -> Params {
+pub fn estimate_attitude(readings: &ImuReadings) -> Params {
     // Euler angle conventions: θ = pitch. phi = roll.
 
     // todo: Put useful params here.

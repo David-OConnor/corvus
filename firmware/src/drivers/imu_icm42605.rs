@@ -45,7 +45,7 @@ fn read_one(reg: u8, spi: &mut Spi<SPI4>, cs: &mut Pin) -> u8 {
     let mut buf = [reg, 0];
 
     cs.set_low();
-    spi.transfer(&mut buf);
+    spi.transfer(&mut buf).ok();
     cs.set_high();
 
     buf[0]
@@ -57,23 +57,23 @@ pub fn setup(spi: &mut Spi<SPI4>, cs: &mut Pin) {
 
     // Enable gyros and accelerometers in low noise mode.
     cs.set_low();
-    spi.write(&[PWR_MGMT0, 0b0000_0011]);
+    spi.write(&[PWR_MGMT0, 0b0000_0011]).ok();
     cs.set_high();
 
     // Set gyros and accelerometers to 8kHz update rate.
     // todo: What do we want full scale select to be for these?
     // todo: Currently leaving default of 2000dps for gyro, and setting +-8g for accel.
     cs.set_low();
-    spi.write(&[GYRO_CONFIG0, 0b0000_1111]);
+    spi.write(&[GYRO_CONFIG0, 0b0000_1111]).ok();
     cs.set_high();
 
     cs.set_low();
-    spi.write(&[ACCEL_CONFIG0, 0b0010_1111]);
+    spi.write(&[ACCEL_CONFIG0, 0b0010_1111]).ok();
     cs.set_high();
 
     // Enable UI data ready interrupt routed to INT1
     cs.set_low();
-    spi.write(&[INT_SOURCE0, 0b0000_1000]);
+    spi.write(&[INT_SOURCE0, 0b0000_1000]).ok();
     cs.set_high();
 
     // todo: Set filters?

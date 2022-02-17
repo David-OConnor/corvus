@@ -10,7 +10,7 @@ use cmsis_dsp_api as dsp_api;
 
 use crate::{
     flight_ctrls::{
-        self, AutopilotMode, CommandState, CtrlInputs, IirInstWrapper, InputMode, ParamType, Params,
+        self, AutopilotMode, CommandState, CtrlInputs, IirInstWrapper, InputMode, Params,
     },
     UserCfg, DT,
 };
@@ -409,9 +409,8 @@ fn calc_pid_error(
     // todo: Avoid this DRY with a method on `filter`
     // let mut error_d_v_pitch = [0.];
     let mut error_d = [0.];
-    unsafe {
-        dsp_api::biquad_cascade_df1_f32(&mut filter.inner, &[error_d_prefilt], &mut error_d, 1);
-    }
+
+    dsp_api::biquad_cascade_df1_f32(&mut filter.inner, &[error_d_prefilt], &mut error_d, 1);
 
     let mut error = PidState {
         measurement,
@@ -448,7 +447,7 @@ pub fn run_pid_mid(
         InputMode::Acro => {
             // In rate mode, simply update the inner command; don't do anything
             // in the outer PID loop.
-            *inner_flt_cmd = *inputs.clone();
+            *inner_flt_cmd = inputs.clone();
         }
 
         InputMode::Attitude => {
@@ -475,10 +474,11 @@ pub fn run_pid_mid(
                 s_roll = cfg.max_angle;
             }
 
-            *inner_flt_cmd = FlightCmd {
-                s_pitch,
-                s_roll,
-                ..inputs.clone()
+            *inner_flt_cmd = CtrlInputs {
+                pitch: s_pitch,
+                roll: s_roll,
+                yaw: inputs.yaw,
+                thrust: inputs.thrust,
             }
         }
         InputMode::Command => {
@@ -509,8 +509,6 @@ pub fn run_pid_mid(
 
             // todo: THis is actually overwriting the x_s etc based approach in
             // todo the input parser. YOu need to find a way to make this cleaner.
-            // inner_flt_cmd.x_roll = Some((CtrlConstraint::Xy, ParamType::V, inputs.roll));
-            // inner_flt_cmd.y_pitch = Some((CtrlConstraint::Xy, ParamType::V, inputs.pitch));
 
             // Stick position commands a horizontal velocity in this mode.
 

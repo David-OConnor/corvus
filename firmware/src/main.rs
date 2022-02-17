@@ -47,12 +47,9 @@ cfg_if! {
     }
 }
 
-use flight_ctrls::{
-    AutopilotMode, CommandState, CtrlConstraint, CtrlInputs, FlightCmd, InputMode, ParamType,
-    Params, RotorPower,
-};
+use flight_ctrls::{AutopilotMode, CommandState, CtrlInputs, InputMode, Params, RotorPower};
 
-use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup, PidState};
+use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
 
 // Our DT timer speed, in Hz.
 const DT_TIM_FREQ: u32 = 200_000_000;
@@ -95,8 +92,6 @@ const DT: f32 = 1. / UPDATE_RATE;
 // direct-to point can be, in meters. A sanity check
 // todo: Take into account flight time left.
 const DIRECT_AUTOPILOT_MAX_RNG: f32 = 500.;
-
-const IDLE_POWR: f32 = 0.01; // Eg when on the ground, and armed.
 
 // We use `LOOP_I` to manage inner vs outer loops.
 static LOOP_I: AtomicU32 = AtomicU32::new(0);
@@ -179,7 +174,17 @@ static ARMED: AtomicBool = AtomicBool::new(false);
 //     }
 // }
 
-enum LocationType {
+/// Utility fn to make up for `core::cmp::max` requiring f32 to impl `Ord`, which it doesn't.
+/// todo: Move elsewhere?
+fn max(a: f32, b: f32) -> f32 {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+
+pub enum LocationType {
     /// Lattitude and longitude. Available after a GPS fix
     LatLon,
     /// Start at 0, and count in meters away from it.
@@ -187,11 +192,11 @@ enum LocationType {
 }
 
 /// If type is LatLon, `x` and `y` are in degrees. If Rel0, in meters. `z` is in m MSL.
-struct Location {
-    type_: LocationType,
-    x: f32,
-    y: f32,
-    z: f32,
+pub struct Location {
+    pub type_: LocationType,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
 }
 
 impl Location {
@@ -201,7 +206,7 @@ impl Location {
 }
 
 /// User-configurable settings
-struct UserCfg {
+pub struct UserCfg {
     /// Set a ceiling the aircraft won't exceed. Defaults to 400' (Legal limit in US for drones).
     /// In meters.
     ceiling: f32,
@@ -209,6 +214,7 @@ struct UserCfg {
     /// full speed, without going horizontal or further.
     max_angle: f32, // radians
     max_velocity: f32, // m/s
+    idle_pwr: f32,
     /// These input ranges map raw output from a manual controller to full scale range of our control scheme.
     /// (min, max). Set using an initial calibration / setup procedure.
     pitch_input_range: (f32, f32),
@@ -227,6 +233,7 @@ impl Default for UserCfg {
             ceiling: 122.,
             max_angle: TAU * 0.22,
             max_velocity: 30., // todo: raise?
+            idle_pwr: 0., // scale of 0 to 1.
             // todo: Find apt value for these
             pitch_input_range: (0., 1.),
             roll_input_range: (0., 1.),
@@ -340,10 +347,10 @@ pub fn setup_pins() {
             // todo: Determine what output speeds to use.
 
             // Connected to TIM3 CH3, 4; TIM5 CH1, 1; Matek
-            let mut rotor1_pwm_ = Pin::new(Port::B, 0, PinMode::Alt(2));
-            let mut rotor2_pwm_ = Pin::new(Port::B, 1, PinMode::Alt(2));
-            let mut rotor3_pwm_ = Pin::new(Port::A, 0, PinMode::Alt(2));
-            let mut rotor3_pwm_ = Pin::new(Port::A, 1, PinMode::Alt(2));
+            let rotor1_pwm_ = Pin::new(Port::B, 0, PinMode::Alt(2));
+            let rotor2_pwm_ = Pin::new(Port::B, 1, PinMode::Alt(2));
+            let otor3_pwm_ = Pin::new(Port::A, 0, PinMode::Alt(2));
+            let rotor3_pwm_ = Pin::new(Port::A, 1, PinMode::Alt(2));
 
             let current_sense_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
 
@@ -416,11 +423,17 @@ fn init(params: &mut Params, baro: baro::Barometer, base_pt: &mut Location, i2c:
     }
 
     let fix = gps::get_fix(i2c);
-    params.s_x = fix.lon;
-    params.s_y = fix.lat;
-    params.s_z_msl = fix.alt;
 
-    *base_pt = Location::new(LocationType::LatLon, fix.lon, fix.lat, fix.alt);
+    match fix {
+        Ok(f) => {
+            params.s_x = f.x;
+            params.s_y = f.y;
+            params.s_z_msl = f.z;
+
+            *base_pt = Location::new(LocationType::LatLon, f.y, f.x, f.z);
+        }
+        Err(e) => (), // todo
+    }
 
     // todo: Use Rel0 location type if unable to get fix.
 
@@ -515,7 +528,7 @@ mod app {
         let mut spi4 = Spi::new(dp.SPI4, Default::default(), BaudRate::Div32);
 
         // We use SPI2 for the... todo
-        let mut spi2 = Spi::new(dp.SPI2, Default::default(), BaudRate::Div32);
+        let spi2 = Spi::new(dp.SPI2, Default::default(), BaudRate::Div32);
 
         // We use I2C for the TOF sensor.(?) and for Matek digital airspeed and compass
         let i2c_cfg = I2cConfig {
@@ -523,10 +536,10 @@ mod app {
             // speed: I2cSpeed::Fast400k,
             ..Default::default()
         };
-        let mut i2c1 = I2c::new(dp.I2C1, i2c_cfg.clone(), &clock_cfg);
+        let i2c1 = I2c::new(dp.I2C1, i2c_cfg.clone(), &clock_cfg);
 
         // We use (Matek) I2C2 for the barometer.
-        let mut i2c2 = I2c::new(dp.I2C2, i2c_cfg, &clock_cfg);
+        let i2c2 = I2c::new(dp.I2C2, i2c_cfg, &clock_cfg);
 
         // let uart1 = Usart::new(dp.USART1, 9_600., Default::default(), &clock_cfg);
         // let uart2 = Usart::new(dp.USART1, 9_600., Default::default(), &clock_cfg);
@@ -640,7 +653,7 @@ mod app {
     }
 
     #[idle(shared = [], local = [])]
-    fn idle(mut cx: idle::Context) -> ! {
+    fn idle(cx: idle::Context) -> ! {
         loop {
             asm::nop();
         }
@@ -739,7 +752,7 @@ mod app {
     #[task(binds = EXTI15_10, shared = [current_params, input_mode, inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr,
     spi4,
     rotor_timer_a, rotor_timer_b, ctrl_coeffs], local = [imu_cs], priority = 2)]
-    fn imu_data_isr(cx: imu_data_isr::Context) {
+    fn imu_data_isr(mut cx: imu_data_isr::Context) {
         unsafe {
             // Clear the interrupt flag.
             (*pac::EXTI::ptr()).c1pr1.modify(|_, w| w.pr15().set_bit());
@@ -763,7 +776,7 @@ mod app {
             .spi4
             .lock(|spi| imu::read_all(spi, cx.local.imu_cs));
 
-        let mut sensor_data_fused = sensor_fusion::estimate_attitude(imu_data);
+        let mut sensor_data_fused = sensor_fusion::estimate_attitude(&imu_data);
 
         // todo: Temp replacing back in imu data while we sort out the fusion.
         sensor_data_fused.v_pitch = imu_data.v_pitch;

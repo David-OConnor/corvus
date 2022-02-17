@@ -7,6 +7,6 @@ use crate::Location;
 
 pub struct GpsFixError {}
 
-pub fn get_fix() -> Result<Location, GpsFixError> {
+pub fn get_fix(i2c: &mut I2c<I2C1>) -> Result<Location, GpsFixError> {
     Err(GpsFixError {})
 }
