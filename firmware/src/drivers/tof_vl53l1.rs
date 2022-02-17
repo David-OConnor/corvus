@@ -8,11 +8,9 @@
 //!
 //! Note: 60Hz update rate.
 
-
 // Use 'Ranging mode' for AGL alt.
 // Or maybe 'Lite ranging mode, intended for MCUs, to minimize post-prcessing.
 // Perhaps `Multimode scanning mode` for terrain mapping or TF>
-
 
 // todo: Multi-zone TOF for fwd or both TOF sensors?
 
@@ -20,11 +18,7 @@ use core::f32::consts::TAU;
 
 use stm32_hal2::{i2c::I2c, pac::I2C1};
 
-use cmsis_dsp_sys::{
-    arm_sin_f32 as sin,
-    arm_cos_f32 as cos,
-    arm_sqrt_f32,
-};
+use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sqrt_f32};
 
 /// Square a number.
 /// todo: Alternatively, use the `num_traits` dep
@@ -86,7 +80,7 @@ pub fn read(pitch: f32, roll: f32, i2c: &mut I2c<I2C1>) -> Option<f32> {
     }
 
     let mut result = [0];
-    i2c.write_read(ADDR, &[READ_REG, 0], &mut result).ok();
+    // i2c.write_read(ADDR, &[READ_REG, 0], &mut result).ok();
 
     let reading = result[0];
 
@@ -105,6 +99,120 @@ pub fn read(pitch: f32, roll: f32, i2c: &mut I2c<I2C1>) -> Option<f32> {
 
 // todo: Consider if you want to move the ST lib to one or more separate files, or a module.
 
+// Standalone, copy+pasted versions from `stm32-hal`. An alternative is passing `&mut i2c` to
+// many of the functions here.
+
+macro_rules! busy_wait {
+    ($regs:expr, $flag:ident) => {
+        loop {
+            let isr = $regs.isr.read();
+
+            if isr.$flag().bit_is_set() {
+                break;
+            } else if isr.berr().bit_is_set() {
+                $regs.icr.write(|w| w.berrcf().set_bit());
+                return Err(Error::Bus);
+            } else if isr.arlo().bit_is_set() {
+                $regs.icr.write(|w| w.arlocf().set_bit());
+                return Err(Error::Arbitration);
+            } else if isr.nackf().bit_is_set() {
+                $regs.icr.write(|w| w.stopcf().set_bit().nackcf().set_bit());
+
+                // If a pending TXIS flag is set, write dummy data to TXDR
+                if $regs.isr.read().txis().bit_is_set() {
+                    $regs.txdr.write(|w| unsafe { w.txdata().bits(0) });
+                }
+
+                // If TXDR is not flagged as empty, write 1 to flush it
+                if $regs.isr.read().txe().bit_is_clear() {
+                    $regs.isr.write(|w| w.txe().set_bit());
+                }
+
+                return Err(Error::Nack);
+            } else {
+                // try again
+            }
+        }
+    };
+}
+
+/// Helper function to prevent repetition between `write`, `write_read`, and `write_dma`.
+fn set_cr2_write(addr: u8, len: u8, autoend: bool) {
+    let mut regs = unsafe { &(*I2C1::ptr()) };
+
+    // L44 RM: "Master communication initialization (address phase)
+    // In order to initiate the communication, the user must program the following parameters for
+    // the addressed slave in the I2C_CR2 register:
+    regs.cr2.write(|w| {
+        unsafe {
+            // Addressing mode (7-bit or 10-bit): ADD10
+            w.sadd().bits((addr << 1) as u16);
+            // Transfer direction: RD_WRN
+            w.rd_wrn().clear_bit();
+            w.nbytes().bits(len);
+            w.autoend().bit(autoend);
+            w.start().set_bit()
+        }
+    });
+    // Note on start bit (RM):
+    // If the I2C is already in master mode with AUTOEND = 0, setting this bit generates a
+    // Repeated Start condition when RELOAD=0, after the end of the NBYTES transfer.
+    // Otherwise setting this bit generates a START condition once the bus is free.
+    // (This is why we don't set autoend on the write portion of a write_read.)
+}
+
+/// Helper function to prevent repetition between `read`, `write_read`, and `read_dma`.
+fn set_cr2_read(addr: u8, len: u8) {
+    let mut regs = unsafe { &(*I2C1::ptr()) };
+
+    regs.cr2.write(|w| {
+        unsafe {
+            w.sadd().bits((addr << 1) as u16);
+            w.rd_wrn().set_bit(); // read
+            w.nbytes().bits(len);
+            w.autoend().set_bit();
+            w.start().set_bit()
+        }
+    });
+}
+
+fn i2c_write(addr: u8, bytes: &[u8]) {
+    let mut regs = unsafe { &(*I2C1::ptr()) };
+
+    while regs.cr2.read().start().bit_is_set() {}
+
+    set_cr2_write(addr, bytes.len() as u8, true);
+
+    for byte in bytes {
+        busy_wait!(regs, txis); // TXDR register is empty
+        regs.txdr.write(|w| unsafe { w.txdata().bits(*byte) });
+    }
+}
+
+fn i2c_write_read(addr: u8, bytes: &[u8], buffer: &mut [u8]) {
+    let mut regs = unsafe { &(*I2C1::ptr()) };
+
+    while regs.cr2.read().start().bit_is_set() {}
+
+    set_cr2_write(addr, bytes.len() as u8, false);
+
+    for byte in bytes {
+        busy_wait!(regs, txis); // TXDR register is empty
+        regs.txdr.write(|w| unsafe { w.txdata().bits(*byte) });
+    }
+
+    busy_wait!(regs, tc); // transfer is complete
+
+    set_cr2_read(addr, buffer.len() as u8);
+
+    for byte in buffer {
+        // Wait until we have received something
+        busy_wait!(regs, rxne);
+
+        *byte = regs.rxdr.read().rxdata().bits();
+    }
+}
+
 // From VL53L1_platform.c
 
 // todo: These `platform` I2C read/write fns are listed as returning i8, but most
@@ -113,18 +221,13 @@ pub fn read(pitch: f32, roll: f32, i2c: &mut I2c<I2C1>) -> Option<f32> {
 // These i2c function is used with our translated C code to perform I2C writes.
 fn VL53L1_WrByte(dev: u16, index: u16, data: u8) -> i8 {
     // todo: Make sure this and read are correct! Why 16 bit addr?
-    let mut i2c = unsafe { &(*I2C1::ptr()) };
-
-    i2c.write(dev as u8, &[(index >> 8) as u8, index as u8, data])
-        .ok();
+    i2c_write(dev as u8, &[(index >> 8) as u8, index as u8, data]);
     0
 }
 
 fn VL53L1_WrWord(dev: u16, index: u16, data: u16) -> i8 {
     // todo: Make sure this and read are correct! Why 16 bit addr?
-    let mut i2c = unsafe { &(*I2C1::ptr()) };
-
-    i2c.write(
+    i2c_write(
         dev as u8,
         &[
             (index >> 8) as u8,
@@ -132,13 +235,13 @@ fn VL53L1_WrWord(dev: u16, index: u16, data: u16) -> i8 {
             (data >> 8) as u8,
             data as u8,
         ],
-    )
-    .ok();
+    );
     0
 }
 
 fn VL53L1_WrDWord(dev: u16, index: u16, data: u32) -> i8 {
-    i2c.write(
+    i2c_write(
+        dev as u8,
         &[
             (index >> 8) as u8,
             index as u8,
@@ -147,53 +250,41 @@ fn VL53L1_WrDWord(dev: u16, index: u16, data: u32) -> i8 {
             (data >> 8) as u8,
             data as u8,
         ],
-    )
-    .ok();
+    );
     0
 }
 
 fn VL53L1_RdByte(dev: u16, index: u16, data: &mut u8) -> i8 {
-    let mut i2c = unsafe { &(*I2C1::ptr()) };
-
     let mut buf = [0];
-    i2c.write_read(dev as u8, &[(index >> 8) as u8, index as u8], &mut buf)
-        .ok();
+    i2c_write_read(dev as u8, &[(index >> 8) as u8, index as u8], &mut buf);
 
     *data = buf[0];
     0
 }
 
 fn VL53L1_RdWord(dev: u16, index: u16, data: &mut u16) -> i8 {
-    let mut i2c = unsafe { &(*I2C1::ptr()) };
-
     let mut buf = [0, 0];
-    i2c.write_read(dev as u8, &[(index >> 8) as u8, index as u8], &mut buf)
-        .ok();
+    i2c_write_read(dev as u8, &[(index >> 8) as u8, index as u8], &mut buf);
 
-    *data = ((buf[0] as u16) << 8) | buf[1];
+    *data = ((buf[0] as u16) << 8) | buf[1] as u16;
     0
 }
 
 fn VL53L1_RdDWord(dev: u16, index: u16, data: &mut u32) -> i8 {
-    let mut i2c = unsafe { &(*I2C1::ptr()) };
-
     let mut buf = [0, 0, 0, 0];
-    i2c.write_read(dev as u8, &[(index >> 8) as u8, index as u8], &mut buf)
-        .ok();
+    i2c_write_read(dev as u8, &[(index >> 8) as u8, index as u8], &mut buf);
 
-    *data = ((buf[0] as u32) << 24) | ((buf[1] as u32) << 16) | ((buf[2] as u32) << 8) | buf[1];
+    *data =
+        ((buf[0] as u32) << 24) | ((buf[1] as u32) << 16) | ((buf[2] as u32) << 8) | buf[1] as u32;
     0
 }
 
 fn VL53L1_ReadMulti(dev: u16, index: u16, pdata: &mut [u8], count: u32) -> i8 {
-    let mut i2c = unsafe { &(*I2C1::ptr()) };
-
     let mut buf = [0];
     // todo: FIgure this out.
 
     for i in 0..count as usize {
-        i2c.write_read(dev as u8, &[(index >> 8) as u8, index as u8], &mut buf)
-            .ok();
+        i2c_write_read(dev as u8, &[(index >> 8) as u8, index as u8], &mut buf);
 
         pdata[i] = buf[0];
     }
@@ -330,7 +421,6 @@ struct VL53L1X_Version_t {
     /// revision number
     revision: u32,
 }
-
 
 /// Defines packed reading results type
 struct VL53L1X_Result_t {
@@ -515,7 +605,11 @@ fn VL53L1X_SensorInit(dev: u16) -> VL53L1X_ERROR {
 
     for Addr in 0x2D..=0x87 {
         // for (Addr = 0x2D; Addr <= 0x87; Addr++){
-        status |= VL53L1_WrByte(dev, Addr, VL51L1X_DEFAULT_CONFIGURATION[Addr as usize - 0x2D]);
+        status |= VL53L1_WrByte(
+            dev,
+            Addr,
+            VL51L1X_DEFAULT_CONFIGURATION[Addr as usize - 0x2D],
+        );
     }
     status |= VL53L1X_StartRanging(dev);
     tmp = 0;
@@ -936,9 +1030,9 @@ fn VL53L1X_GetResult(dev: u16, pResult: &mut VL53L1X_Result_t) -> VL53L1X_ERROR 
         RgSt = status_rtn[RgSt as usize];
     }
     pResult.Status = RgSt;
-    pResult.Ambient = ((Temp[7] as u16) << 8 | Temp[8]  as u16) * 8;
+    pResult.Ambient = ((Temp[7] as u16) << 8 | Temp[8] as u16) * 8;
     pResult.NumSPADs = Temp[3] as u16;
-    pResult.SigPerSPAD = ((Temp[15]  as u16) << 8 | Temp[16] as u16) * 8;
+    pResult.SigPerSPAD = ((Temp[15] as u16) << 8 | Temp[16] as u16) * 8;
     pResult.Distance = (Temp[13] as u16) << 8 | Temp[14] as u16;
 
     return status;
@@ -965,7 +1059,7 @@ fn VL53L1X_GetOffset(dev: u16, offset: &mut i16) -> VL53L1X_ERROR {
     status |= VL53L1_RdWord(dev, ALGO__PART_TO_PART_RANGE_OFFSET_MM, &mut Temp);
     Temp = Temp << 3;
     Temp = Temp >> 5;
-    *offset = (int16_t)(Temp);
+    *offset = Temp as i16;
     return status;
 }
 
@@ -1016,7 +1110,7 @@ fn VL53L1X_GetXtalk(dev: u16, xtalk: &mut u16) -> VL53L1X_ERROR {
 ///  * @param   IntOnNo
 fn VL53L1X_SetDistanceThreshold(
     dev: u16,
-    hreshLow: u16,
+    ThreshLow: u16,
     ThreshHigh: u16,
     Window: u8,
     IntOnNoTarget: u8,

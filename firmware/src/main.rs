@@ -5,30 +5,27 @@
 
 use core::{
     f32::consts::TAU,
-    ops::Sub,
     sync::atomic::{AtomicBool, AtomicU32, Ordering},
 };
 
-use cortex_m::{self};
+use cortex_m::{self, asm};
 
 use stm32_hal2::{
     self,
-    adc::{Adc, AdcConfig, AdcDevice},
-    clocks::{Clocks, InputSrc, PllCfg, PllSrc, VosRange},
+    adc::{Adc, AdcDevice},
+    clocks::{Clocks, PllCfg, PllSrc, VosRange},
     debug_workaround,
-    dma::{self, Dma, DmaChannel, DmaInterrupt},
+    dma::{self, Dma, DmaChannel},
     flash::Flash,
-    gpio::{self, Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
+    gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, I2C1, I2C2, SPI2, SPI4, TIM15, TIM2, TIM3, TIM5},
+    pac::{self, DMA1, I2C1, I2C2, SPI2, SPI4, TIM15, TIM3, TIM5},
     power::{SupplyConfig, VoltageLevel},
     rtc::Rtc,
-    spi::{BaudRate, Spi, SpiConfig},
+    spi::{BaudRate, Spi},
     timer::{OutputCompare, TimChannel, Timer, TimerConfig, TimerInterrupt},
     usart::Usart,
 };
-
-use cmsis_dsp_sys as sys;
 
 use cfg_if::cfg_if;
 
@@ -42,8 +39,8 @@ mod sensor_fusion;
 
 cfg_if! {
     if #[cfg(feature = "matek-h743slim")] {
-        use drivers::baro_driver_dps310 as baro;
-        use drivers::gps_driver_x as gps;
+        use drivers::baro_dps310 as baro;
+        use drivers::gps_x as gps;
         use drivers::imu_icm42605 as imu;
         use drivers::osd_max7456 as osd;
         use drivers::tof_vl53l1 as tof;
@@ -51,11 +48,11 @@ cfg_if! {
 }
 
 use flight_ctrls::{
-    AutopilotMode, CommandState, CtrlConstraint, CtrlInputs, FlightCmd, InputMode, Params,
-    ParamType, RotorPower,
+    AutopilotMode, CommandState, CtrlConstraint, CtrlInputs, FlightCmd, InputMode, ParamType,
+    Params, RotorPower,
 };
 
-use pid::{CtrlCoeffGroup, PidDerivFilters, PidState, PidGroup};
+use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup, PidState};
 
 // Our DT timer speed, in Hz.
 const DT_TIM_FREQ: u32 = 200_000_000;
@@ -474,7 +471,7 @@ mod app {
     struct Local {
         imu_cs: Pin,
         // dt_timer: Timer<TIM3>,
-    // last_rtc_time: (u8, u8), // seconds, minutes
+        // last_rtc_time: (u8, u8), // seconds, minutes
     }
 
     #[init]
@@ -512,14 +509,17 @@ mod app {
         // Set up pins with appropriate modes.
         setup_pins();
 
-        // We use SPI for the IMU
+        // We use SPI4 for the IMU
         // SPI input clock is 400MHz. 400MHz / 32 = 12.5 MHz. The limit is the max SPI speed
         // of the ICM-42605 IMU of 24 MHz. This IMU can use any SPI mode, with the correct config on it.
-        let mut spi = Spi::new(dp.SPI4, Default::default(), BaudRate::Div32);
+        let mut spi4 = Spi::new(dp.SPI4, Default::default(), BaudRate::Div32);
+
+        // We use SPI2 for the... todo
+        let mut spi2 = Spi::new(dp.SPI2, Default::default(), BaudRate::Div32);
 
         // We use I2C for the TOF sensor.(?) and for Matek digital airspeed and compass
         let i2c_cfg = I2cConfig {
-            speed: I2cSpeed::Fast1M,
+            speed: I2cSpeed::FastPlus1M,
             // speed: I2cSpeed::Fast400k,
             ..Default::default()
         };
@@ -580,7 +580,7 @@ mod app {
 
         // From Matek
         let mut imu_cs = Pin::new(Port::E, 11, PinMode::Output);
-        imu::setup(&mut spi, &mut imu_cs);
+        imu::setup(&mut spi4, &mut imu_cs);
 
         let mut osd_cs = Pin::new(Port::B, 12, PinMode::Output);
 
@@ -589,7 +589,7 @@ mod app {
         // todo: COnsider how you use DMA, and bus splitting.
         // IMU
         dma::mux(DmaChannel::C0, dma::DmaInput::Spi1Tx, &mut dp.DMAMUX1);
-        dma::mux(DmaChannel::C1, dma::DmaInput::Spi1Xx, &mut dp.DMAMUX1);
+        dma::mux(DmaChannel::C1, dma::DmaInput::Spi1Rx, &mut dp.DMAMUX1);
         // TOF sensor
         dma::mux(DmaChannel::C2, dma::DmaInput::I2c1Tx, &mut dp.DMAMUX1);
         dma::mux(DmaChannel::C3, dma::DmaInput::I2c1Rx, &mut dp.DMAMUX1);
@@ -599,7 +599,9 @@ mod app {
 
         let mut flash = Flash::new(dp.FLASH); // todo temp mut to test
 
-        rotor_timer.enable();
+        rotor_timer_a.enable();
+        rotor_timer_b.enable();
+
         update_timer.enable();
         // dt_timer.enable();
 
@@ -631,8 +633,7 @@ mod app {
                 commands: Default::default(),
             },
             Local {
-                imu_cs
-                // dt_timer,
+                imu_cs, // dt_timer,
             },
             init::Monotonics(),
         )
@@ -692,10 +693,12 @@ mod app {
                  commands,
                  coeffs| {
                     // todo: Support both UART telemetry from ESC, and analog current sense pin.
-                    let current_current = None; // todo: Read from an ADC or something, from teh ESC.
-                    if let Some(current) = current_current {
-                        *power_used += current * DT;
-                    }
+                    // todo: Read from an ADC or something, from teh ESC.
+                    // let current_current = None;
+                    // if let Some(current) = current_current {
+                    // *power_used += current * DT;
+
+                    // }
                     // else {
                     // *power_used += current_pwr.total() * DT;
                     // }
@@ -713,7 +716,7 @@ mod app {
                     //     }
                     // }
 
-                    flight_ctrls::run_pid_mid(
+                    pid::run_pid_mid(
                         params,
                         inputs,
                         inner_flt_cmd,
@@ -734,6 +737,7 @@ mod app {
     /// pitch and roll. We use this ISR with an interrupt from the IMU, since we wish to
     /// update rotor power settings as soon as data is available.
     #[task(binds = EXTI15_10, shared = [current_params, input_mode, inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr,
+    spi4,
     rotor_timer_a, rotor_timer_b, ctrl_coeffs], local = [imu_cs], priority = 2)]
     fn imu_data_isr(cx: imu_data_isr::Context) {
         unsafe {
@@ -750,58 +754,80 @@ mod app {
         // seconds.
         // todo: Can we get away with a fixed rate, like 8kHz?
         // todo: If you use this
-        let dt = IMU_UPDATE_RATE;
-        // let dt = timer_val / 1_000_000;
 
         // todo: Don't just use IMU; use sensor fusion. Starting with this by default
-        let imu_data = imu::read_all(spi, cx.local.imu_cs);
-        let sensor_data_fused = sensor_fusion::estimate_attitude(imu_data);
+
+        // todo: Consider making this spi bus dedicated to the IMU, and making it local.
+        let imu_data = cx
+            .shared
+            .spi4
+            .lock(|spi| imu::read_all(spi, cx.local.imu_cs));
+
+        let mut sensor_data_fused = sensor_fusion::estimate_attitude(imu_data);
+
+        // todo: Temp replacing back in imu data while we sort out the fusion.
+        sensor_data_fused.v_pitch = imu_data.v_pitch;
+        sensor_data_fused.v_roll = imu_data.v_roll;
+        sensor_data_fused.v_yaw = imu_data.v_yaw;
+
+        sensor_data_fused.a_x = imu_data.a_x;
+        sensor_data_fused.a_y = imu_data.a_y;
+        sensor_data_fused.a_z = imu_data.a_z;
+
+        // todo: Reflow this section once you have a better grasp of what you get from teh sensor
+        // fusion data. Most of those lines below will likely go away, and be replaced with
+        // an ekf already in `sensor_data_fused`.
 
         // todo: Move these into a `Params` method?
         // We have acceleration data for x, y, z: Integrate to get velocity and position.
-        let v_x = sensor_data_fused.v_x + sensor_data_fused.a_x * DT;
-        let v_y = sensor_data_fused.v_y + sensor_data_fused.a_y * DT;
-        let v_z = sensor_data_fused.v_z + sensor_data_fused.a_z * DT;
-
-        let s_x = sensor_data_fused.s_x + v_x * DT;
-        let s_y = sensor_data_fused.s_y + v_y * DT;
-        let s_z_msl = sensor_data_fused.s_z_msl + v_z * DT;
-        let s_z_agl = sensor_data_fused.s_z_agl + v_z * DT;
-
-        // We have position data for pitch, roll, yaw: Take derivative to get velocity and acceleration
-        let s_pitch = sensor_data_fused.s_pitch + sensor_data_fused.v_pitch * DT;
-        let s_roll = sensor_data_fused.s_roll + sensor_data_fused.v_roll * DT;
-        let s_yaw = sensor_data_fused.s_yaw + sensor_data_fused.v_yaw * DT;
-
-        let a_pitch = (v_pitch - sensor_data_fused.v_pitch) / DT;
-        let a_roll = (v_roll - sensor_data_fused.v_roll) * DT;
-        let a_yaw = (v_yaw - sensor_data_fused.v_yaw) / DT;
+        // let v_x = sensor_data_fused.v_x + sensor_data_fused.a_x * DT;
+        // let v_y = sensor_data_fused.v_y + sensor_data_fused.a_y * DT;
+        // let v_z = sensor_data_fused.v_z + sensor_data_fused.a_z * DT;
+        //
+        // // Estimate position by integrating velocity.
+        // let s_x = sensor_data_fused.s_x + params.v_x * DT;
+        // let s_y = sensor_data_fused.s_y + params.v_y * DT;
+        // let s_z_msl = sensor_data_fused.s_z_msl + params.v_z * DT;
+        // let s_z_agl = sensor_data_fused.s_z_agl + params.v_z * DT;
+        //
+        // // We have position data for pitch, roll, yaw: Take derivative to get velocity and acceleration
+        // let s_pitch = sensor_data_fused.s_pitch + sensor_data_fused.v_pitch * DT;
+        // let s_roll = sensor_data_fused.s_roll + sensor_data_fused.v_roll * DT;
+        // let s_yaw = sensor_data_fused.s_yaw + sensor_data_fused.v_yaw * DT;
+        //
+        // // Estimate attitude acceleration by taking a derivative of its position.
+        // // todo: Handle thsi with EKF etc.
+        // let a_pitch = (sensor_data_fused.v_pitch - params.v_pitch) / DT;
+        // let a_roll = (sensor_data_fused.v_roll - params.v_roll) * DT;
+        // let a_yaw = (sensor_data_fused.v_yaw - params.v_yaw) / DT;
 
         cx.shared.current_params.lock(|params| {
-            *params = Params {
-                s_x,
-                s_y,
-                s_z_msl,
-                s_z_agl,
+            *params = sensor_data_fused;
 
-                s_pitch,
-                s_roll,
-                s_yaw,
-
-                v_x,
-                v_y,
-                v_z,
-                v_pitch: sensor_data_fused.v_pitch,
-                v_roll: sensor_data_fused.v_roll,
-                v_yaw: sensor_data_fused.v_yaw,
-
-                a_x: sensor_data_fused.a_x,
-                a_y: sensor_data_fused.a_y,
-                a_z: sensor_data_fused.a_z,
-                a_pitch,
-                a_roll,
-                a_yaw,
-            };
+            //     Params {
+            //     s_x,
+            //     s_y,
+            //     s_z_msl,
+            //     s_z_agl,
+            //
+            //     s_pitch,
+            //     s_roll,
+            //     s_yaw,
+            //
+            //     v_x,
+            //     v_y,
+            //     v_z,
+            //     v_pitch: sensor_data_fused.v_pitch,
+            //     v_roll: sensor_data_fused.v_roll,
+            //     v_yaw: sensor_data_fused.v_yaw,
+            //
+            //     a_x: sensor_data_fused.a_x,
+            //     a_y: sensor_data_fused.a_y,
+            //     a_z: sensor_data_fused.a_z,
+            //     a_pitch,
+            //     a_roll,
+            //     a_yaw,
+            // };
         });
 
         (
@@ -810,27 +836,35 @@ mod app {
             cx.shared.inner_flt_cmd,
             cx.shared.pid_inner,
             cx.shared.pid_deriv_filters,
+            cx.shared.current_pwr,
             cx.shared.rotor_timer_a,
             cx.shared.rotor_timer_b,
             cx.shared.ctrl_coeffs,
         )
-        .lock(
-            |params, input_mode, inputs, pid_inner, filters,
-             current_pwr, rotor_timer_a, rotor_timer_b| {
-                flight_ctrls::run_pid_inner(
-                    params,
-                    input_mode,
-                    inputs,
-                    pid_inner,
-                    filters,
-                    current_pwr,
-                    rotor_timer_a,
-                    rotor_timer_b,
-                    ctrl_coeffs,
-                    dt,
-                );
-            }
-        );
+            .lock(
+                |params,
+                 input_mode,
+                 inputs,
+                 pid_inner,
+                 filters,
+                 current_pwr,
+                 rotor_timer_a,
+                 rotor_timer_b,
+                 coeffs| {
+                    pid::run_pid_inner(
+                        params,
+                        *input_mode,
+                        inputs,
+                        pid_inner,
+                        filters,
+                        current_pwr,
+                        rotor_timer_a,
+                        rotor_timer_b,
+                        coeffs,
+                        DT_IMU,
+                    );
+                },
+            );
     }
 }
 

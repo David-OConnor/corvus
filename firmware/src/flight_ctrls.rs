@@ -3,7 +3,6 @@
 // todo: Split up further
 
 use core::{
-    cmp,
     f32::TAU,
     ops::{Add, Mul, Sub},
 };
@@ -18,9 +17,7 @@ use cmsis_dsp_sys as sys;
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
 
-use crate::{
-    imu, pid::PidState, CtrlCoeffGroup, Location, Rotor, PWM_ARR,
-};
+use crate::{imu, pid::PidState, CtrlCoeffGroup, Location, Rotor, PWM_ARR};
 
 #[derive(Default)]
 // todo: Do we use this, or something more general like FlightCmd
@@ -450,6 +447,15 @@ fn set_power_b(rotor: Rotor, power: f32, timer: &mut Timer<TIM5>) {
     timer.set_duty(rotor.tim_channel(), arr_portion as u32);
 }
 
+/// Utility fn to make up for `core::cmp::max` requiring f32 to impl `Ord`, which it doesn't.
+fn max(a: f32, b: f32) -> f32 {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+
 /// Calculate the horizontal arget velocity (m/s), for a given distance (m) from a point horizontally.
 pub fn enroute_speed_hor(dist: f32, max_v: f32) -> f32 {
     // todo: LUT?
@@ -457,7 +463,7 @@ pub fn enroute_speed_hor(dist: f32, max_v: f32) -> f32 {
     if dist > 20. {
         max_v
     } else if dist > 10. {
-        cmp::max(2., max_v)
+        max(2., max_v)
     } else {
         // Get close, then the PID loop will handle the final settling.
         0.5
@@ -469,13 +475,13 @@ pub fn enroute_speed_ver(dist: f32, max_v: f32, z_agl: f32) -> f32 {
     // todo: fill this out. LUT?
 
     if z_agl < 7. {
-        cmp::max(3., max_v)
+        return max(3., max_v);
     }
 
     if dist > 20. {
         max_v
     } else if dist > 10. {
-        cmp::max(2., max_v)
+        max(2., max_v)
     } else {
         // Get close, then the PID loop will handle the final settling.
         0.5
@@ -489,7 +495,7 @@ pub fn landing_speed(height: f32, max_v: f32) -> f32 {
     if height > 2. {
         return 0.5;
     }
-    cmp::max(height / 4., max_v)
+    max(height / 4., max_v)
 }
 
 /// Calculate the takeoff vertical velocity (m/s), for a given height (m) above the ground.
@@ -499,16 +505,13 @@ pub fn takeoff_speed(height: f32, max_v: f32) -> f32 {
     if height > 2. {
         return 0.;
     }
-    cmp::max(height / 4. + 0.01, max_v)
+    max(height / 4. + 0.01, max_v)
 }
 
 pub struct UnsuitableParams {}
 
 /// Execute a profile designed to test PID and motor gain coefficients; update them.
-pub fn calibrate_coeffs(
-    params: &Params,
-    timer: &mut Timer<TIM15>,
-) -> Result<(), UnsuitableParams> {
+pub fn calibrate_coeffs(params: &Params, timer: &mut Timer<TIM15>) -> Result<(), UnsuitableParams> {
     if params.s_z_agl < MIN_CAL_ALT {
         return Err(UnsuitableParams {});
     }

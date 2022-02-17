@@ -5,16 +5,13 @@
 //!
 //! Note that both this and the ICM-42605 IMU read temperature.
 
+use stm32_hal2::{
+    i2c::I2c,
+    pac::{self, I2C2},
+};
+
 // The sensor's address is 0x77 (if SDO pin is left floating or pulled-up to VDDIO) or 0x76 (if the SDO pin is
 // pulled-down to GND).
-use core::ops::Deref;
-
-use stm32_hal2::{i2c::I2c, pac::{self, I2C2}};
-
-// type i2c = Deref<Target = pac::i2c1::RegisterBlock>;
-// I: Deref<Target = pac::i2c1::RegisterBlock>
-
-//
 const ADDR: u8 = 0x77;
 
 // See Datasheet, secction 7: Register Map
