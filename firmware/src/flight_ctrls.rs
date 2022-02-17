@@ -3,6 +3,7 @@
 // todo: Split up further
 
 use core::{
+    comp,
     f32::TAU,
     ops::{Add, Mul, Sub},
 };
@@ -99,7 +100,7 @@ pub struct CtrlInputs {
 }
 
 #[derive(Clone, Copy)]
-pub enum ParamType {
+pub enum _ParamType {
     /// Position
     S,
     /// Velocity
@@ -112,7 +113,7 @@ pub enum ParamType {
 /// Eg to command x or y motion, we just also command pitch and roll respectively.
 /// This enum specifies which we're using.
 #[derive(Clone, Copy)]
-pub enum CtrlConstraint {
+pub enum _CtrlConstraint {
     Xy,
     PitchRoll,
 }
@@ -121,7 +122,7 @@ pub enum CtrlConstraint {
 /// but Options, specifying only the parameters we wish to achieve.
 /// Note:
 #[derive(Clone, Default)]
-pub struct FlightCmd {
+pub struct _FlightCmd {
     pub x_roll: Option<(CtrlConstraint, ParamType, f32)>,
     pub y_pitch: Option<(CtrlConstraint, ParamType, f32)>,
     pub yaw: Option<(ParamType, f32)>,
@@ -137,7 +138,7 @@ impl FlightCmd {
     /// Include manual inputs into the flight command. Ie, attitude velocities.
     /// Note that this only includes
     /// rotations: It doesn't affect altitude (or use the throttle input)
-    pub fn from_inputs(inputs: &CtrlInputs, mode: InputMode) -> Self {
+    pub fn _from_inputs(inputs: &CtrlInputs, mode: InputMode) -> Self {
         // todo: map to input range here, or elsewhere?
         match mode {
             InputMode::Acro => Self {
@@ -189,7 +190,7 @@ impl FlightCmd {
     }
 
     /// Keep the device level and zero altitude change, with no other inputs.
-    pub fn level() -> Self {
+    pub fn _level() -> Self {
         Self {
             y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::S, 0.)),
             x_roll: Some((CtrlConstraint::PitchRoll, ParamType::S, 0.)),
@@ -200,7 +201,7 @@ impl FlightCmd {
     }
 
     /// Maintains a hover in a specific location. lat and lon are in degrees. alt is in MSL.
-    pub fn hover_geostationary(lat: f32, lon: f32, alt: f32) -> Self {
+    pub fn _hover_geostationary(lat: f32, lon: f32, alt: f32) -> Self {
         Default::default()
     }
 }
@@ -405,20 +406,20 @@ fn change_attitude(
     rotor_pwm_a: &mut Timer<TIM3>,
     rotor_pwm_b: &mut Timer<TIM5>,
 ) {
-    current_pwr.p1 += pitch * coeffs.gain_pitch;
-    current_pwr.p2 += pitch * PITCH_S_COEFF;
-    current_pwr.p3 -= pitch * PITCH_S_COEFF;
-    current_pwr.p4 -= pitch * PITCH_S_COEFF;
+    current_pwr.p1 += pitch;
+    current_pwr.p2 += pitch;
+    current_pwr.p3 -= pitch;
+    current_pwr.p4 -= pitch;
 
-    current_pwr.p1 += roll * ROLL_S_COEFF;
-    current_pwr.p2 -= roll * ROLL_S_COEFF;
-    current_pwr.p3 -= roll * ROLL_S_COEFF;
-    current_pwr.p4 += roll * ROLL_S_COEFF;
+    current_pwr.p1 += roll;
+    current_pwr.p2 -= roll;
+    current_pwr.p3 -= roll;
+    current_pwr.p4 += roll;
 
-    current_pwr.p1 += yaw * YAW_S_COEFF;
-    current_pwr.p2 -= yaw * YAW_S_COEFF;
-    current_pwr.p3 += yaw * YAW_S_COEFF;
-    current_pwr.p4 -= yaw * YAW_S_COEFF;
+    current_pwr.p1 += yaw;
+    current_pwr.p2 -= yaw;
+    current_pwr.p3 += yaw;
+    current_pwr.p4 -= yaw;
 
     current_pwr.p1 *= throttle;
     current_pwr.p2 *= throttle;
@@ -444,8 +445,8 @@ fn set_power_b(rotor: Rotor, power: f32, timer: &mut Timer<TIM5>) {
     timer.set_duty(rotor.tim_channel(), arr_portion as u32);
 }
 
-/// Calculate the landing vertical velocity (m/s), for a given height above the ground (m).
-pub fn landing_speed(height: f32) -> f32 {
+/// Calculate the horizontal arget velocity (m/s), for a given distance (m) from a point horizontally.
+pub fn enroute_speed_hor(dist: f32, max_v: f32) -> f32 {
     // todo: LUT?
 
     if height > 2. {
@@ -454,14 +455,34 @@ pub fn landing_speed(height: f32) -> f32 {
     height / 4.
 }
 
-/// Calculate the takeoff vertical velocity (m/s), for a given height above the ground (m).
-pub fn takeoff_speed(height: f32) -> f32 {
+/// Calculate the vertical target velocity (m/s), for a given distance (m) from a point vertically.
+pub fn enroute_speed_ver(dist: f32, max_v: f32) -> f32 {
+    // todo: LUT?
+
+    if height > 2. {
+        return 0.5;
+    }
+    height / 4.
+}
+
+/// Calculate the landing vertical velocity (m/s), for a given height  (m) above the ground.
+pub fn landing_speed(height: f32, max_v: f32) -> f32 {
+    // todo: LUT?
+
+    if height > 2. {
+        return 0.5;
+    }
+    comp::max(height / 4., max_v)
+}
+
+/// Calculate the takeoff vertical velocity (m/s), for a given height (m) above the ground.
+pub fn takeoff_speed(height: f32, max_v: f32) -> f32 {
     // todo: LUT?
 
     if height > 2. {
         return 0.;
     }
-    height / 4. + 0.01
+    comp::max(height / 4. + 0.01, max_v)
 }
 
 /// Adjust controls for a given flight command and PID error.
@@ -471,22 +492,24 @@ pub fn adjust_ctrls(
     pid_roll: &PidState,
     pid_yaw: &PidState,
     pid_pwr: &PidState,
+    coeffs: &CtrlCoeffGroup,
     current_pwr: &mut RotorPower,
     rotor_pwm_a: &mut Timer<TIM3>,
     rotor_pwm_b: &mut Timer<TIM5>,
 ) {
     // todo: Is this fn superfluous?
 
-    let pitch_adj = pid_pitch.out();
-    let roll_adj = pid_roll.out();
-    let yaw_adj = pid_yaw.out();
-    let pwr_adj = pid_pwr.out();
+    let pitch_adj = pid_pitch.out() * coeffs * gain_pitch;
+    let roll_adj = pid_roll.out() * gain_roll;
+    let yaw_adj = pid_yaw.out() * gain_yaw;
+    let pwr_adj = pid_pwr.out() * gain_pwr;
 
     change_attitude(
         pitch_adj,
         roll_adj,
         yaw_adj,
         pwr_adj,
+        coeffs,
         current_pwr, // modified in place, and therefore upstream.
         rotor_pwm_a,
         rotor_pwm_b,

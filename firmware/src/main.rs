@@ -31,6 +31,8 @@ use stm32_hal2::{
 use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as sys;
 
+use cfg_if::cfg_if;
+
 use defmt_rtt as _; // global logger
 use panic_probe as _;
 
@@ -84,7 +86,7 @@ const IMU_UPDATE_RATE: f32 = 8_000.;
 const UPDATE_RATE: f32 = 1_600.; // IMU rate / 5.
 
 // How many inner loop ticks occur between mid and outer loop.
-const OUTER_LOOP_RATIO: usize = 10;
+// const OUTER_LOOP_RATIO: usize = 10;
 
 const DT_IMU: f32 = 1. / IMU_UPDATE_RATE;
 const DT: f32 = 1. / UPDATE_RATE;
@@ -113,6 +115,8 @@ static ARMED: AtomicBool = AtomicBool::new(false);
 
 // todo: Consider a nested loop, where inner manages fine-tuning of angle, and outer
 // manages directions etc. (?) look up prior art re quads and inner/outer loops.
+
+// todo: Panic button that recovers the aircraft if you get spacial D etc.
 
 /// Data dump from Hypershield on Matrix:
 /// You typically don't change the PID gains during flight. They are often tuned experimentally by
@@ -216,6 +220,8 @@ struct UserCfg {
     throttle_input_range: (f32, f32),
     /// Is the aircraft continuously collecting data on obstacles, and storing it to external flash?
     mapping_obstacles: bool,
+    max_speed_hor: f32,
+    max_speed_ver: f32,
 }
 
 impl Default for UserCfg {
@@ -230,6 +236,8 @@ impl Default for UserCfg {
             yaw_input_range: (0., 1.),
             throttle_input_range: (0., 1.),
             mapping_obstacles: false,
+            max_speed_hor: 20.,
+            max_speed_ver: 20.,
         }
     }
 }
@@ -327,59 +335,65 @@ pub fn setup_pins() {
     // SAI pins to accept input from the 4 PDM ICs, using SAI1, and 4, both blocks.
     // We use the same SCK and FS clocks for all 4 ICs.
 
-    // For use with Matek H7 board:
-    // http://www.mateksys.com/?portfolio=h743-slim#tab-id-7
 
-    // todo: Determine what output speeds to use.
+    cfg_if! {
+        if #[feature = "matek-h743slim"] {
+            // For use with Matek H7 board:
+            // http://www.mateksys.com/?portfolio=h743-slim#tab-id-7
 
-    // Connected to TIM3 CH3, 4; TIM5 CH1, 1; Matek
-    let mut rotor1_pwm_ = Pin::new(Port::B, 0, PinMode::Alt(2));
-    let mut rotor2_pwm_ = Pin::new(Port::B, 1, PinMode::Alt(2));
-    let mut rotor3_pwm_ = Pin::new(Port::A, 0, PinMode::Alt(2));
-    let mut rotor3_pwm_ = Pin::new(Port::A, 1, PinMode::Alt(2));
+            // todo: Determine what output speeds to use.
 
-    // SPI4 for Matek IMU. AAnd/or
-    let mosi4_ = Pin::new(Port::E, 14, PinMode::Alt(5));
-    let miso4_ = Pin::new(Port::E, 13, PinMode::Alt(5));
-    let sck4_ = Pin::new(Port::E, 12, PinMode::Alt(5));
+            // Connected to TIM3 CH3, 4; TIM5 CH1, 1; Matek
+            let mut rotor1_pwm_ = Pin::new(Port::B, 0, PinMode::Alt(2));
+            let mut rotor2_pwm_ = Pin::new(Port::B, 1, PinMode::Alt(2));
+            let mut rotor3_pwm_ = Pin::new(Port::A, 0, PinMode::Alt(2));
+            let mut rotor3_pwm_ = Pin::new(Port::A, 1, PinMode::Alt(2));
 
-    // SPI2 for Matek OSD (MAX7456?)
-    let mosi4_ = Pin::new(Port::B, 15, PinMode::Alt(5));
-    let miso4_ = Pin::new(Port::B, 14, PinMode::Alt(5));
-    let sck4_ = Pin::new(Port::B, 13, PinMode::Alt(5));
+            // SPI4 for Matek IMU. AAnd/or
+            let mosi4_ = Pin::new(Port::E, 14, PinMode::Alt(5));
+            let miso4_ = Pin::new(Port::E, 13, PinMode::Alt(5));
+            let sck4_ = Pin::new(Port::E, 12, PinMode::Alt(5));
 
-    // We use  UARTs for ESC telemetry, "Smart Audio" (for video) and...
-    // todo: set these up
-    let uart1_tx = Pin::new(Port::D, 0, PinMode::Alt(0));
-    let uart1_rx = Pin::new(Port::D, 1, PinMode::Alt(0));
-    let uart2_tx = Pin::new(Port::D, 2, PinMode::Alt(0));
-    let uart2_rx = Pin::new(Port::D, 3, PinMode::Alt(0));
+            // SPI2 for Matek OSD (MAX7456?)
+            let mosi4_ = Pin::new(Port::B, 15, PinMode::Alt(5));
+            let miso4_ = Pin::new(Port::B, 14, PinMode::Alt(5));
+            let sck4_ = Pin::new(Port::B, 13, PinMode::Alt(5));
 
-    // Used to trigger a PID update based on new IMU data.
-    let mut imu_interrupt = Pin::new(Port::E, 15, PinMode::Input);
-    imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
+            // We use  UARTs for ESC telemetry, "Smart Audio" (for video) and...
+            // todo: set these up
+            let uart1_tx = Pin::new(Port::D, 0, PinMode::Alt(0));
+            let uart1_rx = Pin::new(Port::D, 1, PinMode::Alt(0));
+            let uart2_tx = Pin::new(Port::D, 2, PinMode::Alt(0));
+            let uart2_rx = Pin::new(Port::D, 3, PinMode::Alt(0));
 
-    // I2C1 for Matek digital airspeed and compass
-    let mut scl1 = Pin::new(Port::B, 6, PinMode::Alt(4));
-    scl1.output_type(OutputType::OpenDrain);
-    scl1.pull(Pull::Up);
+            // Used to trigger a PID update based on new IMU data.
+            let mut imu_interrupt = Pin::new(Port::E, 15, PinMode::Input);
+            imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
 
-    let mut sda1 = Pin::new(Port::B, 7, PinMode::Alt(4));
-    sda1.output_type(OutputType::OpenDrain);
-    sda1.pull(Pull::Up);
+            // I2C1 for Matek digital airspeed and compass
+            let mut scl1 = Pin::new(Port::B, 6, PinMode::Alt(4));
+            scl1.output_type(OutputType::OpenDrain);
+            scl1.pull(Pull::Up);
 
-    // I2C2 for Matek's DPS310 barometer
-    let mut scl2 = Pin::new(Port::B, 10, PinMode::Alt(4));
-    scl2.output_type(OutputType::OpenDrain);
-    scl2.pull(Pull::Up);
+            let mut sda1 = Pin::new(Port::B, 7, PinMode::Alt(4));
+            sda1.output_type(OutputType::OpenDrain);
+            sda1.pull(Pull::Up);
 
-    let mut sda2 = Pin::new(Port::B, 11, PinMode::Alt(4));
-    sda2.output_type(OutputType::OpenDrain);
-    sda2.pull(Pull::Up);
+            // I2C2 for Matek's DPS310 barometer
+            let mut scl2 = Pin::new(Port::B, 10, PinMode::Alt(4));
+            scl2.output_type(OutputType::OpenDrain);
+            scl2.pull(Pull::Up);
 
-    // todo: Use one of these buses for TOF sensor, or its own?
+            let mut sda2 = Pin::new(Port::B, 11, PinMode::Alt(4));
+            sda2.output_type(OutputType::OpenDrain);
+            sda2.pull(Pull::Up);
 
-    let bat_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
+            // todo: Use one of these buses for TOF sensor, or its own?
+
+            let bat_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
+        } else if #[cfg(feature = "anyleaf-mercury-g4")] {
+        }
+    }
 }
 
 /// Run on startup, or when desired. Run on the ground. Gets an initial GPS fix,
@@ -436,7 +450,7 @@ mod app {
         // mid_flt_cmd: FlightCmd,
         inner_flt_cmd: FlightCmd,
         /// Proportional, Integral, Differential error
-        pid_outer: PidStateGroup,
+        // pid_outer: PidStateGroup,
         pid_mid: PidStateGroup,
         pid_inner: PidStateGroup,
         manual_inputs: CtrlInputs,
@@ -461,7 +475,7 @@ mod app {
     #[local]
     struct Local {
         // dt_timer: Timer<TIM3>,
-    // last_rtc_time: (u8, u8), // seconds, minutes
+        // last_rtc_time: (u8, u8), // seconds, minutes
     }
 
     #[init]
@@ -597,7 +611,7 @@ mod app {
                 current_params: Default::default(),
                 // mid_flt_cmd: Default::default(),
                 inner_flt_cmd: Default::default(),
-                pid_outer: Default::default(),
+                // pid_outer: Default::default(),
                 pid_mid: Default::default(),
                 pid_inner: Default::default(),
                 manual_inputs: Default::default(),
@@ -633,7 +647,7 @@ mod app {
     #[task(
     binds = TIM15,
     shared = [current_params, manual_inputs, current_pwr,
-    inner_flt_cmd, pid_outer, pid_mid, pid_inner, pid_deriv_filters,
+    inner_flt_cmd, pid_mid, pid_inner, pid_deriv_filters,
     power_used, input_mode, autopilot_mode, user_cfg, commands, ctrl_coeffs
     ],
     local = [],
@@ -648,9 +662,9 @@ mod app {
             cx.shared.current_params,
             cx.shared.manual_inputs,
             cx.shared.current_pwr,
-            cx.shared.mid_flt_cmd,
+            // cx.shared.mid_flt_cmd,
             cx.shared.inner_flt_cmd,
-            cx.shared.pid_outer,
+            // cx.shared.pid_outer,
             cx.shared.pid_mid,
             cx.shared.pid_inner,
             cx.shared.pid_deriv_filters,
@@ -666,9 +680,9 @@ mod app {
                 |params,
                  inputs,
                  current_pwr,
-                 mid_flt_cmd,
+                 // mid_flt_cmd,
                  inner_flt_cmd,
-                 pid_outer,
+                 // pid_outer,
                  pid_mid,
                  pid_inner,
                  filters,
@@ -689,31 +703,31 @@ mod app {
 
                     // todo: Placeholder for sensor inputs/fusion.
 
-                    if loop_i % OUTER_LOOP_RATIO == 0 {
-                        match input_mode {
-                            InputMode::Command => {
-                                // let flt_cmd = FlightCmd::from_inputs(inputs, input_mode);
-
-                                // todo: impl
-
-                                *mid_flt_cmd = FlightCmd {
-                                    y_pitch: Some((CtrlConstraint::Xy, ParamType::S, inputs.pitch)),
-                                    x_roll: Some((CtrlConstraint::Xy, ParamType::S, inputs.roll)),
-                                    // throttle could control altitude set point; make sure the throttle input
-                                    // in this case is altitude.
-                                    thrust: Some((ParamType::S, inputs.pitch)),
-                                    // todo: S or V for yaw? Subjective. Go with existing drone schemes?
-                                    yaw: Some((ParamType::V, inputs.yaw)),
-                                };
-                            }
-                            _ => (),
-                        }
-                    }
+                    // if loop_i % OUTER_LOOP_RATIO == 0 {
+                    //     match input_mode {
+                    //         InputMode::Command => {
+                    //             // let flt_cmd = FlightCmd::from_inputs(inputs, input_mode);
+                    //
+                    //             // todo: impl
+                    //
+                    //             *mid_flt_cmd = FlightCmd {
+                    //                 y_pitch: Some((CtrlConstraint::Xy, ParamType::S, inputs.pitch)),
+                    //                 x_roll: Some((CtrlConstraint::Xy, ParamType::S, inputs.roll)),
+                    //                 // throttle could control altitude set point; make sure the throttle input
+                    //                 // in this case is altitude.
+                    //                 thrust: Some((ParamType::S, inputs.pitch)),
+                    //                 // todo: S or V for yaw? Subjective. Go with existing drone schemes?
+                    //                 yaw: Some((ParamType::V, inputs.yaw)),
+                    //             };
+                    //         }
+                    //         _ => (),
+                    //     }
+                    // }
 
                     flight_ctrls::run_pid_mid(
                         params,
                         inputs,
-                        mid_flt_cmd,
+                        // mid_flt_cmd,
                         inner_flt_cmd,
                         pid_mid,
                         pid_inner,
@@ -809,27 +823,27 @@ mod app {
             cx.shared.rotor_timer_b,
             cx.shared.ctrl_coeffs,
         )
-        .lock(
-            |params,
-             inner_flt_cmd,
-             pid_inner,
-             filters,
-             current_pwr,
-             rotor_timer_a,
-             rotor_timer_b| {
-                flight_ctrls::run_pid_inner(
-                    params,
-                    inner_flt_cmd,
-                    pid_inner,
-                    filters,
-                    current_pwr,
-                    rotor_timer_a,
-                    rotor_timer_b,
-                    ctrl_coeffs,
-                    dt,
-                );
-            },
-        )
+            .lock(
+                |params,
+                 inner_flt_cmd,
+                 pid_inner,
+                 filters,
+                 current_pwr,
+                 rotor_timer_a,
+                 rotor_timer_b| {
+                    flight_ctrls::run_pid_inner(
+                        params,
+                        inner_flt_cmd,
+                        pid_inner,
+                        filters,
+                        current_pwr,
+                        rotor_timer_a,
+                        rotor_timer_b,
+                        ctrl_coeffs,
+                        dt,
+                    );
+                },
+            )
     }
 }
 

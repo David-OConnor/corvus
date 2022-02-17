@@ -432,7 +432,7 @@ fn calc_pid_error(
 pub fn run_pid_mid(
     params: &Params,
     inputs: &CtrlInputs,
-    mid_flt_cmd: &mut FlightCmd,
+    // mid_flt_cmd: &mut FlightCmd,
     inner_flt_cmd: &mut FlightCmd,
     pid_mid: &mut PidGroup,
     pid_inner: &mut PidGroup,
@@ -454,7 +454,9 @@ pub fn run_pid_mid(
             // todo: Offset this logic into a fn in `flight_ctrls`. mod. Same as in the IMU update.
 
             // todo: Over contraint, ie matching flight mode here, and in `from_inputs`.
-            let flt_cmd = FlightCmd::from_inputs(inputs, *input_mode);
+
+            // todo: Experimenting with ditching the `FlightCmd` struct.
+            // let flt_cmd = FlightCmd::from_inputs(inputs, *input_mode);
 
             match input_mode {
                 InputMode::Acro => {
@@ -561,6 +563,23 @@ pub fn run_pid_mid(
                         k_d_roll = coeffs.roll.k_d_s_from_s;
                     }
 
+                    match mid_flt_cmd.y_pitch {
+                        Some(cmd) => {
+                            match cmd.1 {
+                                ParamType::S => {
+
+                                }
+                                ParamType::V => {
+
+                                }
+                                ParamType::A => (), // todo?
+                            }
+                        }
+                        None => {
+
+                        }
+                    }
+
                     pid_mid.pitch = calc_pid_error(
                         mid_flt_cmd.y_pitch.unwrap().2,
                         param_y,
@@ -656,7 +675,8 @@ pub fn run_pid_mid(
 /// position or rate.
 pub fn run_pid_inner(
     params: &Params,
-    inner_flt_cmd: &FlightCmd,
+    // inner_flt_cmd: &FlightCmd,
+    inner_flt_cmd: &CtrlInputs,
     pid_inner: &mut PidGroup,
     filters: &mut PidDerivFilters,
     current_pwr: &mut crate::RotorPower,
@@ -770,6 +790,7 @@ pub fn run_pid_inner(
         &pid_inner.roll,
         &pid_inner.yaw,
         &pid_inner.thrust,
+        coeffs,
         current_pwr,
         rotor_timer_a,
         rotor_timer_b,
