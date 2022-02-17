@@ -3,21 +3,23 @@
 // todo: Split up further
 
 use core::{
-    comp,
+    cmp,
     f32::TAU,
     ops::{Add, Mul, Sub},
 };
 
 use stm32_hal2::{
-    pac::{TIM3, TIM5},
+    pac::{TIM15, TIM3, TIM5},
     timer::Timer,
 };
 
-use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as sys;
 
+// Don't execute the calibration procedure from below this altitude, eg for safety.
+const MIN_CAL_ALT: f32 = 6.;
+
 use crate::{
-    imu, pid::PidState, sensor_fusion, CtrlCoeffGroup, Location, Rotor, UserCfg, DT, PWM_ARR,
+    imu, pid::PidState, CtrlCoeffGroup, Location, Rotor, PWM_ARR,
 };
 
 #[derive(Default)]
@@ -96,115 +98,115 @@ pub struct CtrlInputs {
     pub yaw: f32,
     /// Acro mode: Change overall power (Altitude, or speed depending on orientation)
     /// Attitude mode: Change altitude
-    pub throttle: f32,
+    pub thrust: f32,
 }
+//
+// #[derive(Clone, Copy)]
+// pub enum _ParamType {
+//     /// Position
+//     S,
+//     /// Velocity
+//     V,
+//     /// Acceleration
+//     A,
+// }
 
-#[derive(Clone, Copy)]
-pub enum _ParamType {
-    /// Position
-    S,
-    /// Velocity
-    V,
-    /// Acceleration
-    A,
-}
-
-/// The quadcopter is an under-actuated system. So, some motions are coupled.
-/// Eg to command x or y motion, we just also command pitch and roll respectively.
-/// This enum specifies which we're using.
-#[derive(Clone, Copy)]
-pub enum _CtrlConstraint {
-    Xy,
-    PitchRoll,
-}
-
-/// A set of flight parameters to achieve and/or maintain. Similar values to `Parameters`,
-/// but Options, specifying only the parameters we wish to achieve.
-/// Note:
-#[derive(Clone, Default)]
-pub struct _FlightCmd {
-    pub x_roll: Option<(CtrlConstraint, ParamType, f32)>,
-    pub y_pitch: Option<(CtrlConstraint, ParamType, f32)>,
-    pub yaw: Option<(ParamType, f32)>,
-    pub thrust: Option<(ParamType, f32)>,
-    //
-    // pub x_roll: f32,
-    // pub y_pitch: f32,
-    // pub yaw: f32,
-    // pub thrust: f32,
-}
-
-impl FlightCmd {
-    /// Include manual inputs into the flight command. Ie, attitude velocities.
-    /// Note that this only includes
-    /// rotations: It doesn't affect altitude (or use the throttle input)
-    pub fn _from_inputs(inputs: &CtrlInputs, mode: InputMode) -> Self {
-        // todo: map to input range here, or elsewhere?
-        match mode {
-            InputMode::Acro => Self {
-                y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.pitch)),
-                x_roll: Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.roll)),
-                yaw: Some((ParamType::V, inputs.yaw)),
-                thrust: Some((ParamType::V, inputs.throttle)),
-            },
-            InputMode::Attitude => Self {
-                y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::S, inputs.pitch)),
-                x_roll: Some((CtrlConstraint::PitchRoll, ParamType::S, inputs.roll)),
-                yaw: Some((ParamType::V, inputs.yaw)),
-                thrust: Some((ParamType::V, inputs.throttle)),
-            },
-            InputMode::Command => {
-                // todo: Does this require an inner/outer loop scheme to manage
-                // todo pitch and roll? Or 3 loop scheme for position, V, pitch/roll?
-                // todo: EIther way: Don't use this yet!!
-                // Note that this is for the `mid` flight command. The inner command (where we set
-                // pitch and roll) is handled upstream, in the update ISR.
-                Self {
-                    y_pitch: Some((CtrlConstraint::Xy, ParamType::V, inputs.pitch)),
-                    x_roll: Some((CtrlConstraint::Xy, ParamType::V, inputs.roll)),
-                    yaw: Some((ParamType::V, inputs.yaw)),
-                    // throttle could control altitude set point; make sure the throttle input
-                    // in this case is altitude.
-                    // todo: set Z upstream for this, eg you need to store and modify a commanded alt.
-                    // Note: This is misleading. We keep track of set point upstream.
-                    thrust: Some((ParamType::S, inputs.pitch)),
-                }
-            }
-        }
-    }
-
-    // Command a basic hover. Maintains an altitude and pitch, and attempts to maintain position,
-    // but does revert to a fixed position.
-    // Alt is in AGL.
-    pub fn _hover(alt: f32) -> Self {
-        Self {
-            // Maintaining attitude isn't enough. We need to compensate for wind etc.
-            x_roll: Some((CtrlConstraint::Xy, ParamType::V, 0.)),
-            y_pitch: Some((CtrlConstraint::Xy, ParamType::V, 0.)),
-            thrust: Some((ParamType::V, 0.)),
-
-            // todo: Hover at a fixed position, using more advanced logic. Eg command an acceleration
-            // todo to reach it, then slow down and alt hold while near it?
-            ..Default::default()
-        }
-    }
-
-    /// Keep the device level and zero altitude change, with no other inputs.
-    pub fn _level() -> Self {
-        Self {
-            y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::S, 0.)),
-            x_roll: Some((CtrlConstraint::PitchRoll, ParamType::S, 0.)),
-            yaw: Some((ParamType::S, 0.)),
-            thrust: Some((ParamType::V, 0.)),
-            ..Default::default()
-        }
-    }
-
-    /// Maintains a hover in a specific location. lat and lon are in degrees. alt is in MSL.
-    pub fn _hover_geostationary(lat: f32, lon: f32, alt: f32) -> Self {
-        Default::default()
-    }
-}
+// /// The quadcopter is an under-actuated system. So, some motions are coupled.
+// /// Eg to command x or y motion, we just also command pitch and roll respectively.
+// /// This enum specifies which we're using.
+// #[derive(Clone, Copy)]
+// pub enum _CtrlConstraint {
+//     Xy,
+//     PitchRoll,
+// }
+//
+// /// A set of flight parameters to achieve and/or maintain. Similar values to `Parameters`,
+// /// but Options, specifying only the parameters we wish to achieve.
+// /// Note:
+// #[derive(Clone, Default)]
+// pub struct _FlightCmd {
+//     pub x_roll: Option<(CtrlConstraint, ParamType, f32)>,
+//     pub y_pitch: Option<(CtrlConstraint, ParamType, f32)>,
+//     pub yaw: Option<(ParamType, f32)>,
+//     pub thrust: Option<(ParamType, f32)>,
+//     //
+//     // pub x_roll: f32,
+//     // pub y_pitch: f32,
+//     // pub yaw: f32,
+//     // pub thrust: f32,
+// }
+//
+// impl FlightCmd {
+//     /// Include manual inputs into the flight command. Ie, attitude velocities.
+//     /// Note that this only includes
+//     /// rotations: It doesn't affect altitude (or use the throttle input)
+//     pub fn _from_inputs(inputs: &CtrlInputs, mode: InputMode) -> Self {
+//         // todo: map to input range here, or elsewhere?
+//         match mode {
+//             InputMode::Acro => Self {
+//                 y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.pitch)),
+//                 x_roll: Some((CtrlConstraint::PitchRoll, ParamType::V, inputs.roll)),
+//                 yaw: Some((ParamType::V, inputs.yaw)),
+//                 thrust: Some((ParamType::V, inputs.throttle)),
+//             },
+//             InputMode::Attitude => Self {
+//                 y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::S, inputs.pitch)),
+//                 x_roll: Some((CtrlConstraint::PitchRoll, ParamType::S, inputs.roll)),
+//                 yaw: Some((ParamType::V, inputs.yaw)),
+//                 thrust: Some((ParamType::V, inputs.throttle)),
+//             },
+//             InputMode::Command => {
+//                 // todo: Does this require an inner/outer loop scheme to manage
+//                 // todo pitch and roll? Or 3 loop scheme for position, V, pitch/roll?
+//                 // todo: EIther way: Don't use this yet!!
+//                 // Note that this is for the `mid` flight command. The inner command (where we set
+//                 // pitch and roll) is handled upstream, in the update ISR.
+//                 Self {
+//                     y_pitch: Some((CtrlConstraint::Xy, ParamType::V, inputs.pitch)),
+//                     x_roll: Some((CtrlConstraint::Xy, ParamType::V, inputs.roll)),
+//                     yaw: Some((ParamType::V, inputs.yaw)),
+//                     // throttle could control altitude set point; make sure the throttle input
+//                     // in this case is altitude.
+//                     // todo: set Z upstream for this, eg you need to store and modify a commanded alt.
+//                     // Note: This is misleading. We keep track of set point upstream.
+//                     thrust: Some((ParamType::S, inputs.pitch)),
+//                 }
+//             }
+//         }
+//     }
+//
+//     // Command a basic hover. Maintains an altitude and pitch, and attempts to maintain position,
+//     // but does revert to a fixed position.
+//     // Alt is in AGL.
+//     pub fn _hover(alt: f32) -> Self {
+//         Self {
+//             // Maintaining attitude isn't enough. We need to compensate for wind etc.
+//             x_roll: Some((CtrlConstraint::Xy, ParamType::V, 0.)),
+//             y_pitch: Some((CtrlConstraint::Xy, ParamType::V, 0.)),
+//             thrust: Some((ParamType::V, 0.)),
+//
+//             // todo: Hover at a fixed position, using more advanced logic. Eg command an acceleration
+//             // todo to reach it, then slow down and alt hold while near it?
+//             ..Default::default()
+//         }
+//     }
+//
+//     /// Keep the device level and zero altitude change, with no other inputs.
+//     pub fn _level() -> Self {
+//         Self {
+//             y_pitch: Some((CtrlConstraint::PitchRoll, ParamType::S, 0.)),
+//             x_roll: Some((CtrlConstraint::PitchRoll, ParamType::S, 0.)),
+//             yaw: Some((ParamType::S, 0.)),
+//             thrust: Some((ParamType::V, 0.)),
+//             ..Default::default()
+//         }
+//     }
+//
+//     /// Maintains a hover in a specific location. lat and lon are in degrees. alt is in MSL.
+//     pub fn _hover_geostationary(lat: f32, lon: f32, alt: f32) -> Self {
+//         Default::default()
+//     }
+// }
 
 /// Represents parameters at a fixed instant. Can be position, velocity, or accel.
 #[derive(Default)]
@@ -386,7 +388,11 @@ impl RotorPower {
 /// a desired amount of acceleration, with a given current velocity.
 /// todo: Assume level flight?
 /// // todo: come back to this later.
-fn estimate_rotor_angle(a_desired: f32, v_current: f32, ac_properties: &crate::AircraftProperties) -> f32 {
+fn estimate_rotor_angle(
+    a_desired: f32,
+    v_current: f32,
+    ac_properties: &crate::AircraftProperties,
+) -> f32 {
     let drag = ac_properties.drag_coeff * v_current; // todo
     1. / ac_properties.thrust_coeff; // todo
     0. // todo
@@ -401,7 +407,6 @@ fn change_attitude(
     roll: f32,
     yaw: f32,
     throttle: f32,
-    coeffs: &CtrlCoeffGroup,
     current_pwr: &mut RotorPower,
     rotor_pwm_a: &mut Timer<TIM3>,
     rotor_pwm_b: &mut Timer<TIM5>,
@@ -449,20 +454,32 @@ fn set_power_b(rotor: Rotor, power: f32, timer: &mut Timer<TIM5>) {
 pub fn enroute_speed_hor(dist: f32, max_v: f32) -> f32 {
     // todo: LUT?
 
-    if height > 2. {
-        return 0.5;
+    if dist > 20. {
+        max_v
+    } else if dist > 10. {
+        cmp::max(2., max_v)
+    } else {
+        // Get close, then the PID loop will handle the final settling.
+        0.5
     }
-    height / 4.
 }
 
 /// Calculate the vertical target velocity (m/s), for a given distance (m) from a point vertically.
-pub fn enroute_speed_ver(dist: f32, max_v: f32) -> f32 {
-    // todo: LUT?
+pub fn enroute_speed_ver(dist: f32, max_v: f32, z_agl: f32) -> f32 {
+    // todo: fill this out. LUT?
 
-    if height > 2. {
-        return 0.5;
+    if z_agl < 7. {
+        cmp::max(3., max_v)
     }
-    height / 4.
+
+    if dist > 20. {
+        max_v
+    } else if dist > 10. {
+        cmp::max(2., max_v)
+    } else {
+        // Get close, then the PID loop will handle the final settling.
+        0.5
+    }
 }
 
 /// Calculate the landing vertical velocity (m/s), for a given height  (m) above the ground.
@@ -472,7 +489,7 @@ pub fn landing_speed(height: f32, max_v: f32) -> f32 {
     if height > 2. {
         return 0.5;
     }
-    comp::max(height / 4., max_v)
+    cmp::max(height / 4., max_v)
 }
 
 /// Calculate the takeoff vertical velocity (m/s), for a given height (m) above the ground.
@@ -482,12 +499,26 @@ pub fn takeoff_speed(height: f32, max_v: f32) -> f32 {
     if height > 2. {
         return 0.;
     }
-    comp::max(height / 4. + 0.01, max_v)
+    cmp::max(height / 4. + 0.01, max_v)
+}
+
+pub struct UnsuitableParams {}
+
+/// Execute a profile designed to test PID and motor gain coefficients; update them.
+pub fn calibrate_coeffs(
+    params: &Params,
+    timer: &mut Timer<TIM15>,
+) -> Result<(), UnsuitableParams> {
+    if params.s_z_agl < MIN_CAL_ALT {
+        return Err(UnsuitableParams {});
+    }
+
+    Ok(())
 }
 
 /// Adjust controls for a given flight command and PID error.
 /// todo: Separate module for code that directly updates the rotors?
-pub fn adjust_ctrls(
+pub fn apply_ctrls(
     pid_pitch: &PidState,
     pid_roll: &PidState,
     pid_yaw: &PidState,
@@ -499,17 +530,16 @@ pub fn adjust_ctrls(
 ) {
     // todo: Is this fn superfluous?
 
-    let pitch_adj = pid_pitch.out() * coeffs * gain_pitch;
-    let roll_adj = pid_roll.out() * gain_roll;
-    let yaw_adj = pid_yaw.out() * gain_yaw;
-    let pwr_adj = pid_pwr.out() * gain_pwr;
+    let pitch_adj = pid_pitch.out() * coeffs.gain_pitch;
+    let roll_adj = pid_roll.out() * coeffs.gain_roll;
+    let yaw_adj = pid_yaw.out() * coeffs.gain_yaw;
+    let throttle_adj = pid_pwr.out() * coeffs.gain_thrust;
 
     change_attitude(
         pitch_adj,
         roll_adj,
         yaw_adj,
-        pwr_adj,
-        coeffs,
+        throttle_adj,
         current_pwr, // modified in place, and therefore upstream.
         rotor_pwm_a,
         rotor_pwm_b,

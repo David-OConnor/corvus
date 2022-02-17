@@ -7,7 +7,12 @@
 
 // The sensor's address is 0x77 (if SDO pin is left floating or pulled-up to VDDIO) or 0x76 (if the SDO pin is
 // pulled-down to GND).
-use stm32_hal2::{i2c::I2c, pac::I2C2};
+use core::ops::Deref;
+
+use stm32_hal2::{i2c::I2c, pac::{self, I2C2}};
+
+// type i2c = Deref<Target = pac::i2c1::RegisterBlock>;
+// I: Deref<Target = pac::i2c1::RegisterBlock>
 
 //
 const ADDR: u8 = 0x77;
@@ -101,9 +106,9 @@ impl Barometer {
         let mut buf2 = [0];
         let mut buf1 = [0];
         let mut buf0 = [0];
-        i2c.write_read(ADDR, &[PRS_B2], &mut buf2);
-        i2c.write_read(ADDR, &[PRS_B1], &mut buf1);
-        i2c.write_read(ADDR, &[PRS_B0], &mut buf0);
+        i2c.write_read(ADDR, &[PSR_B2], &mut buf2);
+        i2c.write_read(ADDR, &[PSR_B1], &mut buf1);
+        i2c.write_read(ADDR, &[PSR_B0], &mut buf0);
 
         let mut result = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
         fix_i24_sign(&mut result);

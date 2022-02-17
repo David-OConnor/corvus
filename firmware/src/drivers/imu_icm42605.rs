@@ -31,10 +31,10 @@ const ACCEL_CONFIG0: u8 = 0x50;
 const GYRO_CONFIG1: u8 = 0x51;
 const GYRO_ACCEL_CONFIG0: u8 = 0x52;
 
-const INST_SOURCE0: u8 = 0x65;
-const INST_SOURCE1: u8 = 0x66;
-const INST_SOURCE3: u8 = 0x68;
-const INST_SOURCE4: u8 = 0x69;
+const INT_SOURCE0: u8 = 0x65;
+const INT_SOURCE1: u8 = 0x66;
+const INT_SOURCE3: u8 = 0x68;
+const INT_SOURCE4: u8 = 0x69;
 
 // todo: Read via DMA at a very high rate, then apply a lowpass filter?
 

@@ -28,7 +28,6 @@ use stm32_hal2::{
     usart::Usart,
 };
 
-use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as sys;
 
 use cfg_if::cfg_if;
@@ -36,28 +35,27 @@ use cfg_if::cfg_if;
 use defmt_rtt as _; // global logger
 use panic_probe as _;
 
-// mod atmos_model;
-mod baro_driver_dps310;
+mod drivers;
 mod flight_ctrls;
-mod imu_driver_icm42605;
-
-// `tof_driver` uses partially-translated C code that doesn't conform to Rust naming conventions.
-mod osd_driver_max7456;
 mod pid;
 mod sensor_fusion;
 
-#[allow(non_snake_case)]
-// mod tof_driver;
-use baro_driver_dps310 as baro;
-use imu_driver_icm42605 as imu;
-use osd_driver_max7456 as osd;
+cfg_if! {
+    if #[cfg(feature = "matek-h743slim")] {
+        use drivers::baro_driver_dps310 as baro;
+        use drivers::gps_driver_x as gps;
+        use drivers::imu_icm42605 as imu;
+        use drivers::osd_max7456 as osd;
+        use drivers::tof_vl53l1 as tof;
+    }
+}
 
 use flight_ctrls::{
-    AutopilotMode, CommandState, CtrlConstraint, CtrlInputs, FlightCmd, InputMode, ParamType,
-    Params, ParamsInst, RotorPower,
+    AutopilotMode, CommandState, CtrlConstraint, CtrlInputs, FlightCmd, InputMode, Params,
+    ParamType, RotorPower,
 };
 
-use pid::{CtrlCoeffGroup, PidDerivFilters, PidState};
+use pid::{CtrlCoeffGroup, PidDerivFilters, PidState, PidGroup};
 
 // Our DT timer speed, in Hz.
 const DT_TIM_FREQ: u32 = 200_000_000;
@@ -157,30 +155,32 @@ static ARMED: AtomicBool = AtomicBool::new(false);
 /// ///
 /// 3 level loop? S, v, angle?? Or just 2? (position cmds in outer loop)
 
-/// A vector in 3 dimensions
-struct Vector {
-    x: f32,
-    y: f32,
-    z: f32,
-}
-
-impl Sub for Vector {
-    type Output = Self;
-
-    fn sub(self, other: Self) -> Self::Output {
-        Self {
-            x: self.x - other.x,
-            y: self.y - other.y,
-            z: self.z - other.z,
-        }
-    }
-}
-
-impl Vector {
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-}
+// todo: If you use Vectors, use CMSIS-DSP?
+//
+// /// A vector in 3 dimensions
+// struct Vector {
+//     x: f32,
+//     y: f32,
+//     z: f32,
+// }
+//
+// impl Sub for Vector {
+//     type Output = Self;
+//
+//     fn sub(self, other: Self) -> Self::Output {
+//         Self {
+//             x: self.x - other.x,
+//             y: self.y - other.y,
+//             z: self.z - other.z,
+//         }
+//     }
+// }
+//
+// impl Vector {
+//     pub fn new(x: f32, y: f32, z: f32) -> Self {
+//         Self { x, y, z }
+//     }
+// }
 
 enum LocationType {
     /// Lattitude and longitude. Available after a GPS fix
@@ -335,9 +335,8 @@ pub fn setup_pins() {
     // SAI pins to accept input from the 4 PDM ICs, using SAI1, and 4, both blocks.
     // We use the same SCK and FS clocks for all 4 ICs.
 
-
     cfg_if! {
-        if #[feature = "matek-h743slim"] {
+        if #[cfg(feature = "matek-h743slim")] {
             // For use with Matek H7 board:
             // http://www.mateksys.com/?portfolio=h743-slim#tab-id-7
 
@@ -348,6 +347,8 @@ pub fn setup_pins() {
             let mut rotor2_pwm_ = Pin::new(Port::B, 1, PinMode::Alt(2));
             let mut rotor3_pwm_ = Pin::new(Port::A, 0, PinMode::Alt(2));
             let mut rotor3_pwm_ = Pin::new(Port::A, 1, PinMode::Alt(2));
+
+            let current_sense_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
 
             // SPI4 for Matek IMU. AAnd/or
             let mosi4_ = Pin::new(Port::E, 14, PinMode::Alt(5));
@@ -411,7 +412,7 @@ fn init(params: &mut Params, baro: baro::Barometer, base_pt: &mut Location, i2c:
         return;
     }
 
-    if let Some(agl) = tof_driver::read(params.s_pitch, params.s_roll, i2c) {
+    if let Some(agl) = tof::read(params.s_pitch, params.s_roll, i2c) {
         if agl > 0.01 {
             return;
         }
@@ -445,14 +446,11 @@ mod app {
         input_mode: InputMode,
         autopilot_mode: AutopilotMode,
         ctrl_coeffs: CtrlCoeffGroup,
-        // todo: current_params vs
         current_params: Params,
-        // mid_flt_cmd: FlightCmd,
-        inner_flt_cmd: FlightCmd,
+        inner_flt_cmd: CtrlInputs,
         /// Proportional, Integral, Differential error
-        // pid_outer: PidStateGroup,
-        pid_mid: PidStateGroup,
-        pid_inner: PidStateGroup,
+        pid_mid: PidGroup,
+        pid_inner: PidGroup,
         manual_inputs: CtrlInputs,
         current_pwr: RotorPower,
         dma: Dma<DMA1>,
@@ -474,8 +472,9 @@ mod app {
 
     #[local]
     struct Local {
+        imu_cs: Pin,
         // dt_timer: Timer<TIM3>,
-        // last_rtc_time: (u8, u8), // seconds, minutes
+    // last_rtc_time: (u8, u8), // seconds, minutes
     }
 
     #[init]
@@ -554,14 +553,14 @@ mod app {
 
         // todo: Why does the Matek board use 2 separate rotor timers, when each has 4 channels.
         let mut rotor_timer_a =
-            Timer::new_tim2(dp.TIM3, PWM_FREQ, rotor_timer_cfg.clone(), &clock_cfg);
+            Timer::new_tim3(dp.TIM3, PWM_FREQ, rotor_timer_cfg.clone(), &clock_cfg);
 
         rotor_timer_a.enable_pwm_output(TimChannel::C1, OutputCompare::Pwm1, 0.);
         rotor_timer_a.enable_pwm_output(TimChannel::C2, OutputCompare::Pwm1, 0.);
         // rotor_timer_a.enable_pwm_output(TimChannel::C3, OutputCompare::Pwm1, 0.);
         // rotor_timer_a.enable_pwm_output(TimChannel::C4, OutputCompare::Pwm1, 0.);
 
-        let mut rotor_timer_b = Timer::new_tim2(dp.TIM5, PWM_FREQ, rotor_timer_cfg, &clock_cfg);
+        let mut rotor_timer_b = Timer::new_tim5(dp.TIM5, PWM_FREQ, rotor_timer_cfg, &clock_cfg);
 
         rotor_timer_b.enable_pwm_output(TimChannel::C1, OutputCompare::Pwm1, 0.);
         rotor_timer_b.enable_pwm_output(TimChannel::C2, OutputCompare::Pwm1, 0.);
@@ -589,11 +588,14 @@ mod app {
 
         // todo: COnsider how you use DMA, and bus splitting.
         // IMU
-        dma::mux(DmaChannel::C0, dma::DmaInput::SPI1, &mut dp.DMAMUX1);
+        dma::mux(DmaChannel::C0, dma::DmaInput::Spi1Tx, &mut dp.DMAMUX1);
+        dma::mux(DmaChannel::C1, dma::DmaInput::Spi1Xx, &mut dp.DMAMUX1);
         // TOF sensor
-        dma::mux(DmaChannel::C1, dma::DmaInput::I2C1, &mut dp.DMAMUX1);
+        dma::mux(DmaChannel::C2, dma::DmaInput::I2c1Tx, &mut dp.DMAMUX1);
+        dma::mux(DmaChannel::C3, dma::DmaInput::I2c1Rx, &mut dp.DMAMUX1);
         // Baro
-        dma::mux(DmaChannel::C2, dma::DmaInput::I2C2, &mut dp.DMAMUX1);
+        dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx, &mut dp.DMAMUX1);
+        dma::mux(DmaChannel::C5, dma::DmaInput::I2c2Rx, &mut dp.DMAMUX1);
 
         let mut flash = Flash::new(dp.FLASH); // todo temp mut to test
 
@@ -605,13 +607,11 @@ mod app {
             // todo: Make these local as able.
             Shared {
                 user_cfg: Default::default(),
-                input_mode: InputMode::Angle,
+                input_mode: InputMode::Attitude,
                 autopilot_mode: AutopilotMode::None,
                 ctrl_coeffs: Default::default(),
                 current_params: Default::default(),
-                // mid_flt_cmd: Default::default(),
                 inner_flt_cmd: Default::default(),
-                // pid_outer: Default::default(),
                 pid_mid: Default::default(),
                 pid_inner: Default::default(),
                 manual_inputs: Default::default(),
@@ -631,6 +631,7 @@ mod app {
                 commands: Default::default(),
             },
             Local {
+                imu_cs
                 // dt_timer,
             },
             init::Monotonics(),
@@ -648,7 +649,8 @@ mod app {
     binds = TIM15,
     shared = [current_params, manual_inputs, current_pwr,
     inner_flt_cmd, pid_mid, pid_inner, pid_deriv_filters,
-    power_used, input_mode, autopilot_mode, user_cfg, commands, ctrl_coeffs
+    power_used, input_mode, autopilot_mode, user_cfg, commands, ctrl_coeffs,
+    spi4
     ],
     local = [],
     priority = 2
@@ -662,17 +664,15 @@ mod app {
             cx.shared.current_params,
             cx.shared.manual_inputs,
             cx.shared.current_pwr,
-            // cx.shared.mid_flt_cmd,
             cx.shared.inner_flt_cmd,
-            // cx.shared.pid_outer,
             cx.shared.pid_mid,
             cx.shared.pid_inner,
             cx.shared.pid_deriv_filters,
-            cx.shared.spi,
+            cx.shared.spi4,
             cx.shared.power_used,
             cx.shared.input_mode,
             cx.shared.autopilot_mode,
-            cx.shared.cfg,
+            cx.shared.user_cfg,
             cx.shared.commands,
             cx.shared.ctrl_coeffs,
         )
@@ -680,12 +680,11 @@ mod app {
                 |params,
                  inputs,
                  current_pwr,
-                 // mid_flt_cmd,
                  inner_flt_cmd,
-                 // pid_outer,
                  pid_mid,
                  pid_inner,
                  filters,
+                 spi,
                  power_used,
                  input_mode,
                  autopilot_mode,
@@ -708,18 +707,8 @@ mod app {
                     //         InputMode::Command => {
                     //             // let flt_cmd = FlightCmd::from_inputs(inputs, input_mode);
                     //
-                    //             // todo: impl
-                    //
-                    //             *mid_flt_cmd = FlightCmd {
-                    //                 y_pitch: Some((CtrlConstraint::Xy, ParamType::S, inputs.pitch)),
-                    //                 x_roll: Some((CtrlConstraint::Xy, ParamType::S, inputs.roll)),
-                    //                 // throttle could control altitude set point; make sure the throttle input
-                    //                 // in this case is altitude.
-                    //                 thrust: Some((ParamType::S, inputs.pitch)),
-                    //                 // todo: S or V for yaw? Subjective. Go with existing drone schemes?
-                    //                 yaw: Some((ParamType::V, inputs.yaw)),
-                    //             };
-                    //         }
+                    //             // todo: impl ?
+
                     //         _ => (),
                     //     }
                     // }
@@ -727,7 +716,6 @@ mod app {
                     flight_ctrls::run_pid_mid(
                         params,
                         inputs,
-                        // mid_flt_cmd,
                         inner_flt_cmd,
                         pid_mid,
                         pid_inner,
@@ -745,12 +733,12 @@ mod app {
     /// Runs when new IMU data is recieved. This functions as our PID inner loop, and updates
     /// pitch and roll. We use this ISR with an interrupt from the IMU, since we wish to
     /// update rotor power settings as soon as data is available.
-    #[task(binds = EXTI9_15, shared = [params, inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr,
-    rotor_timer_a, rotor_timer_b, ctrl_coeffs], local = [], priority = 2)]
+    #[task(binds = EXTI15_10, shared = [current_params, input_mode, inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr,
+    rotor_timer_a, rotor_timer_b, ctrl_coeffs], local = [imu_cs], priority = 2)]
     fn imu_data_isr(cx: imu_data_isr::Context) {
         unsafe {
             // Clear the interrupt flag.
-            (*pac::EXTI::ptr()).pr15.modify(|_, w| w.pr1().set_bit());
+            (*pac::EXTI::ptr()).c1pr1.modify(|_, w| w.pr15().set_bit());
         }
 
         // let timer_val = cx.local.dt_timer.read_count();
@@ -766,7 +754,7 @@ mod app {
         // let dt = timer_val / 1_000_000;
 
         // todo: Don't just use IMU; use sensor fusion. Starting with this by default
-        let imu_data = imu::read_all(spi);
+        let imu_data = imu::read_all(spi, cx.local.imu_cs);
         let sensor_data_fused = sensor_fusion::estimate_attitude(imu_data);
 
         // todo: Move these into a `Params` method?
@@ -789,7 +777,7 @@ mod app {
         let a_roll = (v_roll - sensor_data_fused.v_roll) * DT;
         let a_yaw = (v_yaw - sensor_data_fused.v_yaw) / DT;
 
-        cx.shared.params.lock(|params| {
+        cx.shared.current_params.lock(|params| {
             *params = Params {
                 s_x,
                 s_y,
@@ -814,8 +802,11 @@ mod app {
                 a_roll,
                 a_yaw,
             };
-        })(
-            cx.shared.params,
+        });
+
+        (
+            cx.shared.current_params,
+            cx.shared.input_mode,
             cx.shared.inner_flt_cmd,
             cx.shared.pid_inner,
             cx.shared.pid_deriv_filters,
@@ -823,27 +814,23 @@ mod app {
             cx.shared.rotor_timer_b,
             cx.shared.ctrl_coeffs,
         )
-            .lock(
-                |params,
-                 inner_flt_cmd,
-                 pid_inner,
-                 filters,
-                 current_pwr,
-                 rotor_timer_a,
-                 rotor_timer_b| {
-                    flight_ctrls::run_pid_inner(
-                        params,
-                        inner_flt_cmd,
-                        pid_inner,
-                        filters,
-                        current_pwr,
-                        rotor_timer_a,
-                        rotor_timer_b,
-                        ctrl_coeffs,
-                        dt,
-                    );
-                },
-            )
+        .lock(
+            |params, input_mode, inputs, pid_inner, filters,
+             current_pwr, rotor_timer_a, rotor_timer_b| {
+                flight_ctrls::run_pid_inner(
+                    params,
+                    input_mode,
+                    inputs,
+                    pid_inner,
+                    filters,
+                    current_pwr,
+                    rotor_timer_a,
+                    rotor_timer_b,
+                    ctrl_coeffs,
+                    dt,
+                );
+            }
+        );
     }
 }
 

@@ -16,12 +16,31 @@
 
 // todo: Multi-zone TOF for fwd or both TOF sensors?
 
+use core::f32::consts::TAU;
+
 use stm32_hal2::{i2c::I2c, pac::I2C1};
 
 use cmsis_dsp_sys::{
     arm_sin_f32 as sin,
     arm_cos_f32 as cos,
+    arm_sqrt_f32,
 };
+
+/// Square a number.
+/// todo: Alternatively, use the `num_traits` dep
+/// todo: Move to a utility mod, or sensor_fusion etc as required.
+fn sq(val: f32) -> f32 {
+    val * val
+}
+
+/// API improvement wrapper for `CMSIS-DSP`'s real-number square root fn. Doesn't check for
+/// negative inputs.
+fn sqrt(val: f32) -> f32 {
+    let mut result = 0.;
+    arm_sqrt_f32(val, &mut result);
+
+    result
+}
 
 const ADDR: u8 = 0x52;
 
@@ -33,6 +52,12 @@ const THRESH_ANGLE: f32 = 0.03 * TAU; // radians, from level, in any direction.
 const READING_QUAL_THRESH: f32 = 0.7;
 
 pub fn setup(i2c: &mut I2c<I2C1>) {}
+
+// todo: Rethink this once you learn the sensor's caps adn API
+struct Reading {
+    dist: f32,
+    quality: f32, // Scale of 0 to 1.
+}
 
 // todo: Don't use a blocking read. Use DMA etc.
 /// Read from the sensor. Result is in meters. Return `None` if the measured reading,
@@ -53,21 +78,29 @@ pub fn read(pitch: f32, roll: f32, i2c: &mut I2c<I2C1>) -> Option<f32> {
 
     // todo: THis is a quick approximation that's perhaps valid
     // todo for small angles. What should we actually use?
-    let aircraft_angle = (pitch.pow(2) + roll.pow(2)).pow(0.5);
+
+    // todo: Abs etc to make sure not negative? May need num_traits for that.
+    let aircraft_angle = sqrt(sq(pitch) + sq(roll));
     if aircraft_angle > THRESH_ANGLE {
         return None;
     }
 
-    let mut result = [u8];
+    let mut result = [0];
     i2c.write_read(ADDR, &[READ_REG, 0], &mut result).ok();
 
     let reading = result[0];
 
-    if reading > THRESH_DIST || reading.quality < READING_QUAL_THRESH {
+    // todo: What's the conversion from reg reads?
+    let reading = Reading {
+        dist: result[0] as f32,
+        quality: 1.,
+    };
+
+    if reading.dist > THRESH_DIST || reading.quality < READING_QUAL_THRESH {
         return None;
     }
 
-    Some(reading * aircraft_angle.cos())
+    Some(cos(reading.dist * aircraft_angle))
 }
 
 // todo: Consider if you want to move the ST lib to one or more separate files, or a module.
@@ -152,7 +185,7 @@ fn VL53L1_RdDWord(dev: u16, index: u16, data: &mut u32) -> i8 {
     0
 }
 
-fn VL53L1_ReadMulti(dev: u16, index: u16, pdata: &mut u8, count: u32) -> i8 {
+fn VL53L1_ReadMulti(dev: u16, index: u16, pdata: &mut [u8], count: u32) -> i8 {
     let mut i2c = unsafe { &(*I2C1::ptr()) };
 
     let mut buf = [0];
@@ -162,7 +195,7 @@ fn VL53L1_ReadMulti(dev: u16, index: u16, pdata: &mut u8, count: u32) -> i8 {
         i2c.write_read(dev as u8, &[(index >> 8) as u8, index as u8], &mut buf)
             .ok();
 
-        *pdata |= buf[0] // todo: Is this what we want?
+        pdata[i] = buf[0];
     }
     0
 }
@@ -298,9 +331,8 @@ struct VL53L1X_Version_t {
     revision: u32,
 }
 
-/**
- *  @brief defines packed reading results type
- */
+
+/// Defines packed reading results type
 struct VL53L1X_Result_t {
     ///ResultStatus
     Status: u8,
@@ -483,7 +515,7 @@ fn VL53L1X_SensorInit(dev: u16) -> VL53L1X_ERROR {
 
     for Addr in 0x2D..=0x87 {
         // for (Addr = 0x2D; Addr <= 0x87; Addr++){
-        status |= VL53L1_WrByte(dev, Addr, VL51L1X_DEFAULT_CONFIGURATION[Addr - 0x2D]);
+        status |= VL53L1_WrByte(dev, Addr, VL51L1X_DEFAULT_CONFIGURATION[Addr as usize - 0x2D]);
     }
     status |= VL53L1X_StartRanging(dev);
     tmp = 0;
@@ -753,7 +785,7 @@ fn VL53L1X_SetInterMeasurementInMs(dev: u16, InterMeasMs: u32) -> VL53L1X_ERROR 
     VL53L1_WrDWord(
         dev,
         VL53L1_SYSTEM__INTERMEASUREMENT_PERIOD,
-        (u32)(ClockPLL * InterMeasMs * 1.075),
+        (ClockPLL as f32 * InterMeasMs as f32 * 1.075) as u32,
     );
     return status;
 }
@@ -768,7 +800,7 @@ fn VL53L1X_GetInterMeasurementInMs(dev: u16, pIM: &mut u16) -> VL53L1X_ERROR {
     *pIM = tmp as u16;
     status |= VL53L1_RdWord(dev, VL53L1_RESULT__OSC_CALIBRATE_VAL, &mut ClockPLL);
     ClockPLL = ClockPLL & 0x3FF;
-    *pIM = (u16)(*pIM / (ClockPLL * 1.065));
+    *pIM = (*pIM as f32 / (ClockPLL as f32 * 1.065)) as u16;
     return status;
 }
 
@@ -823,7 +855,7 @@ fn VL53L1X_GetSignalPerSpad(dev: u16, signalRate: &mut u16) -> VL53L1X_ERROR {
         VL53L1_RESULT__DSS_ACTUAL_EFFECTIVE_SPADS_SD0,
         &mut SpNb,
     );
-    *signalRate = (u16)(200.0 * signal / SpNb);
+    *signalRate = (200.0 * signal as f32 / SpNb as f32) as u16;
     return status;
 }
 
@@ -839,7 +871,7 @@ fn VL53L1X_GetAmbientPerSpad(dev: u16, ambPerSp: &mut u16) -> VL53L1X_ERROR {
         VL53L1_RESULT__DSS_ACTUAL_EFFECTIVE_SPADS_SD0,
         &mut SpNb,
     );
-    *ambPerSp = (u16)(200.0 * AmbientRate / SpNb);
+    *ambPerSp = (200.0 * AmbientRate as f32 / SpNb as f32) as u16;
     return status;
 }
 
@@ -887,7 +919,7 @@ fn VL53L1X_GetRangeStatus(dev: u16, rangeStatus: &mut u8) -> VL53L1X_ERROR {
     status |= VL53L1_RdByte(dev, VL53L1_RESULT__RANGE_STATUS, &mut RgSt);
     RgSt = RgSt & 0x1F;
     if RgSt < 24 {
-        *rangeStatus = status_rtn[RgSt];
+        *rangeStatus = status_rtn[RgSt as usize];
     }
     return status;
 }
@@ -896,18 +928,18 @@ fn VL53L1X_GetRangeStatus(dev: u16, rangeStatus: &mut u8) -> VL53L1X_ERROR {
 fn VL53L1X_GetResult(dev: u16, pResult: &mut VL53L1X_Result_t) -> VL53L1X_ERROR {
     let mut status = 0;
     let mut Temp = [0_u8; 17];
-    let mut RgSt: u8 = 255;
+    let mut RgSt = 255;
 
     status |= VL53L1_ReadMulti(dev, VL53L1_RESULT__RANGE_STATUS, &mut Temp, 17);
     RgSt = Temp[0] & 0x1F;
     if RgSt < 24 {
-        RgSt = status_rtn[RgSt];
+        RgSt = status_rtn[RgSt as usize];
     }
     pResult.Status = RgSt;
-    pResult.Ambient = (Temp[7] << 8 | Temp[8]) * 8;
-    pResult.NumSPADs = Temp[3];
-    pResult.SigPerSPAD = (Temp[15] << 8 | Temp[16]) * 8;
-    pResult.Distance = Temp[13] << 8 | Temp[14];
+    pResult.Ambient = ((Temp[7] as u16) << 8 | Temp[8]  as u16) * 8;
+    pResult.NumSPADs = Temp[3] as u16;
+    pResult.SigPerSPAD = ((Temp[15]  as u16) << 8 | Temp[16] as u16) * 8;
+    pResult.Distance = (Temp[13] as u16) << 8 | Temp[14] as u16;
 
     return status;
 }
@@ -966,7 +998,7 @@ fn VL53L1X_GetXtalk(dev: u16, xtalk: &mut u16) -> VL53L1X_ERROR {
     let mut status = 0;
 
     status |= VL53L1_RdWord(dev, ALGO__CROSSTALK_COMPENSATION_PLANE_OFFSET_KCPS, xtalk);
-    *xtalk = (u16)((*xtalk * 1000) >> 9); /* * 1000 to convert kcps to cps and >> 9 (7.9 format) */
+    *xtalk = ((*xtalk * 1000) >> 9) as u16; /* * 1000 to convert kcps to cps and >> 9 (7.9 format) */
     return status;
 }
 
@@ -1013,7 +1045,7 @@ fn VL53L1X_GetDistanceThresholdWindow(dev: u16, window: &mut u16) -> VL53L1X_ERR
     let mut status = 0;
     let mut tmp = 0;
     status |= VL53L1_RdByte(dev, SYSTEM__INTERRUPT_CONFIG_GPIO, &mut tmp);
-    *window = (u16)(tmp & 0x7);
+    *window = (tmp as u16 & 0x7) as u16;
     return status;
 }
 
@@ -1198,7 +1230,7 @@ fn VL53L1X_CalibrateOffset(dev: u16, TargetDistInMm: u16, offset: &mut i16) -> i
     status |= VL53L1X_StopRanging(dev);
     AverageDistance = AverageDistance / 50;
     *offset = TargetDistInMm as i16 - AverageDistance as i16;
-    status |= VL53L1_WrWord(dev, ALGO__PART_TO_PART_RANGE_OFFSET_MM, offset * 4);
+    status |= VL53L1_WrWord(dev, ALGO__PART_TO_PART_RANGE_OFFSET_MM, *offset as u16 * 4);
     return status;
 }
 
@@ -1215,10 +1247,9 @@ This function performs the xtalk calibration.\n
 */
 fn VL53L1X_CalibrateXtalk(dev: u16, TargetDistInMm: u16, xtalk: &mut u16) -> i8 {
     let mut tmp = 0;
-    let mut i = 0;
     let mut AverageSignalRate = 0;
     let mut AverageDistance = 0;
-    let mut verageSpadNb = 0;
+    let mut AverageSpadNb = 0;
     let mut distance = 0;
     let mut spadNum = 0;
     let mut sr = 0;
@@ -1251,7 +1282,7 @@ fn VL53L1X_CalibrateXtalk(dev: u16, TargetDistInMm: u16, xtalk: &mut u16) -> i8 
     if (calXtalk > 0xffff) {
         calXtalk = 0xffff;
     }
-    *xtalk = (u16)((calXtalk * 1000) >> 9);
+    *xtalk = ((calXtalk * 1000) >> 9) as u16;
     status |= VL53L1_WrWord(dev, 0x0016, calXtalk as u16);
     return status as i8;
 }
