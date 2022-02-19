@@ -703,7 +703,7 @@ mod app {
     #[task(
     binds = TIM15,
     shared = [current_params, manual_inputs, current_pwr,
-    inner_flt_cmd, pid_mid, pid_inner, pid_deriv_filters,
+    inner_flt_cmd, pid_mid, pid_deriv_filters,
     power_used, input_mode, autopilot_mode, user_cfg, commands, ctrl_coeffs,
     spi4
     ],
@@ -721,7 +721,6 @@ mod app {
             cx.shared.current_pwr,
             cx.shared.inner_flt_cmd,
             cx.shared.pid_mid,
-            cx.shared.pid_inner,
             cx.shared.pid_deriv_filters,
             cx.shared.spi4,
             cx.shared.power_used,
@@ -737,7 +736,6 @@ mod app {
                  current_pwr,
                  inner_flt_cmd,
                  pid_mid,
-                 pid_inner,
                  filters,
                  spi,
                  power_used,
@@ -780,7 +778,6 @@ mod app {
                         inputs,
                         inner_flt_cmd,
                         pid_mid,
-                        pid_inner,
                         filters,
                         input_mode,
                         autopilot_mode,

@@ -432,7 +432,6 @@ pub fn run_pid_mid(
     inputs: &CtrlInputs,
     inner_flt_cmd: &mut CtrlInputs,
     pid_mid: &mut PidGroup,
-    pid_inner: &mut PidGroup,
     filters: &mut PidDerivFilters,
     input_mode: &InputMode,
     autopilot_mode: &AutopilotMode,
@@ -449,8 +448,18 @@ pub fn run_pid_mid(
 
             // If in acro mode, we can adjust the throttle setting to maintain a fixed altitude,
             // either MSL or AGL.
-            if let AutopilotMode::AltHold(_, alt_commanded) = autopilot_mode {
-                inner_flt_cmd.thrust = *alt_commanded; // See the inner loop for more on how this is handled.
+            if let AutopilotMode::AltHold(alt_type, alt_commanded) = autopilot_mode {
+
+                // todo: This naive approach, or command a velocity, like in Cmd mode? Probably latter.
+                // inner_flt_cmd.thrust = *alt_commanded; // See the inner loop for more on how this is handled.
+
+                // Set a vertical velocity for the inner loop to maintain, based on distance
+                let dist = match alt_type {
+                    AltType::Msl => alt_commanded - params.s_z_msl,
+                    AltType::Agl => alt_commanded - params.s_z_agl,
+                };
+                // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
+                inner_flt_cmd.thrust = flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
             }
         }
 
@@ -638,14 +647,18 @@ pub fn run_pid_inner(
         InputMode::Acro => {
             let mut thrust_param = params.v_z;
 
+
+            // todo: If at more than 90 degrees attitude and below (or near?) commanded altitude,
+            // todo: cut motor power entirely until level if an Acro + alt hold mode.
+
             // With altitude autopilot mode enabled in Acro mode, adjust power to hold altitude, if able -
             // `thrust` is an altitude.
-            if let AutopilotMode::AltHold(alt_type, _) = autopilot_mode {
-                thrust_param = match alt_type {
-                    AltType::Msl => params.s_z_msl,
-                    AltType::Agl => params.s_z_agl,
-                }
-            }
+            // if let AutopilotMode::AltHold(alt_type, _) = autopilot_mode {
+            //     thrust_param = match alt_type {
+            //         AltType::Msl => params.s_z_msl,
+            //         AltType::Agl => params.s_z_agl,
+            //     }
+            // }
 
             (params.v_pitch, params.v_roll, params.v_yaw, thrust_param)
         }
@@ -674,16 +687,16 @@ pub fn run_pid_inner(
                     coeffs.thrust.k_d_v,
                 ),
             );
-
-            // With altitude autopilot mode enabled in Acro mode, adjust power to hold altitude, if able -
-            // `thrust` is an altitude.
-            if let AutopilotMode::AltHold(_, _) = autopilot_mode {
-                result.3 = (
-                    coeffs.thrust.k_p_s,
-                    coeffs.thrust.k_i_s,
-                    coeffs.thrust.k_d_s,
-                );
-            }
+            //
+            // // With altitude autopilot mode enabled in Acro mode, adjust power to hold altitude, if able -
+            // // `thrust` is an altitude.
+            // if let AutopilotMode::AltHold(_, _) = autopilot_mode {
+            //     result.3 = (
+            //         coeffs.thrust.k_p_s,
+            //         coeffs.thrust.k_i_s,
+            //         coeffs.thrust.k_d_s,
+            //     );
+            // }
 
             result
         }

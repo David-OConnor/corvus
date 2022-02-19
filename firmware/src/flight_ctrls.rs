@@ -14,6 +14,8 @@ use stm32_hal2::{
 
 use cmsis_dsp_sys as sys;
 
+use num_traits::float::FloatCore; // Absolute value.
+
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
 
@@ -397,6 +399,7 @@ pub fn enroute_speed_hor(dist: f32, max_v: f32) -> f32 {
 }
 
 /// Calculate the vertical target velocity (m/s), for a given distance (m) from a point vertically.
+/// `dist` is postive if the aircraft altitude is below the set point; otherwise negative.
 pub fn enroute_speed_ver(dist: f32, max_v: f32, z_agl: f32) -> f32 {
     // todo: fill this out. LUT?
 
@@ -404,14 +407,21 @@ pub fn enroute_speed_ver(dist: f32, max_v: f32, z_agl: f32) -> f32 {
         return crate::max(3., max_v);
     }
 
-    if dist > 20. {
+    let dist_abs = dist.abs();
+
+    let mut result = if dist_abs > 20. {
         max_v
-    } else if dist > 10. {
+    } else if dist_abs > 10. {
         crate::max(2., max_v)
     } else {
         // Get close, then the PID loop will handle the final settling.
         0.5
+    };
+
+    if dist < 0. {
+        result *= -1.;
     }
+    result
 }
 
 /// Calculate the landing vertical velocity (m/s), for a given height  (m) above the ground.
