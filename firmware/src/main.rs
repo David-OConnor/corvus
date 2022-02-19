@@ -346,15 +346,15 @@ pub fn setup_pins() {
 
             // todo: Determine what output speeds to use.
 
-            // Connected to TIM3 CH3, 4; TIM5 CH1, 1; Matek
+            // Rotors connected to TIM3 CH3, 4; TIM5 CH1, 2
             let rotor1_pwm_ = Pin::new(Port::B, 0, PinMode::Alt(2));
             let rotor2_pwm_ = Pin::new(Port::B, 1, PinMode::Alt(2));
-            let otor3_pwm_ = Pin::new(Port::A, 0, PinMode::Alt(2));
+            let rotor3_pwm_ = Pin::new(Port::A, 0, PinMode::Alt(2));
             let rotor3_pwm_ = Pin::new(Port::A, 1, PinMode::Alt(2));
 
             let current_sense_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
 
-            // SPI4 for Matek IMU. AAnd/or
+            // SPI4 for IMU.
             let mosi4_ = Pin::new(Port::E, 14, PinMode::Alt(5));
             let miso4_ = Pin::new(Port::E, 13, PinMode::Alt(5));
             let sck4_ = Pin::new(Port::E, 12, PinMode::Alt(5));
@@ -397,6 +397,47 @@ pub fn setup_pins() {
 
             let bat_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
         } else if #[cfg(feature = "anyleaf-mercury-g4")] {
+            // Rotors connected to Tim2 CH3, 4; Tim4 ch1, 2
+            let rotor1_pwm_ = Pin::new(Port::A, 9, PinMode::Alt(10)); // Tim2 ch3
+            let rotor2_pwm_ = Pin::new(Port::A, 10, PinMode::Alt(10)); // Tim2 ch4
+            let rotor3_pwm_ = Pin::new(Port::A, 11, PinMode::Alt(10)); // Tim4 ch1
+            let rotor4_pwm_ = Pin::new(Port::A, 12, PinMode::Alt(10)); // Tim4 ch2
+
+            let current_sense_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
+
+            // SPI1 for the IMU.
+            let sck1_ = Pin::new(Port::A, 5, PinMode::Alt(5));
+            let miso1_ = Pin::new(Port::A, 6, PinMode::Alt(5));
+            let mosi1_ = Pin::new(Port::A, 7, PinMode::Alt(5));
+
+            // We use  UARTs for ESC telemetry, "Smart Audio" (for video) and...
+            // todo: set these up
+            let uart1_tx = Pin::new(Port::D, 0, PinMode::Alt(0));
+            let uart1_rx = Pin::new(Port::D, 1, PinMode::Alt(0));
+            let uart2_tx = Pin::new(Port::D, 2, PinMode::Alt(0));
+            let uart2_rx = Pin::new(Port::D, 3, PinMode::Alt(0));
+
+            // Used to trigger a PID update based on new IMU data.
+            let mut imu_interrupt = Pin::new(Port::E, 15, PinMode::Input);
+            imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
+
+            // I2C1 for Matek digital airspeed and compass
+            let mut scl1 = Pin::new(Port::B, 6, PinMode::Alt(4));
+            scl1.output_type(OutputType::OpenDrain);
+            scl1.pull(Pull::Up);
+
+            let mut sda1 = Pin::new(Port::B, 7, PinMode::Alt(4));
+            sda1.output_type(OutputType::OpenDrain);
+            sda1.pull(Pull::Up);
+
+            // I2C2 for Matek's DPS310 barometer
+            let mut scl2 = Pin::new(Port::B, 10, PinMode::Alt(4));
+            scl2.output_type(OutputType::OpenDrain);
+            scl2.pull(Pull::Up);
+
+            let mut sda2 = Pin::new(Port::B, 11, PinMode::Alt(4));
+            sda2.output_type(OutputType::OpenDrain);
+            sda2.pull(Pull::Up);
         }
     }
 }
