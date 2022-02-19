@@ -233,7 +233,7 @@ impl Default for UserCfg {
             ceiling: 122.,
             max_angle: TAU * 0.22,
             max_velocity: 30., // todo: raise?
-            idle_pwr: 0., // scale of 0 to 1.
+            idle_pwr: 0.,      // scale of 0 to 1.
             // todo: Find apt value for these
             pitch_input_range: (0., 1.),
             roll_input_range: (0., 1.),
@@ -421,16 +421,16 @@ pub fn setup_pins() {
             let mut imu_interrupt = Pin::new(Port::E, 15, PinMode::Input);
             imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
 
-            // I2C1 for Matek digital airspeed and compass
-            let mut scl1 = Pin::new(Port::B, 6, PinMode::Alt(4));
+            // I2C1 for DPS310 barometer
+            let mut scl1 = Pin::new(Port::A, 13, PinMode::Alt(4));
             scl1.output_type(OutputType::OpenDrain);
             scl1.pull(Pull::Up);
 
-            let mut sda1 = Pin::new(Port::B, 7, PinMode::Alt(4));
+            let mut sda1 = Pin::new(Port::A, 14, PinMode::Alt(4));
             sda1.output_type(OutputType::OpenDrain);
             sda1.pull(Pull::Up);
 
-            // I2C2 for Matek's DPS310 barometer
+            // I2C2 for __
             let mut scl2 = Pin::new(Port::B, 10, PinMode::Alt(4));
             scl2.output_type(OutputType::OpenDrain);
             scl2.pull(Pull::Up);
@@ -746,6 +746,11 @@ mod app {
                  cfg,
                  commands,
                  coeffs| {
+                    // todo: Do we want to update manual/radio inputs here, or in the faster IMU update
+                    // ISR?
+
+                    *inputs = flight_ctrls::get_manual_inputs(cfg);
+
                     // todo: Support both UART telemetry from ESC, and analog current sense pin.
                     // todo: Read from an ADC or something, from teh ESC.
                     // let current_current = None;
@@ -790,7 +795,7 @@ mod app {
     /// Runs when new IMU data is recieved. This functions as our PID inner loop, and updates
     /// pitch and roll. We use this ISR with an interrupt from the IMU, since we wish to
     /// update rotor power settings as soon as data is available.
-    #[task(binds = EXTI15_10, shared = [current_params, input_mode, inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr,
+    #[task(binds = EXTI15_10, shared = [current_params, input_mode, autopilot_mode, inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr,
     spi4,
     rotor_timer_a, rotor_timer_b, ctrl_coeffs], local = [imu_cs], priority = 2)]
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
@@ -887,6 +892,7 @@ mod app {
         (
             cx.shared.current_params,
             cx.shared.input_mode,
+            cx.shared.autopilot_mode,
             cx.shared.inner_flt_cmd,
             cx.shared.pid_inner,
             cx.shared.pid_deriv_filters,
@@ -898,6 +904,7 @@ mod app {
             .lock(
                 |params,
                  input_mode,
+                 autopilot_mode,
                  inputs,
                  pid_inner,
                  filters,
@@ -908,6 +915,7 @@ mod app {
                     pid::run_pid_inner(
                         params,
                         *input_mode,
+                        autopilot_mode,
                         inputs,
                         pid_inner,
                         filters,

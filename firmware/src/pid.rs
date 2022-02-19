@@ -10,7 +10,7 @@ use cmsis_dsp_api as dsp_api;
 
 use crate::{
     flight_ctrls::{
-        self, AutopilotMode, CommandState, CtrlInputs, IirInstWrapper, InputMode, Params,
+        self, AltType, AutopilotMode, CommandState, CtrlInputs, IirInstWrapper, InputMode, Params,
     },
     UserCfg, DT,
 };
@@ -440,14 +440,18 @@ pub fn run_pid_mid(
     commands: &mut CommandState,
     coeffs: &CtrlCoeffGroup,
 ) {
-    // todo: This would be an OK place to put ctrl input mapping to pitch and v rate mapping.
-
-    // todo: DRY. Maybe you just need to use the match to set flight_cmd?
     match input_mode {
         InputMode::Acro => {
             // In rate mode, simply update the inner command; don't do anything
             // in the outer PID loop.
+
             *inner_flt_cmd = inputs.clone();
+
+            // If in acro mode, we can adjust the throttle setting to maintain a fixed altitude,
+            // either MSL or AGL.
+            if let AutopilotMode::AltHold(_, alt_commanded) = autopilot_mode {
+                inner_flt_cmd.thrust = *alt_commanded; // See the inner loop for more on how this is handled.
+            }
         }
 
         InputMode::Attitude => {
@@ -502,26 +506,6 @@ pub fn run_pid_mid(
                 }
                 _ => (),
             }
-
-            // todo: This is a cheap version using V. It will drift!
-            // todo: A candidate for attitude mode as well. Here, you might
-            // todo need a third outer loop that handles position??
-
-            // todo: THis is actually overwriting the x_s etc based approach in
-            // todo the input parser. YOu need to find a way to make this cleaner.
-
-            // Stick position commands a horizontal velocity in this mode.
-
-            // todo: If level, command a loiter, where you drive the inner loop
-            // todo with position errors, not velocity errors.
-            // todo: You could also do this from an outer loop. Perhaps leave small
-            // todo corrections like this to the inner loop, and larger ones to the outer loop.
-
-            // todo: What happens in this approach if you quickly release the stick?
-            // todo: You could maybe always use the outer loop for this.
-
-            // todo: This may not be valid if the drone isn't roughly upright??
-            // todo: World to body conversion? (is that just to offset by yaw?)
 
             let mut param_x = params.v_x;
             let mut param_y = params.v_y;
@@ -631,6 +615,7 @@ pub fn run_pid_mid(
 pub fn run_pid_inner(
     params: &Params,
     input_mode: InputMode,
+    autopilot_mode: &AutopilotMode,
     inputs: &CtrlInputs,
     pid_inner: &mut PidGroup,
     filters: &mut PidDerivFilters,
@@ -649,32 +634,59 @@ pub fn run_pid_inner(
     //     _ => (),
     // }
 
-    let (param_pitch, param_roll, param_yaw, param_thrust) = match input_mode {
-        InputMode::Acro => (params.v_pitch, params.v_roll, params.v_yaw, params.v_z),
+    let (param_pitch, param_roll, param_yaw, mut param_thrust) = match input_mode {
+        InputMode::Acro => {
+            let mut thrust_param = params.v_z;
+
+            // With altitude autopilot mode enabled in Acro mode, adjust power to hold altitude, if able -
+            // `thrust` is an altitude.
+            if let AutopilotMode::AltHold(alt_type, _) = autopilot_mode {
+                thrust_param = match alt_type {
+                    AltType::Msl => params.s_z_msl,
+                    AltType::Agl => params.s_z_agl,
+                }
+            }
+
+            (params.v_pitch, params.v_roll, params.v_yaw, thrust_param)
+        }
         InputMode::Attitude => (params.s_pitch, params.s_roll, params.v_yaw, params.v_z),
         InputMode::Command => (params.s_pitch, params.s_roll, params.s_yaw, params.s_z_msl),
     };
 
     // todo: Messy / DRY
     let (coeffs_pitch, coeffs_roll, coeffs_yaw, coeffs_thrust) = match input_mode {
-        InputMode::Acro => (
-            (
-                coeffs.pitch.k_p_s_from_v,
-                coeffs.pitch.k_i_s_from_v,
-                coeffs.pitch.k_d_s_from_v,
-            ),
-            (
-                coeffs.roll.k_p_s_from_v,
-                coeffs.roll.k_i_s_from_v,
-                coeffs.roll.k_d_s_from_v,
-            ),
-            (coeffs.yaw.k_p_v, coeffs.yaw.k_i_v, coeffs.yaw.k_d_v),
-            (
-                coeffs.thrust.k_p_v,
-                coeffs.thrust.k_i_v,
-                coeffs.thrust.k_d_v,
-            ),
-        ),
+        InputMode::Acro => {
+            let mut result = (
+                (
+                    coeffs.pitch.k_p_s_from_v,
+                    coeffs.pitch.k_i_s_from_v,
+                    coeffs.pitch.k_d_s_from_v,
+                ),
+                (
+                    coeffs.roll.k_p_s_from_v,
+                    coeffs.roll.k_i_s_from_v,
+                    coeffs.roll.k_d_s_from_v,
+                ),
+                (coeffs.yaw.k_p_v, coeffs.yaw.k_i_v, coeffs.yaw.k_d_v),
+                (
+                    coeffs.thrust.k_p_v,
+                    coeffs.thrust.k_i_v,
+                    coeffs.thrust.k_d_v,
+                ),
+            );
+
+            // With altitude autopilot mode enabled in Acro mode, adjust power to hold altitude, if able -
+            // `thrust` is an altitude.
+            if let AutopilotMode::AltHold(_, _) = autopilot_mode {
+                result.3 = (
+                    coeffs.thrust.k_p_s,
+                    coeffs.thrust.k_i_s,
+                    coeffs.thrust.k_d_s,
+                );
+            }
+
+            result
+        }
         InputMode::Attitude => (
             (
                 coeffs.pitch.k_p_s_from_s,
