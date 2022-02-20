@@ -398,7 +398,8 @@ pub fn setup_pins() {
             let bat_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
         } else if #[cfg(feature = "anyleaf-mercury-g4")] {
             // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
-            let rotor1_pwm_ = Pin::new(Port::A, 9, PinMode::Alt(10)); // Tim2 ch3
+            // let rotor1_pwm_ = Pin::new(Port::A, 9, PinMode::Alt(10)); // Tim2 ch3
+            let rotor1_pwm_ = Pin::new(Port::A, 2, PinMode::Alt(1)); // Tim2 ch3
             let rotor2_pwm_ = Pin::new(Port::A, 10, PinMode::Alt(10)); // Tim2 ch4
             let rotor3_pwm_ = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
             let rotor4_pwm_ = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
@@ -421,7 +422,7 @@ pub fn setup_pins() {
             let mut imu_interrupt = Pin::new(Port::E, 15, PinMode::Input);
             imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
 
-            // I2C1 for DPS310 barometer
+            // I2C1 for external sensors.
             let mut scl1 = Pin::new(Port::A, 13, PinMode::Alt(4));
             scl1.output_type(OutputType::OpenDrain);
             scl1.pull(Pull::Up);
@@ -430,12 +431,12 @@ pub fn setup_pins() {
             sda1.output_type(OutputType::OpenDrain);
             sda1.pull(Pull::Up);
 
-            // I2C2 for __
-            let mut scl2 = Pin::new(Port::B, 10, PinMode::Alt(4));
+            // We use I2C2 for the DPS310 barometer
+            let mut scl2 = Pin::new(Port::A, 9, PinMode::Alt(4));
             scl2.output_type(OutputType::OpenDrain);
             scl2.pull(Pull::Up);
 
-            let mut sda2 = Pin::new(Port::B, 11, PinMode::Alt(4));
+            let mut sda2 = Pin::new(Port::A, 8, PinMode::Alt(4));
             sda2.output_type(OutputType::OpenDrain);
             sda2.pull(Pull::Up);
         }
