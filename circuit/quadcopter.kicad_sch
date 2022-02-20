@@ -3036,7 +3036,7 @@
     (property "Value" "Conn_01x01_Female" (id 1) (at 381 120.6499 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
-    (property "Footprint" "TestPoint:TestPoint_Pad_2.0x2.0mm" (id 2) (at 379.73 119.38 0)
+    (property "Footprint" "TestPoint:TestPoint_Pad_1.5x1.5mm" (id 2) (at 379.73 119.38 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (property "Datasheet" "~" (id 3) (at 379.73 119.38 0)
@@ -3244,7 +3244,7 @@
     (property "Value" "Conn_01x01_Female" (id 1) (at 381 115.5699 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
-    (property "Footprint" "TestPoint:TestPoint_Pad_2.0x2.0mm" (id 2) (at 379.73 114.3 0)
+    (property "Footprint" "TestPoint:TestPoint_Pad_1.5x1.5mm" (id 2) (at 379.73 114.3 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (property "Datasheet" "~" (id 3) (at 379.73 114.3 0)
@@ -4562,7 +4562,7 @@
     (property "Value" "Conn_01x01_Female" (id 1) (at 381 125.7299 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
-    (property "Footprint" "TestPoint:TestPoint_Pad_2.0x2.0mm" (id 2) (at 379.73 124.46 0)
+    (property "Footprint" "TestPoint:TestPoint_Pad_1.5x1.5mm" (id 2) (at 379.73 124.46 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (property "Datasheet" "~" (id 3) (at 379.73 124.46 0)
@@ -5773,7 +5773,7 @@
     (property "Value" "Conn_01x01_Female" (id 1) (at 381 130.8099 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
-    (property "Footprint" "TestPoint:TestPoint_Pad_2.0x2.0mm" (id 2) (at 379.73 129.54 0)
+    (property "Footprint" "TestPoint:TestPoint_Pad_1.5x1.5mm" (id 2) (at 379.73 129.54 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (property "Datasheet" "~" (id 3) (at 379.73 129.54 0)
@@ -6385,7 +6385,7 @@
       (reference "J12") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_1.5x1.5mm")
     )
     (path "/1edce6e8-5566-4f48-a815-55320214f73c"
-      (reference "J13") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_2.0x2.0mm")
+      (reference "J13") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_1.5x1.5mm")
     )
     (path "/d32841be-9a4b-4362-b20b-204fa1db9f9d"
       (reference "J15") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_2.0x2.0mm")
@@ -6418,13 +6418,13 @@
       (reference "J26") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_1.5x1.5mm")
     )
     (path "/065a66d2-e8f7-4236-9eec-f79742cfb5d4"
-      (reference "J27") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_2.0x2.0mm")
+      (reference "J27") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_1.5x1.5mm")
     )
     (path "/7eb8e8c3-0828-4397-860b-9862e2e588bc"
-      (reference "J28") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_2.0x2.0mm")
+      (reference "J28") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_1.5x1.5mm")
     )
     (path "/ee2958be-07e5-4f75-bd66-9dd8c18f943a"
-      (reference "J29") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_2.0x2.0mm")
+      (reference "J29") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_1.5x1.5mm")
     )
     (path "/24ea3ac7-0eb9-442f-b153-2e1c78c1bd55"
       (reference "J30") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_2.0x2.0mm")

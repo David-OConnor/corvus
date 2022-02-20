@@ -10,7 +10,7 @@ use cmsis_dsp_api as dsp_api;
 
 use crate::{
     flight_ctrls::{
-        self, AltType, AutopilotMode, CommandState, CtrlInputs, IirInstWrapper, InputMode, Params,
+        self, AltType, AutopilotStatus, CommandState, CtrlInputs, IirInstWrapper, InputMode, Params,
     },
     UserCfg, DT,
 };
@@ -434,7 +434,7 @@ pub fn run_pid_mid(
     pid_mid: &mut PidGroup,
     filters: &mut PidDerivFilters,
     input_mode: &InputMode,
-    autopilot_mode: &AutopilotMode,
+    autopilot_status: &AutopilotStatus,
     cfg: &UserCfg,
     commands: &mut CommandState,
     coeffs: &CtrlCoeffGroup,
@@ -448,7 +448,8 @@ pub fn run_pid_mid(
 
             // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
             // either MSL or AGL.
-            if let AutopilotMode::AltHold(alt_type, alt_commanded) = autopilot_mode {
+            // if let AutopilotMode::AltHold(alt_type, alt_commanded) = autopilot_mode {
+            if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
 
                 // todo: This naive approach, or command a velocity, like in Cmd mode? Probably latter.
                 // inner_flt_cmd.thrust = *alt_commanded; // See the inner loop for more on how this is handled.
@@ -495,7 +496,8 @@ pub fn run_pid_mid(
             };
 
             // todo: DRY from above in Acro mode for alt hold autopilot enabled.
-            if let AutopilotMode::AltHold(alt_type, alt_commanded) = autopilot_mode {
+            // if let AutopilotMode::AltHold(alt_type, alt_commanded) = autopilot_mode {
+            if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
                 // todo: This naive approach, or command a velocity, like in Cmd mode? Probably latter.
                 // inner_flt_cmd.thrust = *alt_commanded; // See the inner loop for more on how this is handled.
 
@@ -510,25 +512,26 @@ pub fn run_pid_mid(
         }
         InputMode::Command => {
             // todo: Impl
-            match autopilot_mode {
-                AutopilotMode::Takeoff => {
-                    *inner_flt_cmd = CtrlInputs {
-                        pitch: 0.,
-                        roll: 0.,
-                        yaw: 0.,
-                        thrust: flight_ctrls::takeoff_speed(params.s_z_agl, cfg.max_speed_ver),
-                    };
-                }
-                AutopilotMode::Land => {
-                    *inner_flt_cmd = CtrlInputs {
-                        pitch: 0.,
-                        roll: 0.,
-                        yaw: 0.,
-                        thrust: flight_ctrls::landing_speed(params.s_z_agl, cfg.max_speed_ver),
-                    };
-                }
-                _ => (),
+            // match autopilot_mode {
+            if autopilot_status.takeoff {
+                // AutopilotMode::Takeoff => {
+                *inner_flt_cmd = CtrlInputs {
+                    pitch: 0.,
+                    roll: 0.,
+                    yaw: 0.,
+                    thrust: flight_ctrls::takeoff_speed(params.s_z_agl, cfg.max_speed_ver),
+                };
             }
+            // AutopilotMode::Land => {
+            else if autopilot_status.land {
+                *inner_flt_cmd = CtrlInputs {
+                    pitch: 0.,
+                    roll: 0.,
+                    yaw: 0.,
+                    thrust: flight_ctrls::landing_speed(params.s_z_agl, cfg.max_speed_ver),
+                };
+            }
+            // _ => (),
 
             let mut param_x = params.v_x;
             let mut param_y = params.v_y;
@@ -638,7 +641,7 @@ pub fn run_pid_mid(
 pub fn run_pid_inner(
     params: &Params,
     input_mode: InputMode,
-    autopilot_mode: &AutopilotMode,
+    autopilot_status: &AutopilotStatus,
     inputs: &CtrlInputs,
     pid_inner: &mut PidGroup,
     filters: &mut PidDerivFilters,
@@ -650,13 +653,6 @@ pub fn run_pid_inner(
 ) {
     // In Acro mode, the inner PID loops controls pitch and roll in terms of rotational velocities. In other mode,
     // it controls them for specific attitudes.
-
-    // todo: Apply relevant autopilot settings here. Ie may be some mix of input modes.
-    // match autopilot_mode {
-    //     AutopilotMode::None => {}
-    //     _ => (),
-    // }
-
     let (param_pitch, param_roll, param_yaw, mut param_thrust) = match input_mode {
         InputMode::Acro => {
             let mut thrust_param = params.v_z;

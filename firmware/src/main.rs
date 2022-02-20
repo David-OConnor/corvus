@@ -47,7 +47,7 @@ cfg_if! {
     }
 }
 
-use flight_ctrls::{AutopilotMode, CommandState, CtrlInputs, InputMode, Params, RotorPower};
+use flight_ctrls::{AutopilotStatus, CommandState, CtrlInputs, InputMode, Params, RotorPower};
 
 use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
 
@@ -495,7 +495,7 @@ mod app {
         // profile: FlightProfile,
         user_cfg: UserCfg,
         input_mode: InputMode,
-        autopilot_mode: AutopilotMode,
+        autopilot_status: AutopilotStatus,
         ctrl_coeffs: CtrlCoeffGroup,
         current_params: Params,
         inner_flt_cmd: CtrlInputs,
@@ -664,7 +664,7 @@ mod app {
             Shared {
                 user_cfg: Default::default(),
                 input_mode: InputMode::Attitude,
-                autopilot_mode: AutopilotMode::None,
+                autopilot_status: Default::default(),
                 ctrl_coeffs: Default::default(),
                 current_params: Default::default(),
                 inner_flt_cmd: Default::default(),
@@ -704,7 +704,7 @@ mod app {
     binds = TIM15,
     shared = [current_params, manual_inputs, current_pwr,
     inner_flt_cmd, pid_mid, pid_deriv_filters,
-    power_used, input_mode, autopilot_mode, user_cfg, commands, ctrl_coeffs,
+    power_used, input_mode, autopilot_status, user_cfg, commands, ctrl_coeffs,
     spi4
     ],
     local = [],
@@ -725,7 +725,7 @@ mod app {
             cx.shared.spi4,
             cx.shared.power_used,
             cx.shared.input_mode,
-            cx.shared.autopilot_mode,
+            cx.shared.autopilot_status,
             cx.shared.user_cfg,
             cx.shared.commands,
             cx.shared.ctrl_coeffs,
@@ -740,7 +740,7 @@ mod app {
                  spi,
                  power_used,
                  input_mode,
-                 autopilot_mode,
+                 autopilot_status,
                  cfg,
                  commands,
                  coeffs| {
@@ -780,7 +780,7 @@ mod app {
                         pid_mid,
                         filters,
                         input_mode,
-                        autopilot_mode,
+                        autopilot_status,
                         cfg,
                         commands,
                         coeffs,
@@ -792,7 +792,7 @@ mod app {
     /// Runs when new IMU data is recieved. This functions as our PID inner loop, and updates
     /// pitch and roll. We use this ISR with an interrupt from the IMU, since we wish to
     /// update rotor power settings as soon as data is available.
-    #[task(binds = EXTI15_10, shared = [current_params, input_mode, autopilot_mode, inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr,
+    #[task(binds = EXTI15_10, shared = [current_params, input_mode, autopilot_status, inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr,
     spi4,
     rotor_timer_a, rotor_timer_b, ctrl_coeffs], local = [imu_cs], priority = 2)]
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
@@ -889,7 +889,7 @@ mod app {
         (
             cx.shared.current_params,
             cx.shared.input_mode,
-            cx.shared.autopilot_mode,
+            cx.shared.autopilot_status,
             cx.shared.inner_flt_cmd,
             cx.shared.pid_inner,
             cx.shared.pid_deriv_filters,
@@ -901,7 +901,7 @@ mod app {
             .lock(
                 |params,
                  input_mode,
-                 autopilot_mode,
+                 autopilot_status,
                  inputs,
                  pid_inner,
                  filters,
@@ -912,7 +912,7 @@ mod app {
                     pid::run_pid_inner(
                         params,
                         *input_mode,
-                        autopilot_mode,
+                        autopilot_status,
                         inputs,
                         pid_inner,
                         filters,

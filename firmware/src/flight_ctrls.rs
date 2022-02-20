@@ -50,33 +50,60 @@ pub enum AltType {
     Msl,
 }
 
+// /// Categories of control mode, in regards to which parameters are held fixed.
+// /// Use this in conjunction with `InputMode`, and control inputs.
+// /// todo: Do we want a toggle for some of these, eg an `AutopilotCfg` struct etc? Eg to independently
+// /// todo enable alt and hdg hold?
+// pub enum AutopilotMode {
+//     /// There are no specific targets to hold
+//     None,
+//     /// Altitude is fixed at a given altimeter (MSL or AGL)
+//     AltHold(AltType, f32),
+//     /// Heading is fixed.
+//     HdgHold(f32), // hdg
+//     /// Altidude and heading are fixed
+//     AltHdgHold(AltType, f32, f32), // alt, hdg
+//     /// Continuously fly towards a path. Note that `pitch` and `yaw` for the
+//     /// parameters here correspond to the flight path; not attitude.
+//     VelocityVector(f32, f32), // pitch, yaw
+//     /// Fly direct to a point
+//     DirectToPoint(Location),
+//     /// The aircraft will fly a fixed profile between sequence points
+//     Sequence,
+//     /// Terrain following mode. Similar to TF radar in a jet. Require a forward-pointing sensor.
+//     /// todo: Add a forward (or angled) TOF sensor, identical to the downward-facing one?
+//     TerrainFollowing(f32), // AGL to hold
+//     /// Take off automatically
+//     Takeoff,
+//     /// Land automatically
+//     Land,
+// }
+
 /// Categories of control mode, in regards to which parameters are held fixed.
-/// Use this in conjunction with `InputMode`, and control inputs.
-/// todo: Do we want a toggle for some of these, eg an `AutopilotCfg` struct etc? Eg to independently
-/// todo enable alt and hdg hold?
-pub enum AutopilotMode {
-    /// There are no specific targets to hold
-    None,
-    /// Altitude is fixed at a given altimeter (AGL)
-    AltHold(AltType, f32),
+/// Note that some settings are mutually exclusive.
+#[derive(Default)]
+pub struct AutopilotStatus {
+    /// Altitude is fixed. (MSL or AGL)
+    pub alt_hold: Option<(AltType, f32)>,
     /// Heading is fixed.
-    HdgHold(f32), // hdg
-    /// Altidude and heading are fixed
-    AltHdgHold(AltType, f32, f32), // alt, hdg
+    pub hdg_hold: Option<f32>,
+    /// Automatically adjust raw to zero out slip
+    pub yaw_assist: bool,
     /// Continuously fly towards a path. Note that `pitch` and `yaw` for the
     /// parameters here correspond to the flight path; not attitude.
-    VelocityVector(f32, f32), // pitch, yaw
+    pub velocity_vector: Option<(f32, f32)>, // pitch, yaw
     /// Fly direct to a point
-    DirectToPoint(Location),
+    pub direct_to_point: Option<Location>,
     /// The aircraft will fly a fixed profile between sequence points
-    Sequence,
+    pub sequence: bool,
     /// Terrain following mode. Similar to TF radar in a jet. Require a forward-pointing sensor.
     /// todo: Add a forward (or angled) TOF sensor, identical to the downward-facing one?
-    TerrainFollowing(f32), // AGL to hold
+    pub terrain_following: Option<f32>, // AGL to hold
     /// Take off automatically
-    Takeoff,
+    pub takeoff: bool,
     /// Land automatically
-    Land,
+    pub land: bool,
+
 }
 
 /// Mode used for control inputs. These are the three "industry-standard" modes.
