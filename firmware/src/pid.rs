@@ -446,7 +446,7 @@ pub fn run_pid_mid(
 
             *inner_flt_cmd = inputs.clone();
 
-            // If in acro mode, we can adjust the throttle setting to maintain a fixed altitude,
+            // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
             // either MSL or AGL.
             if let AutopilotMode::AltHold(alt_type, alt_commanded) = autopilot_mode {
 
@@ -492,6 +492,20 @@ pub fn run_pid_mid(
                 roll: s_roll,
                 yaw: inputs.yaw,
                 thrust: inputs.thrust,
+            };
+
+            // todo: DRY from above in Acro mode for alt hold autopilot enabled.
+            if let AutopilotMode::AltHold(alt_type, alt_commanded) = autopilot_mode {
+                // todo: This naive approach, or command a velocity, like in Cmd mode? Probably latter.
+                // inner_flt_cmd.thrust = *alt_commanded; // See the inner loop for more on how this is handled.
+
+                // Set a vertical velocity for the inner loop to maintain, based on distance
+                let dist = match alt_type {
+                    AltType::Msl => alt_commanded - params.s_z_msl,
+                    AltType::Agl => alt_commanded - params.s_z_agl,
+                };
+                // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
+                inner_flt_cmd.thrust = flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
             }
         }
         InputMode::Command => {
@@ -647,18 +661,8 @@ pub fn run_pid_inner(
         InputMode::Acro => {
             let mut thrust_param = params.v_z;
 
-
             // todo: If at more than 90 degrees attitude and below (or near?) commanded altitude,
             // todo: cut motor power entirely until level if an Acro + alt hold mode.
-
-            // With altitude autopilot mode enabled in Acro mode, adjust power to hold altitude, if able -
-            // `thrust` is an altitude.
-            // if let AutopilotMode::AltHold(alt_type, _) = autopilot_mode {
-            //     thrust_param = match alt_type {
-            //         AltType::Msl => params.s_z_msl,
-            //         AltType::Agl => params.s_z_agl,
-            //     }
-            // }
 
             (params.v_pitch, params.v_roll, params.v_yaw, thrust_param)
         }
@@ -668,38 +672,24 @@ pub fn run_pid_inner(
 
     // todo: Messy / DRY
     let (coeffs_pitch, coeffs_roll, coeffs_yaw, coeffs_thrust) = match input_mode {
-        InputMode::Acro => {
-            let mut result = (
-                (
-                    coeffs.pitch.k_p_s_from_v,
-                    coeffs.pitch.k_i_s_from_v,
-                    coeffs.pitch.k_d_s_from_v,
-                ),
-                (
-                    coeffs.roll.k_p_s_from_v,
-                    coeffs.roll.k_i_s_from_v,
-                    coeffs.roll.k_d_s_from_v,
-                ),
-                (coeffs.yaw.k_p_v, coeffs.yaw.k_i_v, coeffs.yaw.k_d_v),
-                (
-                    coeffs.thrust.k_p_v,
-                    coeffs.thrust.k_i_v,
-                    coeffs.thrust.k_d_v,
-                ),
-            );
-            //
-            // // With altitude autopilot mode enabled in Acro mode, adjust power to hold altitude, if able -
-            // // `thrust` is an altitude.
-            // if let AutopilotMode::AltHold(_, _) = autopilot_mode {
-            //     result.3 = (
-            //         coeffs.thrust.k_p_s,
-            //         coeffs.thrust.k_i_s,
-            //         coeffs.thrust.k_d_s,
-            //     );
-            // }
-
-            result
-        }
+        InputMode::Acro =>(
+            (
+                coeffs.pitch.k_p_s_from_v,
+                coeffs.pitch.k_i_s_from_v,
+                coeffs.pitch.k_d_s_from_v,
+            ),
+            (
+                coeffs.roll.k_p_s_from_v,
+                coeffs.roll.k_i_s_from_v,
+                coeffs.roll.k_d_s_from_v,
+            ),
+            (coeffs.yaw.k_p_v, coeffs.yaw.k_i_v, coeffs.yaw.k_d_v),
+            (
+                coeffs.thrust.k_p_v,
+                coeffs.thrust.k_i_v,
+                coeffs.thrust.k_d_v,
+            ),
+        ),
         InputMode::Attitude => (
             (
                 coeffs.pitch.k_p_s_from_s,

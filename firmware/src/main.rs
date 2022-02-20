@@ -397,11 +397,11 @@ pub fn setup_pins() {
 
             let bat_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
         } else if #[cfg(feature = "anyleaf-mercury-g4")] {
-            // Rotors connected to Tim2 CH3, 4; Tim4 ch1, 2
+            // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
             let rotor1_pwm_ = Pin::new(Port::A, 9, PinMode::Alt(10)); // Tim2 ch3
             let rotor2_pwm_ = Pin::new(Port::A, 10, PinMode::Alt(10)); // Tim2 ch4
-            let rotor3_pwm_ = Pin::new(Port::A, 11, PinMode::Alt(10)); // Tim4 ch1
-            let rotor4_pwm_ = Pin::new(Port::A, 12, PinMode::Alt(10)); // Tim4 ch2
+            let rotor3_pwm_ = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
+            let rotor4_pwm_ = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
 
             let current_sense_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
 

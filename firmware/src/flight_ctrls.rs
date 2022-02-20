@@ -404,7 +404,11 @@ pub fn enroute_speed_ver(dist: f32, max_v: f32, z_agl: f32) -> f32 {
     // todo: fill this out. LUT?
 
     if z_agl < 7. {
-        return crate::max(3., max_v);
+        let mut result = crate::max(3., max_v);
+
+        if dist < 0. {
+            result *= -1.;
+        }
     }
 
     let dist_abs = dist.abs();
