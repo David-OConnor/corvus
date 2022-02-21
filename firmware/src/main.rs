@@ -31,6 +31,7 @@ use cfg_if::cfg_if;
 
 use defmt_rtt as _; // global logger
 use panic_probe as _;
+use stm32_hal2::dma::DmaInput;
 
 mod dshot;
 mod drivers;
@@ -298,7 +299,8 @@ impl AircraftProperties {
     }
 }
 
-/// Specify the rotor
+/// Specify the rotor. Includdes methods that get information regarding timer and DMA, per
+/// specific board setups.
 #[derive(Clone, Copy)]
 pub enum Rotor {
     R1,
@@ -308,14 +310,47 @@ pub enum Rotor {
 }
 
 impl Rotor {
+    // todo: Feature gate these methods based on board, as required.
     pub fn tim_channel(&self) -> TimChannel {
         match self {
-            Self::R1 => TimChannel::C1,
-            Self::R2 => TimChannel::C2,
-            Self::R3 => TimChannel::C1,
-            Self::R4 => TimChannel::C2,
-            // Self::R3 => TimChannel::C3,
-            // Self::R4 => TimChannel::C4,
+            Self::R1 => TimChannel::C3,
+            Self::R2 => TimChannel::C4,
+            Self::R3 => TimChannel::C3,
+            Self::R4 => TimChannel::C4,
+        }
+    }
+
+    /// Dma input channel. This should be in line with `tim_channel`.
+    pub fn dma_input(&self) -> DmaInput {
+        match self {
+            Self::R1 => DmaInput::Tim2Ch3,
+            Self::R2 => DmaInput::Tim2Ch4,
+            Self::R3 => DmaInput::Tim3Ch3,
+            Self::R4 => DmaInput::Tim3Ch4,
+        }
+    }
+
+    /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
+    pub fn dma_chan(&self) -> DmaChannel {
+        // Offset 16 for DMA base register of CCR1?
+        // 17 for CCR2, 18 CCR3, and 19 CCR4?
+        match self {
+            Self::R1 => DmaChannel::C2,
+            Self::R2 => DmaChannel::C3,
+            Self::R3 => DmaChannel::C4,
+            Self::R4 => DmaChannel::C5,
+        }
+    }
+
+    /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
+    pub fn base_addr_offset(&self) -> u8 {
+        // Offset 16 for DMA base register of CCR1?
+        // 17 for CCR2, 18 CCR3, and 19 CCR4?
+        match self.tim_channel() {
+            TimChannel::C1 => 16,
+            TimChannel::C2 => 17,
+            TimChannel::C3 => 18,
+            TimChannel::C4 => 19,
         }
     }
 }
@@ -531,8 +566,8 @@ mod app {
         i2c2: I2c<I2C2>,
         // rtc: Rtc,
         update_timer: Timer<TIM15>,
-        // rotor_timer_a: Timer<TIM3>,
-        // rotor_timer_b: Timer<TIM5>,
+        rotor_timer_a: Timer<TIM3>,
+        rotor_timer_b: Timer<TIM5>,
         // `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
         power_used: f32,
         // Store filter instances for the PID loop derivatives. One for each param used.
@@ -615,31 +650,46 @@ mod app {
         // We use the ADC to measure battery voltage.
         let batt_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, Default::default(), &clock_cfg);
 
-        // todo: Do we want these to be a single timer, with 4 channels?
 
         let mut update_timer =
             Timer::new_tim15(dp.TIM15, UPDATE_RATE, Default::default(), &clock_cfg);
         update_timer.enable_interrupt(TimerInterrupt::Update);
 
         let rotor_timer_cfg = TimerConfig {
-            // We use ARPE since we change duty with the timer running. ( // todo ?)
+            // We use ARPE since we change duty with the timer running.
             auto_reload_preload: true,
             ..Default::default()
         };
 
-        // Timer that periodically triggers the noise-cancelling filter to update its coefficients.
+        // We use multiple timers instead of a single one based on pin availability; a single
+        // timer with 4 channels would be fine.
 
-        // todo: Why does the Matek board use 2 separate rotor timers, when each has 4 channels.
-        let mut rotor_timer_a =
-            Timer::new_tim3(dp.TIM3, dshot::TIM_FREQ, rotor_timer_cfg.clone(), &clock_cfg);
-        //
-        // rotor_timer_a.enable_pwm_output(TimChannel::C1, OutputCompare::Pwm1, 0.);
-        // rotor_timer_a.enable_pwm_output(TimChannel::C2, OutputCompare::Pwm1, 0.);
-        //
-        let mut rotor_timer_b = Timer::new_tim5(dp.TIM5, dshot::TIM_FREQ, rotor_timer_cfg, &clock_cfg);
-        //
-        // rotor_timer_b.enable_pwm_output(TimChannel::C1, OutputCompare::Pwm1, 0.);
-        // rotor_timer_b.enable_pwm_output(TimChannel::C2, OutputCompare::Pwm1, 0.);
+        cfg_if! {
+            if #[cfg(feature = "matek-h743slim")] {
+                let mut rotor_timer_a =
+                    Timer::new_tim3(dp.TIM3, dshot::TIM_FREQ, rotor_timer_cfg.clone(), &clock_cfg);
+
+                // todo: Double check these - may not be correct.
+                rotor_timer_a.enable_pwm_output(TimChannel::C3, OutputCompare::Pwm1, 0.);
+                rotor_timer_a.enable_pwm_output(TimChannel::C4, OutputCompare::Pwm1, 0.);
+
+                let mut rotor_timer_b = Timer::new_tim5(dp.TIM5, dshot::TIM_FREQ, rotor_timer_cfg, &clock_cfg);
+
+                rotor_timer_b.enable_pwm_output(TimChannel::C3, OutputCompare::Pwm1, 0.);
+                rotor_timer_b.enable_pwm_output(TimChannel::C4, OutputCompare::Pwm1, 0.);
+            } else if #[cfg(feature = "anyleaf-mercury-g4")] {
+                let mut rotor_timer_a =
+                    Timer::new_tim2(dp.TIM2, dshot::TIM_FREQ, rotor_timer_cfg.clone(), &clock_cfg);
+
+                rotor_timer_a.enable_pwm_output(TimChannel::C3, OutputCompare::Pwm1, 0.);
+                rotor_timer_a.enable_pwm_output(TimChannel::C4, OutputCompare::Pwm1, 0.);
+
+                let mut rotor_timer_b = Timer::new_tim3(dp.TIM3, dshot::TIM_FREQ, rotor_timer_cfg, &clock_cfg);
+
+                rotor_timer_b.enable_pwm_output(TimChannel::C3, OutputCompare::Pwm1, 0.);
+                rotor_timer_b.enable_pwm_output(TimChannel::C4, OutputCompare::Pwm1, 0.);
+            }
+        }
 
         // We use `dt_timer` to count the time between IMU updates, for use in the PID loop
         // integral, derivative, and filters. If set to 1Mhz, the CNT value is the number of
@@ -662,24 +712,25 @@ mod app {
 
         let mut osd_cs = Pin::new(Port::B, 12, PinMode::Output);
 
-
-
         // In Betaflight, DMA is required for the ADC (current/voltage sensor),
         // motor outputs running bidirectional DShot, and gyro SPI bus.
 
         // todo: COnsider how you use DMA, and bus splitting.
+        // todo: Feature-gate these based on board, as required.
+
         // IMU
         dma::mux(DmaChannel::C0, dma::DmaInput::Spi1Tx, &mut dp.DMAMUX1);
         dma::mux(DmaChannel::C1, dma::DmaInput::Spi1Rx, &mut dp.DMAMUX1);
 
+        // todo: TIMUP??
         // DSHOT, motor 1
-        dma::mux(DmaChannel::C2, dma::DmaInput::Tim2Ch3, &mut dp.DMAMUX1);
+        dma::mux(Rotor::R1.dma_channel(), Rotor::R1.dma_input(), &mut dp.DMAMUX1);
         // DSHOT, motor 2
-        dma::mux(DmaChannel::C3, dma::DmaInput::Tim2Ch4, &mut dp.DMAMUX1);
+        dma::mux(Rotor::R2.dma_channel(), Rotor::R2.dma_input(), &mut dp.DMAMUX1);
         // DSHOT, motor 3
-        dma::mux(DmaChannel::C4, dma::DmaInput::Tim3Ch3, &mut dp.DMAMUX1);
+        dma::mux(Rotor::R3.dma_channel(), Rotor::R3.dma_input(), &mut dp.DMAMUX1);
         // DSHOT, motor 4
-        dma::mux(DmaChannel::C5, dma::DmaInput::Tim3Ch4, &mut dp.DMAMUX1);
+        dma::mux(Rotor::R4.dma_channel(), Rotor::R4.dma_input(), &mut dp.DMAMUX1);
 
         // todo: DMA for voltage ADC (?)
 
@@ -717,8 +768,8 @@ mod app {
                 i2c2,
                 // rtc,
                 update_timer,
-                // rotor_timer_a,
-                // rotor_timer_b,
+                rotor_timer_a,
+                rotor_timer_b,
                 power_used: 0.,
                 pid_deriv_filters: PidDerivFilters::new(),
                 base_point: Location::new(LocationType::Rel0, 0., 0., 0.),
