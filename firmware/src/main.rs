@@ -19,7 +19,7 @@ use stm32_hal2::{
     flash::Flash,
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, I2C1, I2C2, SPI2, SPI4, TIM15, TIM3, TIM5},
+    pac::{self, DMA1, I2C1, I2C2, SPI2, SPI4, TIM15},
     power::{SupplyConfig, VoltageLevel},
     rtc::Rtc,
     spi::{BaudRate, Spi},
@@ -32,6 +32,7 @@ use cfg_if::cfg_if;
 use defmt_rtt as _; // global logger
 use panic_probe as _;
 
+mod dshot;
 mod drivers;
 mod flight_ctrls;
 mod pid;
@@ -351,10 +352,21 @@ pub fn setup_pins() {
             // todo: Determine what output speeds to use.
 
             // Rotors connected to TIM3 CH3, 4; TIM5 CH1, 2
-            let rotor1_pwm_ = Pin::new(Port::B, 0, PinMode::Alt(2));
-            let rotor2_pwm_ = Pin::new(Port::B, 1, PinMode::Alt(2));
-            let rotor3_pwm_ = Pin::new(Port::A, 0, PinMode::Alt(2));
-            let rotor3_pwm_ = Pin::new(Port::A, 1, PinMode::Alt(2));
+            // let rotor1_pwm_ = Pin::new(Port::B, 0, PinMode::Alt(2));
+            // let rotor2_pwm_ = Pin::new(Port::B, 1, PinMode::Alt(2));
+            // let rotor3_pwm_ = Pin::new(Port::A, 0, PinMode::Alt(2));
+            // let rotor3_pwm_ = Pin::new(Port::A, 1, PinMode::Alt(2));
+
+            // bit-banged GPIOs for the rotors, in DSHOT mode.
+            let mut rotor1 = Pin::new(Port::B, 0, PinMode:Output);
+            let mut rotor2 = Pin::new(Port::B, 1, PinMode:Output);
+            let mut rotor3 = Pin::new(Port::A, 0, PinMode:Output);
+            let mut rotor4 = Pin::new(Port::B, 1, PinMode:Output);
+
+            rotor1.output_speed(OutputSpeed::High);
+            rotor2.output_speed(OutputSpeed::High);
+            rotor3.output_speed(OutputSpeed::High);
+            rotor4.output_speed(OutputSpeed::High);
 
             let current_sense_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
 
@@ -403,10 +415,21 @@ pub fn setup_pins() {
         } else if #[cfg(feature = "anyleaf-mercury-g4")] {
             // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
             // let rotor1_pwm_ = Pin::new(Port::A, 9, PinMode::Alt(10)); // Tim2 ch3
-            let rotor1_pwm_ = Pin::new(Port::A, 2, PinMode::Alt(1)); // Tim2 ch3
-            let rotor2_pwm_ = Pin::new(Port::A, 10, PinMode::Alt(10)); // Tim2 ch4
-            let rotor3_pwm_ = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
-            let rotor4_pwm_ = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
+            // let rotor1_pwm_ = Pin::new(Port::A, 2, PinMode::Alt(1)); // Tim2 ch3
+            // let rotor2_pwm_ = Pin::new(Port::A, 10, PinMode::Alt(10)); // Tim2 ch4
+            // let rotor3_pwm_ = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
+            // let rotor4_pwm_ = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
+
+            // bit-banged GPIOs for the rotors, in DSHOT mode.
+            let mut rotor1 = Pin::new(Port::A, 2, PinMode:Output);
+            let mut rotor2 = Pin::new(Port::A, 10, PinMode:Output);
+            let mut rotor3 = Pin::new(Port::B, 0, PinMode:Output);
+            let mut rotor4 = Pin::new(Port::B, 1, PinMode:Output);
+
+            rotor1.output_speed(OutputSpeed::High);
+            rotor2.output_speed(OutputSpeed::High);
+            rotor3.output_speed(OutputSpeed::High);
+            rotor4.output_speed(OutputSpeed::High);
 
             let current_sense_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
 
@@ -521,8 +544,8 @@ mod app {
         i2c2: I2c<I2C2>,
         // rtc: Rtc,
         update_timer: Timer<TIM15>,
-        rotor_timer_a: Timer<TIM3>,
-        rotor_timer_b: Timer<TIM5>,
+        // rotor_timer_a: Timer<TIM3>,
+        // rotor_timer_b: Timer<TIM5>,
         // `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
         power_used: f32,
         // Store filter instances for the PID loop derivatives. One for each param used.
@@ -611,29 +634,25 @@ mod app {
             Timer::new_tim15(dp.TIM15, UPDATE_RATE, Default::default(), &clock_cfg);
         update_timer.enable_interrupt(TimerInterrupt::Update);
 
-        let rotor_timer_cfg = TimerConfig {
-            // We use ARPE since we change duty with the timer running.
-            auto_reload_preload: true,
-            ..Default::default()
-        };
+        // let rotor_timer_cfg = TimerConfig {
+        //     // We use ARPE since we change duty with the timer running.
+        //     auto_reload_preload: true,
+        //     ..Default::default()
+        // };
 
         // Timer that periodically triggers the noise-cancelling filter to update its coefficients.
 
         // todo: Why does the Matek board use 2 separate rotor timers, when each has 4 channels.
-        let mut rotor_timer_a =
-            Timer::new_tim3(dp.TIM3, PWM_FREQ, rotor_timer_cfg.clone(), &clock_cfg);
-
-        rotor_timer_a.enable_pwm_output(TimChannel::C1, OutputCompare::Pwm1, 0.);
-        rotor_timer_a.enable_pwm_output(TimChannel::C2, OutputCompare::Pwm1, 0.);
-        // rotor_timer_a.enable_pwm_output(TimChannel::C3, OutputCompare::Pwm1, 0.);
-        // rotor_timer_a.enable_pwm_output(TimChannel::C4, OutputCompare::Pwm1, 0.);
-
-        let mut rotor_timer_b = Timer::new_tim5(dp.TIM5, PWM_FREQ, rotor_timer_cfg, &clock_cfg);
-
-        rotor_timer_b.enable_pwm_output(TimChannel::C1, OutputCompare::Pwm1, 0.);
-        rotor_timer_b.enable_pwm_output(TimChannel::C2, OutputCompare::Pwm1, 0.);
-        // rotor_timer_b.enable_pwm_output(TimChannel::C3, OutputCompare::Pwm1, 0.);
-        // rotor_timer_b.enable_pwm_output(TimChannel::C4, OutputCompare::Pwm1, 0.);
+        // let mut rotor_timer_a =
+        //     Timer::new_tim3(dp.TIM3, PWM_FREQ, rotor_timer_cfg.clone(), &clock_cfg);
+        //
+        // rotor_timer_a.enable_pwm_output(TimChannel::C1, OutputCompare::Pwm1, 0.);
+        // rotor_timer_a.enable_pwm_output(TimChannel::C2, OutputCompare::Pwm1, 0.);
+        //
+        // let mut rotor_timer_b = Timer::new_tim5(dp.TIM5, PWM_FREQ, rotor_timer_cfg, &clock_cfg);
+        //
+        // rotor_timer_b.enable_pwm_output(TimChannel::C1, OutputCompare::Pwm1, 0.);
+        // rotor_timer_b.enable_pwm_output(TimChannel::C2, OutputCompare::Pwm1, 0.);
 
         // We use `dt_timer` to count the time between IMU updates, for use in the PID loop
         // integral, derivative, and filters. If set to 1Mhz, the CNT value is the number of
@@ -692,8 +711,8 @@ mod app {
 
         let mut flash = Flash::new(dp.FLASH); // todo temp mut to test
 
-        rotor_timer_a.enable();
-        rotor_timer_b.enable();
+        // rotor_timer_a.enable();
+        // rotor_timer_b.enable();
 
         update_timer.enable();
         // dt_timer.enable();
@@ -718,8 +737,8 @@ mod app {
                 i2c2,
                 // rtc,
                 update_timer,
-                rotor_timer_a,
-                rotor_timer_b,
+                // rotor_timer_a,
+                // rotor_timer_b,
                 power_used: 0.,
                 pid_deriv_filters: PidDerivFilters::new(),
                 base_point: Location::new(LocationType::Rel0, 0., 0., 0.),
@@ -832,8 +851,8 @@ mod app {
     /// pitch and roll. We use this ISR with an interrupt from the IMU, since we wish to
     /// update rotor power settings as soon as data is available.
     #[task(binds = EXTI15_10, shared = [current_params, input_mode, autopilot_status, inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr,
-    spi4,
-    rotor_timer_a, rotor_timer_b, ctrl_coeffs], local = [imu_cs], priority = 2)]
+    spi4, rotor_timer_a, rotor_timer_b,
+    ctrl_coeffs], local = [imu_cs], priority = 2)]
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
         unsafe {
             // Clear the interrupt flag.
@@ -933,8 +952,8 @@ mod app {
             cx.shared.pid_inner,
             cx.shared.pid_deriv_filters,
             cx.shared.current_pwr,
-            cx.shared.rotor_timer_a,
-            cx.shared.rotor_timer_b,
+            // cx.shared.rotor_timer_a,
+            // cx.shared.rotor_timer_b,
             cx.shared.ctrl_coeffs,
         )
             .lock(
@@ -945,8 +964,8 @@ mod app {
                  pid_inner,
                  filters,
                  current_pwr,
-                 rotor_timer_a,
-                 rotor_timer_b,
+                 // rotor_timer_a,
+                 // rotor_timer_b,
                  coeffs| {
                     pid::run_pid_inner(
                         params,
@@ -956,8 +975,8 @@ mod app {
                         pid_inner,
                         filters,
                         current_pwr,
-                        rotor_timer_a,
-                        rotor_timer_b,
+                        // rotor_timer_a,
+                        // rotor_timer_b,
                         coeffs,
                         DT_IMU,
                     );

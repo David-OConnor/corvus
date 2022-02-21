@@ -395,21 +395,31 @@ fn change_attitude(
     current_pwr.set(rotor_pwm_a, rotor_pwm_b);
 }
 
-/// Set an individual rotor's power. Power ranges from 0. to 1.
-fn set_power_a(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>) {
-    // todo: Use a LUT or something for performance.
-    let arr_portion = power * PWM_ARR as f32;
 
-    timer.set_duty(rotor.tim_channel(), arr_portion as u32);
-}
-
-// todo: DRY due to diff TIM types.
-fn set_power_b(rotor: Rotor, power: f32, timer: &mut Timer<TIM5>) {
-    // todo: Use a LUT or something for performance.
-    let arr_portion = power * PWM_ARR as f32;
-
-    timer.set_duty(rotor.tim_channel(), arr_portion as u32);
-}
+// /// Set an individual rotor's power. Power ranges from 0. to 1.
+// fn set_power_a(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>) {
+//     let mut packet = prepareDshotPacket(value);
+//
+//     for i in 0..16 {
+//       // Dshot is MSB first
+//       payload_[i] = (packet & 0x8000) ? bit_1_ : bit_0_;
+//       packet <<= 1;
+//     }
+//
+//
+//     // todo: Use a LUT or something for performance.
+//     // let arr_portion = power * PWM_ARR as f32;
+//
+//     // timer.set_duty(rotor.tim_channel(), arr_portion as u32);
+// }
+//
+// // todo: DRY due to diff TIM types.
+// fn set_power_b(rotor: Rotor, power: f32, timer: &mut Timer<TIM5>) {
+//     // todo: Use a LUT or something for performance.
+//     // let arr_portion = power * PWM_ARR as f32;
+//
+//     // timer.set_duty(rotor.tim_channel(), arr_portion as u32);
+// }
 
 /// Calculate the horizontal arget velocity (m/s), for a given distance (m) from a point horizontally.
 pub fn enroute_speed_hor(dist: f32, max_v: f32) -> f32 {
