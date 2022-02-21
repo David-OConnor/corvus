@@ -184,6 +184,10 @@ fn max(a: f32, b: f32) -> f32 {
     }
 }
 
+fn abs(x: f32) -> f32 {
+    f32::from_bits(x.to_bits() & 0x7FFF_FFFF)
+}
+
 pub enum LocationType {
     /// Lattitude and longitude. Available after a GPS fix
     LatLon,
@@ -406,10 +410,15 @@ pub fn setup_pins() {
 
             let current_sense_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
 
-            // SPI1 for the IMU.
+            // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
             let sck1_ = Pin::new(Port::A, 5, PinMode::Alt(5));
             let miso1_ = Pin::new(Port::A, 6, PinMode::Alt(5));
             let mosi1_ = Pin::new(Port::A, 7, PinMode::Alt(5));
+
+            // SPI1 for flash. Nothing else on the bus, since we use it with DMA.
+            let sck3_ = Pin::new(Port::B, 3, PinMode::Alt(6));
+            let miso3_ = Pin::new(Port::B, 4, PinMode::Alt(6));
+            let mosi3_ = Pin::new(Port::B, 5, PinMode::Alt(6));
 
             // We use  UARTs for ESC telemetry, "Smart Audio" (for video) and...
             // todo: set these up
@@ -542,8 +551,12 @@ mod app {
         // Set up clocks
         let clock_cfg = Clocks {
             // Config for 480Mhz full speed:
+            #[cfg(feature = "matek-h743slim")]
             pll_src: PllSrc::Hse(8_000_000),
+            #[cfg(feature = "anyleaf-mercury-g4")]
+            pll_src: PllSrc::Hse(16_000_000),
             // vos_range: VosRange::VOS0, // Note: This may use extra power. todo: Put back!
+            #[cfg(feature = "matek-h743slim")]
             pll1: PllCfg {
                 divm: 4, // To compensate with 8Mhz HSE instead of 64Mhz HSI
                 // divn: 480,// todo: Put back! No longer working??
@@ -643,18 +656,39 @@ mod app {
 
         let mut osd_cs = Pin::new(Port::B, 12, PinMode::Output);
 
-        let mut dma = Dma::new(dp.DMA1);
+
+
+        // In Betaflight, DMA is required for the ADC (current/voltage sensor),
+        // motor outputs running bidirectional DShot, and gyro SPI bus.
 
         // todo: COnsider how you use DMA, and bus splitting.
         // IMU
         dma::mux(DmaChannel::C0, dma::DmaInput::Spi1Tx, &mut dp.DMAMUX1);
         dma::mux(DmaChannel::C1, dma::DmaInput::Spi1Rx, &mut dp.DMAMUX1);
+
+        // Dshot, motor 1
+        dma::mux(DmaChannel::C2, dma::DmaInput::Uart1Tx, &mut dp.DMAMUX1);
+        dma::mux(DmaChannel::C3, dma::DmaInput::Uart1Rx, &mut dp.DMAMUX1);
+
+        // Dshot, motor 2
+        dma::mux(DmaChannel::C4, dma::DmaInput::Uart2Tx, &mut dp.DMAMUX1);
+        dma::mux(DmaChannel::C5, dma::DmaInput::Uart2Rx, &mut dp.DMAMUX1);
+
+        // Dshot, motor 3
+        dma::mux(DmaChannel::C6, dma::DmaInput::Uart3Tx, &mut dp.DMAMUX1);
+        dma::mux(DmaChannel::C7, dma::DmaInput::Uart3Rx, &mut dp.DMAMUX1);
+
+        // Dshot, motor 4
+        dma::mux(DmaChannel::C8, dma::DmaInput::Uart4Tx, &mut dp.DMAMUX1);
+        dma::mux(DmaChannel::C9, dma::DmaInput::Uart4Rx, &mut dp.DMAMUX1);
+
+
         // TOF sensor
-        dma::mux(DmaChannel::C2, dma::DmaInput::I2c1Tx, &mut dp.DMAMUX1);
-        dma::mux(DmaChannel::C3, dma::DmaInput::I2c1Rx, &mut dp.DMAMUX1);
+        // dma::mux(DmaChannel::C2, dma::DmaInput::I2c1Tx, &mut dp.DMAMUX1);
+        // dma::mux(DmaChannel::C3, dma::DmaInput::I2c1Rx, &mut dp.DMAMUX1);
         // Baro
-        dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx, &mut dp.DMAMUX1);
-        dma::mux(DmaChannel::C5, dma::DmaInput::I2c2Rx, &mut dp.DMAMUX1);
+        // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx, &mut dp.DMAMUX1);
+        // dma::mux(DmaChannel::C5, dma::DmaInput::I2c2Rx, &mut dp.DMAMUX1);
 
         let mut flash = Flash::new(dp.FLASH); // todo temp mut to test
 

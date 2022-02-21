@@ -438,7 +438,7 @@ pub fn enroute_speed_ver(dist: f32, max_v: f32, z_agl: f32) -> f32 {
         }
     }
 
-    let dist_abs = dist.abs();
+    let dist_abs = crate::abs(dist);
 
     let mut result = if dist_abs > 20. {
         max_v
