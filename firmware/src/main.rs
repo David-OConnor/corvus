@@ -57,7 +57,7 @@ const DT_TIM_FREQ: u32 = 200_000_000;
 
 // The frequency our motor-driving PWM operates at, in Hz.
 // todo: Make this higher (eg 96kHz) after making sure the ESC
-const PWM_FREQ: f32 = 12_000.;
+// const PWM_FREQ: f32 = 12_000.;
 
 // Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
 // so we can set duty cycle appropriately.
@@ -70,8 +70,8 @@ const PWM_ARR: u32 = 7_395;
 // For 200Mhz, 32-bit timer:
 // For CNT = us:
 // PSC = (200Mhz / 1Mhz) - 1 = 199. ARR = (1<<32) - 1
-const DT_PSC: u32 = 199;
-const DT_ARR: u32 = u32::MAX - 1;
+// const DT_PSC: u32 = 199;
+// const DT_ARR: u32 = u32::MAX - 1;
 
 // The rate our main program updates, in Hz.
 // Currently set to
@@ -352,16 +352,10 @@ pub fn setup_pins() {
             // todo: Determine what output speeds to use.
 
             // Rotors connected to TIM3 CH3, 4; TIM5 CH1, 2
-            // let rotor1_pwm_ = Pin::new(Port::B, 0, PinMode::Alt(2));
-            // let rotor2_pwm_ = Pin::new(Port::B, 1, PinMode::Alt(2));
-            // let rotor3_pwm_ = Pin::new(Port::A, 0, PinMode::Alt(2));
-            // let rotor3_pwm_ = Pin::new(Port::A, 1, PinMode::Alt(2));
-
-            // bit-banged GPIOs for the rotors, in DSHOT mode.
-            let mut rotor1 = Pin::new(Port::B, 0, PinMode:Output);
-            let mut rotor2 = Pin::new(Port::B, 1, PinMode:Output);
-            let mut rotor3 = Pin::new(Port::A, 0, PinMode:Output);
-            let mut rotor4 = Pin::new(Port::B, 1, PinMode:Output);
+            let mut rotor1 = Pin::new(Port::B, 0, PinMode::Alt(2));
+            let mut rotor2 = Pin::new(Port::B, 1, PinMode::Alt(2));
+            let mut rotor3 = Pin::new(Port::A, 0, PinMode::Alt(2));
+            let mut rotor4 = Pin::new(Port::A, 1, PinMode::Alt(2));
 
             rotor1.output_speed(OutputSpeed::High);
             rotor2.output_speed(OutputSpeed::High);
@@ -414,17 +408,10 @@ pub fn setup_pins() {
             let bat_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
         } else if #[cfg(feature = "anyleaf-mercury-g4")] {
             // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
-            // let rotor1_pwm_ = Pin::new(Port::A, 9, PinMode::Alt(10)); // Tim2 ch3
-            // let rotor1_pwm_ = Pin::new(Port::A, 2, PinMode::Alt(1)); // Tim2 ch3
-            // let rotor2_pwm_ = Pin::new(Port::A, 10, PinMode::Alt(10)); // Tim2 ch4
-            // let rotor3_pwm_ = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
-            // let rotor4_pwm_ = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
-
-            // bit-banged GPIOs for the rotors, in DSHOT mode.
-            let mut rotor1 = Pin::new(Port::A, 2, PinMode:Output);
-            let mut rotor2 = Pin::new(Port::A, 10, PinMode:Output);
-            let mut rotor3 = Pin::new(Port::B, 0, PinMode:Output);
-            let mut rotor4 = Pin::new(Port::B, 1, PinMode:Output);
+            let mut rotor1 = Pin::new(Port::A, 3, PinMode::Alt(1)); // Tim2 ch3
+            let mut rotor2 = Pin::new(Port::A, 10, PinMode::Alt(10)); // Tim2 ch4
+            let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
+            let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
 
             rotor1.output_speed(OutputSpeed::High);
             rotor2.output_speed(OutputSpeed::High);
@@ -634,22 +621,22 @@ mod app {
             Timer::new_tim15(dp.TIM15, UPDATE_RATE, Default::default(), &clock_cfg);
         update_timer.enable_interrupt(TimerInterrupt::Update);
 
-        // let rotor_timer_cfg = TimerConfig {
-        //     // We use ARPE since we change duty with the timer running.
-        //     auto_reload_preload: true,
-        //     ..Default::default()
-        // };
+        let rotor_timer_cfg = TimerConfig {
+            // We use ARPE since we change duty with the timer running. ( // todo ?)
+            auto_reload_preload: true,
+            ..Default::default()
+        };
 
         // Timer that periodically triggers the noise-cancelling filter to update its coefficients.
 
         // todo: Why does the Matek board use 2 separate rotor timers, when each has 4 channels.
-        // let mut rotor_timer_a =
-        //     Timer::new_tim3(dp.TIM3, PWM_FREQ, rotor_timer_cfg.clone(), &clock_cfg);
+        let mut rotor_timer_a =
+            Timer::new_tim3(dp.TIM3, dshot::TIM_FREQ, rotor_timer_cfg.clone(), &clock_cfg);
         //
         // rotor_timer_a.enable_pwm_output(TimChannel::C1, OutputCompare::Pwm1, 0.);
         // rotor_timer_a.enable_pwm_output(TimChannel::C2, OutputCompare::Pwm1, 0.);
         //
-        // let mut rotor_timer_b = Timer::new_tim5(dp.TIM5, PWM_FREQ, rotor_timer_cfg, &clock_cfg);
+        let mut rotor_timer_b = Timer::new_tim5(dp.TIM5, dshot::TIM_FREQ, rotor_timer_cfg, &clock_cfg);
         //
         // rotor_timer_b.enable_pwm_output(TimChannel::C1, OutputCompare::Pwm1, 0.);
         // rotor_timer_b.enable_pwm_output(TimChannel::C2, OutputCompare::Pwm1, 0.);
@@ -685,22 +672,16 @@ mod app {
         dma::mux(DmaChannel::C0, dma::DmaInput::Spi1Tx, &mut dp.DMAMUX1);
         dma::mux(DmaChannel::C1, dma::DmaInput::Spi1Rx, &mut dp.DMAMUX1);
 
-        // Dshot, motor 1
-        dma::mux(DmaChannel::C2, dma::DmaInput::Uart1Tx, &mut dp.DMAMUX1);
-        dma::mux(DmaChannel::C3, dma::DmaInput::Uart1Rx, &mut dp.DMAMUX1);
+        // DSHOT, motor 1
+        dma::mux(DmaChannel::C2, dma::DmaInput::Tim2Ch3, &mut dp.DMAMUX1);
+        // DSHOT, motor 2
+        dma::mux(DmaChannel::C3, dma::DmaInput::Tim2Ch4, &mut dp.DMAMUX1);
+        // DSHOT, motor 3
+        dma::mux(DmaChannel::C4, dma::DmaInput::Tim3Ch3, &mut dp.DMAMUX1);
+        // DSHOT, motor 4
+        dma::mux(DmaChannel::C5, dma::DmaInput::Tim3Ch4, &mut dp.DMAMUX1);
 
-        // Dshot, motor 2
-        dma::mux(DmaChannel::C4, dma::DmaInput::Uart2Tx, &mut dp.DMAMUX1);
-        dma::mux(DmaChannel::C5, dma::DmaInput::Uart2Rx, &mut dp.DMAMUX1);
-
-        // Dshot, motor 3
-        dma::mux(DmaChannel::C6, dma::DmaInput::Uart3Tx, &mut dp.DMAMUX1);
-        dma::mux(DmaChannel::C7, dma::DmaInput::Uart3Rx, &mut dp.DMAMUX1);
-
-        // Dshot, motor 4
-        dma::mux(DmaChannel::C8, dma::DmaInput::Uart4Tx, &mut dp.DMAMUX1);
-        dma::mux(DmaChannel::C9, dma::DmaInput::Uart4Rx, &mut dp.DMAMUX1);
-
+        // todo: DMA for voltage ADC (?)
 
         // TOF sensor
         // dma::mux(DmaChannel::C2, dma::DmaInput::I2c1Tx, &mut dp.DMAMUX1);
@@ -715,7 +696,6 @@ mod app {
         // rotor_timer_b.enable();
 
         update_timer.enable();
-        // dt_timer.enable();
 
         (
             // todo: Make these local as able.
