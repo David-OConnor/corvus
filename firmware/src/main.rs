@@ -419,10 +419,10 @@ pub fn setup_pins() {
             let uart2_rx = Pin::new(Port::D, 3, PinMode::Alt(0));
 
             // Used to trigger a PID update based on new IMU data.
-            let mut imu_interrupt = Pin::new(Port::E, 15, PinMode::Input);
+            let mut imu_interrupt = Pin::new(Port::A, 4, PinMode::Input); // PA4 for IMU interrupt.
             imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
 
-            // I2C1 for external sensors.
+            // I2C1 for external sensors via pads
             let mut scl1 = Pin::new(Port::A, 13, PinMode::Alt(4));
             scl1.output_type(OutputType::OpenDrain);
             scl1.pull(Pull::Up);
@@ -431,7 +431,7 @@ pub fn setup_pins() {
             sda1.output_type(OutputType::OpenDrain);
             sda1.pull(Pull::Up);
 
-            // We use I2C2 for the DPS310 barometer
+            // I2C2 for the DPS310 barometer, and expose pads.
             let mut scl2 = Pin::new(Port::A, 9, PinMode::Alt(4));
             scl2.output_type(OutputType::OpenDrain);
             scl2.pull(Pull::Up);
@@ -634,8 +634,12 @@ mod app {
         // dt_timer.set_auto_reload(DT_ARR);
 
         // From Matek
-        let mut imu_cs = Pin::new(Port::E, 11, PinMode::Output);
-        imu::setup(&mut spi4, &mut imu_cs);
+        #[cfg(feature = "matek-h743slim")]
+        let mut cs_imu = Pin::new(Port::E, 11, PinMode::Output);
+        #[cfg(feature = "anyleaf-mercury-g4")]
+        let mut cs_imu = Pin::new(Port::B, 10, PinMode::Output);
+
+        imu::setup(&mut spi4, &mut cs_imu);
 
         let mut osd_cs = Pin::new(Port::B, 12, PinMode::Output);
 
@@ -688,7 +692,7 @@ mod app {
                 commands: Default::default(),
             },
             Local {
-                imu_cs, // dt_timer,
+                imu_cs: cs_imu, // dt_timer,
             },
             init::Monotonics(),
         )
