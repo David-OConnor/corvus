@@ -21,19 +21,30 @@ use crate::flight_ctrls::Rotor;
 
 // Configure the DSHOT protocol for a given timer rate.
 
-pub const TIM_FREQ: f32 = 600_000.; // DSHOT 600.
+// pub const TIM_FREQ: f32 = 600_000.; // DSHOT 600.
 
-const TIM_RATE: u16 = 100_000_000; // todo!
+// const TIM_RATE: u16 = 100_000_000; // todo!
 
-// todo: what type for these?
-const BIT_PERIOD: u16 = (TIM_RATE + 1_200_000/2) / 1_200_000;
-const BIT_0: u16 = (BIT_PERIOD * 1 + 1) / 3 - 1;
-const BIT_1: u16 = (BIT_PERIOD * 3 + 2) / 4 - 1;
+// todo: what type for these? Are these right?
+// const BIT_PERIOD: u16 = (TIM_RATE + 1_200_000/2) / 1_200_000;
+// const BIT_0: u16 = (BIT_PERIOD * 1 + 1) / 3 - 1;
+// const BIT_1: u16 = (BIT_PERIOD * 3 + 2) / 4 - 1;
 
-static mut PAYLOAD_R1: [u32; 17] = [0; 17];
+
+// const BIT_PERIOD: u16 = (TIM_RATE + 1_200_000/2) / 1_200_000;
+
+// Duty cycle values (to be written to CCMRx), based on our ARR value. 0. = 0%. ARR = 100%.
+const DUTY_HIGH: u16 = crate::DSHOT_ARR as u16 * 3/8;
+const DUTY_LOW: u16 = crate::DSHOT_ARR as u16 * 3/4;
+
+// DMA buffers for each rotor.
+static mut PAYLOAD_R1: [u16; 16] = [0; 16];
+static mut PAYLOAD_R2: [u16; 16] = [0; 16];
+static mut PAYLOAD_R3: [u16; 16] = [0; 16];
+static mut PAYLOAD_R4: [u16; 16] = [0; 16];
 
 fn prepare_packet(val: u16, request_telemetry: bool) -> u16 {
-    let mut packet = (val << 1) | (if request_telemetry_ { 1 } else { 0 });
+    let mut packet = (val << 1) | (if request_telemetry { 1 } else { 0 });
 
     // Compute checksum
     let crc = (val ^ (val >> 4) ^ (val >> 8)) & 0x0F;
@@ -44,10 +55,6 @@ fn prepare_packet(val: u16, request_telemetry: bool) -> u16 {
 
 /// Set an individual rotor's power. Power ranges from 0. to 1.
 pub fn set_power(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>) {
-
-    // todo: Convert power to u16.
-    //
-
     // First 11 (0:10) bits are the throttle settings. 0 means disarmed. 1-47 are reserved
     // for special commands. 48 - 2_047 are throttle value (2_000 possible values)
 
@@ -55,14 +62,27 @@ pub fn set_power(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>) {
     // Bits 12:15 are CRC, to validate data.
 
     // Dshot 300.
-    let val = (power * 1_999.) as u16 + 48;
+    let pwr_word = (power * 1_999.) as u16 + 48;
 
-    let mut packet = prepare_packet(val, true);
+    // todo: How do we convert to CCR value? CCR value duty cycle should be
+    // todo portion * crate::DSHOT_ARR
 
-    for i in 0..16 {
+    let mut packet = prepare_packet(pwr_word, true);
+
+    // todo: method on rotor for payload?
+    let payload = &mut unsafe {
+        match rotor {
+            Rotor::R1 => PAYLOAD_R1,
+            Rotor::R2 => PAYLOAD_R2,
+            Rotor::R3 => PAYLOAD_R3,
+            Rotor::R4 => PAYLOAD_R4,
+        }
+    };
+
+    for i in 0..16 { //
         // Dshot is MSB first
         unsafe {
-            payload_[i] = if packet & 0x8000 { BIT_1 } else { BIT_0 };
+            payload[i] = if packet & 0x8000 { DUTY_HIGH } else { DUTY_LOW };
         }
         packet <<= 1;
     }
@@ -76,9 +96,18 @@ pub fn set_power(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>) {
 fn send_payload(rotor: Rotor, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>){
     let dma_cfg = ChannelCfg ::Default();
 
+    let payload = &unsafe {
+        match rotor {
+            Rotor::R1 => PAYLOAD_R1,
+            Rotor::R2 => PAYLOAD_R2,
+            Rotor::R3 => PAYLOAD_R3,
+            Rotor::R4 => PAYLOAD_R4,
+        }
+    };
+
     unsafe {
         timer.write_dma_burst(
-            &PAYLOAD_R1, // todo
+            payload,
             // TimChannel::C3, // todo?
             rotor.base_addr_offset(),
             1, // todo. Burst len of 1?

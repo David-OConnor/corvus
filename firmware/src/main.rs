@@ -61,12 +61,15 @@ const DT_TIM_FREQ: u32 = 200_000_000;
 // const PWM_FREQ: f32 = 12_000.;
 
 // Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
-// so we can set duty cycle appropriately.
+// so we can set duty cycle appropriately for DSHOT.
 // These are set for a 200MHz timer frequency.
 // (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period.
-// Keep this in sync with `PWM_FREQ`!
-const PWM_PSC: u32 = 0;
-const PWM_ARR: u32 = 7_395;
+
+// Set up for DSHOT-600. (600k bits/second) So, timer frequency = 600kHz.
+// todo: (PSC = 0, AAR = 332 results in a 600.6kHz update freq; not 600kHz exactly. Is that ok?)
+// todo: Is this even what we want?
+const DSHOT_PSC: u32 = 0;
+const DSHOT_ARR: u32 = 332;
 
 // For 200Mhz, 32-bit timer:
 // For CNT = us:
@@ -460,12 +463,13 @@ pub fn setup_pins() {
             let miso1_ = Pin::new(Port::A, 6, PinMode::Alt(5));
             let mosi1_ = Pin::new(Port::A, 7, PinMode::Alt(5));
 
-            // SPI1 for flash. Nothing else on the bus, since we use it with DMA.
+            // SPI1 for flash, and exposed as a pad.
             let sck3_ = Pin::new(Port::B, 3, PinMode::Alt(6));
             let miso3_ = Pin::new(Port::B, 4, PinMode::Alt(6));
             let mosi3_ = Pin::new(Port::B, 5, PinMode::Alt(6));
 
-            // We use  UARTs for ESC telemetry, "Smart Audio" (for video) and...
+            // We use UARTs for misc external devices, including ESC telemetry,
+            // and "Smart Audio" (for video)
             // todo: set these up
             let uart1_tx = Pin::new(Port::D, 0, PinMode::Alt(0));
             let uart1_rx = Pin::new(Port::D, 1, PinMode::Alt(0));
@@ -477,15 +481,15 @@ pub fn setup_pins() {
             imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
 
             // I2C1 for external sensors via pads
-            let mut scl1 = Pin::new(Port::A, 13, PinMode::Alt(4));
+            let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
             scl1.output_type(OutputType::OpenDrain);
             scl1.pull(Pull::Up);
 
-            let mut sda1 = Pin::new(Port::A, 14, PinMode::Alt(4));
+            let mut sda1 = Pin::new(Port::B, 7, PinMode::Alt(4));
             sda1.output_type(OutputType::OpenDrain);
             sda1.pull(Pull::Up);
 
-            // I2C2 for the DPS310 barometer, and expose pads.
+            // I2C2 for the DPS310 barometer, and pads.
             let mut scl2 = Pin::new(Port::A, 9, PinMode::Alt(4));
             scl2.output_type(OutputType::OpenDrain);
             scl2.pull(Pull::Up);
@@ -667,13 +671,13 @@ mod app {
         cfg_if! {
             if #[cfg(feature = "matek-h743slim")] {
                 let mut rotor_timer_a =
-                    Timer::new_tim3(dp.TIM3, dshot::TIM_FREQ, rotor_timer_cfg.clone(), &clock_cfg);
+                    Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg.clone(), &clock_cfg);
 
                 // todo: Double check these - may not be correct.
                 rotor_timer_a.enable_pwm_output(TimChannel::C3, OutputCompare::Pwm1, 0.);
                 rotor_timer_a.enable_pwm_output(TimChannel::C4, OutputCompare::Pwm1, 0.);
 
-                let mut rotor_timer_b = Timer::new_tim5(dp.TIM5, dshot::TIM_FREQ, rotor_timer_cfg, &clock_cfg);
+                let mut rotor_timer_b = Timer::new_tim5(dp.TIM5, 1., rotor_timer_cfg, &clock_cfg);
 
                 rotor_timer_b.enable_pwm_output(TimChannel::C3, OutputCompare::Pwm1, 0.);
                 rotor_timer_b.enable_pwm_output(TimChannel::C4, OutputCompare::Pwm1, 0.);
@@ -690,6 +694,11 @@ mod app {
                 rotor_timer_b.enable_pwm_output(TimChannel::C4, OutputCompare::Pwm1, 0.);
             }
         }
+
+        rotor_timer_a.set_prescaler(DSHOT_PSC);
+        rotor_timer_a.set_auto_reload(DSHOT_ARR);
+        rotor_timer_b.set_prescaler(DSHOT_PSC);
+        rotor_timer_b.set_auto_reload(DSHOT_ARR);
 
         // We use `dt_timer` to count the time between IMU updates, for use in the PID loop
         // integral, derivative, and filters. If set to 1Mhz, the CNT value is the number of
