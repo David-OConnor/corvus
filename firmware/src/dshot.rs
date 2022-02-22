@@ -9,9 +9,12 @@
 //! 4 bit CRC: (Cyclic Redundancy) Check to validate data (throttle and telemetry request bit)
 //! 1 and 0 in the DSHOT frame are distinguished by their high time. This means that every bit has a certain (constant) length,
 //! and the length of the high part of the bit dictates if a 1 or 0 is being received.
+//!
+//! The DSHOT protocol (DSHOT-300, DSHOT-600 etc) is determined by the `DSHOT_ARR` and `DSHOT_PSC` settings in the
+//! main crate; ie set a 600kHz countdown for DSHOT-600.
 
 use stm32_hal2::{
-    dma::{ChannelCfg, Dma, DmaChannel,},
+    dma::{ChannelCfg, Dma, DmaChannel},
     timer::{Timer, TimChannel},
     pac::{DMA1, TIM3, TIM5},
 };
@@ -19,41 +22,18 @@ use stm32_hal2::{
 use crate::flight_ctrls::Rotor;
 
 
-// Configure the DSHOT protocol for a given timer rate.
-
-// pub const TIM_FREQ: f32 = 600_000.; // DSHOT 600.
-
-// const TIM_RATE: u16 = 100_000_000; // todo!
-
-// todo: what type for these? Are these right?
-// const BIT_PERIOD: u16 = (TIM_RATE + 1_200_000/2) / 1_200_000;
-// const BIT_0: u16 = (BIT_PERIOD * 1 + 1) / 3 - 1;
-// const BIT_1: u16 = (BIT_PERIOD * 3 + 2) / 4 - 1;
-
-
-// const BIT_PERIOD: u16 = (TIM_RATE + 1_200_000/2) / 1_200_000;
-
 // Duty cycle values (to be written to CCMRx), based on our ARR value. 0. = 0%. ARR = 100%.
-const DUTY_HIGH: u16 = crate::DSHOT_ARR as u16 * 3/8;
-const DUTY_LOW: u16 = crate::DSHOT_ARR as u16 * 3/4;
+const DUTY_HIGH: u32 = crate::DSHOT_ARR * 3/4;
+const DUTY_LOW: u32 = crate::DSHOT_ARR * 3/8;
 
-// DMA buffers for each rotor.
-static mut PAYLOAD_R1: [u16; 16] = [0; 16];
-static mut PAYLOAD_R2: [u16; 16] = [0; 16];
-static mut PAYLOAD_R3: [u16; 16] = [0; 16];
-static mut PAYLOAD_R4: [u16; 16] = [0; 16];
+// DMA buffers for each rotor. 16-bit data, but using a 32-bit API.
+static mut PAYLOAD_R1: [u32; 16] = [0; 16];
+static mut PAYLOAD_R2: [u32; 16] = [0; 16];
+static mut PAYLOAD_R3: [u32; 16] = [0; 16];
+static mut PAYLOAD_R4: [u32; 16] = [0; 16];
 
-fn prepare_packet(val: u16, request_telemetry: bool) -> u16 {
-    let mut packet = (val << 1) | (if request_telemetry { 1 } else { 0 });
-
-    // Compute checksum
-    let crc = (val ^ (val >> 4) ^ (val >> 8)) & 0x0F;
-
-    (packet << 4) | crc
-}
-
-
-/// Set an individual rotor's power. Power ranges from 0. to 1.
+/// Set an individual rotor's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
+/// settings. `power` ranges from 0. to 1.
 pub fn set_power(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>) {
     // First 11 (0:10) bits are the throttle settings. 0 means disarmed. 1-47 are reserved
     // for special commands. 48 - 2_047 are throttle value (2_000 possible values)
@@ -61,13 +41,14 @@ pub fn set_power(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>) {
     // Bit 11 is 1 to request telemetry; 0 otherwise.
     // Bits 12:15 are CRC, to validate data.
 
-    // Dshot 300.
     let pwr_word = (power * 1_999.) as u16 + 48;
 
-    // todo: How do we convert to CCR value? CCR value duty cycle should be
-    // todo portion * crate::DSHOT_ARR
+    let telemetry_bit = 1; // todo temp
+    let packet = (pwr_word << 1) | telemetry_bit;
 
-    let mut packet = prepare_packet(pwr_word, true);
+    // Compute the checksum
+    let crc = (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F;
+    let mut packet = (packet << 4) | crc;
 
     // todo: method on rotor for payload?
     let payload = &mut unsafe {
@@ -79,18 +60,15 @@ pub fn set_power(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>) {
         }
     };
 
+    // Create a DMA payload of 16 timer CCR (duty) settings, each for one bit of our data word.
     for i in 0..16 { //
-        // Dshot is MSB first
+
+        let bit = (payload >> i) & 1;
         unsafe {
-            payload[i] = if packet & 0x8000 { DUTY_HIGH } else { DUTY_LOW };
+            // DSHOT uses MSB first alignment.
+            payload[15 - i] = if bit == 1 { DUTY_HIGH } else { DUTY_LOW };
         }
-        packet <<= 1;
     }
-
-    // todo: Use a LUT or something for performance.
-    // let arr_portion = power * PWM_ARR as f32;
-
-    // timer.set_duty(rotor.tim_channel(), arr_portion as u32);
 }
 
 fn send_payload(rotor: Rotor, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>){
@@ -108,23 +86,18 @@ fn send_payload(rotor: Rotor, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>){
     unsafe {
         timer.write_dma_burst(
             payload,
-            // TimChannel::C3, // todo?
             rotor.base_addr_offset(),
-            1, // todo. Burst len of 1?
+            1, // Burst len of 1
             rotor.dma_channel(),
             dma_cfg,
             dma,
         );
     }
 
-    // Reset DMA payload size, flags and enable it
-    // DMA2_Stream5->NDTR = payload_.size();
-    // DMA2->HIFCR = DMA2->HISR;
-    // DMA2_Stream5->CR |= DMA_SxCR_EN;
-
     // Reset and update Timer registers
     timer.regs.egr.write(|w| w.ug().set_bit());
-  }
+    // todo: DMA enable?
+}
 
 
 // void init(unsigned bitrate)
