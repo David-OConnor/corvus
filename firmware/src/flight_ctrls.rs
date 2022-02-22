@@ -8,13 +8,16 @@ use core::{
 };
 
 use stm32_hal2::{
-    pac::{TIM15, TIM3, TIM5},
+    dma::Dma,
+    pac::{DMA1, TIM2, TIM3},
     timer::Timer,
 };
 
 use cmsis_dsp_sys as sys;
 
 use num_traits::float::FloatCore; // Absolute value.
+
+use crate::{dshot, pid::PidState, CtrlCoeffGroup, Location, Rotor, UserCfg, PWM_ARR};
 
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
@@ -25,7 +28,76 @@ const ROLL_RNG: (f32, f32) = (-1., 1.);
 const YAW_RNG: (f32, f32) = (-1., 1.);
 const THRUST_RNG: (f32, f32) = (-0., 1.);
 
-use crate::{pid::PidState, CtrlCoeffGroup, Location, Rotor, UserCfg, PWM_ARR};
+/// Utility function to linearly map an input value to an output
+fn map_linear(val: f32, range_in: (f32, f32), range_out: (f32, f32)) -> f32 {
+    let portion = (val - range_in.0) / (range_in.1 - range_in.0);
+
+    portion * (range_out.1 - range_out.0) + range_out.0
+}
+
+/// Maps control inputs (range 0. to 1. or -1. to 1.) to velocities, rotational velocities etc
+/// for various flight modes. The values are for full input range.
+pub struct InputMap {
+    /// Pitch velocity commanded, (Eg Acro mode). radians/sec
+    pitch_rate: (f32, f32),
+    /// Pitch velocity commanded (Eg Acro mode)
+    roll_rate: (f32, f32),
+    /// Yaw velocity commanded (Eg Acro mode)
+    yaw_rate: (f32, f32),
+    /// Power level
+    power_level: (f32, f32),
+    /// Pitch velocity commanded (Eg Attitude mode) // radians from vertical
+    pitch_angle: (f32, f32),
+    /// Pitch velocity commanded (Eg Attitude mode)
+    roll_angle: (f32, f32),
+    /// Yaw angle commanded v. Radians from north (?)
+    yaw_angle: (f32, f32),
+    /// Offset MSL is MSL, but 0 maps to launch alt
+    alt_commanded_offset_msl: (f32, f32),
+    alt_commanded_agl: (f32, f32),
+}
+
+impl InputMap {
+    pub fn calc_pitch_rate(&self, input: f32) -> f32 {
+        map_linear(input, PITCH_RNG, self.pitch_rate)
+    }
+
+    pub fn calc_roll_rate(&self, input: f32) -> f32 {
+        map_linear(input, ROLL_RNG, self.roll_rate)
+    }
+
+    pub fn calc_yaw_rate(&self, input: f32) -> f32 {
+        map_linear(input, YAW_RNG, self.yaw_rate)
+    }
+
+    pub fn calc_pitch_angle(&self, input: f32) -> f32 {
+        map_linear(input, PITCH_RNG, self.pitch_angle)
+    }
+
+    pub fn calc_roll_angle(&self, input: f32) -> f32 {
+        map_linear(input, ROLL_RNG, self.roll_angle)
+    }
+
+    pub fn calc_yaw_angle(&self, input: f32) -> f32 {
+        map_linear(input, YAW_RNG, self.yaw_angle)
+    }
+}
+
+impl Default for InputMap {
+    fn default() -> Self {
+        Self {
+            pitch_rate: (-10., 10.),
+            roll_rate: (-10., 10.),
+            yaw_rate: (-10., 10.),
+            power_level: (0., 1.),
+            pitch_angle: (-TAU / 4., TAU / 4.),
+            roll_angle: (-TAU / 4., TAU / 4.),
+            yaw_angle: (0., TAU),
+            alt_commanded_offset_msl: (0., 100.),
+            alt_commanded_agl: (0.5, 8.),
+        }
+    }
+}
 
 #[derive(Default)]
 // todo: Do we use this, or something more general like FlightCmd
@@ -49,35 +121,6 @@ pub enum AltType {
     /// Mean sea level (eg from GPS or baro)
     Msl,
 }
-
-// /// Categories of control mode, in regards to which parameters are held fixed.
-// /// Use this in conjunction with `InputMode`, and control inputs.
-// /// todo: Do we want a toggle for some of these, eg an `AutopilotCfg` struct etc? Eg to independently
-// /// todo enable alt and hdg hold?
-// pub enum AutopilotMode {
-//     /// There are no specific targets to hold
-//     None,
-//     /// Altitude is fixed at a given altimeter (MSL or AGL)
-//     AltHold(AltType, f32),
-//     /// Heading is fixed.
-//     HdgHold(f32), // hdg
-//     /// Altidude and heading are fixed
-//     AltHdgHold(AltType, f32, f32), // alt, hdg
-//     /// Continuously fly towards a path. Note that `pitch` and `yaw` for the
-//     /// parameters here correspond to the flight path; not attitude.
-//     VelocityVector(f32, f32), // pitch, yaw
-//     /// Fly direct to a point
-//     DirectToPoint(Location),
-//     /// The aircraft will fly a fixed profile between sequence points
-//     Sequence,
-//     /// Terrain following mode. Similar to TF radar in a jet. Require a forward-pointing sensor.
-//     /// todo: Add a forward (or angled) TOF sensor, identical to the downward-facing one?
-//     TerrainFollowing(f32), // AGL to hold
-//     /// Take off automatically
-//     Takeoff,
-//     /// Land automatically
-//     Land,
-// }
 
 /// Categories of control mode, in regards to which parameters are held fixed.
 /// Note that some settings are mutually exclusive.
@@ -103,7 +146,6 @@ pub struct AutopilotStatus {
     pub takeoff: bool,
     /// Land automatically
     pub land: bool,
-
 }
 
 /// Mode used for control inputs. These are the three "industry-standard" modes.
@@ -333,13 +375,18 @@ impl RotorPower {
     }
 
     /// Send this power command to the rotors
-    pub fn set(&mut self, rotor_pwm_a: &mut Timer<TIM3>, rotor_pwm_b: &mut Timer<TIM5>) {
+    pub fn set(
+        &mut self,
+        rotor_timer_a: &mut Timer<TIM3>,
+        rotor_timer_b: &mut Timer<TIM5>,
+        dma: &mut Dma<DMA1>,
+    ) {
         self.clamp();
 
-        set_power_a(Rotor::R1, self.p1, rotor_pwm_a);
-        set_power_a(Rotor::R2, self.p2, rotor_pwm_a);
-        set_power_b(Rotor::R3, self.p3, rotor_pwm_b);
-        set_power_b(Rotor::R4, self.p4, rotor_pwm_b);
+        dshot::set_power_a(Rotor::R1, self.p1, rotor_timer_a, dma);
+        dshot::set_power_a(Rotor::R2, self.p2, rotor_timer_a, dma);
+        dshot::set_power_b(Rotor::R3, self.p3, rotor_timer_b, dma);
+        dshot::set_power_b(Rotor::R4, self.p4, rotor_timer_b, dma);
     }
 }
 
@@ -394,32 +441,6 @@ fn change_attitude(
 
     current_pwr.set(rotor_pwm_a, rotor_pwm_b);
 }
-
-
-// /// Set an individual rotor's power. Power ranges from 0. to 1.
-// fn set_power_a(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>) {
-//     let mut packet = prepareDshotPacket(value);
-//
-//     for i in 0..16 {
-//       // Dshot is MSB first
-//       payload_[i] = (packet & 0x8000) ? bit_1_ : bit_0_;
-//       packet <<= 1;
-//     }
-//
-//
-//     // todo: Use a LUT or something for performance.
-//     // let arr_portion = power * PWM_ARR as f32;
-//
-//     // timer.set_duty(rotor.tim_channel(), arr_portion as u32);
-// }
-//
-// // todo: DRY due to diff TIM types.
-// fn set_power_b(rotor: Rotor, power: f32, timer: &mut Timer<TIM5>) {
-//     // todo: Use a LUT or something for performance.
-//     // let arr_portion = power * PWM_ARR as f32;
-//
-//     // timer.set_duty(rotor.tim_channel(), arr_portion as u32);
-// }
 
 /// Calculate the horizontal arget velocity (m/s), for a given distance (m) from a point horizontally.
 pub fn enroute_speed_hor(dist: f32, max_v: f32) -> f32 {

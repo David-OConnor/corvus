@@ -182,32 +182,6 @@ impl PidState {
 
 /// Store lowpass IIR filter instances, for use with the deriv terms of our PID loop.
 pub struct PidDerivFilters {
-    // pub s_x: IirInstWrapper,
-    // pub s_y: IirInstWrapper,
-    // pub s_z: IirInstWrapper,
-    //
-    // pub s_pitch: IirInstWrapper,
-    // pub s_roll: IirInstWrapper,
-    // pub s_yaw: IirInstWrapper,
-    //
-    // // Velocity
-    // pub v_x: IirInstWrapper,
-    // pub v_y: IirInstWrapper,
-    // pub v_z: IirInstWrapper,
-    //
-    // pub v_pitch: IirInstWrapper,
-    // pub v_roll: IirInstWrapper,
-    // pub v_yaw: IirInstWrapper,
-    //
-    // // Acceleration
-    // pub a_x: IirInstWrapper,
-    // pub a_y: IirInstWrapper,
-    // pub a_z: IirInstWrapper,
-    //
-    // pub a_pitch: IirInstWrapper,
-    // pub a_roll: IirInstWrapper,
-    // pub a_yaw: IirInstWrapper,
-    //
     pub mid_x: IirInstWrapper,
     pub mid_y: IirInstWrapper,
     pub mid_yaw: IirInstWrapper,
@@ -239,68 +213,6 @@ impl PidDerivFilters {
         ];
 
         let mut result = Self {
-            // s_x: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // s_y: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // s_z: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            //
-            // s_pitch: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // s_roll: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // s_yaw: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            //
-            // // Velocity
-            // v_x: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // v_y: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // v_z: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            //
-            // v_pitch: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // v_roll: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // v_yaw: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            //
-            // // Acceleration
-            // a_x: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // a_y: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // a_z: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            //
-            // a_pitch: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // a_roll: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // a_yaw: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            //
             mid_x: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
@@ -430,6 +342,7 @@ fn calc_pid_error(
 pub fn run_pid_mid(
     params: &Params,
     inputs: &CtrlInputs,
+    input_map: &InputMap,
     inner_flt_cmd: &mut CtrlInputs,
     pid_mid: &mut PidGroup,
     filters: &mut PidDerivFilters,
@@ -444,13 +357,17 @@ pub fn run_pid_mid(
             // In rate mode, simply update the inner command; don't do anything
             // in the outer PID loop.
 
-            *inner_flt_cmd = inputs.clone();
+            *inner_flt_cmd = CtrlInputs {
+                pitch: input_map.calc_pitch_rate(inputs.pitch),
+                roll: input_map.calc_roll_rate(inputs.roll),
+                yaw: input_map.calc_yaw_rate(inputs.yaw),
+                thrust: input_map.calc_pitch_rate(inputs.thrust),
+            };
 
             // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
             // either MSL or AGL.
             // if let AutopilotMode::AltHold(alt_type, alt_commanded) = autopilot_mode {
             if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
-
                 // todo: This naive approach, or command a velocity, like in Cmd mode? Probably latter.
                 // inner_flt_cmd.thrust = *alt_commanded; // See the inner loop for more on how this is handled.
 
@@ -460,7 +377,24 @@ pub fn run_pid_mid(
                     AltType::Agl => alt_commanded - params.s_z_agl,
                 };
                 // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-                inner_flt_cmd.thrust = flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
+                inner_flt_cmd.thrust =
+                    flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
+            }
+
+            if let Some((alt_type, alt_commanded)) = autopilot_status.yaw_assist {
+                // Blend manual inputs with teh autocorrection factor. If there are no manual inputs,
+                // this autopilot mode should neutralize all sideslip.
+
+                let net_hor_direction = 0.;
+                let current_yaw = params.s_yaw;
+
+                // todo: Do we want a function that maps to a commanded yaw velocity, or
+                // todo, something more simple?
+
+                let yaw_correction_factor = 0.; // todo
+
+                // todo: Impl for Attitude mode too.
+                inner_flt_cmd.yaw += yaw_correction_factor;
             }
         }
 
@@ -475,24 +409,11 @@ pub fn run_pid_mid(
             // Here, we compensate for wind etc, but this will still drift,
             // since we don't attempt to maintain a position.
 
-            // Clamp max angle to specified limits.
-            // todo: Clamp total combined angle; not x and y individually?
-
-            let mut s_pitch = inputs.pitch;
-            let mut s_roll = inputs.roll;
-
-            if s_pitch > cfg.max_angle {
-                s_pitch = cfg.max_angle;
-            }
-            if s_roll > cfg.max_angle {
-                s_roll = cfg.max_angle;
-            }
-
             *inner_flt_cmd = CtrlInputs {
-                pitch: s_pitch,
-                roll: s_roll,
-                yaw: inputs.yaw,
-                thrust: inputs.thrust,
+                pitch: input_map.calc_pitch_angle(inputs.pitch),
+                roll: input_map.calc_roll_angle(inputs.roll),
+                yaw: input_map.calc_yaw_rate(inputs.yaw),
+                thrust: input_map.calc_pitch_rate(inputs.thrust),
             };
 
             // todo: DRY from above in Acro mode for alt hold autopilot enabled.
@@ -507,7 +428,8 @@ pub fn run_pid_mid(
                     AltType::Agl => alt_commanded - params.s_z_agl,
                 };
                 // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-                inner_flt_cmd.thrust = flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
+                inner_flt_cmd.thrust =
+                    flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
             }
         }
         InputMode::Command => {
@@ -572,10 +494,10 @@ pub fn run_pid_mid(
             }
 
             // todo
-            let pitch_cmd = 0.;
-            let roll_cmd = 0.;
-            let yaw_cmd = 0.;
-            let thrust_cmd = 0.;
+            // let pitch_cmd = input_map.calc_pitch_rate(inputs.pitch); ??
+            // let roll_cmd = 0.;
+            // let yaw_cmd = 0.;
+            // let thrust_cmd = 0.;
 
             pid_mid.pitch = calc_pid_error(
                 pitch_cmd,
@@ -668,7 +590,7 @@ pub fn run_pid_inner(
 
     // todo: Messy / DRY
     let (coeffs_pitch, coeffs_roll, coeffs_yaw, coeffs_thrust) = match input_mode {
-        InputMode::Acro =>(
+        InputMode::Acro => (
             (
                 coeffs.pitch.k_p_s_from_v,
                 coeffs.pitch.k_i_s_from_v,

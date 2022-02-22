@@ -33,10 +33,11 @@ use defmt_rtt as _; // global logger
 use panic_probe as _;
 use stm32_hal2::dma::DmaInput;
 
-mod dshot;
 mod drivers;
+mod dshot;
 mod flight_ctrls;
 mod pid;
+mod pid_tuning;
 mod sensor_fusion;
 
 cfg_if! {
@@ -49,7 +50,9 @@ cfg_if! {
     }
 }
 
-use flight_ctrls::{AutopilotStatus, CommandState, CtrlInputs, InputMode, Params, RotorPower};
+use flight_ctrls::{
+    AutopilotStatus, CommandState, CtrlInputs, InputMap, InputMode, Params, RotorPower,
+};
 
 use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
 
@@ -65,11 +68,22 @@ const DT_TIM_FREQ: u32 = 200_000_000;
 // These are set for a 200MHz timer frequency.
 // (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period.
 
+// todo: On H7, will we get more precision with 400mhz tim clock, vice 200? Is that possible?
+
 // Set up for DSHOT-600. (600k bits/second) So, timer frequency = 600kHz.
 // todo: (PSC = 0, AAR = 332 results in a 600.6kHz update freq; not 600kHz exactly. Is that ok?)
 // todo: Is this even what we want?
-const DSHOT_PSC: u32 = 0;
-const DSHOT_ARR: u32 = 332;
+
+cfg_if! {
+    if #[cfg(feature = "matek-h743slim")] {
+        const DSHOT_PSC: u32 = 0;
+        const DSHOT_ARR: u32 = 332;
+    } else if #[cfg(feature = "anyleaf-mercury-g4")] {
+        // 170Mhz tim clock. Results in 600.707kHz.
+        const DSHOT_PSC: u32 = 0;
+        const DSHOT_ARR: u32 = 282;
+    }
+}
 
 // For 200Mhz, 32-bit timer:
 // For CNT = us:
@@ -240,6 +254,7 @@ impl Default for UserCfg {
     fn default() -> Self {
         Self {
             ceiling: 122.,
+            // todo: Do we want max angle and vel here? Do we use them, vice settings in InpuMap?
             max_angle: TAU * 0.22,
             max_velocity: 30., // todo: raise?
             idle_pwr: 0.,      // scale of 0 to 1.
@@ -463,7 +478,12 @@ pub fn setup_pins() {
             let miso1_ = Pin::new(Port::A, 6, PinMode::Alt(5));
             let mosi1_ = Pin::new(Port::A, 7, PinMode::Alt(5));
 
-            // SPI1 for flash, and exposed as a pad.
+            // SPI2 for flash, and exposed as a pad
+            let sck2_ = Pin::new(Port::B, 13, PinMode::Alt(5));
+            let miso2_ = Pin::new(Port::B, 14, PinMode::Alt(5));
+            let mosi2_ = Pin::new(Port::B, 15, PinMode::Alt(5));
+
+            // SPI3 for the OSD
             let sck3_ = Pin::new(Port::B, 3, PinMode::Alt(6));
             let miso3_ = Pin::new(Port::B, 4, PinMode::Alt(6));
             let mosi3_ = Pin::new(Port::B, 5, PinMode::Alt(6));
@@ -480,7 +500,7 @@ pub fn setup_pins() {
             let mut imu_interrupt = Pin::new(Port::A, 4, PinMode::Input); // PA4 for IMU interrupt.
             imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
 
-            // I2C1 for external sensors via pads
+            // I2C1 for external sensors, via pads
             let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
             scl1.output_type(OutputType::OpenDrain);
             scl1.pull(Pull::Up);
@@ -553,6 +573,7 @@ mod app {
     struct Shared {
         // profile: FlightProfile,
         user_cfg: UserCfg,
+        input_map: InputMap,
         input_mode: InputMode,
         autopilot_status: AutopilotStatus,
         ctrl_coeffs: CtrlCoeffGroup,
@@ -654,7 +675,6 @@ mod app {
         // We use the ADC to measure battery voltage.
         let batt_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, Default::default(), &clock_cfg);
 
-
         let mut update_timer =
             Timer::new_tim15(dp.TIM15, UPDATE_RATE, Default::default(), &clock_cfg);
         update_timer.enable_interrupt(TimerInterrupt::Update);
@@ -733,13 +753,29 @@ mod app {
 
         // todo: TIMUP??
         // DSHOT, motor 1
-        dma::mux(Rotor::R1.dma_channel(), Rotor::R1.dma_input(), &mut dp.DMAMUX1);
+        dma::mux(
+            Rotor::R1.dma_channel(),
+            Rotor::R1.dma_input(),
+            &mut dp.DMAMUX1,
+        );
         // DSHOT, motor 2
-        dma::mux(Rotor::R2.dma_channel(), Rotor::R2.dma_input(), &mut dp.DMAMUX1);
+        dma::mux(
+            Rotor::R2.dma_channel(),
+            Rotor::R2.dma_input(),
+            &mut dp.DMAMUX1,
+        );
         // DSHOT, motor 3
-        dma::mux(Rotor::R3.dma_channel(), Rotor::R3.dma_input(), &mut dp.DMAMUX1);
+        dma::mux(
+            Rotor::R3.dma_channel(),
+            Rotor::R3.dma_input(),
+            &mut dp.DMAMUX1,
+        );
         // DSHOT, motor 4
-        dma::mux(Rotor::R4.dma_channel(), Rotor::R4.dma_input(), &mut dp.DMAMUX1);
+        dma::mux(
+            Rotor::R4.dma_channel(),
+            Rotor::R4.dma_input(),
+            &mut dp.DMAMUX1,
+        );
 
         // todo: DMA for voltage ADC (?)
 
@@ -761,6 +797,7 @@ mod app {
             // todo: Make these local as able.
             Shared {
                 user_cfg: Default::default(),
+                input_map: Default::default(),
                 input_mode: InputMode::Attitude,
                 autopilot_status: Default::default(),
                 ctrl_coeffs: Default::default(),
@@ -800,7 +837,7 @@ mod app {
 
     #[task(
     binds = TIM15,
-    shared = [current_params, manual_inputs, current_pwr,
+    shared = [current_params, manual_inputs, input_map, current_pwr,
     inner_flt_cmd, pid_mid, pid_deriv_filters,
     power_used, input_mode, autopilot_status, user_cfg, commands, ctrl_coeffs,
     spi4
@@ -816,6 +853,7 @@ mod app {
         (
             cx.shared.current_params,
             cx.shared.manual_inputs,
+            cs.shared.input_map,
             cx.shared.current_pwr,
             cx.shared.inner_flt_cmd,
             cx.shared.pid_mid,
@@ -831,6 +869,7 @@ mod app {
             .lock(
                 |params,
                  inputs,
+                 input_map,
                  current_pwr,
                  inner_flt_cmd,
                  pid_mid,
@@ -874,6 +913,7 @@ mod app {
                     pid::run_pid_mid(
                         params,
                         inputs,
+                        input_map,
                         inner_flt_cmd,
                         pid_mid,
                         filters,

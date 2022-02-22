@@ -13,18 +13,18 @@
 //! The DSHOT protocol (DSHOT-300, DSHOT-600 etc) is determined by the `DSHOT_ARR` and `DSHOT_PSC` settings in the
 //! main crate; ie set a 600kHz countdown for DSHOT-600.
 
+use proc_macro::quote;
 use stm32_hal2::{
     dma::{ChannelCfg, Dma, DmaChannel},
-    timer::{Timer, TimChannel},
-    pac::{DMA1, TIM3, TIM5},
+    pac::{DMA1, TIM2, TIM3},
+    timer::{TimChannel, Timer},
 };
 
 use crate::flight_ctrls::Rotor;
 
-
 // Duty cycle values (to be written to CCMRx), based on our ARR value. 0. = 0%. ARR = 100%.
-const DUTY_HIGH: u32 = crate::DSHOT_ARR * 3/4;
-const DUTY_LOW: u32 = crate::DSHOT_ARR * 3/8;
+const DUTY_HIGH: u32 = crate::DSHOT_ARR * 3 / 4;
+const DUTY_LOW: u32 = crate::DSHOT_ARR * 3 / 8;
 
 // DMA buffers for each rotor. 16-bit data, but using a 32-bit API.
 static mut PAYLOAD_R1: [u32; 16] = [0; 16];
@@ -32,9 +32,8 @@ static mut PAYLOAD_R2: [u32; 16] = [0; 16];
 static mut PAYLOAD_R3: [u32; 16] = [0; 16];
 static mut PAYLOAD_R4: [u32; 16] = [0; 16];
 
-/// Set an individual rotor's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
-/// settings. `power` ranges from 0. to 1.
-pub fn set_power(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>) {
+/// Update our DSHOT payload for a given rotor, with a given power level.
+pub fn setup_payload(rotor: Rotor, power: f32) {
     // First 11 (0:10) bits are the throttle settings. 0 means disarmed. 1-47 are reserved
     // for special commands. 48 - 2_047 are throttle value (2_000 possible values)
 
@@ -61,9 +60,9 @@ pub fn set_power(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>) {
     };
 
     // Create a DMA payload of 16 timer CCR (duty) settings, each for one bit of our data word.
-    for i in 0..16 { //
-
-        let bit = (payload >> i) & 1;
+    for i in 0..16 {
+        //
+        let bit = (packet >> i) & 1;
         unsafe {
             // DSHOT uses MSB first alignment.
             payload[15 - i] = if bit == 1 { DUTY_HIGH } else { DUTY_LOW };
@@ -71,8 +70,23 @@ pub fn set_power(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>) {
     }
 }
 
-fn send_payload(rotor: Rotor, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>){
-    let dma_cfg = ChannelCfg ::Default();
+/// Set an individual rotor's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
+/// settings. `power` ranges from 0. to 1.
+pub fn set_power_a(rotor: Rotor, power: f32, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
+    setup_payload(rotor, power);
+
+    send_payload(rotor, timer, dma: &mut Dma<DMA1>)
+}
+
+// todo: DRY due to type issue. Use a trait?
+pub fn set_power_b(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
+    setup_payload(rotor, power);
+
+    send_payload(rotor, timer, dma: &mut Dma<DMA1>)
+}
+
+fn send_payload_a(rotor: Rotor, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
+    let dma_cfg = ChannelCfg::Default();
 
     let payload = &unsafe {
         match rotor {
@@ -99,6 +113,34 @@ fn send_payload(rotor: Rotor, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>){
     // todo: DMA enable?
 }
 
+// todo: DRY again. Trait?
+fn send_payload_b(rotor: Rotor, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
+    let dma_cfg = ChannelCfg::Default();
+
+    let payload = &unsafe {
+        match rotor {
+            Rotor::R1 => PAYLOAD_R1,
+            Rotor::R2 => PAYLOAD_R2,
+            Rotor::R3 => PAYLOAD_R3,
+            Rotor::R4 => PAYLOAD_R4,
+        }
+    };
+
+    unsafe {
+        timer.write_dma_burst(
+            payload,
+            rotor.base_addr_offset(),
+            1, // Burst len of 1
+            rotor.dma_channel(),
+            dma_cfg,
+            dma,
+        );
+    }
+
+    // Reset and update Timer registers
+    timer.regs.egr.write(|w| w.ug().set_bit());
+    // todo: DMA enable?
+}
 
 // void init(unsigned bitrate)
 //   {
