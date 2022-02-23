@@ -17,7 +17,7 @@ use cmsis_dsp_sys as sys;
 
 use num_traits::float::FloatCore; // Absolute value.
 
-use crate::{dshot, pid::PidState, CtrlCoeffGroup, Location, Rotor, UserCfg, PWM_ARR};
+use crate::{dshot, pid::PidState, CtrlCoeffGroup, Location, Rotor, UserCfg};
 
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
@@ -30,6 +30,8 @@ const THRUST_RNG: (f32, f32) = (-0., 1.);
 
 /// Utility function to linearly map an input value to an output
 fn map_linear(val: f32, range_in: (f32, f32), range_out: (f32, f32)) -> f32 {
+    // todo: You may be able to optimize calls to this by having the ranges pre-store
+    // todo the total range vals.
     let portion = (val - range_in.0) / (range_in.1 - range_in.0);
 
     portion * (range_out.1 - range_out.0) + range_out.0
@@ -187,28 +189,23 @@ pub struct CtrlInputs {
     pub thrust: f32,
 }
 
-/// Get manual inputs from the radio. Map from the radio input values to our standard values of
-/// 0. to 1. (throttle), and -1. to 1. (pitch, roll, yaw).
-pub fn get_manual_inputs(cfg: &UserCfg) -> CtrlInputs {
-    let mut result = CtrlInputs::default(); // todo: Get radio input here.
+impl CtrlInputs {
+    /// Get manual inputs from the radio. Map from the radio input values to our standard values of
+    /// 0. to 1. (throttle), and -1. to 1. (pitch, roll, yaw).
+    pub fn get_manual_inputs(cfg: &UserCfg) -> Self {
+        // todo: Get radio input here.!
+        let pitch = 0.;
+        let roll = 0.;
+        let yaw = 0.;
+        let thrust = 0.;
 
-    // todo: Store these range values somewhere on cfg change instead of running the subtraction each time.
-    let pitch_range = cfg.pitch_input_range.1 - cfg.pitch_input_range.0;
-    let roll_range = cfg.roll_input_range.1 - cfg.roll_input_range.0;
-    let yaw_range = cfg.yaw_input_range.1 - cfg.yaw_input_range.0;
-    let thrust_range = cfg.throttle_input_range.1 - cfg.throttle_input_range.0;
-
-    let pitch_portion = (result.pitch - cfg.pitch_input_range.0) / pitch_range;
-    let roll_portion = (result.roll - cfg.roll_input_range.0) / roll_range;
-    let yaw_portion = (result.yaw - cfg.yaw_input_range.0) / yaw_range;
-    let thrust_portion = (result.thrust - cfg.throttle_input_range.0) / thrust_range;
-
-    result.pitch = pitch_portion * (PITCH_RNG.1 - PITCH_RNG.0) + PITCH_RNG.0;
-    result.roll = roll_portion * (ROLL_RNG.1 - ROLL_RNG.0) + ROLL_RNG.0;
-    result.yaw = yaw_portion * (YAW_RNG.1 - YAW_RNG.0) + YAW_RNG.0;
-    result.thrust = thrust_portion * (THRUST_RNG.1 - THRUST_RNG.0) + THRUST_RNG.0;
-
-    result
+        Self {
+            pitch: map_linear(pitch, cfg.pitch_input_range, PITCH_RNG),
+            roll: map_linear(roll, cfg.roll_input_range, ROLL_RNG),
+            yaw: map_linear(yaw, cfg.pitch_input_range, YAW_RNG),
+            thrust: map_linear(thrust, cfg.throttle_input_range, THRUST_RNG),
+        }
+    }
 }
 
 /// Represents parameters at a fixed instant. Can be position, velocity, or accel.

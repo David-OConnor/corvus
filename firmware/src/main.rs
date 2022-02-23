@@ -13,18 +13,24 @@ use cortex_m::{self, asm};
 use stm32_hal2::{
     self,
     adc::{Adc, AdcDevice},
-    clocks::{Clocks, PllCfg, PllSrc, VosRange},
+    clocks::{Clocks, PllCfg, PllSrc},
     debug_workaround,
     dma::{self, Dma, DmaChannel},
     flash::Flash,
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, I2C1, I2C2, SPI2, SPI4, TIM15},
-    power::{SupplyConfig, VoltageLevel},
+    pac::{self, DMA1, I2C1, I2C2, SPI2, TIM15},
     rtc::Rtc,
     spi::{BaudRate, Spi},
     timer::{OutputCompare, TimChannel, Timer, TimerConfig, TimerInterrupt},
     usart::Usart,
+};
+
+#[cfg(feature = "matek-h743slim")]
+use crate::{
+    clocks::VosRange,
+    power::{SupplyConfig, VoltageLevel},
+    pac::SPI4,
 };
 
 use cfg_if::cfg_if;
@@ -591,8 +597,8 @@ mod app {
         i2c2: I2c<I2C2>,
         // rtc: Rtc,
         update_timer: Timer<TIM15>,
-        rotor_timer_a: Timer<TIM3>,
-        rotor_timer_b: Timer<TIM5>,
+        rotor_timer_a: Timer<TIM2>,
+        rotor_timer_b: Timer<TIM3>,
         // `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
         power_used: f32,
         // Store filter instances for the PID loop derivatives. One for each param used.
@@ -884,7 +890,7 @@ mod app {
                     // todo: Do we want to update manual/radio inputs here, or in the faster IMU update
                     // ISR?
 
-                    *inputs = flight_ctrls::get_manual_inputs(cfg);
+                    *inputs = CtrlInputs::get_manual_inputs(cfg);
 
                     // todo: Support both UART telemetry from ESC, and analog current sense pin.
                     // todo: Read from an ADC or something, from teh ESC.

@@ -13,7 +13,6 @@
 //! The DSHOT protocol (DSHOT-300, DSHOT-600 etc) is determined by the `DSHOT_ARR` and `DSHOT_PSC` settings in the
 //! main crate; ie set a 600kHz countdown for DSHOT-600.
 
-use proc_macro::quote;
 use stm32_hal2::{
     dma::{ChannelCfg, Dma, DmaChannel},
     pac::{DMA1, TIM2, TIM3},
