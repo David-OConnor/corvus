@@ -399,16 +399,15 @@ pub fn run_pid_mid(
                 // todo: What should this coeff be? Is linear OK?
 
                 // if coeff = 0.5, if accel is 1 m/s^2, yaw correction is 1/2 rad/s
-                 // angular velocity / accel: (radians/s) / (m/s^2) = radiants x s / m
-                let coeff =  0.1;
+                // angular velocity / accel: (radians/s) / (m/s^2) = radiants x s / m
+                let coeff = 0.1;
 
                 let yaw_correction_factor = params.a_x * coeff;
-
 
                 // todo: Impl for Attitude mode too? Or is it not appropriate there?
                 inner_flt_cmd.yaw += yaw_correction_factor;
             } else if autopilot_roll_assist {
-                let coeff =  0.1;
+                let coeff = 0.1;
 
                 let roll_correction_factor = -params.a_x * coeff;
 

@@ -4,10 +4,9 @@
 //! Translated from [Betaflight's implementation](https://github.com/betaflight/betaflight/blob/b8c58abf0e4a11a8bee54b9abbaed8683c65d5d2/src/main/rx/crsf.c)
 //! .h file here: https://github.com/betaflight/betaflight/blob/b8c58abf0e4a11a8bee54b9abbaed8683c65d5d2/src/main/rx/crsf.h
 
-use stm32_hal2::{
-    usart::Usart,
-    pac::{USART1},
-};
+use core::cmp::min;
+
+use stm32_hal2::{pac::USART1, usart::Usart};
 
 /// Possible ELS frequencies
 #[derive(Copy, Clone)]
@@ -18,73 +17,155 @@ enum RadioFreq {
     F2_400,
 }
 
+// `crsf_protocol.h` here:
 
+const BAUDRATE: u16 = 420000;
+
+const SYNC_BYTE: u8 = 0xC8;
+
+const FRAME_SIZE_MAX: usize = 64; // 62 bytes frame plus 2 bytes frame header(<length><type>)
+const PAYLOAD_SIZE_MAX: usize = FRAME_SIZE_MAX - 6;
+
+#[repr(u8)]
+enum FrameType {
+    GPS = 0x02,
+    BATTERY_SENSOR = 0x08,
+    LINK_STATISTICS = 0x14,
+    RC_CHANNELS_PACKED = 0x16,
+    SUBSET_RC_CHANNELS_PACKED = 0x17,
+    LINK_STATISTICS_RX = 0x1C,
+    LINK_STATISTICS_TX = 0x1D,
+    ATTITUDE = 0x1E,
+    FLIGHT_MODE = 0x21,
+    // Extended Header Frames, range: 0x28 to 0x96
+    DEVICE_PING = 0x28,
+    DEVICE_INFO = 0x29,
+    PARAMETER_SETTINGS_ENTRY = 0x2B,
+    PARAMETER_READ = 0x2C,
+    PARAMETER_WRITE = 0x2D,
+    COMMAND = 0x32,
+    // MSP commands
+    MSP_REQ = 0x7A,         // response request using msp sequence as command
+    MSP_RESP = 0x7B,        // reply with 58 byte chunked binary
+    MSP_WRITE = 0x7C, // write with 8 byte chunked binary (OpenTX outbound telemetry buffer limit)
+    DISPLAYPORT_CMD = 0x7D, // displayport control command
+}
+
+const COMMAND_SUBCMD_GENERAL: u8 = 0x0A; // general command
+
+const COMMAND_SUBCMD_GENERAL_CRSF_SPEED_PROPOSAL: u8 = 0x70; // proposed new CRSF port speed
+const COMMAND_SUBCMD_GENERAL_CRSF_SPEED_RESPONSE: u8 = 0x71; // response to the proposed CRSF port speed
+
+const DISPLAYPORT_SUBCMD_UPDATE: u8 = 0x01; // transmit displayport buffer to remote
+const DISPLAYPORT_SUBCMD_CLEAR: u8 = 0x02; // clear client screen
+const DISPLAYPORT_SUBCMD_OPEN: u8 = 0x03; // client request to open cms menu
+const DISPLAYPORT_SUBCMD_CLOSE: u8 = 0x04; // client request to close cms menu
+const DISPLAYPORT_SUBCMD_POLL: u8 = 0x05; // client request to poll/refresh cms menu
+
+const DISPLAYPORT_OPEN_ROWS_OFFSET: u8 = 1;
+const DISPLAYPORT_OPEN_COLS_OFFSET: u8 = 2;
+
+const FRAME_GPS_PAYLOAD_SIZE: u8 = 15;
+const FRAME_BATTERY_SENSOR_PAYLOAD_SIZE: u8 = 8;
+const FRAME_LINK_STATISTICS_PAYLOAD_SIZE: u8 = 10;
+const FRAME_LINK_STATISTICS_TX_PAYLOAD_SIZE: u8 = 6;
+const FRAME_RC_CHANNELS_PAYLOAD_SIZE: u8 = 22; // 11 bits per channel * 16 channels = 22 bytes.
+const FRAME_ATTITUDE_PAYLOAD_SIZE: u8 = 6;
+
+const FRAME_LENGTH_ADDRESS: u8 = 1; // length of ADDRESS field
+const FRAME_LENGTH_FRAMELENGTH: u8 = 1; // length of FRAMELENGTH field
+const FRAME_LENGTH_TYPE: u8 = 1; // length of TYPE field
+const FRAME_LENGTH_CRC: u8 = 1; // length of CRC field
+const FRAME_LENGTH_TYPE_CRC: u8 = 2; // length of TYPE and CRC fields combined
+const FRAME_LENGTH_EXT_TYPE_CRC: u8 = 4; // length of Extended Dest/Origin; TYPE and CRC fields combined
+const FRAME_LENGTH_NON_PAYLOAD: u8 = 4; // combined length of all fields except payload
+
+const FRAME_TX_MSP_FRAME_SIZE: u8 = 58;
+const FRAME_RX_MSP_FRAME_SIZE: u8 = 8;
+const FRAME_ORIGIN_DEST_SIZE: u8 = 2;
+
+#[repr(u8)]
+enum CrsfAddress {
+    BROADCAST = 0x00,
+    USB = 0x10,
+    TBS_CORE_PNP_PRO = 0x80,
+    RESERVED1 = 0x8A,
+    CURRENT_SENSOR = 0xC0,
+    GPS = 0xC2,
+    TBS_BLACKBOX = 0xC4,
+    FLIGHT_CONTROLLER = 0xC8,
+    RESERVED2 = 0xCA,
+    RACE_TAG = 0xCC,
+    RADIO_TRANSMITTER = 0xEA,
+    RECEIVER = 0xEC,
+    TRANSMITTER = 0xEE,
+}
 
 // `crsf.h` here:'
-
 
 const USE_CRSF_V3: bool = false; // todo: True eventually; newer version.
 
 // todo: Check teh types of these. Should all or most ints be u16?
 
-const CRSF_PORT_OPTIONS   : u8 =    (SERIAL_STOPBITS_1 | SERIAL_PARITY_NO);
-const CRSF_PORT_MODE   : u8 =       MODE_RXTX;
+const PORT_OPTIONS: u8 = (SERIAL_STOPBITS_1 | SERIAL_PARITY_NO);
+const PORT_MODE: u8 = MODE_RXTX;
 
-const CRSF_MAX_CHANNEL: u8 =        16;
-const CRSFV3_MAX_CHANNEL : u8 =        24;
+const MAX_CHANNEL: usize = 16;
+const CRSFV3_MAX_CHANNEL: u8 = 24;
 
-const CRSF_SUBSET_RC_STARTING_CHANNEL_BITS  : u8 =         5;
-const CRSF_SUBSET_RC_STARTING_CHANNEL_MASK  : u8 =         0x1F;
-const CRSF_SUBSET_RC_RES_CONFIGURATION_BITS  : u8 =        2;
-const CRSF_SUBSET_RC_RES_CONFIGURATION_MASK  : u8 =        0x03;
-const CRSF_SUBSET_RC_RESERVED_CONFIGURATION_BITS : u8 =    1;
+const SUBSET_RC_STARTING_CHANNEL_BITS: u8 = 5;
+const SUBSET_RC_STARTING_CHANNEL_MASK: u8 = 0x1F;
+const SUBSET_RC_RES_CONFIGURATION_BITS: u8 = 2;
+const SUBSET_RC_RES_CONFIGURATION_MASK: u8 = 0x03;
+const SUBSET_RC_RESERVED_CONFIGURATION_BITS: u8 = 1;
 
-const CRSF_RC_CHANNEL_SCALE_LEGACY: f32 =                0.62477120195241;
-const CRSF_SUBSET_RC_RES_CONF_10B    : u8 =               0;
-const CRSF_SUBSET_RC_RES_BITS_10B      : u8 =              10;
-const CRSF_SUBSET_RC_RES_MASK_10B    : u16  =           0x03FF;
-const CRSF_SUBSET_RC_CHANNEL_SCALE_10B: f32 =             1.0;
-const CRSF_SUBSET_RC_RES_CONF_11B        : u8    =     1;
-const CRSF_SUBSET_RC_RES_BITS_11B  : u8    =           11;
-const CRSF_SUBSET_RC_RES_MASK_11B    : u16    =         0x07FF;
-const CRSF_SUBSET_RC_CHANNEL_SCALE_11B: f32 =             0.5;
-const CRSF_SUBSET_RC_RES_CONF_12B     : u8     =       2;
-const CRSF_SUBSET_RC_RES_BITS_12B : u8      =          12;
-const CRSF_SUBSET_RC_RES_MASK_12B        : u16  =       0x0FFF;
-const CRSF_SUBSET_RC_CHANNEL_SCALE_12B: f32 =             0.25;
-const CRSF_SUBSET_RC_RES_CONF_13B     : u8    =        3;
-const CRSF_SUBSET_RC_RES_BITS_13B      : u8   =        13;
-const CRSF_SUBSET_RC_RES_MASK_13B   : u16      =        0x1FFF;
-const CRSF_SUBSET_RC_CHANNEL_SCALE_13B: f32 =            0.125;
+const RC_CHANNEL_SCALE_LEGACY: f32 = 0.62477120195241;
+const SUBSET_RC_RES_CONF_10B: u8 = 0;
+const SUBSET_RC_RES_BITS_10B: u8 = 10;
+const SUBSET_RC_RES_MASK_10B: u16 = 0x03FF;
+const SUBSET_RC_CHANNEL_SCALE_10B: f32 = 1.0;
+const SUBSET_RC_RES_CONF_11B: u8 = 1;
+const SUBSET_RC_RES_BITS_11B: u8 = 11;
+const SUBSET_RC_RES_MASK_11B: u16 = 0x07FF;
+const SUBSET_RC_CHANNEL_SCALE_11B: f32 = 0.5;
+const SUBSET_RC_RES_CONF_12B: u8 = 2;
+const SUBSET_RC_RES_BITS_12B: u8 = 12;
+const SUBSET_RC_RES_MASK_12B: u16 = 0x0FFF;
+const SUBSET_RC_CHANNEL_SCALE_12B: f32 = 0.25;
+const SUBSET_RC_RES_CONF_13B: u8 = 3;
+const SUBSET_RC_RES_BITS_13B: u8 = 13;
+const SUBSET_RC_RES_MASK_13B: u16 = 0x1FFF;
+const SUBSET_RC_CHANNEL_SCALE_13B: f32 = 0.125;
 
-const CRSF_RSSI_MIN: u8 = -130;
-const CRSF_RSSI_MAX: u8 = 0;
-const CRSF_SNR_MIN: u8 = -30;
-const CRSF_SNR_MAX: u8 = 20;
+const RSSI_MIN: u8 = -130;
+const RSSI_MAX: u8 = 0;
+const SNR_MIN: u8 = -30;
+const SNR_MAX: u8 = 20;
+
+type timeUs = u32; // todo: Is this what we want?
 
 /* For documentation purposes
 typedef enum {
-    CRSF_RF_MODE_4_FPS = 0,
-    CRSF_RF_MODE_50_FPS,
-    CRSF_RF_MODE_150_FPS,
+    RF_MODE_4_FPS = 0,
+    RF_MODE_50_FPS,
+    RF_MODE_150_FPS,
 } crsfRfMode_e;
 */
 
-struct crsfFrameDef_s {
-    deviceAddress: u8,
-    frameLength: u8,
-    type_: u8,
-    payload: [u8; CRSF_PAYLOAD_SIZE_MAX + 1], // +1 for CRC at end of payload
+struct CrsfFrameDef {
+    device_address: CrsfAddress,
+    frame_length: u8,
+    type_: FrameType,
+    payload: [u8; PAYLOAD_SIZE_MAX + 1], // +1 for CRC at end of payload
 }
 
-struct crsfFrame_u {
-     CRSF_FRAME_SIZE_MAX: [u8; bytes],
-     frame: crsfFrameDef_t,
+struct CrsfFrame {
+    bytes: [u8; FRAME_SIZE_MAX],
+    frame: CrsfFrameDef,
 }
 
-struct rxConfig_s {}
-struct rxRuntimeState_s {}
-
+struct RxConfig {}
+struct RxRuntimeStats {}
 
 /*
  * This file is part of Cleanflight and Betaflight.
@@ -108,37 +189,41 @@ struct rxRuntimeState_s {}
 
 // `crsf.c` here:
 
-
 // todo: Data types of these?
-const  CRSF_TIME_NEEDED_PER_FRAME_US: u16 =  1750; // a maximally sized 64byte payload will take ~1550us, round up to 1750.
-const  CRSF_TIME_BETWEEN_FRAMES_US : u16 =     6667 ;// At fastest, frames are sent by the transmitter every 6.667 milliseconds, 150 Hz
+const TIME_NEEDED_PER_FRAME_US: u16 = 1750; // a maximally sized 64byte payload will take ~1550us, round up to 1750.
+const TIME_BETWEEN_FRAMES_US: u16 = 6667; // At fastest, frames are sent by the transmitter every 6.667 milliseconds, 150 Hz
 
-const  CRSF_DIGITAL_CHANNEL_MIN: u16 =  172;
-const  CRSF_DIGITAL_CHANNEL_MAX: u16 =  1811;
+const DIGITAL_CHANNEL_MIN: u16 = 172;
+const DIGITAL_CHANNEL_MAX: u16 = 1811;
 
-const  CRSF_PAYLOAD_OFFSET: u16 =  offsetof(crsfFrameDef_t, type);
+// const  PAYLOAD_OFFSET: u16 =  offsetof(crsfFrameDef, type);
+const PAYLOAD_OFFSET: usize = 0; // todo?
 
-const  CRSF_LINK_STATUS_UPDATE_TIMEOUT_US: u16 =   250000 ;// 250ms, 4 Hz mode 1 telemetry
+const LINK_STATUS_UPDATE_TIMEOUT_US: u16 = 250000; // 250ms, 4 Hz mode 1 telemetry
 
-const  CRSF_FRAME_ERROR_COUNT_THRESHOLD: u16 =     100;
+const FRAME_ERROR_COUNT_THRESHOLD: u8 = 100;
 
-static crsfFrameDone: bool = false;
-STATIC_UNIT_TESTED crsfFrame_t crsfFrame;
-STATIC_UNIT_TESTED crsfFrame_t crsfChannelDataFrame;
-static crsfChannelData: [u32; CRSF_MAX_CHANNEL] = [0; CRSF_MAX_CHANNEL];
+static mut FRAME_DONE: bool = false;
+static mut FRAME: CrsfFrame = csrfFrame {
+    FRAME_SIZE_MAX: [0; bytes],
+    frame: crsfFrameDef,
+};
+static mut CHANNEL_DATA_FRAME: CrsfFrame = csrfFrame {
+    FRAME_SIZE_MAX: [0; bytes],
+    frame: crsfFrameDef,
+};
+static mut CHANNEL_DATA: [u32; MAX_CHANNEL] = [0; MAX_CHANNEL];
 
-static serialPort_t *serialPort;
-static crsfFrameStartAtUs: timeUs_t = 0;
-static telemetryBuf: [u8; CRSF_FRAME_SIZE_MAX] = [0; CRSF_FRAME_SIZE_MAX];
-static telemetryBufLen: u8 = 0;
-static channelScale: f32 = CRSF_RC_CHANNEL_SCALE_LEGACY;
+static mut FRAME_START_AT_US: timeUs = 0;
+static mut TELEMETRY_BUF: [u8; FRAME_SIZE_MAX] = [0; FRAME_SIZE_MAX];
+static mut TELEMETRY_BUF_LEN: usize = 0;
+static mut CHANNEL_SCALE: f32 = RC_CHANNEL_SCALE_LEGACY;
 
-if USE_RX_LINK_UPLINK_POWER {
-   let CRSF_UPLINK_POWER_LEVEL_MW_ITEMS_COUNT: usize = 9;
-
-   // Uplink power levels by uplinkTXPower expressed in mW (250 mW is from ver >=4.00, 50 mW in a future version and for ExpressLRS)
-   const uplinkTXPowerStatesMw: [u16; CRSF_UPLINK_POWER_LEVEL_MW_ITEMS_COUNT] = [0, 10, 25, 100, 500, 1000, 2000, 250, 50];
-}
+const UPLINK_POWER_LEVEL_MW_ITEMS_COUNT: usize = 9;
+// Uplink power levels by uplinkTXPower expressed in mW (250 mW is from ver >=4.00, 50 mW in a future version and for ExpressLRS)
+/// If USE_RX_LINK_UPLINK_POWER
+const UPLINK_TX_POWER_STATES_MW: [u16; UPLINK_POWER_LEVEL_MW_ITEMS_COUNT] =
+    [0, 10, 25, 100, 500, 1000, 2000, 250, 50];
 
 /*
  * CRSF protocol
@@ -155,7 +240,7 @@ if USE_RX_LINK_UPLINK_POWER {
  * Max frame size is 64 bytes
  * A 64 byte frame plus 1 sync byte can be transmitted in 1393 microseconds.
  *
- * CRSF_TIME_NEEDED_PER_FRAME_US is set conservatively at 1500 microseconds
+ * TIME_NEEDED_PER_FRAME_US is set conservatively at 1500 microseconds
  *
  * Every frame has the structure:
  * <Device address><Frame length><Type><Payload><CRC>
@@ -167,24 +252,24 @@ if USE_RX_LINK_UPLINK_POWER {
  *
  */
 
-struct crsfPayloadRcChannelsPacked_s {
+struct PayloadChannelsPacked {
     // 176 bits of data (11 bits per channel * 16 channels) = 22 bytes.
-    chan0 : u8,
-    chan1 : u8,
-    chan2 : u8,
-    chan3 : u8,
-    chan4 : u8,
-    chan5 : u8,
-    chan6 : u8,
-    chan7 : u8,
-    chan8 : u8,
-    chan9 : u8,
-    chan10 : u8,
-    chanu8 : u8,
-    chan12 : u8,
-    chan13 : u8,
-    chan14 : u8,
-    chan15 : u8,
+    chan0: u8,
+    chan1: u8,
+    chan2: u8,
+    chan3: u8,
+    chan4: u8,
+    chan5: u8,
+    chan6: u8,
+    chan7: u8,
+    chan8: u8,
+    chan9: u8,
+    chan10: u8,
+    chanu8: u8,
+    chan12: u8,
+    chan13: u8,
+    chan14: u8,
+    chan15: u8,
 }
 
 /*
@@ -205,8 +290,7 @@ struct crsfPayloadRcChannelsPacked_s {
 *  - last channel packed with specified resolution
 */
 
-
-#if defined(USE_CRSF_LINK_STATISTICS)
+// #if defined(USE_CRSF_LINK_STATISTICS)
 /*
  * 0x14 Link statistics
  * Payload:
@@ -247,46 +331,49 @@ struct crsfPayloadRcChannelsPacked_s {
  * uint8_t Uplink FPS ( FPS / 10 )
  */
 
-struct crsfPayloadLinkstatistics_s {
-    uplink_RSSI_1: u8,
-    uplink_RSSI_2: u8,
-    uplink_Link_quality: u8,
-    uplink_SNR: i8,
+struct PayloadLinkStatistics {
+    uplink_rssi_1: u8,
+    uplink_rssi_2: u8,
+    uplink_link_quality: u8,
+    uplink_snr: i8,
     active_antenna: u8,
-    rf_Mode: u8,
-    uplink_TX_Power: u8,
-    downlink_RSSI: u8,
+    rf_mode: u8,
+    uplink_tx_power: u8,
+    downlink_rssi: u8,
+    downlink_link_quality: u8,
+    downlink_snr: i8,
+}
+
+// If USE_CRSF_V3
+struct PayloadLinkStatisticsRx {
+    downlink_rssi_1: u8,
+    downlink_RSSI_1_percentage: u8,
     downlink_Link_quality: u8,
-    downlink_SNR: i8,
+    downlink_snr: i8,
+    uplink_power: u8,
+} // this struct is currently not used
+
+struct PayloadLinkStatisticsTx {
+    uplink_rssi: u8,
+    uplink_rssi_percentage: u8,
+    uplink_link_quality: u8,
+    uplink_snr: i8,
+    downlink_power: u8,
+    // currently not used
+    uplink_fps: u8, // currently not used
 }
 
-if USE_CRSF_V3 {
-    struct crsfPayloadLinkstatisticsRx_s {
-        downlink_RSSI_1: u8,
-        downlink_RSSI_1_percentage: u8,
-        downlink_Link_quality: u8,
-        downlink_SNR: i8;
-        uplink_power: u8,
-    } // this struct is currently not used
+static mut LAST_LINK_STATISTICS_FRAME_US: timeUs = 0;
 
-    struct crsfPayloadLinkstatisticsTx_s {
-        uplink_RSSI: u8,
-        uplink_RSSI_percentage: u8,
-        uplink_Link_quality: u8,
-        uplink_SNR: i8,
-        downlink_power: u8,
-        // currently not used
-        uplink_FPS: u8, // currently not used
-    }
-}
-
-static timeUs_t lastLinkStatisticsFrameUs;
-
-fn handleCrsfLinkStatisticsFrame(statsPtr: &crsfLinkStatistics_t, currentTimeUs: timeUs_t)
-{
-    let stats: crsfLinkStatistics_t = *statsPtr;
-    lastLinkStatisticsFrameUs = currentTimeUs;
-    let mut rssiDbm: i16 = -1 * (if stats.active_antenna {stats.uplink_RSSI_2} else { stats.uplink_RSSI_1 });
+fn handle_link_statistics_frame(statsPtr: &crsfLinkStatistics, currentTimeUs: timeUs) {
+    let stats: crsfLinkStatistics = *statsPtr;
+    unsafe { LAST_LINK_STATISTICS_FRAME_US = currentTimeUs };
+    let mut rssiDbm: i16 = -1
+        * (if stats.active_antenna {
+            stats.uplink_RSSI_2
+        } else {
+            stats.uplink_RSSI_1
+        });
     if rssiSource == RSSI_SOURCE_RX_PROTOCOL_CRSF {
         if rxConfig().crsf_use_rx_snr {
             // -10dB of SNR mapped to 0 RSSI (fail safe is likely to happen at this measure)
@@ -299,7 +386,7 @@ fn handleCrsfLinkStatisticsFrame(statsPtr: &crsfLinkStatistics_t, currentTimeUs:
                 rssiDbm = stats.uplink_SNR;
             }
         } else {
-            let rssiPercentScaled: u16 = scaleRange(rssiDbm, CRSF_RSSI_MIN, 0, 0, RSSI_MAX_VALUE);
+            let rssiPercentScaled: u16 = scaleRange(rssiDbm, RSSI_MIN, 0, 0, RSSI_MAX_VALUE);
             setRssi(rssiPercentScaled, RSSI_SOURCE_RX_PROTOCOL_CRSF);
         }
     }
@@ -315,32 +402,39 @@ fn handleCrsfLinkStatisticsFrame(statsPtr: &crsfLinkStatistics_t, currentTimeUs:
     }
 
     if USE_RX_LINK_UPLINK_POWER {
-        let crsfUplinkPowerStatesItemIndex: u8 = if stats.uplink_TX_Power < CRSF_UPLINK_POWER_LEVEL_MW_ITEMS_COUNT { stats.uplink_TX_Power} else { 0 };
-        rxSetUplinkTxPwrMw(uplinkTXPowerStatesMw[crsfUplinkPowerStatesItemIndex]);
+        let crsfUplinkPowerStatesItemIndex: u8 =
+            if stats.uplink_TX_Power < UPLINK_POWER_LEVEL_MW_ITEMS_COUNT {
+                stats.uplink_TX_Power
+            } else {
+                0
+            };
+        rxSetUplinkTxPwrMw(UPLINK_TX_POWER_STATES_MW[crsfUplinkPowerStatesItemIndex]);
     }
 
-    DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 0, stats.uplink_RSSI_1);
-    DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 1, stats.uplink_RSSI_2);
-    DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 2, stats.uplink_Link_quality);
-    DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 3, stats.rf_Mode);
-
-    DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_PWR, 0, stats.active_antenna);
-    DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_PWR, 1, stats.uplink_SNR);
-    DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_PWR, 2, stats.uplink_TX_Power);
-
-    DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_DOWN, 0, stats.downlink_RSSI);
-    DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_DOWN, 1, stats.downlink_Link_quality);
-    DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_DOWN, 2, stats.downlink_SNR);
+    // todo?
+    // DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 0, stats.uplink_RSSI_1);
+    // DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 1, stats.uplink_RSSI_2);
+    // DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 2, stats.uplink_Link_quality);
+    // DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 3, stats.rf_Mode);
+    //
+    // DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_PWR, 0, stats.active_antenna);
+    // DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_PWR, 1, stats.uplink_SNR);
+    // DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_PWR, 2, stats.uplink_TX_Power);
+    //
+    // DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_DOWN, 0, stats.downlink_RSSI);
+    // DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_DOWN, 1, stats.downlink_Link_quality);
+    // DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_DOWN, 2, stats.downlink_SNR);
 }
 
-if USE_CRSF_V3 {
-    fn handleCrsfLinkStatisticsTxFrame(statsPtr: &crsfLinkStatisticsTx_t*, currentTimeUs: timeUs_t ){
-        let stats: crsfLinkStatisticsTx_t  = *statsPtr;
-        lastLinkStatisticsFrameUs = currentTimeUs;
-        if rssiSource == RSSI_SOURCE_RX_PROTOCOL_CRSF {
-            let rssiPercentScaled: u16 = scaleRange(stats.uplink_RSSI_percentage, 0, 100, 0, RSSI_MAX_VALUE);
-            setRssi(rssiPercentScaled, RSSI_SOURCE_RX_PROTOCOL_CRSF);
-        }
+/// For V3
+fn handle_link_statistics_tx_frame(statsPtr: &crsfLinkStatisticsTx, currentTimeUs: timeUs) {
+    let stats: crsfLinkStatisticsTx = *statsPtr;
+    unsafe { LAST_LINK_STATISTICS_FRAME_US = currentTimeUs };
+    if rssiSource == RSSI_SOURCE_RX_PROTOCOL_CRSF {
+        let rssiPercentScaled: u16 =
+            scaleRange(stats.uplink_RSSI_percentage, 0, 100, 0, RSSI_MAX_VALUE);
+        setRssi(rssiPercentScaled, RSSI_SOURCE_RX_PROTOCOL_CRSF);
+    }
     if USE_RX_RSSI_DBM {
         let mut rssiDbm: i16 = -1 * stats.uplink_RSSI;
         if rxConfig().crsf_use_rx_snr {
@@ -355,371 +449,396 @@ if USE_CRSF_V3 {
         }
     }
 
-        DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 0, stats.uplink_RSSI);
-        DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 1, stats.uplink_SNR);
-        DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 2, stats.uplink_Link_quality);
-        DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 3, stats.uplink_RSSI_percentage);
-    }
+    // todo?
+    // DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 0, stats.uplink_RSSI);
+    // DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 1, stats.uplink_SNR);
+    // DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 2, stats.uplink_Link_quality);
+    // DEBUG_SET(DEBUG_CRSF_LINK_STATISTICS_UPLINK, 3, stats.uplink_RSSI_percentage);
 }
 
-if USE_CRSF_LINK_STATISTICS {
-fn crsfCheckRssi(currentTimeUs: u32) {
-
-    if cmpTimeUs(currentTimeUs, lastLinkStatisticsFrameUs) > CRSF_LINK_STATUS_UPDATE_TIMEOUT_US {
+/// If USE_CRSF_LINK_STATISTICS
+fn check_rssi(currentTimeUs: u32) {
+    if cmpTimeUs(currentTimeUs, unsafe { LAST_LINK_STATISTICS_FRAME_US })
+        > LINK_STATUS_UPDATE_TIMEOUT_US
+    {
         if rssiSource == RSSI_SOURCE_RX_PROTOCOL_CRSF {
             setRssiDirect(0, RSSI_SOURCE_RX_PROTOCOL_CRSF);
-if USE_RX_RSSI_DBM {
-            if rxConfig().crsf_use_rx_snr {
-                setRssiDbmDirect(CRSF_SNR_MIN, RSSI_SOURCE_RX_PROTOCOL_CRSF);
-            } else {
-                setRssiDbmDirect(CRSF_RSSI_MIN, RSSI_SOURCE_RX_PROTOCOL_CRSF);
+
+            if USE_RX_RSSI_DBM {
+                if rxConfig().crsf_use_rx_snr {
+                    setRssiDbmDirect(SNR_MIN, RSSI_SOURCE_RX_PROTOCOL_CRSF);
+                } else {
+                    setRssiDbmDirect(RSSI_MIN, RSSI_SOURCE_RX_PROTOCOL_CRSF);
+                }
             }
-}
         }
-if USE_RX_LINK_QUALITY_INFO {
-        if linkQualitySource == LQ_SOURCE_RX_PROTOCOL_CRSF {
-            setLinkQualityDirect(0);
+        if USE_RX_LINK_QUALITY_INFO {
+            if linkQualitySource == LQ_SOURCE_RX_PROTOCOL_CRSF {
+                setLinkQualityDirect(0);
+            }
         }
-}
     }
 }
-}
 
-fn  crsfFrameCRC() -> u8
-{
+fn frame_crc() -> u8 {
     // CRC includes type and payload
-    let mut crc: u8 = crc8_dvb_s2(0, crsfFrame.frame.type);
-    for ii in 0..crsfFrame.frame.frameLength - CRSF_FRAME_LENGTH_TYPE_CRC {
-        crc = crc8_dvb_s2(crc, crsfFrame.frame.payload[ii]);
+    let mut crc: u8 = crc8_dvb_s2(0, unsafe { FRAME.frame.type_ });
+
+    unsafe {
+        for ii in 0..CRSF_FRAME.frame.frame_length - FRAME_LENGTH_TYPE_CRC {
+            crc = crc8_dvb_s2(crc, FRAME.frame.payload[ii]);
+        }
     }
     crc
 }
 
-fn crsfFrameCmdCRC() -> u8
-{
+fn frame_cmd_crc() -> u8 {
     // CRC includes type and payload
-    let mut crc: u8 = crc8_poly_0xba(0, crsfFrame.frame.type);
-    for ii in 0..crsfFrame.frame.frameLength - CRSF_FRAME_LENGTH_TYPE_CRC - 1 {
-        crc = crc8_poly_0xba(crc, crsfFrame.frame.payload[ii]);
+    let mut crc: u8 = crc8_poly_0xba(0, unsafe { FRAME.frame.type_ });
+
+    unsafe {
+        for ii in 0..CRSF_FRAME.frame.frame_length - FRAME_LENGTH_TYPE_CRC - 1 {
+            crc = crc8_poly_0xba(crc, FRAME.frame.payload[ii]);
+        }
     }
     crc
 }
 
 // Receive ISR callback, called back from serial port
-STATIC_UNIT_TESTED void crsfDataReceive(uint16_t c, void *data)
-{
-    rxRuntimeState_t *const rxRuntimeState = (rxRuntimeState_t *const)data;
+// fn crsfDataReceive(c: u16, void *data)
+fn crsfDataReceive(c: u16) {
+    let rxRuntimeState: rxRuntimeState = data as &[rxRuntimeState];
 
-    static uint8_t crsfFramePosition = 0;
-#if defined(USE_CRSF_V3)
-    static uint8_t crsfFrameErrorCnt = 0;
-#endif
-    const timeUs_t currentTimeUs = microsISR();
+    // let mut crsfFramePosition: u8 = 0; // todo: As u8 in original, but usize makes more sens?
+    let mut frame_position = 0;
 
-#ifdef DEBUG_CRSF_PACKETS
-    debug[2] = currentTimeUs - crsfFrameStartAtUs;
-#endif
+    let mut crsfFrameErrorCnt: u8 = 0; // For V3
 
-    if (cmpTimeUs(currentTimeUs, crsfFrameStartAtUs) > CRSF_TIME_NEEDED_PER_FRAME_US) {
+    let current_time_us: timeUs = 0; // todo: This calls a timer or RTC etc.
+
+    if cmpTimeUs(current_time_us, unsafe { FRAME_START_AT_US }) > TIME_NEEDED_PER_FRAME_US {
         // We've received a character after max time needed to complete a frame,
         // so this must be the start of a new frame.
-        crsfFramePosition = 0;
+        frame_position = 0;
     }
 
-    if (crsfFramePosition == 0) {
-        crsfFrameStartAtUs = currentTimeUs;
+    if frame_position == 0 {
+        unsafe { FRAME_START_AT_US = current_time_us };
     }
     // assume frame is 5 bytes long until we have received the frame length
     // full frame length includes the length of the address and framelength fields
     // sometimes we can receive some garbage data. So, we need to check max size for preventing buffer overrun.
-    const int fullFrameLength = crsfFramePosition < 3 ? 5 : MIN(crsfFrame.frame.frameLength + CRSF_FRAME_LENGTH_ADDRESS + CRSF_FRAME_LENGTH_FRAMELENGTH, CRSF_FRAME_SIZE_MAX);
+    let full_frame_length: usize = if frame_position < 3 {
+        5
+    } else {
+        min(
+            unsafe { FRAME.frame.frame_length as usize }
+                + FRAME_LENGTH_ADDRESS
+                + FRAME_LENGTH_FRAMELENGTH,
+            FRAME_SIZE_MAX,
+        )
+    };
 
-    if (crsfFramePosition < fullFrameLength) {
-        crsfFrame.bytes[crsfFramePosition++] = (uint8_t)c;
-        if (crsfFramePosition >= fullFrameLength) {
-            crsfFramePosition = 0;
-            const uint8_t crc = crsfFrameCRC();
-            if (crc == crsfFrame.bytes[fullFrameLength - 1]) {
-#if defined(USE_CRSF_V3)
-                crsfFrameErrorCnt = 0;
-#endif
-                switch (crsfFrame.frame.type) {
-                case CRSF_FRAMETYPE_RC_CHANNELS_PACKED:
-                case CRSF_FRAMETYPE_SUBSET_RC_CHANNELS_PACKED:
-                    if (crsfFrame.frame.deviceAddress == CRSF_ADDRESS_FLIGHT_CONTROLLER) {
-                        rxRuntimeState->lastRcFrameTimeUs = currentTimeUs;
-                        crsfFrameDone = true;
-                        memcpy(&crsfChannelDataFrame, &crsfFrame, sizeof(crsfFrame));
-                    }
-                    break;
+    unsafe {
+        if frame_position < full_frame_length {
+            frame_position += 1;
+            FRAME.bytes[crsf_frame_position] = c as u8;
 
-#if defined(USE_TELEMETRY_CRSF) && defined(USE_MSP_OVER_TELEMETRY)
-                case CRSF_FRAMETYPE_MSP_REQ:
-                case CRSF_FRAMETYPE_MSP_WRITE: {
-                    uint8_t *frameStart = (uint8_t *)&crsfFrame.frame.payload + CRSF_FRAME_ORIGIN_DEST_SIZE;
-                    if (bufferCrsfMspFrame(frameStart, crsfFrame.frame.frameLength - 4)) {
-                        crsfScheduleMspResponse(crsfFrame.frame.payload[1]);
+            if frame_position >= full_frame_length {
+                frame_position = 0;
+                let crc: u8 = frame_crc();
+                if crc == FRAME.bytes[full_frame_length - 1] {
+                    if USE_CRSF_V3 {
+                        crsfFrameErrorCnt = 0;
                     }
-                    break;
-                }
-#endif
-#if defined(USE_CRSF_CMS_TELEMETRY)
-                case CRSF_FRAMETYPE_DEVICE_PING:
-                    crsfScheduleDeviceInfoResponse();
-                    break;
-                case CRSF_FRAMETYPE_DISPLAYPORT_CMD: {
-                    uint8_t *frameStart = (uint8_t *)&crsfFrame.frame.payload + CRSF_FRAME_ORIGIN_DEST_SIZE;
-                    crsfProcessDisplayPortCmd(frameStart);
-                    break;
-                }
-#endif
-#if defined(USE_CRSF_LINK_STATISTICS)
 
-                case CRSF_FRAMETYPE_LINK_STATISTICS: {
-                    // if to FC and 10 bytes + CRSF_FRAME_ORIGIN_DEST_SIZE
-                    if ((rssiSource == RSSI_SOURCE_RX_PROTOCOL_CRSF) &&
-                        (crsfFrame.frame.deviceAddress == CRSF_ADDRESS_FLIGHT_CONTROLLER) &&
-                        (crsfFrame.frame.frameLength == CRSF_FRAME_ORIGIN_DEST_SIZE + CRSF_FRAME_LINK_STATISTICS_PAYLOAD_SIZE)) {
-                        const crsfLinkStatistics_t* statsFrame = (const crsfLinkStatistics_t*)&crsfFrame.frame.payload;
-                        handleCrsfLinkStatisticsFrame(statsFrame, currentTimeUs);
+                    match FRAME.frame.type_ {
+                        FrameType::RC_CHANNELS_PACKED => (),
+                        FrameType::SUBSET_RC_CHANNELS_PACKED => {
+                            if FRAME.frame.device_address == CrsfAddress::FLIGHT_CONTROLLER {
+                                rxRuntimeState.lastRcFrameTimeUs = current_time_us;
+                                FRAME_DONE = true;
+                                memcpy(&CHANNEL_DATA_FRAME, &CRSF_FRAME, sizeof(CRSF_FRAME));
+                            }
+                        }
+
+                        // if USE_TELEMETRY_CRSF && USE_MSP_OVER_TELEMETRY {
+                        FrameType::MSP_REQ => (),
+                        FrameType::MSP_WRITE => {
+                            FRAME.frame.payload as u8 + FRAME_ORIGIN_DEST_SIZE;
+                            if bufferCrsfMspFrame(frameStart, FRAME.frame.frame_length - 4) {
+                                crsfScheduleMspResponse(CRSF_FRAME.frame.payload[1]);
+                            }
+                            // }
+                        }
+                        // if USE_CRSF_CMS_TELEMETRY {
+                        CCrsfFrameType::DEVICE_PING => {
+                            crsfScheduleDeviceInfoResponse();
+                        }
+                        FrameType::DISPLAYPORT_CMD => {
+                            let frame_start: u8 =
+                                &CRSF_FRAME.frame.payload as u8 + FRAME_ORIGIN_DEST_SIZE;
+                            crsfProcessDisplayPortCmd(frame_start);
+                        }
+                        // }
+                        // #if defined(USE_CRSF_LINK_STATISTICS)
+                        FrameType::LINK_STATISTICS => {
+                            // if to FC and 10 bytes + FRAME_ORIGIN_DEST_SIZE
+                            if rssiSource == RSSI_SOURCE_RX_PROTOCOL_CRSF
+                                && CRSF_FRAME.frame.device_address == ADDRESS_FLIGHT_CONTROLLER
+                                && CRSF_FRAME.frame.frame_length
+                                    == FRAME_ORIGIN_DEST_SIZE + FRAME_LINK_STATISTICS_PAYLOAD_SIZE
+                            {
+                                let stats_frame = CRSF_FRAME.frame.payload as crsfLinkStatistics;
+                                handle_link_statistics_frame(stats_frame, current_time_us);
+                            }
+                        }
+
+                        // if USE_CRSF_V3 {
+                        FrameType::LINK_STATISTICS_RX => (),
+                        FrameType::LINK_STATISTICS_TX => {
+                            if rssiSource == RSSI_SOURCE_RX_PROTOCOL_CRSF
+                                && CRSF_FRAME.frame.device_address == ADDRESS_FLIGHT_CONTROLLER
+                                && CRSF_FRAME.frame.frame_length
+                                    == FRAME_ORIGIN_DEST_SIZE
+                                        + FRAME_LINK_STATISTICS_TX_PAYLOAD_SIZE
+                            {
+                                let statsFrame = CRSF_FRAME.frame.payload as crsfLinkStatisticsTx;
+                                handle_link_statistics_tx_frame(statsFrame, current_time_us);
+                            }
+                        }
+                        // if USE_CRSF_V3 {
+                        FrameType::COMMAND => {
+                            if CRSF_FRAME.bytes[full_frame_length - 2] == frame_cmd_crc()
+                                && CRSF_FRAME.bytes[3] == ADDRESS_FLIGHT_CONTROLLER
+                            {
+                                crsfProcessCommand(
+                                    CRSF_FRAME.frame.payload + FRAME_ORIGIN_DEST_SIZE,
+                                );
+                            }
+                        }
+                        // }
+                        _ => (),
                     }
-                    break;
-                }
-#if defined(USE_CRSF_V3)
-                case CRSF_FRAMETYPE_LINK_STATISTICS_RX: {
-                    break;
-                }
-                case CRSF_FRAMETYPE_LINK_STATISTICS_TX: {
-                    if ((rssiSource == RSSI_SOURCE_RX_PROTOCOL_CRSF) &&
-                        (crsfFrame.frame.deviceAddress == CRSF_ADDRESS_FLIGHT_CONTROLLER) &&
-                        (crsfFrame.frame.frameLength == CRSF_FRAME_ORIGIN_DEST_SIZE + CRSF_FRAME_LINK_STATISTICS_TX_PAYLOAD_SIZE)) {
-                        const crsfLinkStatisticsTx_t* statsFrame = (const crsfLinkStatisticsTx_t*)&crsfFrame.frame.payload;
-                        handleCrsfLinkStatisticsTxFrame(statsFrame, currentTimeUs);
+                } else {
+                    if USE_CRSF_V3 {
+                        if crsfFrameErrorCnt < FRAME_ERROR_COUNT_THRESHOLD {
+                            crsfFrameErrorCnt += 1;
+                        }
                     }
-                    break;
-                }
-#endif
-#endif
-#if defined(USE_CRSF_V3)
-                case CRSF_FRAMETYPE_COMMAND:
-                    if ((crsfFrame.bytes[fullFrameLength - 2] == crsfFrameCmdCRC()) &&
-                        (crsfFrame.bytes[3] == CRSF_ADDRESS_FLIGHT_CONTROLLER)) {
-                        crsfProcessCommand(crsfFrame.frame.payload + CRSF_FRAME_ORIGIN_DEST_SIZE);
-                    }
-                    break;
-#endif
-                default:
-                    break;
                 }
             } else {
-#if defined(USE_CRSF_V3)
-                if (crsfFrameErrorCnt < CRSF_FRAME_ERROR_COUNT_THRESHOLD)
-                    crsfFrameErrorCnt++;
-#endif
+                if USE_CRSF_V3 {
+                    if crsfFrameErrorCnt < FRAME_ERROR_COUNT_THRESHOLD {
+                        crsfFrameErrorCnt += 1;
+                    }
+                }
             }
+            if USE_CRSF_V3 {
+                if crsfFrameErrorCnt >= FRAME_ERROR_COUNT_THRESHOLD {
+                    // fall back to default speed if speed mismatch detected
+                    setCrsfDefaultSpeed();
+                    crsfFrameErrorCnt = 0;
+                }
+            }
+        }
+    }
+}
+
+fn frame_status() -> u8 {
+    if USE_CRSF_LINK_STATISTICS {
+        check_rssi(micros());
+    }
+
+    unsafe {
+        if FRAME_DONE {
+            FRAME_DONE = false;
+
+            // unpack the RC channels
+            if CHANNEL_DATA_FRAME.frame.type_ == FrameType::RC_CHANNELS_PACKED {
+                // use ordinary RC frame structure (0x16)
+
+                let rc_channels = CHANNEL_DATA_FRAME.frame.payload as PayloadChannelsPacked; // todo: Not right
+                CHANNEL_SCALE = RC_CHANNEL_SCALE_LEGACY;
+
+                CHANNEL_DATA[0] = rc_channels.chan0 as u32;
+                CHANNEL_DATA[1] = rc_channels.chan1 as u32;
+                CHANNEL_DATA[2] = rc_channels.chan2 as u32;
+                CHANNEL_DATA[3] = rc_channels.chan3 as u32;
+                CHANNEL_DATA[4] = rc_channels.chan4 as u32;
+                CHANNEL_DATA[5] = rc_channels.chan5 as u32;
+                CHANNEL_DATA[6] = rc_channels.chan6 as u32;
+                CHANNEL_DATA[7] = rc_channels.chan7 as u32;
+                CHANNEL_DATA[8] = rc_channels.chan8 as u32;
+                CHANNEL_DATA[9] = rc_channels.chan9 as u32;
+                CHANNEL_DATA[10] = rc_channels.chan10 as u32;
+                CHANNEL_DATA[11] = rc_channels.chan11 as u32;
+                CHANNEL_DATA[12] = rc_channels.chan12 as u32;
+                CHANNEL_DATA[13] = rc_channels.chan13 as u32;
+                CHANNEL_DATA[14] = rc_channels.chan14 as u32;
+                CHANNEL_DATA[15] = rc_channels.chan15 as u32;
+            } else {
+                // use subset RC frame structure (0x17)
+                let mut read_byte_index: u8 = 0;
+                letpayload: [u8; 59] = unsafe { CHANNEL_DATA_FRAME.frame.payload };
+
+                // get the configuration byte
+                read_byte_index += 1;
+                let mut config_byte: u8 = payload[read_byte_index];
+
+                // get the channel number of start channel
+                let start_channel: u8 = config_byte & SUBSET_RC_STARTING_CHANNEL_MASK;
+                config_byte >>= SUBSET_RC_STARTING_CHANNEL_BITS;
+
+                // get the channel resolution settings
+                let mut channel_bits: u8 = 0;
+                let mut channel_mask: u16 = 0;
+                let mut channel_res: u8 = config_byte & SUBSET_RC_RES_CONFIGURATION_MASK;
+                config_byte >>= SUBSET_RC_RES_CONFIGURATION_BITS;
+
+                unsafe {
+                    match channel_res {
+                        SUBSET_RC_RES_CONF_10B => {
+                            channel_bits = SUBSET_RC_RES_BITS_10B;
+                            channel_mask = SUBSET_RC_RES_MASK_10B;
+                            CHANNEL_SCALE = SUBSET_RC_CHANNEL_SCALE_10B;
+                        }
+                        SUBSET_RC_RES_CONF_11B => {
+                            channel_bits = SUBSET_RC_RES_BITS_11B;
+                            channel_mask = SUBSET_RC_RES_MASK_11B;
+                            CHANNEL_SCALE = SUBSET_RC_CHANNEL_SCALE_11B;
+                        }
+                        SUBSET_RC_RES_CONF_12B => {
+                            channel_bits = SUBSET_RC_RES_BITS_12B;
+                            channel_mask = SUBSET_RC_RES_MASK_12B;
+                            CHANNEL_SCALE = SUBSET_RC_CHANNEL_SCALE_12B;
+                        }
+                        SUBSET_RC_RES_CONF_13B => {
+                            channel_bits = SUBSET_RC_RES_BITS_13B;
+                            channel_mask = SUBSET_RC_RES_MASK_13B;
+                            CHANNEL_SCALE = SUBSET_RC_CHANNEL_SCALE_13B;
+                        }
+                        _ => (),
+                    }
+                }
+
+                // do nothing for the reserved configuration bit
+                config_byte >>= SUBSET_RC_RESERVED_CONFIGURATION_BITS;
+
+                // calculate the number of channels packed
+                let num_of_channels: u8 =
+                    ((CHANNEL_DATA_FRAME.frame.frame_length - FRAME_LENGTH_TYPE_CRC - 1) * 8)
+                        / channel_bits;
+
+                // unpack the channel data
+                let mut bits_merged: u8 = 0;
+                let mut read_value: u32 = 0;
+                for n in 0..num_of_channels {
+                    while bits_merged < channel_bits {
+                        let read_byte: u8 = payload[read_byte_index += 1];
+                        read_value |= (read_byte as u32) << bits_merged;
+                        bits_merged += 8;
+                    }
+                    CHANNEL_DATA[start_channel + n] = read_value & channel_mask;
+                    read_value >>= channel_bits;
+                    bits_merged -= channel_bits;
+                }
+            }
+            return RX_FRAME_COMPLETE;
+        }
+        return RX_FRAME_PENDING;
+    }
+}
+
+fn read_raw_rc(chan: u8) -> f32 {
+    unsafe {
+        if CHANNEL_SCALE == RC_CHANNEL_SCALE_LEGACY {
+            /* conversion from RC value to PWM
+             * for 0x16 RC frame
+             *       RC     PWM
+             * min  172 ->  988us
+             * mid  992 -> 1500us
+             * max 1811 -> 2012us
+             * scale factor = (2012-988) / (1811-172) = 0.62477120195241
+             * offset = 988 - 172 * 0.62477120195241 = 880.53935326418548
+             */
+            return (CHANNEL_SCALE * CHANNEL_DATA[chan] as f32) + 881.;
         } else {
-#if defined(USE_CRSF_V3)
-            if (crsfFrameErrorCnt < CRSF_FRAME_ERROR_COUNT_THRESHOLD)
-                crsfFrameErrorCnt++;
-#endif
+            /* conversion from RC value to PWM
+             * for 0x17 Subset RC frame
+             */
+            return (CHANNEL_SCALE * CHANNEL_DATA[chan] as f32) + 988.;
         }
-#if defined(USE_CRSF_V3)
-        if (crsfFrameErrorCnt >= CRSF_FRAME_ERROR_COUNT_THRESHOLD) {
-            // fall back to default speed if speed mismatch detected
-            setCrsfDefaultSpeed();
-            crsfFrameErrorCnt = 0;
-        }
-#endif
     }
 }
 
-STATIC_UNIT_TESTED uint8_t crsfFrameStatus(rxRuntimeState_t *rxRuntimeState)
-{
-    UNUSED(rxRuntimeState);
-
-#if defined(USE_CRSF_LINK_STATISTICS)
-    crsfCheckRssi(micros());
-#endif
-    if crsfFrameDone {
-        crsfFrameDone = false;
-
-        // unpack the RC channels
-        if (crsfChannelDataFrame.frame.type == CRSF_FRAMETYPE_RC_CHANNELS_PACKED) {
-            // use ordinary RC frame structure (0x16)
-            const crsfPayloadRcChannelsPacked_t* const rcChannels = (crsfPayloadRcChannelsPacked_t*)&crsfChannelDataFrame.frame.payload;
-            channelScale = CRSF_RC_CHANNEL_SCALE_LEGACY;
-            crsfChannelData[0] = rcChannels->chan0;
-            crsfChannelData[1] = rcChannels->chan1;
-            crsfChannelData[2] = rcChannels->chan2;
-            crsfChannelData[3] = rcChannels->chan3;
-            crsfChannelData[4] = rcChannels->chan4;
-            crsfChannelData[5] = rcChannels->chan5;
-            crsfChannelData[6] = rcChannels->chan6;
-            crsfChannelData[7] = rcChannels->chan7;
-            crsfChannelData[8] = rcChannels->chan8;
-            crsfChannelData[9] = rcChannels->chan9;
-            crsfChannelData[10] = rcChannels->chan10;
-            crsfChannelData[11] = rcChannels->chan11;
-            crsfChannelData[12] = rcChannels->chan12;
-            crsfChannelData[13] = rcChannels->chan13;
-            crsfChannelData[14] = rcChannels->chan14;
-            crsfChannelData[15] = rcChannels->chan15;
-        } else {
-            // use subset RC frame structure (0x17)
-            let readByteIndex: u8 = 0;
-            letpayload: &[u8] = crsfChannelDataFrame.frame.payload;
-
-            // get the configuration byte
-            let configByte: u8 = payload[readByteIndex++];
-
-            // get the channel number of start channel
-            let startChannel: u8 = configByte & CRSF_SUBSET_RC_STARTING_CHANNEL_MASK;
-            configByte >>= CRSF_SUBSET_RC_STARTING_CHANNEL_BITS;
-
-            // get the channel resolution settings
-            let channelBits: u8 = 0;
-            let channelMask: u16 = 0;
-            let channelRes: u8 = configByte & CRSF_SUBSET_RC_RES_CONFIGURATION_MASK;
-            configByte >>= CRSF_SUBSET_RC_RES_CONFIGURATION_BITS;
-
-            match channelRes {
-                CRSF_SUBSET_RC_RES_CONF_10B => {
-                    channelBits = CRSF_SUBSET_RC_RES_BITS_10B;
-                    channelMask = CRSF_SUBSET_RC_RES_MASK_10B;
-                    channelScale = CRSF_SUBSET_RC_CHANNEL_SCALE_10B;
-                }
-                CRSF_SUBSET_RC_RES_CONF_11B => {
-                    channelBits = CRSF_SUBSET_RC_RES_BITS_11B;
-                    channelMask = CRSF_SUBSET_RC_RES_MASK_11B;
-                    channelScale = CRSF_SUBSET_RC_CHANNEL_SCALE_11B;
-                }
-                CRSF_SUBSET_RC_RES_CONF_12B => {
-                    channelBits = CRSF_SUBSET_RC_RES_BITS_12B;
-                    channelMask = CRSF_SUBSET_RC_RES_MASK_12B;
-                    channelScale = CRSF_SUBSET_RC_CHANNEL_SCALE_12B;
-                }
-               CRSF_SUBSET_RC_RES_CONF_13B => {
-                    channelBits = CRSF_SUBSET_RC_RES_BITS_13B;
-                    channelMask = CRSF_SUBSET_RC_RES_MASK_13B;
-                    channelScale = CRSF_SUBSET_RC_CHANNEL_SCALE_13B;
-                }
-            }
-
-            // do nothing for the reserved configuration bit
-            configByte >>= CRSF_SUBSET_RC_RESERVED_CONFIGURATION_BITS;
-
-            // calculate the number of channels packed
-            let numOfChannels: u8 = ((crsfChannelDataFrame.frame.frameLength - CRSF_FRAME_LENGTH_TYPE_CRC - 1) * 8) / channelBits;
-
-            // unpack the channel data
-            let bitsMerged: u8 = 0;
-            let readValue: u32 = 0;
-            for n in 0..numOfChannels {
-                while (bitsMerged < channelBits) {
-                    let readByte: u8 = payload[readByteIndex++];
-                    readValue |= ((uint32_t) readByte) << bitsMerged;
-                    bitsMerged += 8;
-                }
-                crsfChannelData[startChannel + n] = readValue & channelMask;
-                readValue >>= channelBits;
-                bitsMerged -= channelBits;
-            }
-        }
-        return RX_FRAME_COMPLETE;
-    }
-    return RX_FRAME_PENDING;
-}
-
-fn crsfReadRawRC(rxRuntimeState: &rxRuntimeState_t, chan: u8) -> f32
-{
-    UNUSED(rxRuntimeState);
-    if channelScale == CRSF_RC_CHANNEL_SCALE_LEGACY {
-        /* conversion from RC value to PWM
-        * for 0x16 RC frame
-        *       RC     PWM
-        * min  172 ->  988us
-        * mid  992 -> 1500us
-        * max 1811 -> 2012us
-        * scale factor = (2012-988) / (1811-172) = 0.62477120195241
-        * offset = 988 - 172 * 0.62477120195241 = 880.53935326418548
-        */
-        return (channelScale * (float)crsfChannelData[chan]) + 881;
-    } else {
-        /* conversion from RC value to PWM
-        * for 0x17 Subset RC frame
-        */
-        return (channelScale * (float)crsfChannelData[chan]) + 988;
+fn rx_write_telemetry_data(void: &data, len: &mut usize) {
+    unsafe {
+        *len = min(*len, sizeof(TELEMETRY_BUF) as usize);
+        memcpy(TELEMETRY_BUF, data, len);
+        TELEMETRY_BUF_LEN = *len;
     }
 }
 
-fn crsfRxWriteTelemetryData(void: &data, len: usize)
-{
-    len = MIN(len, (int)sizeof(telemetryBuf));
-    memcpy(telemetryBuf, data, len);
-    telemetryBufLen = len;
-}
-
-fn crsfRxSendTelemetryData()
-{
+fn rx_send_telemetry_data() {
     // if there is telemetry data to write
-    if telemetryBufLen > 0 {
-        serialWriteBuf(serialPort, telemetryBuf, telemetryBufLen);
-        telemetryBufLen = 0; // reset telemetry buffer
+
+    unsafe {
+        if TELEMETRY_BUF_LEN > 0 {
+            serialWriteBuf(serialPort, TELEMETRY_BUF, TELEMETRY_BUF_LEN);
+            TELEMETRY_BUF_LEN = 0; // reset telemetry buffer
+        }
     }
 }
 
-fn crsfRxIsTelemetryBufEmpty() -> bool
-{
-    return telemetryBufLen == 0
+fn rx_is_telemetry_buf_empty() -> bool {
+    return unsafe { TELEMETRY_BUF_LEN } == 0;
 }
 
-fn crsfRxInit(xConfig: &rxConfig_t, rxRuntimeState: &mut rxRuntimeState_t) -> bool
-{
-    for ii in 0..CRSF_MAX_CHANNEL {
-        crsfChannelData[ii] = (16 * rxConfig.midrc) / 10 - 1408;
+fn rx_init(rx_config: &RxConfig, rx_runtime_state: &mut rxRuntimeState) -> bool {
+    for i in 0..CRSF_MAX_CHANNEL {
+        unsafe {
+            CHANNEL_DATA[i] = (16 * rx_config.midrc) / 10 - 1408;
+        }
     }
 
-    rxRuntimeState.channelCount = CRSF_MAX_CHANNEL;
-    rxRuntimeState.rxRefreshRate = CRSF_TIME_BETWEEN_FRAMES_US; //!!TODO this needs checking
+    rx_runtime_state.channelCount = MAX_CHANNEL;
+    rx_runtime_state.rxRefreshRate = TIME_BETWEEN_FRAMES_US; // TODO this needs checking
 
-    rxRuntimeState.rcReadRawFn = crsfReadRawRC;
-    rxRuntimeState.rcFrameStatusFn = crsfFrameStatus;
-    rxRuntimeState.rcFrameTimeUsFn = rxFrameTimeUs;
+    rx_runtime_state.rcReadRawFn = read_raw_rc;
+    rx_runtime_state.rcFrameStatusFn = frame_status;
+    rx_runtime_state.rcFrameTimeUsFn = rxFrameTimeUs;
 
-    let *portConfig = findSerialPortConfig(FUNCTION_RX_SERIAL);
-    if !portConfig {
+    let port_config = findSerialPortConfig(FUNCTION_RX_SERIAL);
+    if !port_config {
         return false;
     }
 
-    serialPort = openSerialPort(portConfig.identifier,
-        FUNCTION_RX_SERIAL,
-        crsfDataReceive,
-        rxRuntimeState,
-        CRSF_BAUDRATE,
-        CRSF_PORT_MODE,
-        CRSF_PORT_OPTIONS | (rxConfig->serialrx_inverted ? SERIAL_INVERTED : 0)
+    unsafe {
+        serialPort = openSerialPort(
+            port_config.identifier,
+            FUNCTION_RX_SERIAL,
+            crsfDataReceive,
+            rx_runtime_state,
+            BAUDRATE,
+            PORT_MODE,
+            PORT_OPTIONS
+                | (if rx_config.serialrx_inverted {
+                    SERIAL_INVERTED
+                } else {
+                    0
+                }),
         );
+    }
 
-    if (rssiSource == RSSI_SOURCE_NONE) {
+    if rssiSource == RSSI_SOURCE_NONE {
         rssiSource = RSSI_SOURCE_RX_PROTOCOL_CRSF;
     }
-if USE_RX_LINK_QUALITY_INFO {
-    if (linkQualitySource == LQ_SOURCE_NONE) {
-        linkQualitySource = LQ_SOURCE_RX_PROTOCOL_CRSF;
+    if USE_RX_LINK_QUALITY_INFO {
+        if linkQualitySource == LQ_SOURCE_NONE {
+            linkQualitySource = LQ_SOURCE_RX_PROTOCOL_CRSF;
+        }
     }
-}
 
     return serialPort != NULL;
-}
-
-if USE_CRSF_V3 {
-fn crsfRxUpdateBaudrate(baudrate: u32)
-{
-    serialSetBaudRate(serialPort, baudrate);
-}
-}
-
-fn crsfRxIsActive(void) -> bool {
-    serialPort != NULL
-}
 }

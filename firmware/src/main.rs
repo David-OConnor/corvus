@@ -29,8 +29,8 @@ use stm32_hal2::{
 #[cfg(feature = "matek-h743slim")]
 use crate::{
     clocks::VosRange,
-    power::{SupplyConfig, VoltageLevel},
     pac::SPI4,
+    power::{SupplyConfig, VoltageLevel},
 };
 
 use cfg_if::cfg_if;
@@ -42,6 +42,7 @@ use stm32_hal2::dma::DmaInput;
 mod drivers;
 mod dshot;
 mod flight_ctrls;
+mod osd;
 mod pid;
 mod pid_tuning;
 mod sensor_fusion;
