@@ -133,7 +133,12 @@ pub struct AutopilotStatus {
     /// Heading is fixed.
     pub hdg_hold: Option<f32>,
     /// Automatically adjust raw to zero out slip
+    // todo: Do yaw assist and roll assist make sense for Attitude mode.
+    // todo: Do you even want attitude mode as an option??
     pub yaw_assist: bool,
+    /// Automatically adjust roll (rate? angle?) to zero out slip, ie based on rudder inputs.
+    /// Don't enable both yaw assist and roll assist at the same time.
+    pub roll_assist: bool,
     /// Continuously fly towards a path. Note that `pitch` and `yaw` for the
     /// parameters here correspond to the flight path; not attitude.
     pub velocity_vector: Option<(f32, f32)>, // pitch, yaw

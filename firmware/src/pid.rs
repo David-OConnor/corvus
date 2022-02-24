@@ -381,20 +381,39 @@ pub fn run_pid_mid(
                     flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
             }
 
-            if let Some((alt_type, alt_commanded)) = autopilot_status.yaw_assist {
+            if autopilot_status.yaw_assist {
                 // Blend manual inputs with teh autocorrection factor. If there are no manual inputs,
                 // this autopilot mode should neutralize all sideslip.
 
-                let net_hor_direction = 0.;
-                let current_yaw = params.s_yaw;
+                // todo: Instead of comparing heading to VVI, maybe you could just neutralize
+                // X/Y acceleration?
+
+                // let net_hor_direction = 0.;
+                // let current_yaw = params.s_yaw;
 
                 // todo: Do we want a function that maps to a commanded yaw velocity, or
                 // todo, something more simple?
 
-                let yaw_correction_factor = 0.; // todo
+                // let yaw_correction_factor = 0.; // todo
+
+                // todo: What should this coeff be? Is linear OK?
+
+                // if coeff = 0.5, if accel is 1 m/s^2, yaw correction is 1/2 rad/s
+                 // angular velocity / accel: (radians/s) / (m/s^2) = radiants x s / m
+                let coeff =  0.1;
+
+                let yaw_correction_factor = params.a_x * coeff;
+
+
+                // todo: Impl for Attitude mode too? Or is it not appropriate there?
+                inner_flt_cmd.yaw += yaw_correction_factor;
+            } else if autopilot_roll_assist {
+                let coeff =  0.1;
+
+                let roll_correction_factor = -params.a_x * coeff;
 
                 // todo: Impl for Attitude mode too.
-                inner_flt_cmd.yaw += yaw_correction_factor;
+                inner_flt_cmd.yaw += roll_correction_factor;
             }
         }
 

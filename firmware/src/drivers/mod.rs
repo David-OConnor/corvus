@@ -11,3 +11,4 @@ pub mod osd_max7456;
 #[allow(unused_parens)]
 #[allow(unused)]
 pub mod tof_vl53l1;
+pub mod crsf;
