@@ -338,7 +338,7 @@ impl Rotor {
     // todo: Feature gate these methods based on board, as required.
     pub fn tim_channel(&self) -> TimChannel {
         match self {
-            Self::R1 => TimChannel::C3,
+            Self::R1 => TimChannel::C1,
             Self::R2 => TimChannel::C4,
             Self::R3 => TimChannel::C3,
             Self::R4 => TimChannel::C4,
@@ -348,7 +348,7 @@ impl Rotor {
     /// Dma input channel. This should be in line with `tim_channel`.
     pub fn dma_input(&self) -> DmaInput {
         match self {
-            Self::R1 => DmaInput::Tim2Ch3,
+            Self::R1 => DmaInput::Tim2Ch1,
             Self::R2 => DmaInput::Tim2Ch4,
             Self::R3 => DmaInput::Tim3Ch3,
             Self::R4 => DmaInput::Tim3Ch4,
@@ -468,7 +468,7 @@ pub fn setup_pins() {
             let bat_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
         } else if #[cfg(feature = "anyleaf-mercury-g4")] {
             // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
-            let mut rotor1 = Pin::new(Port::A, 3, PinMode::Alt(1)); // Tim2 ch3
+            let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(1)); // Tim2 ch1
             let mut rotor2 = Pin::new(Port::A, 10, PinMode::Alt(10)); // Tim2 ch4
             let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
             let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
@@ -497,11 +497,15 @@ pub fn setup_pins() {
 
             // We use UARTs for misc external devices, including ESC telemetry,
             // and "Smart Audio" (for video)
-            // todo: set these up
-            let uart1_tx = Pin::new(Port::D, 0, PinMode::Alt(0));
-            let uart1_rx = Pin::new(Port::D, 1, PinMode::Alt(0));
-            let uart2_tx = Pin::new(Port::D, 2, PinMode::Alt(0));
-            let uart2_rx = Pin::new(Port::D, 3, PinMode::Alt(0));
+
+            let uart1_tx = Pin::new(Port::B, 6, PinMode::Alt(7));
+            let uart1_rx = Pin::new(Port::B, 7, PinMode::Alt(7));
+            let uart2_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
+            let uart2_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
+            let uart3_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
+            let uart3_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
+            let uart4_tx = Pin::new(Port::C, 10, PinMode::Alt(7));
+            let uart4_rx = Pin::new(Port::C, 11, PinMode::Alt(7));
 
             // Used to trigger a PID update based on new IMU data.
             let mut imu_interrupt = Pin::new(Port::A, 4, PinMode::Input); // PA4 for IMU interrupt.
@@ -673,7 +677,22 @@ mod app {
         // We use (Matek) I2C2 for the barometer.
         let i2c2 = I2c::new(dp.I2C2, i2c_cfg, &clock_cfg);
 
-        // let uart1 = Usart::new(dp.USART1, 9_600., Default::default(), &clock_cfg);
+        // We use `uart1` for the radio controller receiver, via CRSF protocol.
+        // CRSF protocol uses a single wire half duplex uart connection.
+        //  * The master sends one frame every 4ms and the slave replies between two frames from the master.
+        //  *
+        //  * 420000 baud
+        //  * not inverted
+        //  * 8 Bit
+        //  * 1 Stop bit
+        //  * Big endian
+        //  * 420000 bit/s = 46667 byte/s (including stop bit) = 21.43us per byte
+        //  * Max frame size is 64 bytes
+        //  * A 64 byte frame plus 1 sync byte can be transmitted in 1393 microseconds.
+
+        // The STM32-HAL default UART config includes stop bits = 1, parity disabled, and 8-bit words,
+        // which is what we want.
+        let uart1 = Usart::new(dp.USART1, 420_000, Default::default(), &clock_cfg);
         // let uart2 = Usart::new(dp.USART1, 9_600., Default::default(), &clock_cfg);
 
         // We use the RTC to assist with power use measurement.
