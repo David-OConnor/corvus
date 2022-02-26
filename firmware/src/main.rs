@@ -13,7 +13,7 @@ use cortex_m::{self, asm};
 use stm32_hal2::{
     self,
     adc::{Adc, AdcDevice},
-    clocks::{Clocks, PllCfg, PllSrc},
+    clocks::{Clocks, InputSrc, PllCfg, PllSrc},
     debug_workaround,
     dma::{self, Dma, DmaChannel},
     flash::Flash,
@@ -626,8 +626,8 @@ mod app {
         // Set up microcontroller peripherals
         let mut dp = pac::Peripherals::take().unwrap();
 
-        let power = SupplyConfig::DirectSmps;
-        power.setup(&mut dp.PWR, VoltageLevel::V2_5);
+        #[cfg(feature = "matek-h743slim")]
+        SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
 
         // Set up clocks
         let clock_cfg = Clocks {
@@ -635,7 +635,7 @@ mod app {
             #[cfg(feature = "matek-h743slim")]
             pll_src: PllSrc::Hse(8_000_000),
             #[cfg(feature = "anyleaf-mercury-g4")]
-            pll_src: PllSrc::Hse(16_000_000),
+            input_src: InputSrc::Pll(PllSrc::Hse(16_000_000)),
             // vos_range: VosRange::VOS0, // Note: This may use extra power. todo: Put back!
             #[cfg(feature = "matek-h743slim")]
             pll1: PllCfg {
@@ -770,7 +770,7 @@ mod app {
         // In Betaflight, DMA is required for the ADC (current/voltage sensor),
         // motor outputs running bidirectional DShot, and gyro SPI bus.
 
-        // todo: COnsider how you use DMA, and bus splitting.
+        // todo: Consider how you use DMA, and bus splitting.
         // todo: Feature-gate these based on board, as required.
 
         // IMU
@@ -910,7 +910,6 @@ mod app {
                     // todo: Do we want to update manual/radio inputs here, or in the faster IMU update
                     // ISR?
 
-                    *inputs = CtrlInputs::get_manual_inputs(cfg);
 
                     // todo: Support both UART telemetry from ESC, and analog current sense pin.
                     // todo: Read from an ADC or something, from teh ESC.
@@ -956,13 +955,19 @@ mod app {
     /// Runs when new IMU data is recieved. This functions as our PID inner loop, and updates
     /// pitch and roll. We use this ISR with an interrupt from the IMU, since we wish to
     /// update rotor power settings as soon as data is available.
-    #[task(binds = EXTI15_10, shared = [current_params, input_mode, autopilot_status, inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr,
+    #[task(binds = EXTI15_10, shared = [current_params, input_mode, autopilot_status,
+    inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr,
     spi4, rotor_timer_a, rotor_timer_b,
-    ctrl_coeffs], local = [imu_cs], priority = 2)]
+    ctrl_coeffs, command_status], local = [imu_cs], priority = 2)]
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
         unsafe {
             // Clear the interrupt flag.
             (*pac::EXTI::ptr()).c1pr1.modify(|_, w| w.pr15().set_bit());
+        }
+
+        // todo: Put this armed check in the update isr? Somewhere else?
+        if !command_status.armed || !command_status.pre_armed {
+            // todo: What? something with DSHOT?
         }
 
         // let timer_val = cx.local.dt_timer.read_count();

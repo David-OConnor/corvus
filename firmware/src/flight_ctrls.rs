@@ -17,7 +17,7 @@ use cmsis_dsp_sys as sys;
 
 use num_traits::float::FloatCore; // Absolute value.
 
-use crate::{dshot, pid::PidState, CtrlCoeffGroup, Location, Rotor, UserCfg};
+use crate::{drivers::crsf, dshot, pid::PidState, CtrlCoeffGroup, Location, Rotor, UserCfg};
 
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
@@ -102,8 +102,9 @@ impl Default for InputMap {
 }
 
 #[derive(Default)]
-// todo: Do we use this, or something more general like FlightCmd
 pub struct CommandState {
+    pub pre_armed: bool,
+    pub armed: bool,
     pub x: f32,
     pub y: f32,
     pub alt: f32, // m MSL

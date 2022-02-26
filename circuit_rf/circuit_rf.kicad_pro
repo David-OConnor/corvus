@@ -362,7 +362,7 @@
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "quadcopter.kicad_pro",
+    "filename": "circuit_rf.kicad_pro",
     "version": 1
   },
   "net_settings": {
@@ -394,11 +394,7 @@
         "microvia_diameter": 0.3,
         "microvia_drill": 0.1,
         "name": "Tiny",
-        "nets": [
-          "/MISO_3",
-          "/MOSI_3",
-          "/UART1_RX"
-        ],
+        "nets": [],
         "pcb_color": "rgba(0, 0, 0, 0.000)",
         "schematic_color": "rgba(0, 0, 0, 0.000)",
         "track_width": 0.15,

@@ -76,9 +76,9 @@ impl Default for CtrlCoeffsPR {
             k_d_s_from_s: 0.,
 
             // pid for controlling pitch and roll from commanded horizontal velocity
-            k_p_s_from_v: 0.1,
-            k_i_s_from_v: 0.,
-            k_d_s_from_v: 0.,
+            k_p_s_from_v: 47.,
+            k_i_s_from_v: 84.,
+            k_d_s_from_v: 34.,
 
             // PID for controlling pitch and roll rate directly (eg Acro)
             k_p_v_direct: 0.1,
@@ -110,12 +110,12 @@ impl Default for CtrlCoeffsYT {
     fn default() -> Self {
         Self {
             k_p_s: 0.1,
-            k_i_s: 0.00,
-            k_d_s: 0.00,
+            k_i_s: 0.0,
+            k_d_s: 0.0,
 
-            k_p_v: 0.1,
-            k_i_v: 0.00,
-            k_d_v: 0.00,
+            k_p_v: 45.,
+            k_i_v: 80.0,
+            k_d_v: 0.0,
             pid_deriv_lowpass_cutoff: LowpassCutoff::H1k,
         }
     }
@@ -135,6 +135,40 @@ pub struct CtrlCoeffGroup {
     pub gain_roll: f32,
     pub gain_yaw: f32,
     pub gain_thrust: f32,
+}
+
+impl Default for CtrlCoeffGroup {
+    /// These starting values are Betaflight defaults.
+    fn default() -> Self {
+        Self {
+            pitch: Default::default(),
+            roll: CtrlCoeffsPR {
+                k_p_s_from_v: 45.,
+                k_i_s_from_v: 80.,
+                k_d_s_from_v: 30.,
+                ..Default::default()
+            },
+            yaw: Default::deafult(),
+            thrust: CtrlCoeffsYT {
+                k_p_s: 0.1,
+                k_i_s: 0.0,
+                k_d_s: 0.0,
+
+                k_p_v: 45.,
+                k_i_v: 80.0,
+                k_d_v: 0.0,
+                pid_deriv_lowpass_cutoff: LowpassCutoff::H1k,
+            },
+
+            // These coefficients are our rotor gains.
+            // todo: Think about how to handle these, and how to map them to the aircraft data struct,
+            // todo, and the input range.
+            gain_pitch: 0.,
+            gain_roll: 0.,
+            gain_yaw: 0.,
+            gain_thrust: 0.,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -357,63 +391,66 @@ pub fn run_pid_mid(
             // In rate mode, simply update the inner command; don't do anything
             // in the outer PID loop.
 
-            *inner_flt_cmd = CtrlInputs {
-                pitch: input_map.calc_pitch_rate(inputs.pitch),
-                roll: input_map.calc_roll_rate(inputs.roll),
-                yaw: input_map.calc_yaw_rate(inputs.yaw),
-                thrust: input_map.calc_pitch_rate(inputs.thrust),
-            };
-
-            // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
-            // either MSL or AGL.
-            // if let AutopilotMode::AltHold(alt_type, alt_commanded) = autopilot_mode {
-            if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
-                // todo: This naive approach, or command a velocity, like in Cmd mode? Probably latter.
-                // inner_flt_cmd.thrust = *alt_commanded; // See the inner loop for more on how this is handled.
-
-                // Set a vertical velocity for the inner loop to maintain, based on distance
-                let dist = match alt_type {
-                    AltType::Msl => alt_commanded - params.s_z_msl,
-                    AltType::Agl => alt_commanded - params.s_z_agl,
-                };
-                // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-                inner_flt_cmd.thrust =
-                    flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
-            }
-
-            if autopilot_status.yaw_assist {
-                // Blend manual inputs with teh autocorrection factor. If there are no manual inputs,
-                // this autopilot mode should neutralize all sideslip.
-
-                // todo: Instead of comparing heading to VVI, maybe you could just neutralize
-                // X/Y acceleration?
-
-                // let net_hor_direction = 0.;
-                // let current_yaw = params.s_yaw;
-
-                // todo: Do we want a function that maps to a commanded yaw velocity, or
-                // todo, something more simple?
-
-                // let yaw_correction_factor = 0.; // todo
-
-                // todo: What should this coeff be? Is linear OK?
-
-                // if coeff = 0.5, if accel is 1 m/s^2, yaw correction is 1/2 rad/s
-                // angular velocity / accel: (radians/s) / (m/s^2) = radiants x s / m
-                let coeff = 0.1;
-
-                let yaw_correction_factor = params.a_x * coeff;
-
-                // todo: Impl for Attitude mode too? Or is it not appropriate there?
-                inner_flt_cmd.yaw += yaw_correction_factor;
-            } else if autopilot_roll_assist {
-                let coeff = 0.1;
-
-                let roll_correction_factor = -params.a_x * coeff;
-
-                // todo: Impl for Attitude mode too.
-                inner_flt_cmd.yaw += roll_correction_factor;
-            }
+            // todo: If in acro mode, consider moving some of these to the inner loop for faster updates!
+            // todo eg control polling.
+            //
+            // *inner_flt_cmd = CtrlInputs {
+            //     pitch: input_map.calc_pitch_rate(inputs.pitch),
+            //     roll: input_map.calc_roll_rate(inputs.roll),
+            //     yaw: input_map.calc_yaw_rate(inputs.yaw),
+            //     thrust: input_map.calc_pitch_rate(inputs.thrust),
+            // };
+            //
+            // // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
+            // // either MSL or AGL.
+            // // if let AutopilotMode::AltHold(alt_type, alt_commanded) = autopilot_mode {
+            // if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
+            //     // todo: This naive approach, or command a velocity, like in Cmd mode? Probably latter.
+            //     // inner_flt_cmd.thrust = *alt_commanded; // See the inner loop for more on how this is handled.
+            //
+            //     // Set a vertical velocity for the inner loop to maintain, based on distance
+            //     let dist = match alt_type {
+            //         AltType::Msl => alt_commanded - params.s_z_msl,
+            //         AltType::Agl => alt_commanded - params.s_z_agl,
+            //     };
+            //     // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
+            //     inner_flt_cmd.thrust =
+            //         flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
+            // }
+            //
+            // if autopilot_status.yaw_assist {
+            //     // Blend manual inputs with teh autocorrection factor. If there are no manual inputs,
+            //     // this autopilot mode should neutralize all sideslip.
+            //
+            //     // todo: Instead of comparing heading to VVI, maybe you could just neutralize
+            //     // X/Y acceleration?
+            //
+            //     // let net_hor_direction = 0.;
+            //     // let current_yaw = params.s_yaw;
+            //
+            //     // todo: Do we want a function that maps to a commanded yaw velocity, or
+            //     // todo, something more simple?
+            //
+            //     // let yaw_correction_factor = 0.; // todo
+            //
+            //     // todo: What should this coeff be? Is linear OK?
+            //
+            //     // if coeff = 0.5, if accel is 1 m/s^2, yaw correction is 1/2 rad/s
+            //     // angular velocity / accel: (radians/s) / (m/s^2) = radiants x s / m
+            //     let coeff = 0.1;
+            //
+            //     let yaw_correction_factor = params.a_x * coeff;
+            //
+            //     // todo: Impl for Attitude mode too? Or is it not appropriate there?
+            //     inner_flt_cmd.yaw += yaw_correction_factor;
+            // } else if autopilot_roll_assist {
+            //     let coeff = 0.1;
+            //
+            //     let roll_correction_factor = -params.a_x * coeff;
+            //
+            //     // todo: Impl for Attitude mode too.
+            //     inner_flt_cmd.yaw += roll_correction_factor;
+            // }
         }
 
         InputMode::Attitude => {
@@ -582,7 +619,7 @@ pub fn run_pid_inner(
     params: &Params,
     input_mode: InputMode,
     autopilot_status: &AutopilotStatus,
-    inputs: &CtrlInputs,
+    inputs: &mut CtrlInputs,
     pid_inner: &mut PidGroup,
     filters: &mut PidDerivFilters,
     current_pwr: &mut crate::RotorPower,
@@ -591,6 +628,78 @@ pub fn run_pid_inner(
     coeffs: &CtrlCoeffGroup,
     dt: f32,
 ) {
+
+    match input_mode {
+        InputMode::Acro => {
+            // If acro, we get our inputs each IMU update; ie the inner loop.
+            *inputs = CtrlInputs::get_manual_inputs(cfg);
+
+            *inner_flt_cmd = CtrlInputs {
+                pitch: input_map.calc_pitch_rate(inputs.pitch),
+                roll: input_map.calc_roll_rate(inputs.roll),
+                yaw: input_map.calc_yaw_rate(inputs.yaw),
+                thrust: input_map.calc_pitch_rate(inputs.thrust),
+            };
+
+            // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
+            // either MSL or AGL.
+            // if let AutopilotMode::AltHold(alt_type, alt_commanded) = autopilot_mode {
+            if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
+                // todo: This naive approach, or command a velocity, like in Cmd mode? Probably latter.
+                // inner_flt_cmd.thrust = *alt_commanded; // See the inner loop for more on how this is handled.
+
+                // Set a vertical velocity for the inner loop to maintain, based on distance
+                let dist = match alt_type {
+                    AltType::Msl => alt_commanded - params.s_z_msl,
+                    AltType::Agl => alt_commanded - params.s_z_agl,
+                };
+                // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
+                inner_flt_cmd.thrust =
+                    flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
+            }
+
+            if autopilot_status.yaw_assist {
+                // Blend manual inputs with teh autocorrection factor. If there are no manual inputs,
+                // this autopilot mode should neutralize all sideslip.
+
+                // todo: Instead of comparing heading to VVI, maybe you could just neutralize
+                // X/Y acceleration?
+
+                // let net_hor_direction = 0.;
+                // let current_yaw = params.s_yaw;
+
+                // todo: Do we want a function that maps to a commanded yaw velocity, or
+                // todo, something more simple?
+
+                // let yaw_correction_factor = 0.; // todo
+
+                // todo: What should this coeff be? Is linear OK?
+
+                // if coeff = 0.5, if accel is 1 m/s^2, yaw correction is 1/2 rad/s
+                // angular velocity / accel: (radians/s) / (m/s^2) = radiants x s / m
+                let coeff = 0.1;
+
+                let yaw_correction_factor = params.a_x * coeff;
+
+                // todo: Impl for Attitude mode too? Or is it not appropriate there?
+                inner_flt_cmd.yaw += yaw_correction_factor;
+            } else if autopilot_roll_assist {
+                let coeff = 0.1;
+
+                let roll_correction_factor = -params.a_x * coeff;
+
+                // todo: Impl for Attitude mode too.
+                inner_flt_cmd.yaw += roll_correction_factor;
+            }
+
+
+
+        }
+        _ => {} // todo otherwise, handled in mid loop?
+    }
+
+
+
     // In Acro mode, the inner PID loops controls pitch and roll in terms of rotational velocities. In other mode,
     // it controls them for specific attitudes.
     let (param_pitch, param_roll, param_yaw, mut param_thrust) = match input_mode {

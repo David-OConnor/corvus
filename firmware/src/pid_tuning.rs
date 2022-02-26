@@ -1,4 +1,4 @@
-//! This module contains code used to update PID coefficients based on fligth parameters.
+//! This module contains code used to update PID coefficients based on flight parameters.
 //! It includes flight profiles designed to test the paramters, and code used to update it.
 //!
 //! For a given PID parameter and flight condition, there is an optimal coefficient: The one that
