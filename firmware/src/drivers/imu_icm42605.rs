@@ -3,6 +3,9 @@
 //! SPI speed max is 24Mhz.
 //!
 //! Note that both this and the DPS310 barometer read temperature.
+//!
+//!
+// todo: ICM-42688 instead? Compare features and availability
 
 use stm32_hal2::{gpio::Pin, pac::SPI4, spi::Spi};
 

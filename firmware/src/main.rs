@@ -478,19 +478,21 @@ pub fn setup_pins() {
             rotor3.output_speed(OutputSpeed::High);
             rotor4.output_speed(OutputSpeed::High);
 
+            let batt_v_adc_ = Pin::new(Port::B, 2, PinMode::Analog);
             let current_sense_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
+            let rssi_adc_ = Pin::new(Port::C, 0, PinMode::Analog); // todo
 
             // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
             let sck1_ = Pin::new(Port::A, 5, PinMode::Alt(5));
             let miso1_ = Pin::new(Port::A, 6, PinMode::Alt(5));
             let mosi1_ = Pin::new(Port::A, 7, PinMode::Alt(5));
 
-            // SPI2 for flash, and exposed as a pad
+            // SPI2 for the OSD
             let sck2_ = Pin::new(Port::B, 13, PinMode::Alt(5));
             let miso2_ = Pin::new(Port::B, 14, PinMode::Alt(5));
             let mosi2_ = Pin::new(Port::B, 15, PinMode::Alt(5));
 
-            // SPI3 for the OSD
+            // SPI3 for flash
             let sck3_ = Pin::new(Port::B, 3, PinMode::Alt(6));
             let miso3_ = Pin::new(Port::B, 4, PinMode::Alt(6));
             let mosi3_ = Pin::new(Port::B, 5, PinMode::Alt(6));
@@ -761,7 +763,7 @@ mod app {
         #[cfg(feature = "matek-h743slim")]
         let mut cs_imu = Pin::new(Port::E, 11, PinMode::Output);
         #[cfg(feature = "anyleaf-mercury-g4")]
-        let mut cs_imu = Pin::new(Port::B, 10, PinMode::Output);
+        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
         imu::setup(&mut spi4, &mut cs_imu);
 

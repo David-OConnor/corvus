@@ -4,6 +4,8 @@
 //! Translated from [Betaflight's implementation](https://github.com/betaflight/betaflight/blob/b8c58abf0e4a11a8bee54b9abbaed8683c65d5d2/src/main/rx/crsf.c)
 //! .h file here: https://github.com/betaflight/betaflight/blob/b8c58abf0e4a11a8bee54b9abbaed8683c65d5d2/src/main/rx/crsf.h
 
+// todo: determine how much of this module you use, in conjunction with on-chip RF.
+
 use core::cmp::min;
 
 use stm32_hal2::{pac::USART1, usart::Usart};
