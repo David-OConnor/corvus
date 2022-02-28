@@ -629,7 +629,7 @@ mod app {
         let mut dp = pac::Peripherals::take().unwrap();
 
         #[cfg(feature = "matek-h743slim")]
-        SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
+            SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
 
         // Set up clocks
         let clock_cfg = Clocks {
@@ -761,9 +761,9 @@ mod app {
 
         // From Matek
         #[cfg(feature = "matek-h743slim")]
-        let mut cs_imu = Pin::new(Port::E, 11, PinMode::Output);
+            let mut cs_imu = Pin::new(Port::E, 11, PinMode::Output);
         #[cfg(feature = "anyleaf-mercury-g4")]
-        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+            let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
         imu::setup(&mut spi4, &mut cs_imu);
 
@@ -1096,6 +1096,14 @@ mod app {
                 },
             );
     }
+
+
+    #[task(binds = EXTI3_10, shared = [], local = [], priority = 2)]
+    /// We use this ISR when receiving data from the radio, via ELRS
+    fn radio_data_isr(mut cx: imu_data_isr::Context) {
+
+    }
+
 }
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message
