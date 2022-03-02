@@ -837,21 +837,25 @@ fn processRFMspPacket(packet: &[u8])
 
     let currentMspConfirmValue: bool = getCurrentMspConfirm();
     receiveMspData(packet[1], packet + 2);
-    if currentMspConfirmValue != getCurrentMspConfirm() {
-        nextTelemetryType = ELRS_TELEMETRY_TYPE_LINK;
-    }
-    if hasFinishedMspData() {
-        if mspBuffer[ELRS_MSP_COMMAND_INDEX] == ELRS_MSP_SET_RX_CONFIG && mspBuffer[ELRS_MSP_COMMAND_INDEX + 1] == ELRS_MSP_MODEL_ID { //mspReceiverComplete
-            if (rxExpressLrsSpiConfig().modelId != mspBuffer[9]) { //UpdateModelMatch
-                rxExpressLrsSpiConfigMutable().modelId = mspBuffer[9];
-                receiver.configChanged = true;
-                receiver.connectionState = ELRS_DISCONNECT_PENDING;
-            }
-        } else if connectionHasModelMatch {
-            processMspPacket(mspBuffer);
-        }
 
-        mspReceiverUnlock();
+
+    unsafe {
+        if currentMspConfirmValue != getCurrentMspConfirm() {
+            nextTelemetryType = ELRS_TELEMETRY_TYPE_LINK;
+        }
+        if hasFinishedMspData() {
+            if mspBuffer[ELRS_MSP_COMMAND_INDEX] == ELRS_MSP_SET_RX_CONFIG && mspBuffer[ELRS_MSP_COMMAND_INDEX + 1] == ELRS_MSP_MODEL_ID { //mspReceiverComplete
+                if (rxExpressLrsSpiConfig().modelId != mspBuffer[9]) { //UpdateModelMatch
+                    rxExpressLrsSpiConfigMutable().modelId = mspBuffer[9];
+                    receiver.configChanged = true;
+                    receiver.connectionState = ELRS_DISCONNECT_PENDING;
+                }
+            } else if connectionHasModelMatch {
+                processMspPacket(mspBuffer);
+            }
+
+            mspReceiverUnlock();
+        }
     }
 // #endif
 }
@@ -927,7 +931,7 @@ fn processRFPacket(payload: &[u8], timeStampUs: u32) -> RxSpiReceived
         let nonceFHSSresult: u8 = receiver.nonceRX % receiver.modParams->fhssHopInterval;
         packet[0] = type_ | (nonceFHSSresult << 2);
     }
-    uint16_t calculatedCRC = calcCrc14(packet, 7, crcInitializer);
+    let calculatedCRC = calcCrc14(packet, 7, unsafe { crcInitializer });
 
     if (inCRC != calculatedCRC) {
         return RX_SPI_RECEIVED_NONE;
@@ -1059,13 +1063,13 @@ fn expressLrsSpiInit(rxConfig: &RxSpiConfig, rxRuntimeState: &RxRuntimeState, ex
     extiConfig.ioConfig = IOCFG_IPD;
     extiConfig.trigger = BETAFLIGHT_EXTI_TRIGGER_RISING;
 
-    if (rxExpressLrsSpiConfig().resetIoTag) {
+    if rxExpressLrsSpiConfig().resetIoTag {
         receiver.resetPin = IOGetByTag(rxExpressLrsSpiConfig().resetIoTag);
     } else {
         receiver.resetPin = IO_NONE;
     }
 
-    if (rxExpressLrsSpiConfig().busyIoTag) {
+    if rxExpressLrsSpiConfig().busyIoTag {
         receiver.busyPin = IOGetByTag(rxExpressLrsSpiConfig().busyIoTag);
     } else {
         receiver.busyPin = IO_NONE;
@@ -1079,7 +1083,7 @@ fn expressLrsSpiInit(rxConfig: &RxSpiConfig, rxRuntimeState: &RxRuntimeState, ex
     _ => return false;
     }
 
-    if (!receiver.init(receiver.resetPin, receiver.busyPin)) {
+    if !receiver.init(receiver.resetPin, receiver.busyPin) {
         return false;
     }
 
@@ -1091,16 +1095,16 @@ fn expressLrsSpiInit(rxConfig: &RxSpiConfig, rxRuntimeState: &RxRuntimeState, ex
         linkQualitySource = LQ_SOURCE_RX_PROTOCOL_CRSF;
     }
 
-    if (rxExpressLrsSpiConfig().UID[0] || rxExpressLrsSpiConfig().UID[1]
+    if rxExpressLrsSpiConfig().UID[0] || rxExpressLrsSpiConfig().UID[1]
         || rxExpressLrsSpiConfig().UID[2] || rxExpressLrsSpiConfig().UID[3]
-        || rxExpressLrsSpiConfig().UID[4] || rxExpressLrsSpiConfig().UID[5]) {
+        || rxExpressLrsSpiConfig().UID[4] || rxExpressLrsSpiConfig().UID[5] {
         receiver.inBindingMode = false;
         receiver.UID = rxExpressLrsSpiConfig().UID;
-        crcInitializer = (receiver.UID[4] << 8) | receiver.UID[5];
+        unsafe { crcInitializer = (receiver.UID[4] << 8) | receiver.UID[5] };
     } else {
         receiver.inBindingMode = true;
         receiver.UID = BindingUID;
-        crcInitializer = 0;
+        unsafe { crcInitializer = 0 };
     }
 
     expressLrsPhaseLockReset();
@@ -1124,7 +1128,7 @@ fn expressLrsSpiInit(rxConfig: &RxSpiConfig, rxRuntimeState: &RxRuntimeState, ex
 
 fn handleConnectionStateUpdate(timeStampMs: u32)
 {
-    if ((receiver.connectionState != ELRS_DISCONNECTED) && (receiver.modParams->index != receiver.nextRateIndex)) {  // forced change
+    if (receiver.connectionState != ELRS_DISCONNECTED) && (receiver.modParams.index != receiver.nextRateIndex) {  // forced change
         lostConnection();
         receiver.lastSyncPacketMs = timeStampMs;                    // reset this variable to stop rf mode switching and add extra time
         receiver.rfModeCycledAtMs = timeStampMs;         // reset this variable to stop rf mode switching and add extra time
@@ -1137,7 +1141,7 @@ fn handleConnectionStateUpdate(timeStampMs: u32)
 #endif
     }
 
-    if (receiver.connectionState == ELRS_TENTATIVE && ((timeStampMs - receiver.lastSyncPacketMs) > receiver.rfPerfParams->rxLockTimeoutMs)) {
+    if (receiver.connectionState == ELRS_TENTATIVE && ((timeStampMs - receiver.lastSyncPacketMs) > receiver.rfPerfParams.rxLockTimeoutMs)) {
         lostConnection();
         receiver.rfModeCycledAtMs = timeStampMs;
         receiver.lastSyncPacketMs = timeStampMs;
@@ -1147,7 +1151,7 @@ fn handleConnectionStateUpdate(timeStampMs: u32)
 
     let localLastValidPacket = receiver.lastValidPacketMs; // Required to prevent race condition due to LastValidPacket getting updated from ISR
     if (receiver.connectionState == ELRS_DISCONNECT_PENDING) || // check if we lost conn.
-        ((receiver.connectionState == ELRS_CONNECTED) && (receiver.rfPerfParams->disconnectTimeoutMs < (timeStampMs - localLastValidPacket))) {
+        ((receiver.connectionState == ELRS_CONNECTED) && (receiver.rfPerfParams.disconnectTimeoutMs < (timeStampMs - localLastValidPacket))) {
         lostConnection();
     }
 

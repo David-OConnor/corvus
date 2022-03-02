@@ -388,6 +388,8 @@ pub fn run_pid_mid(
 ) {
     match input_mode {
         InputMode::Acro => {
+            // (Acro mode has handled exclusively by the inner loop, for now at least)
+
             // In rate mode, simply update the inner command; don't do anything
             // in the outer PID loop.
 
@@ -619,7 +621,8 @@ pub fn run_pid_inner(
     params: &Params,
     input_mode: InputMode,
     autopilot_status: &AutopilotStatus,
-    inputs: &mut CtrlInputs,
+    manual_inputs: &mut CtrlInputs,
+    inner_flt_cmd: &mut CtrlInputs,
     pid_inner: &mut PidGroup,
     filters: &mut PidDerivFilters,
     current_pwr: &mut crate::RotorPower,
@@ -632,13 +635,13 @@ pub fn run_pid_inner(
     match input_mode {
         InputMode::Acro => {
             // If acro, we get our inputs each IMU update; ie the inner loop.
-            *inputs = CtrlInputs::get_manual_inputs(cfg);
+
 
             *inner_flt_cmd = CtrlInputs {
-                pitch: input_map.calc_pitch_rate(inputs.pitch),
-                roll: input_map.calc_roll_rate(inputs.roll),
-                yaw: input_map.calc_yaw_rate(inputs.yaw),
-                thrust: input_map.calc_pitch_rate(inputs.thrust),
+                pitch: input_map.calc_pitch_rate(manual_inputs.pitch),
+                roll: input_map.calc_roll_rate(manual_inputs.roll),
+                yaw: input_map.calc_yaw_rate(manual_inputs.yaw),
+                thrust: input_map.calc_thrust_rate(manual_inputs.thrust),
             };
 
             // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,

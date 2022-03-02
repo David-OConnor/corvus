@@ -28,11 +28,11 @@
  */
 
 
-STATIC_UNIT_TESTED uint16_t crc14tab[ELRS_CRC_LEN] = {0};
+static mut crc14tab: [u16; ELRS_CRC_LEN] = [0; ELRS_CRC_LEN];
 
 static mut FHSSptr: u8 = 0;
-STATIC_UNIT_TESTED uint8_t FHSSsequence[ELRS_NR_SEQUENCE_ENTRIES] = {0};
-static const uint32_t *FHSSfreqs;
+static mut  FHSSsequence: [u8; ELRS_NR_SEQUENCE_ENTRIES] = [0; ELRS_NR_SEQUENCE_ENTRIES];
+static FHSSfreqs: [u32; 69] = [0; 69];
 static numFreqs: u8 = 0; // The number of FHSS frequencies in the table
 static seqCount: u8 = 0;
 static mut syncChannel: u8 = 0;
@@ -269,7 +269,7 @@ void FHSSrandomiseFHSSsequence(const uint8_t UID[], const elrsFreqDomain_e dom)
         }
     }
 
-    for (uint8_t i = 0; i < seqCount; i++) {
+    for i in 0..seqCount {
         // if it's not the sync channel
         if (i % numFreqs != 0) {
             uint8_t offset = (i / numFreqs) * numFreqs; // offset to start of current block
@@ -283,35 +283,26 @@ void FHSSrandomiseFHSSsequence(const uint8_t UID[], const elrsFreqDomain_e dom)
     }
 }
 
-uint8_t tlmRatioEnumToValue(const elrsTlmRatio_e enumval)
+fn tlmRatioEnumToValue( enumval: TlmRatio) -> u8
 {
-    switch (enumval) {
-    case TLM_RATIO_NO_TLM:
-        return 1;
-        break;
-    case TLM_RATIO_1_2:
-        return 2;
-        break;
-    case TLM_RATIO_1_4:
-        return 4;
-        break;
-    case TLM_RATIO_1_8:
-        return 8;
-        break;
-    case TLM_RATIO_1_16:
-        return 16;
-        break;
-    case TLM_RATIO_1_32:
-        return 32;
-        break;
-    case TLM_RATIO_1_64:
-        return 64;
-        break;
-    case TLM_RATIO_1_128:
-        return 128;
-        break;
-    default:
-        return 0;
+    match enumval {
+    TlmRatio::NO_TLM=> 1,
+        
+    TlmRatio::_1_2=>  2,
+        
+    TlmRatio::_1_4=> 4,
+        
+    TlmRatio::_1_8=> 8,
+        
+    TlmRatio::_1_16=>   16,
+        
+    TlmRatio::_1_32=>32,
+        
+    TlmRatio::_1_64=> 64,
+        
+    TlmRatio::_1_128=>128,
+        
+    default=> 0,
     }
 }
 

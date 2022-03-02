@@ -124,6 +124,9 @@ static LOOP_I: AtomicU32 = AtomicU32::new(0);
 
 static ARMED: AtomicBool = AtomicBool::new(false);
 
+// Enable this to print parameters (eg location, altitude, attitude, angular rates etc) to the console.
+const DEBUG_PARAMS: bool = true;
+
 // todo: Course set mode. Eg, point at thing using controls, activate a button,
 // todo then the thing flies directly at the target.
 
@@ -480,7 +483,6 @@ pub fn setup_pins() {
 
             let batt_v_adc_ = Pin::new(Port::B, 2, PinMode::Analog);
             let current_sense_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
-            let rssi_adc_ = Pin::new(Port::C, 0, PinMode::Analog); // todo
 
             // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
             let sck1_ = Pin::new(Port::A, 5, PinMode::Alt(5));
@@ -512,6 +514,10 @@ pub fn setup_pins() {
             // Used to trigger a PID update based on new IMU data.
             let mut imu_interrupt = Pin::new(Port::A, 4, PinMode::Input); // PA4 for IMU interrupt.
             imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
+
+            // Used to update the input data from the ELRS radio
+            let mut elrs_interrupt = Pin::new(Port::A, 69, PinMode::Input); // PA4 for IMU interrupt.
+            elrs_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling?
 
             // I2C1 for external sensors, via pads
             let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
@@ -896,7 +902,7 @@ mod app {
         )
             .lock(
                 |params,
-                 inputs,
+                 manual_inputs,
                  input_map,
                  current_pwr,
                  inner_flt_cmd,
@@ -937,9 +943,20 @@ mod app {
                     //     }
                     // }
 
+                    // todo: Don't run this debug every loop maybe in a timer
+                    if DEBUG_PARAMS {
+                        defmt::println!(
+                            "Pitch rate: {}", params.v_pitch,
+                            "Roll rate: {}", params.v_roll,
+                            "Yaw rate: {}", params.v_yaw,
+                            // todo etc
+                        );
+                    }
+
+
                     pid::run_pid_mid(
                         params,
-                        inputs,
+                        manual_inputs,
                         input_map,
                         inner_flt_cmd,
                         pid_mid,
@@ -1059,8 +1076,10 @@ mod app {
 
         (
             cx.shared.current_params,
+            cx.shared.manual_inputs,
             cx.shared.input_mode,
             cx.shared.autopilot_status,
+            cx.shared.manual_inputs,
             cx.shared.inner_flt_cmd,
             cx.shared.pid_inner,
             cx.shared.pid_deriv_filters,
@@ -1073,7 +1092,8 @@ mod app {
                 |params,
                  input_mode,
                  autopilot_status,
-                 inputs,
+                 manual_inputs,
+                 inner_flt_cmd,,
                  pid_inner,
                  filters,
                  current_pwr,
@@ -1083,8 +1103,10 @@ mod app {
                     pid::run_pid_inner(
                         params,
                         *input_mode,
+                        manual_inputs,
                         autopilot_status,
-                        inputs,
+                        manual_inputs,
+                        inner_flt_cmd,
                         pid_inner,
                         filters,
                         current_pwr,
@@ -1098,10 +1120,13 @@ mod app {
     }
 
 
-    #[task(binds = EXTI3_10, shared = [], local = [], priority = 2)]
+    #[task(binds = EXTI3_10, shared = [manual_inputs, spi3], local = [], priority = 3)]
     /// We use this ISR when receiving data from the radio, via ELRS
     fn radio_data_isr(mut cx: imu_data_isr::Context) {
-
+        (cx.shared.manual_inputs, cx.shared.spi3).lock(|manual_inputs, spi| {
+            *manual_inputs = elrs::get_inputs(spi);
+            *manual_inputs = CtrlInputs::get_manual_inputs(cfg); ; // todo: this?
+        })
     }
 
 }
