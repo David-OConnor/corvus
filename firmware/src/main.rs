@@ -8,12 +8,15 @@ use core::{
     sync::atomic::{AtomicBool, AtomicU32, Ordering},
 };
 
+
+use cfg_if::cfg_if;
+
 use cortex_m::{self, asm};
 
 use stm32_hal2::{
     self,
     adc::{Adc, AdcDevice},
-    clocks::{Clocks, InputSrc, PllCfg, PllSrc},
+    clocks::{self, Clocks, Clk48Src, CrsSyncSrc, InputSrc, PllCfg, PllSrc},
     debug_workaround,
     dma::{self, Dma, DmaChannel},
     flash::Flash,
@@ -24,7 +27,23 @@ use stm32_hal2::{
     spi::{BaudRate, Spi},
     timer::{OutputCompare, TimChannel, Timer, TimerConfig, TimerInterrupt},
     usart::Usart,
+
 };
+
+cfg_if! {
+    if #[cfg(feature = "anyleaf-mercury-g4")] {
+        use stm32_hal2::usb::{Peripheral, UsbBus, UsbBusType};
+
+        use usbd_serial::{SerialPort, USB_CLASS_CDC};
+        use usb_device::bus::UsbBusAllocator;
+        use usb_device::prelude::*;
+        use usbd_serial::{SerialPort, USB_CLASS_CDC};
+    }
+}
+
+use usb_device::bus::UsbBusAllocator;
+use usb_device::prelude::*;
+use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
 #[cfg(feature = "matek-h743slim")]
 use crate::{
@@ -33,7 +52,6 @@ use crate::{
     power::{SupplyConfig, VoltageLevel},
 };
 
-use cfg_if::cfg_if;
 
 use defmt_rtt as _; // global logger
 use panic_probe as _;
@@ -46,22 +64,27 @@ mod osd;
 mod pid;
 mod pid_tuning;
 mod sensor_fusion;
+mod usb_protocol;
 
-cfg_if! {
-    if #[cfg(feature = "matek-h743slim")] {
+// cfg_if! {
+    // if #[cfg(feature = "matek-h743slim")] {
         use drivers::baro_dps310 as baro;
         use drivers::gps_x as gps;
         use drivers::imu_icm42605 as imu;
         use drivers::osd_max7456 as osd;
         use drivers::tof_vl53l1 as tof;
-    }
-}
+    // }
+// }
 
 use flight_ctrls::{
     AutopilotStatus, CommandState, CtrlInputs, InputMap, InputMode, Params, RotorPower,
 };
 
 use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
+
+// Due to the way USB serial is set up, the USB bus must have a static lifetime.
+// In practice, we only mutate it at initialization.
+static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 // Our DT timer speed, in Hz.
 const DT_TIM_FREQ: u32 = 200_000_000;
@@ -481,6 +504,10 @@ pub fn setup_pins() {
             rotor3.output_speed(OutputSpeed::High);
             rotor4.output_speed(OutputSpeed::High);
 
+            // todo: USB? How do we set them up (no alt fn) PA11(DN) and PA12 (DP).
+            let _usb_dm = gpioa.new_pin(11, PinMode::Output);
+            let _usb_dp = gpioa.new_pin(12, PinMode::Output);
+
             let batt_v_adc_ = Pin::new(Port::B, 2, PinMode::Analog);
             let current_sense_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
 
@@ -514,10 +541,6 @@ pub fn setup_pins() {
             // Used to trigger a PID update based on new IMU data.
             let mut imu_interrupt = Pin::new(Port::A, 4, PinMode::Input); // PA4 for IMU interrupt.
             imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
-
-            // Used to update the input data from the ELRS radio
-            let mut elrs_interrupt = Pin::new(Port::A, 69, PinMode::Input); // PA4 for IMU interrupt.
-            elrs_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling?
 
             // I2C1 for external sensors, via pads
             let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
@@ -612,6 +635,8 @@ mod app {
         update_timer: Timer<TIM15>,
         rotor_timer_a: Timer<TIM2>,
         rotor_timer_b: Timer<TIM3>,
+        usb_dev: UsbDevice<UsbBusType>),
+        usb_serial: SerialPort<UsbBusType>,
         // `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
         power_used: f32,
         // Store filter instances for the PID loop derivatives. One for each param used.
@@ -651,10 +676,16 @@ mod app {
                 // divn: 480,// todo: Put back! No longer working??
                 ..Default::default()
             },
+            hsi48_on: true,
+            clk48_src: Clk48Src::Hsi48,
             ..Default::default()
         };
 
         clock_cfg.setup().unwrap();
+
+        // Enable the Clock Recovery System, which improves HSI48 accuracy.
+        clocks::enable_crs(CrsSyncSrc::Usb);
+
         defmt::println!("Clocks setup successfully");
         debug_workaround();
 
@@ -737,7 +768,7 @@ mod app {
                 rotor_timer_b.enable_pwm_output(TimChannel::C4, OutputCompare::Pwm1, 0.);
             } else if #[cfg(feature = "anyleaf-mercury-g4")] {
                 let mut rotor_timer_a =
-                    Timer::new_tim2(dp.TIM2, dshot::TIM_FREQ, rotor_timer_cfg.clone(), &clock_cfg);
+               Timer::new_tim2(dp.TIM2, dshot::TIM_FREQ, rotor_timer_cfg.clone(), &clock_cfg);
 
                 rotor_timer_a.enable_pwm_output(TimChannel::C3, OutputCompare::Pwm1, 0.);
                 rotor_timer_a.enable_pwm_output(TimChannel::C4, OutputCompare::Pwm1, 0.);
@@ -780,6 +811,30 @@ mod app {
 
         // todo: Consider how you use DMA, and bus splitting.
         // todo: Feature-gate these based on board, as required.
+
+
+        cfg_if! {
+            if #[cfg(feature = "anyleaf-mercury-g4")] {
+                let usb = Peripheral { usb: dp.USB };
+                let usb_bus = UsbBus::new(usb);
+                let usb_serial = SerialPort::new(usb_bus);
+
+                let usb_dev = UsbDeviceBuilder::new(USB_BUS.as_ref().unwrap(), UsbVidPid(0x16c0, 0x27dd))
+                    .manufacturer("Anyleaf")
+                    .product("Serial port")
+                    // We use `serial_number` to identify the device to the PC. If it's too long,
+                    // we get permissions errors on the PC.
+                    .serial_number("Mercury-G4"), // todo: Try 2 letter only if causing trouble?
+                    .device_class(USB_CLASS_CDC)
+                    .build();
+            }
+        }
+
+
+        // Used to update the input data from the ELRS radio
+        let mut elrs_busy = Pin::new(Port::A, 69, PinMode::Input); // PA4 for IMU interrupt.
+        let mut elrs_reset = Pin::new(Port::A, 69, PinMode::Input); // PA4 for IMU interrupt.
+        elrs_busy.enable_interrupt(Edge::Falling); // todo: Rising or falling?
 
         // IMU
         dma::mux(DmaChannel::C0, dma::DmaInput::Spi1Tx, &mut dp.DMAMUX1);
@@ -850,6 +905,8 @@ mod app {
                 update_timer,
                 rotor_timer_a,
                 rotor_timer_b,
+                usb_dev,
+                usb_serial,
                 power_used: 0.,
                 pid_deriv_filters: PidDerivFilters::new(),
                 base_point: Location::new(LocationType::Rel0, 0., 0., 0.),
@@ -1090,16 +1147,16 @@ mod app {
         )
             .lock(
                 |params,
-                 input_mode,
-                 autopilot_status,
-                 manual_inputs,
-                 inner_flt_cmd,,
-                 pid_inner,
-                 filters,
-                 current_pwr,
-                 // rotor_timer_a,
-                 // rotor_timer_b,
-                 coeffs| {
+                input_mode,
+                autopilot_status,
+                manual_inputs,
+                inner_flt_cmd,,
+                pid_inner,
+                filters,
+                current_pwr,
+                // rotor_timer_a,
+                // rotor_timer_b,
+                coeffs| {
                     pid::run_pid_inner(
                         params,
                         *input_mode,
@@ -1126,6 +1183,31 @@ mod app {
         (cx.shared.manual_inputs, cx.shared.spi3).lock(|manual_inputs, spi| {
             *manual_inputs = elrs::get_inputs(spi);
             *manual_inputs = CtrlInputs::get_manual_inputs(cfg); ; // todo: this?
+        })
+    }
+
+    #[task(binds = USB, shared = [usb_dev, usb_serial, params], local = [], priority = 3)]
+    /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
+    /// application.
+    fn usb_isr(mut cx: usb_isr::Context) {
+        (cx.shared.usb_dev, cx.shared.usb_serial, cx.shared.params).lock(|usb_dev, usb_serial, params| {
+
+
+            if !usb_dev.poll(&mut [usb_serial]) {
+                continue;
+            }
+
+            let mut buf = [0u8; 8];
+            match usb_serial.read(&mut buf) {
+                // todo: match all start bits and end bits. Running into an error using the naive approach.
+                Ok(count) => {
+                    serial.write(&[1, 2, 3]).ok();
+                }
+                Err(_) => {
+                    //...
+                }
+            }
+
         })
     }
 

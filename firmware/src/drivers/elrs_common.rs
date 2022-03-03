@@ -37,7 +37,9 @@ static numFreqs: u8 = 0; // The number of FHSS frequencies in the table
 static seqCount: u8 = 0;
 static mut syncChannel: u8 = 0;
 
-#define MS_TO_US(ms) (ms * 1000)
+fn ms_to_us(ms: u32) {
+    ms * 1000
+}
 
 // Regarding failsafe timeout values:
 // @CapnBry - Higher rates shorter timeout. Usually it runs 1-1.5 seconds with complete sync 500Hz.
@@ -283,43 +285,6 @@ void FHSSrandomiseFHSSsequence(const uint8_t UID[], const elrsFreqDomain_e dom)
     }
 }
 
-fn tlmRatioEnumToValue( enumval: TlmRatio) -> u8
-{
-    match enumval {
-    TlmRatio::NO_TLM=> 1,
-        
-    TlmRatio::_1_2=>  2,
-        
-    TlmRatio::_1_4=> 4,
-        
-    TlmRatio::_1_8=> 8,
-        
-    TlmRatio::_1_16=>   16,
-        
-    TlmRatio::_1_32=>32,
-        
-    TlmRatio::_1_64=> 64,
-        
-    TlmRatio::_1_128=>128,
-        
-    default=> 0,
-    }
-}
-
-uint16_t rateEnumToHz(const elrsRfRate_e eRate)
-{
-    switch (eRate) {
-    case RATE_500HZ: return 500;
-    case RATE_250HZ: return 250;
-    case RATE_200HZ: return 200;
-    case RATE_150HZ: return 150;
-    case RATE_100HZ: return 100;
-    case RATE_50HZ: return 50;
-    case RATE_25HZ: return 25;
-    case RATE_4HZ: return 4;
-    default: return 1;
-    }
-}
 
 uint16_t txPowerIndexToValue(const uint8_t index)
 {
