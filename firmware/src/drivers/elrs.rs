@@ -37,6 +37,7 @@
 // From `expresslrs_common.h`:
 
 use stm32_hal2::gpio::Pin;
+use stm32_hal2::timer::Timer;
 
 const ELRS_CRC_LEN: u8 = 256;
 const ELRS_CRC14_POLY: u8 = 0x2E57;
@@ -70,6 +71,25 @@ const ELRS_LINK_STATS_CHECK_MS: u32 = 100;
 const ELRS_CONSIDER_CONNECTION_GOOD_MS: u32 = 1000;
 
 const ELRS_MODE_CYCLE_MULTIPLIER_SLOW: u8 = 10;
+
+
+static mut nextTelemetryType: u8 = ELRS_TELEMETRY_TYPE_LINK;
+
+static mut telemetryBurstCount: u8 = 1;
+static mut telemetryBurstMax: u8 = 1;
+static mut telemBurstValid: bool = false;
+
+// Maximum ms between LINK_STATISTICS packets for determining burst max
+const TELEM_MIN_LINK_INTERVAL: u32 = 512;
+
+// #ifdef USE_MSP_OVER_TELEMETRY
+static mut mspBuffer: [u8; ELRS_MSP_BUFFER_SIZE] = [0; ELRS_MSP_BUFFER_SIZE];
+// #endif
+
+//
+// Stick unpacking
+//
+
 
 #[derive(PartialEq, Clone, Copy)]
 enum FreqDomain {
@@ -310,8 +330,8 @@ impl Receiver {
             alreadyFHSS: false,
             alreadyTLMresp: false,
             lockRFmode: false,
-            timerState: ELRS_TIM_DISCONNECTED,
-            connectionState: ELRS_DISCONNECTED,
+            timerState: TimerState::DISCONNECTED,
+            connectionState: ConnectionState::DISCONNECTED,
 
             rfModeCycledAtMs: timeStampMs,
             configCheckedAtMs: timeStampMs,
@@ -1221,7 +1241,6 @@ static mut bindingRateIndex: u8 = 0;
 static mut connectionHasModelMatch: bool = false;
 static mut txPower: u8 = 0;
 static mut wideSwitchIndex: u8 = 0;
-1
 static mut isrTimeStampUs: u32 = 0;
 static mut lostConnectionCounter: u16 = 0;
 
@@ -1322,24 +1341,6 @@ fn expressLrsPhaseLockReset()
 
     expressLrsEPRReset();
 }
-
-static mut nextTelemetryType: u8 = ELRS_TELEMETRY_TYPE_LINK;
-
-static mut telemetryBurstCount: u8 = 1;
-static mut telemetryBurstMax: u8 = 1;
-static mut telemBurstValid: bool = false;
-
-// Maximum ms between LINK_STATISTICS packets for determining burst max
-const TELEM_MIN_LINK_INTERVAL: u32 = 512;
-
-// #ifdef USE_MSP_OVER_TELEMETRY
-static mut mspBuffer: [u8; ELRS_MSP_BUFFER_SIZE] = [0; ELRS_MSP_BUFFER_SIZE];
-// #endif
-
-//
-// Stick unpacking
-//
-
 
 
 fn unpackAnalogChannelData(rcData: &mut [u16], payload: &[u8])

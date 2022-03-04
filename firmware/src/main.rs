@@ -508,8 +508,8 @@ pub fn setup_pins() {
             let _usb_dm = gpioa.new_pin(11, PinMode::Output);
             let _usb_dp = gpioa.new_pin(12, PinMode::Output);
 
-            let batt_v_adc_ = Pin::new(Port::B, 2, PinMode::Analog);
-            let current_sense_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
+            let batt_v_adc_ = Pin::new(Port::C, 4, PinMode::Analog);
+            let current_sense_adc_ = Pin::new(Port::B, 2, PinMode::Analog);
 
             // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
             let sck1_ = Pin::new(Port::A, 5, PinMode::Alt(5));
@@ -832,8 +832,9 @@ mod app {
 
 
         // Used to update the input data from the ELRS radio
-        let mut elrs_busy = Pin::new(Port::A, 69, PinMode::Input); // PA4 for IMU interrupt.
-        let mut elrs_reset = Pin::new(Port::A, 69, PinMode::Input); // PA4 for IMU interrupt.
+        let mut elrs_cs = Pin::new(Port::C, 15, PinMode::Output);
+        let mut elrs_busy = Pin::new(Port::C, 14, PinMode::Input);
+        let mut elrs_reset = Pin::new(Port::A, 1, PinMode::Output);
         elrs_busy.enable_interrupt(Edge::Falling); // todo: Rising or falling?
 
         // IMU
