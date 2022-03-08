@@ -63,15 +63,14 @@ pub fn setup(spi: &mut Spi<SPI4>, cs: &mut Pin) {
     spi.write(&[PWR_MGMT0, 0b0000_0011]).ok();
     cs.set_high();
 
-    // Set gyros and accelerometers to 8kHz update rate.
-    // todo: What do we want full scale select to be for these?
-    // todo: Currently leaving default of 2000dps for gyro, and setting +-8g for accel.
+    // Set gyros and accelerometers to 8kHz update rate, 2000 DPS gyro full scale range,
+    // and +-16g accelerometer full scale range.
     cs.set_low();
     spi.write(&[GYRO_CONFIG0, 0b0000_1111]).ok();
     cs.set_high();
 
     cs.set_low();
-    spi.write(&[ACCEL_CONFIG0, 0b0010_1111]).ok();
+    spi.write(&[ACCEL_CONFIG0, 0b0000_1111]).ok();
     cs.set_high();
 
     // Enable UI data ready interrupt routed to INT1

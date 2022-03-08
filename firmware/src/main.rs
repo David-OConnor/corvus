@@ -70,7 +70,8 @@ mod usb_protocol;
     // if #[cfg(feature = "matek-h743slim")] {
         use drivers::baro_dps310 as baro;
         use drivers::gps_x as gps;
-        use drivers::imu_icm42605 as imu;
+        // use drivers::imu_icm42605 as imu;
+        use drivers::imu_ism330dhcx as imu;
         use drivers::osd_max7456 as osd;
         use drivers::tof_vl53l1 as tof;
     // }
@@ -633,7 +634,7 @@ mod app {
         update_timer: Timer<TIM15>,
         rotor_timer_a: Timer<TIM2>,
         rotor_timer_b: Timer<TIM3>,
-        usb_dev: UsbDevice<UsbBusType>),
+        usb_dev: UsbDevice<UsbBusType>,
         usb_serial: SerialPort<UsbBusType>,
         // `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
         power_used: f32,
@@ -1152,7 +1153,7 @@ mod app {
                 input_mode,
                 autopilot_status,
                 manual_inputs,
-                inner_flt_cmd,,
+                inner_flt_cmd,
                 pid_inner,
                 filters,
                 current_pwr,
