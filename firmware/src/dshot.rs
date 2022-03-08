@@ -31,18 +31,71 @@ static mut PAYLOAD_R2: [u32; 16] = [0; 16];
 static mut PAYLOAD_R3: [u32; 16] = [0; 16];
 static mut PAYLOAD_R4: [u32; 16] = [0; 16];
 
+/// Possible DSHOT commands (ie, DSHOT values 0 - 47
+#[derive(Copy, Clone)]
+#[repr(u16)]
+pub enum Command {
+    MotorStop = 0,
+    Beacon1 = 1,
+    Beacon2 = 2,
+    Beacon3 = 3,
+    Beacon4 = 4,
+    Beacon5 = 5,
+    EscInfo = 6,
+    SpinDir1 = 7,
+    SpinDir2 = 8,
+    _3dModeOff = 9,
+    _3dModeOn = 10,
+    SettingsRequest = 11,
+    SaveSettings = 12,
+    SpinDirNormal = 20,
+    SpinDirReversed = 21,
+    Led0On = 22, // BLHeli32 only
+    Led1On = 23, // BLHeli32 only
+    Led2On = 24, // BLHeli32 only
+    Led3On = 25, // BLHeli32 only
+    Led0Off = 26, // BLHeli32 only
+    Led1Off = 27, // BLHeli32 only
+    Led2Off = 28, // BLHeli32 only
+    Led3Off = 29, // BLHeli32 only
+    AudioStreamModeOnOff = 30, // KISS audio Stream mode on/Off
+    SilendModeOnOff = 31, // KISS silent Mode on/Off
+    Max = 47
+}
+
+enum CmdType {
+    Command(Command),
+    Power(f32),
+}
+
+pub fn stop_all(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
+    setup_payload(Rotor::R1, CmdType::Command(Command::MotorStop));
+    setup_payload(Rotor::R2, CmdType::Command(Command::MotorStop));
+    setup_payload(Rotor::R3, CmdType::Command(Command::MotorStop));
+    setup_payload(Rotor::R4, CmdType::Command(Command::MotorStop));
+
+    // todo: Make sure you have the right motors here.
+    send_payload_a(Rotor::R1, timer_a, dma: &mut Dma<DMA1>);
+    send_payload_a(Rotor::R2, timer_a, dma: &mut Dma<DMA1>);
+    send_payload_b(Rotor::R3, timer_b, dma: &mut Dma<DMA1>);
+    send_payload_b(Rotor::R4, timer_b, dma: &mut Dma<DMA1>);
+}
+
 /// Update our DSHOT payload for a given rotor, with a given power level.
-pub fn setup_payload(rotor: Rotor, power: f32) {
+pub fn setup_payload(rotor: Rotor, cmd: CmdType) {
     // First 11 (0:10) bits are the throttle settings. 0 means disarmed. 1-47 are reserved
     // for special commands. 48 - 2_047 are throttle value (2_000 possible values)
 
     // Bit 11 is 1 to request telemetry; 0 otherwise.
     // Bits 12:15 are CRC, to validate data.
 
-    let pwr_word = (power * 1_999.) as u16 + 48;
+    let data_word = match cmd {
+        CmdType::Command(c) => c,
+        CmdType::Power(pwr) => (pwr * 1_999.) as u16 + 48,
+    };
 
     let telemetry_bit = 1; // todo temp
-    let packet = (pwr_word << 1) | telemetry_bit;
+    let packet = (data_word << 1) | telemetry_bit;
 
     // Compute the checksum
     let crc = (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F;
@@ -72,16 +125,16 @@ pub fn setup_payload(rotor: Rotor, power: f32) {
 /// Set an individual rotor's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
 /// settings. `power` ranges from 0. to 1.
 pub fn set_power_a(rotor: Rotor, power: f32, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
-    setup_payload(rotor, power);
+    setup_payload(rotor, CmdType::Power(power));
 
-    send_payload(rotor, timer, dma: &mut Dma<DMA1>)
+    send_payload_a(rotor, timer, dma: &mut Dma<DMA1>)
 }
 
 // todo: DRY due to type issue. Use a trait?
 pub fn set_power_b(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
-    setup_payload(rotor, power);
+    setup_payload(rotor, CmdType::Power(power));
 
-    send_payload(rotor, timer, dma: &mut Dma<DMA1>)
+    send_payload_b(rotor, timer, dma: &mut Dma<DMA1>)
 }
 
 fn send_payload_a(rotor: Rotor, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {

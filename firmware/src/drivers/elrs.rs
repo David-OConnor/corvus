@@ -295,15 +295,15 @@ struct Receiver {
 
     statsUpdatedAtMs: u32,
 
-    init: RxInitFnPtr,
-    config: RxConfigFnPtr,
-    startReceiving: RxStartReceivingFnPtr,
-    rxISR: RxISRFnPtr,
-    transmitData: RxTransmitterDataFnPtr,
-    receiveData: RxRecieveDataFnPtr,
-    getRFlinkInfo: RxGetRFlinkInfoFnPtr,
-    setFrequency: RxSetFrequencyFnPtr,
-    handleFreqCorrection: RxHandleFreqCorrectionFnPtr,
+    // init: RxInitFnPtr,
+    // config: RxConfigFnPtr,
+    // startReceiving: RxStartReceivingFnPtr,
+    // rxISR: RxISRFnPtr,
+    // transmitData: RxTransmitterDataFnPtr,
+    // receiveData: RxRecieveDataFnPtr,
+    // getRFlinkInfo: RxGetRFlinkInfoFnPtr,
+    // setFrequency: RxSetFrequencyFnPtr,
+    // handleFreqCorrection: RxHandleFreqCorrectionFnPtr,
 
     timerUpdateCb: timerOverHandlerRec,
 }
@@ -318,9 +318,15 @@ impl Receiver {
         let mut result = Self {
             resetPin,
             busyPin,
-            nonceRX: 0,
+
             freqOffset: 0,
-            configChanged: false,
+            currentFreq: 0,
+            nonceRX: 0,
+
+            modParams: ModSettings {
+
+            }
+
             rssi: 0,
             rssiFiltered: 0,
             snr: 0,
@@ -333,15 +339,26 @@ impl Receiver {
             timerState: TimerState::DISCONNECTED,
             connectionState: ConnectionState::DISCONNECTED,
 
-            rfModeCycledAtMs: timeStampMs,
-            configCheckedAtMs: timeStampMs,
-            statsUpdatedAtMs: timeStampMs,
-            gotConnectionMs: timeStampMs,
-            lastSyncPacketMs: timeStampMs,
-            lastValidPacketMs: timeStampMs,
-            rfModeCycleMultiplier: 1,
+            rfModeCycleMultiplier: 0,
+            cycleIntervalMs: 0,
+            rfModeCycledAtMs: 0,
+            rateIndex: 0,
+            nextRateIndex: 0,
+
+            gotConnectionMs: 0,
+            lastSyncPacketMs: 0,
+            lastValidPacketMs: 0,
+
+            configCheckedAtMs: 0,
+            configChanged: false,
+
+            inBindingMode: false,
+            fhssRequired: false,
+
+            statsUpdatedAtMs: 02,
 
         };
+
         FHSSrandomiseFHSSsequence(result.UID, rxExpressLrsSpiConfig().domain);
         lqReset();
 
@@ -828,28 +845,28 @@ impl Receiver {
         } // if time to switch RF mode
     }
 
-    // #ifdef USE_RX_SX1280
-    fn configureReceiverForSX1280(&mut self)
-    {
-        self.init = (elrsRxInitFnPtr)
-        sx1280Init;
-        self.config = (elrsRxConfigFnPtr)
-        sx1280Config;
-        self.startReceiving = (elrsRxStartReceivingFnPtr)
-        sx1280StartReceiving;
-        self.rxISR = (elrsRxISRFnPtr)
-        sx1280ISR;
-        self.transmitData = (elrsRxTransmitDataFnPtr)
-        sx1280TransmitData;
-        self.receiveData = (elrsRxReceiveDataFnPtr)
-        sx1280ReceiveData;
-        self.getRFlinkInfo = (elrsRxGetRFlinkInfoFnPtr)
-        sx1280GetLastPacketStats;
-        self.setFrequency = (elrsRxSetFrequencyFnPtr)
-        sx1280SetFrequencyReg;
-        self.handleFreqCorrection = (elrsRxHandleFreqCorrectionFnPtr)
-        sx1280AdjustFrequency;
-    }
+    // // #ifdef USE_RX_SX1280
+    // fn configureReceiverForSX1280(&mut self)
+    // {
+    //     self.init = (elrsRxInitFnPtr)
+    //     sx1280Init;
+    //     self.config = (elrsRxConfigFnPtr)
+    //     sx1280Config;
+    //     self.startReceiving = (elrsRxStartReceivingFnPtr)
+    //     sx1280StartReceiving;
+    //     self.rxISR = (elrsRxISRFnPtr)
+    //     sx1280ISR;
+    //     self.transmitData = (elrsRxTransmitDataFnPtr)
+    //     sx1280TransmitData;
+    //     self.receiveData = (elrsRxReceiveDataFnPtr)
+    //     sx1280ReceiveData;
+    //     self.getRFlinkInfo = (elrsRxGetRFlinkInfoFnPtr)
+    //     sx1280GetLastPacketStats;
+    //     self.setFrequency = (elrsRxSetFrequencyFnPtr)
+    //     sx1280SetFrequencyReg;
+    //     self.handleFreqCorrection = (elrsRxHandleFreqCorrectionFnPtr)
+    //     sx1280AdjustFrequency;
+    // }
 
     //setup
     fn expressLrsSpiInit(&mut self, rxConfig: &RxSpiConfig, rxRuntimeState: &RxRuntimeState, extiConfig: &RxSpiExtiConfig) -> bool

@@ -101,10 +101,26 @@ impl Default for InputMap {
     }
 }
 
+/// Indicates master motor arm status. Used for both pre arm, and arm. If either is
+/// set to `Disarmed`, the motors will not spin (or stop spinning immediately).
+#[derive(Clone, Copy, PartialEq)]
+pub enum ArmStatus {
+    /// Motors are [pre]disarmed
+    Disarmed,
+    /// Motors are [pre]armed
+    Armed,
+}
+
+impl Default for ArmStatus {
+    fn default() -> Self {
+        Self::Disarmed
+    }
+}
+
 #[derive(Default)]
 pub struct CommandState {
-    pub pre_armed: bool,
-    pub armed: bool,
+    pub pre_armed: ArmStatus,
+    pub armed: ArmStatus,
     pub x: f32,
     pub y: f32,
     pub alt: f32, // m MSL

@@ -77,7 +77,7 @@ mod usb_protocol;
 // }
 
 use flight_ctrls::{
-    AutopilotStatus, CommandState, CtrlInputs, InputMap, InputMode, Params, RotorPower,
+    AutopilotStatus, ArmStatus, CommandState, CtrlInputs, InputMap, InputMode, Params, RotorPower,
 };
 
 use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
@@ -144,8 +144,6 @@ const DIRECT_AUTOPILOT_MAX_RNG: f32 = 500.;
 
 // We use `LOOP_I` to manage inner vs outer loops.
 static LOOP_I: AtomicU32 = AtomicU32::new(0);
-
-static ARMED: AtomicBool = AtomicBool::new(false);
 
 // Enable this to print parameters (eg location, altitude, attitude, angular rates etc) to the console.
 const DEBUG_PARAMS: bool = true;
@@ -642,7 +640,7 @@ mod app {
         // Store filter instances for the PID loop derivatives. One for each param used.
         pid_deriv_filters: PidDerivFilters,
         base_point: Location,
-        commands: CommandState,
+        command_state: CommandState,
     }
 
     #[local]
@@ -911,7 +909,7 @@ mod app {
                 power_used: 0.,
                 pid_deriv_filters: PidDerivFilters::new(),
                 base_point: Location::new(LocationType::Rel0, 0., 0., 0.),
-                commands: Default::default(),
+                command_state: Default::default(),
             },
             Local {
                 imu_cs: cs_imu, // dt_timer,
@@ -931,7 +929,7 @@ mod app {
     binds = TIM15,
     shared = [current_params, manual_inputs, input_map, current_pwr,
     inner_flt_cmd, pid_mid, pid_deriv_filters,
-    power_used, input_mode, autopilot_status, user_cfg, commands, ctrl_coeffs,
+    power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
     spi4
     ],
     local = [],
@@ -955,7 +953,7 @@ mod app {
             cx.shared.input_mode,
             cx.shared.autopilot_status,
             cx.shared.user_cfg,
-            cx.shared.commands,
+            cx.shared.command_state,
             cx.shared.ctrl_coeffs,
         )
             .lock(
@@ -971,7 +969,7 @@ mod app {
                  input_mode,
                  autopilot_status,
                  cfg,
-                 commands,
+                 command_state,
                  coeffs| {
                     // todo: Do we want to update manual/radio inputs here, or in the faster IMU update
                     // ISR?
@@ -1022,7 +1020,7 @@ mod app {
                         input_mode,
                         autopilot_status,
                         cfg,
-                        commands,
+                        command_state,
                         coeffs,
                     );
                 },
@@ -1035,17 +1033,20 @@ mod app {
     #[task(binds = EXTI15_10, shared = [current_params, input_mode, autopilot_status,
     inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr,
     spi4, rotor_timer_a, rotor_timer_b,
-    ctrl_coeffs, command_status], local = [imu_cs], priority = 2)]
+    ctrl_coeffs, command_state], local = [imu_cs], priority = 2)]
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
         unsafe {
             // Clear the interrupt flag.
             (*pac::EXTI::ptr()).c1pr1.modify(|_, w| w.pr15().set_bit());
         }
 
-        // todo: Put this armed check in the update isr? Somewhere else?
-        if !command_status.armed || !command_status.pre_armed {
-            // todo: What? something with DSHOT?
-        }
+        (cx.shared.command_state, cx.shared.rotor_timer_a, cx.shared.rotor_timer_b).lock(|state, rotor_timer_a, rotor_timer_b| {
+            // todo: Put this armed check in the update isr? Somewhere else?
+            if state.armed != ArmStatus::Armed || state.pre_armed != ArmStatus::Armed {
+                dshot::stop_all(rotor_timer_a, rotor_timer_b);
+            }
+        });
+
 
         // let timer_val = cx.local.dt_timer.read_count();
         // cx.local.dt_timer.disable();
