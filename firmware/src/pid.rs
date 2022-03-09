@@ -1,6 +1,8 @@
 //! This module contains code related to the flight control PID loop. It can be thought of
 //! as a sub-module for `flight_ctrls`.
 
+use core::f32::consts::TAU;
+
 use stm32_hal2::{
     pac::{TIM3, TIM5},
     timer::Timer,
@@ -10,7 +12,7 @@ use cmsis_dsp_api as dsp_api;
 
 use crate::{
     flight_ctrls::{
-        self, AltType, AutopilotStatus, CommandState, CtrlInputs, IirInstWrapper, InputMode, Params,
+        self, AltType, YAW_ASSIST_MIN_SPEED, YAW_ASSIST_COEFF, InputMap, AutopilotStatus, CommandState, CtrlInputs, IirInstWrapper, InputMode, Params,
     },
     UserCfg, DT,
 };
@@ -662,41 +664,29 @@ pub fn run_pid_inner(
             }
 
             if autopilot_status.yaw_assist {
-                // Blend manual inputs with teh autocorrection factor. If there are no manual inputs,
+                // Blend manual inputs with the autocorrection factor. If there are no manual inputs,
                 // this autopilot mode should neutralize all sideslip.
+                let hor_dir = 0.; // radians
+                let hor_speed = 0.; // m/s
 
-                // todo: Instead of comparing heading to VVI, maybe you could just neutralize
-                // X/Y acceleration?
-
-                // let net_hor_direction = 0.;
-                // let current_yaw = params.s_yaw;
-
-                // todo: Do we want a function that maps to a commanded yaw velocity, or
-                // todo, something more simple?
-
-                // let yaw_correction_factor = 0.; // todo
-
-                // todo: What should this coeff be? Is linear OK?
-
-                // if coeff = 0.5, if accel is 1 m/s^2, yaw correction is 1/2 rad/s
-                // angular velocity / accel: (radians/s) / (m/s^2) = radiants x s / m
-                let coeff = 0.1;
-
-                let yaw_correction_factor = params.a_x * coeff;
+                let yaw_correction_factor = ((hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
 
                 // todo: Impl for Attitude mode too? Or is it not appropriate there?
-                inner_flt_cmd.yaw += yaw_correction_factor;
+                if hor_speed > YAW_ASSIST_MIN_SPEED {
+                    inner_flt_cmd.yaw += yaw_correction_factor;
+                }
             } else if autopilot_roll_assist {
-                let coeff = 0.1;
+                // todo!
+                let hor_dir = 0.; // radians
+                let hor_speed = 0.; // m/s
 
-                let roll_correction_factor = -params.a_x * coeff;
+                let roll_correction_factor = (-(hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
 
-                // todo: Impl for Attitude mode too.
-                inner_flt_cmd.yaw += roll_correction_factor;
+                // todo: Impl for Attitude mode too?
+                if hor_speed > YAW_ASSIST_MIN_SPEED {
+                    inner_flt_cmd.yaw += roll_correction_factor;
+                }
             }
-
-
-
         }
         _ => {} // todo otherwise, handled in mid loop?
     }

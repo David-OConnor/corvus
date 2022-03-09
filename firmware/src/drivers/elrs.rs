@@ -325,7 +325,7 @@ impl Receiver {
 
             modParams: ModSettings {
 
-            }
+            },
 
             rssi: 0,
             rssiFiltered: 0,
@@ -762,7 +762,7 @@ impl Receiver {
                 // during sync, where packets can be received before connection
                 if self.connectionState == ELRS_CONNECTED && unsafe { connectionHasModelMatch } {
                     if rxExpressLrsSpiConfig().switchMode == SM_HYBRID_WIDE {
-                        unsafe { wideSwitchIndex } = hybridWideNonceToSwitchIndex(self.nonceRX);
+                        unsafe { wideSwitchIndex = hybridWideNonceToSwitchIndex(self.nonceRX) };
                         if self.modParams.tlmInterval.value() < 8 || unsafe { wideSwitchIndex } == 7 {
                             confirmCurrentTelemetryPayload((packet[6] & 0x40) >> 6);
                         }

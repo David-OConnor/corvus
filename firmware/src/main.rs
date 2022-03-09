@@ -381,7 +381,7 @@ impl Rotor {
     }
 
     /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
-    pub fn dma_chan(&self) -> DmaChannel {
+    pub fn dma_channel(&self) -> DmaChannel {
         // Offset 16 for DMA base register of CCR1?
         // 17 for CCR2, 18 CCR3, and 19 CCR4?
         match self {

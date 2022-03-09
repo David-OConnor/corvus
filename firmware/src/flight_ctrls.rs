@@ -28,6 +28,16 @@ const ROLL_RNG: (f32, f32) = (-1., 1.);
 const YAW_RNG: (f32, f32) = (-1., 1.);
 const THRUST_RNG: (f32, f32) = (-0., 1.);
 
+// Minimium speed before auto-yaw will engate. (if we end up setting up auto-yaw to align flight path
+// with heading)
+// todo: Maybe this could also be used if we end up setting up auto-yaw as sideway-accel cancellation?
+// todo, and this would be the min *fwd* velocity?
+pub const YAW_ASSIST_MIN_SPEED: f32 = 0.5; // m/s
+
+// if coeff = 0.5, if accel is 1 m/s^2, yaw correction is 1/2 rad/s
+// angular velocity / accel: (radians/s) / (m/s^2) = radiants x s / m
+pub const YAW_ASSIST_COEFF: f32 = 0.1;
+
 /// Utility function to linearly map an input value to an output
 fn map_linear(val: f32, range_in: (f32, f32), range_out: (f32, f32)) -> f32 {
     // todo: You may be able to optimize calls to this by having the ranges pre-store
