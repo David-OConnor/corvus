@@ -6568,7 +6568,7 @@
     (property "Value" "MountingHole_Pad" (id 1) (at 270.51 170.1799 0)
       (effects (font (size 1.27 1.27)) (justify left) hide)
     )
-    (property "Footprint" "Anyleaf_Shared:Mouse bites_5mm" (id 2) (at 267.97 170.18 0)
+    (property "Footprint" "Anyleaf_Shared:Mouse bites_7mm" (id 2) (at 267.97 170.18 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (property "Datasheet" "~" (id 3) (at 267.97 170.18 0)
@@ -7743,7 +7743,7 @@
       (reference "H8") (unit 1) (value "MountingHole") (footprint "MountingHole:MountingHole_3.2mm_M3")
     )
     (path "/c7e176e5-b593-426d-809b-ada2372b18d3"
-      (reference "H9") (unit 1) (value "MountingHole_Pad") (footprint "Anyleaf_Shared:Mouse bites_5mm")
+      (reference "H9") (unit 1) (value "MountingHole_Pad") (footprint "Anyleaf_Shared:Mouse bites_7mm")
     )
     (path "/dd089902-bbfe-4cea-809e-35e40e02ff14"
       (reference "H10") (unit 1) (value "MountingHole_Pad") (footprint "Anyleaf_Shared:Mouse bites_7mm")

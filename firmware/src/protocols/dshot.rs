@@ -68,17 +68,45 @@ enum CmdType {
     Power(f32),
 }
 
-pub fn stop_all(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
+pub fn stop_all(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     setup_payload(Rotor::R1, CmdType::Command(Command::MotorStop));
     setup_payload(Rotor::R2, CmdType::Command(Command::MotorStop));
     setup_payload(Rotor::R3, CmdType::Command(Command::MotorStop));
     setup_payload(Rotor::R4, CmdType::Command(Command::MotorStop));
 
     // todo: Make sure you have the right motors here.
-    send_payload_a(Rotor::R1, timer_a, dma: &mut Dma<DMA1>);
-    send_payload_a(Rotor::R2, timer_a, dma: &mut Dma<DMA1>);
-    send_payload_b(Rotor::R3, timer_b, dma: &mut Dma<DMA1>);
-    send_payload_b(Rotor::R4, timer_b, dma: &mut Dma<DMA1>);
+    send_payload_a(Rotor::R1, timer_a, dma);
+    send_payload_a(Rotor::R2, timer_a, dma);
+    send_payload_b(Rotor::R3, timer_b, dma);
+    send_payload_b(Rotor::R4, timer_b, dma);
+}
+
+/// Set up the direction for each motor, in accordance with user config.
+pub fn cfg_motor_dir(motors_reversed: (bool, bool, bool, bool), timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
+    // todo: DRY
+        if motors_reversed.0 {
+            send_cmd_a(Rotor::R1, Command::SpinDirReversed, timer_a, dma);
+        } else {
+            send_cmd_a(Rotor::R1, Command::SpinDirNormal, timer_a, dma);
+        }
+    
+            if motors_reversed.1 {
+            send_cmd_a(Rotor::R2, Command::SpinDirReversed, timer_a, dma);
+        } else {
+            send_cmd_a(Rotor::R2, Command::SpinDirNormal, timer_a, dma);
+        }
+    
+            if motors_reversed.2 {
+            send_cmd_a(Rotor::R3, Command::SpinDirReversed, timer_b, dma);
+        } else {
+            send_cmd_a(Rotor::R3, Command::SpinDirNormal, timer_b, dma);
+        }
+    
+            if motors_reversed.3 {
+            send_cmd_a(Rotor::R4, Command::SpinDirReversed, timer_b, dma);
+        } else {
+            send_cmd_a(Rotor::R4, Command::SpinDirNormal, timer_b, dma);
+        }
 }
 
 /// Update our DSHOT payload for a given rotor, with a given power level.
@@ -120,6 +148,18 @@ pub fn setup_payload(rotor: Rotor, cmd: CmdType) {
             payload[15 - i] = if bit == 1 { DUTY_HIGH } else { DUTY_LOW };
         }
     }
+}
+
+pub fn send_cmd_a(rotor: Rotor, cmd: Command, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
+    setup_payload(rotor, CmdType::Command(cmd));
+
+    send_payload_a(rotor, timer, dma: &mut Dma<DMA1>)
+}
+
+pub fn send_cmd_b(rotor: Rotor, cmd: Command, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
+    setup_payload(rotor, CmdType::Command(cmd));
+
+    send_payload_b(rotor, timer, dma: &mut Dma<DMA1>)
 }
 
 /// Set an individual rotor's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)

@@ -13,18 +13,53 @@ static mut MasterUID: [u8; 6] = [0; 6];
 static mut CRCInitializer: u16 = 0;
 
 #[repr(u8)]
-enum ExpressLrsTlmRatio
+enum TlmRatio
 {
-    TLM_RATIO_NO_TLM = 0,
-    TLM_RATIO_1_128 = 1,
-    TLM_RATIO_1_64 = 2,
-    TLM_RATIO_1_32 = 3,
-    TLM_RATIO_1_16 = 4,
-    TLM_RATIO_1_8 = 5,
-    TLM_RATIO_1_4 = 6,
-    TLM_RATIO_1_2 = 7
+    NO_TLM = 0,
+    _1_128 = 1,
+    _1_64 = 2,
+    _1_32 = 3,
+    _1_16 = 4,
+    _1_8 = 5,
+    _1_4 = 6,
+    _1_2 = 7
 
 }
+
+impl TlmRatio {
+    pub fn value(&self) -> u8 {
+        match self {
+            Self::_NO_TLM => 1,
+            Self::_1_2 =>2,
+            Self::_1_4 => 4,
+            Self::_1_8 => 8,
+            Self::_1_16 =>1,
+            Self::_1_32 =>32,
+            Self::_1_64 => 64,
+            Self::_1_128 => 128,
+            _ => 0,
+        }
+    }
+}
+
+    switch (enumval)
+    {
+    TLM_RATIO_NO_TLM => {
+        1;
+    TLM_RATIO_1_2 => {
+        2;
+    TLM_RATIO_1_4 => {
+        4;
+    TLM_RATIO_1_8 => {
+        8;
+    TLM_RATIO_1_16 => {
+        16;
+    TLM_RATIO_1_32 => {
+        32;
+    TLM_RATIO_1_64 => 64,
+    TLM_RATIO_1_128 => 128,
+    _ => 0,
+
 
 enum ConnectionState
 {
@@ -72,7 +107,7 @@ enum expresslrs_tlm_header
 }
 
 #[repr(u8)]
-enum RfRates
+enum RfRate
 {
     LORA_4HZ = 0,
     LORA_25HZ,
@@ -86,11 +121,12 @@ enum RfRates
     FLRC_1000HZ,
 } // Max value of 16 since only 4 bits have been assigned in the sync package.
 
-impl RfRates {
+impl RfRate {
     pub fn hz(&self) -> u16 {
         match self {
             Self::FLRC_1000HZ => 1000,
             Self::FLRC_500HZ => 500,
+            Self::LORA_500HZ => 500,
             Self::LORA_250HZ => 250,
             Self::LORA_200HZ => 200,
             Self::LORA_150HZ => 150,
@@ -109,24 +145,32 @@ enum RadioType {
     SX128x_FLRC,
 }
 
-struct expresslrs_rf_pref_params
+struct PrefParams
 {
-    uint8_t index;
-    uint8_t enum_rate;                    // Max value of 4 since only 2 bits have been assigned in the sync package.
-    int32_t RXsensitivity;                // expected RF sensitivity based on
-    uint32_t TOA;                         // time on air in microseconds
-    uint32_t DisconnectTimeoutMs;         // Time without a packet before receiver goes to disconnected (ms)
-    uint32_t RxLockTimeoutMs;             // Max time to go from tentative -> connected state on receiver (ms)
-    uint32_t SyncPktIntervalDisconnected; // how often to send the SYNC_PACKET packet (ms) when there is no response from RX
-    uint32_t SyncPktIntervalConnected;    // how often to send the SYNC_PACKET packet (ms) when there we have a connection
-
+    index: u8,
+    enum_rate: RfRate,                    // Max value of 4 since only 2 bits have been assigned in the sync package.
+    RXsensitivity: i32,                // expected RF sensitivity based on
+    TOA: u32,                         // time on air in microseconds
+    DisconnectTimeoutMs: u32,         // Time without a packet before receiver goes to disconnected (ms)
+    RxLockTimeoutMs: u32,             // Max time to go from tentative -> connected state on receiver (ms)
+    SyncPktIntervalDisconnected: u32, // how often to send the SYNC_PACKET packet (ms) when there is no response from RX
+    SyncPktIntervalConnected: u32,    // how often to send the SYNC_PACKET packet (ms) when there we have a connection
 }
 
-struct expresslrs_mod_settings
+impl PrefParams {
+    pub fn new(index: u8, enum_rate: RfRate, RXsensitivity: i32, TOA: u32, DisconnectTimeoutMs: u32, RxLockTimeoutMs: u32,
+    SyncPktIntervalDisconnect: u32, SyncPktIntervalConnected: u32) -> Self {
+        Self {
+            index, enum_rate, RXsensitivity, TOA, DisconnectTimeoutMs, RxLockTimeoutMs, SyncPktIntervalDisconnected, SyncPktIntervalConnected
+        }
+    }
+}
+
+struct ModSettings
 {
     index: u8,
     radio_type: u8,
-    enum_rate: u8,          // Max value of 4 since only 2 bits have been assigned in the sync package.
+    enum_rate: RfRate,          // Max value of 4 since only 2 bits have been assigned in the sync package.
     bw: u8,
     sf: u8,
     cr: u8,
@@ -137,14 +181,10 @@ struct expresslrs_mod_settings
     PayloadLength: u8,     // Number of OTA bytes to be sent.
 }
 
-#ifndef UNIT_TEST
-
-
-const RATE_MAX: usize = 6;      // 2xFLRC + 4xLoRa
+// #ifndef UNIT_TEST
+const RATE_MAX: u8 = 6;      // 2xFLRC + 4xLoRa
 const RATE_DEFAULT: u8 = 0;  // Default to FLRC 1000Hz
 const RATE_BINDING: u8 = 5;  // 50Hz bind mode
-
-extern SX1280Driver Radio;
 
 const SYNC_PACKET_SWITCH_OFFSET: u8 =    0;   // Switch encoding mode
 const SYNC_PACKET_TLM_OFFSET : u8 =      2;   // Telemetry ratio
@@ -152,58 +192,44 @@ const SYNC_PACKET_RATE_OFFSET : u8 =     5;   // Rate index
 const SYNC_PACKET_SWITCH_MASK : u8 =    0b11;
 const SYNC_PACKET_TLM_MASK   : u8 =      0b111;
 const SYNC_PACKET_RATE_MASK : u8 =       0b111;
+// #endif // UNIT_TEST
 
 
-expresslrs_mod_settings_s *get_elrs_airRateConfig(uint8_t index);
-expresslrs_rf_pref_params_s *get_elrs_RFperfParams(uint8_t index);
-
-uint8_t TLMratioEnumToValue(uint8_t enumval);
-uint16_t RateEnumToHz(uint8_t eRate);
-
-extern expresslrs_mod_settings_s *ExpressLRS_currAirRate_Modparams;
-extern expresslrs_rf_pref_params_s *ExpressLRS_currAirRate_RFperfParams;
-
-uint8_t enumRatetoIndex(uint8_t rate);
-
-#endif // UNIT_TEST
-
-uint32_t uidMacSeedGet(void);
-
-#define AUX1 4
-#define AUX2 5
-#define AUX3 6
-#define AUX4 7
-#define AUX5 8
-#define AUX6 9
-#define AUX7 10
-#define AUX8 11
-#define AUX9 12
-#define AUX10 13
-#define AUX11 14
-#define AUX12 15
+const AUX1: u8 = 4;
+const AUX2: u8 =  5;
+const AUX3: u8 =  6;
+const AUX4: u8 =  7;
+const AUX5: u8 =  8;
+const AUX6: u8 =  9;
+const AUX7: u8 =  10;
+const AUX8: u8 =  11;
+const AUX9: u8 =  12;
+const AUX10: u8 =  13;
+const AUX11: u8 =  14;
+const AUX12: u8 =  15;
 
 //ELRS SPECIFIC OTA CRC
 //Koopman formatting https://users.ece.cmu.edu/~koopman/crc/
-#define ELRS_CRC_POLY 0x07 // 0x83
-#define ELRS_CRC14_POLY 0x2E57 // 0x372B
+const ELRS_CRC_POLY: u8 = 0x07; // 0x83
+const ELRS_CRC14_POLY: u8 =  0x2E57; // 0x372B
 // Sx1280[1] only
-const AirRateConfig: [ModSettings; RATE_MAX] = [
-  [0, RadioType::SX128x_FLRC, RATE_FLRC_1000HZ, SX1280_FLRC_BR_0_650_BW_0_6, SX1280_FLRC_BT_1, SX1280_FLRC_CR_1_2,     1000, TLM_RATIO_1_128,  8, 32, 8],
-    [1, RadioType::SX128x_FLRC, RfRate::FLRC_500HZ,  SX1280_FLRC_BR_0_650_BW_0_6, SX1280_FLRC_BT_1, SX1280_FLRC_CR_1_2,     2000, TLM_RATIO_1_128,  4, 32, 8],
-    [2, RadioType::SX128x_LORA, RfRate::LORA_500HZ,  SX1280_LORA_BW_0800,         SX1280_LORA_SF5,  SX1280_LORA_CR_LI_4_6,  2000, TLM_RATIO_1_128,  4, 12, 8],
-    [3, RadioType::SX128x_LORA, RfRate::LORA_250HZ,  SX1280_LORA_BW_0800,         SX1280_LORA_SF6,  SX1280_LORA_CR_LI_4_7,  4000, TLM_RATIO_1_64,   4, 14, 8],
-    [4, RadioType::SX128x_LORA, RfRate::LORA_150HZ,  SX1280_LORA_BW_0800,         SX1280_LORA_SF7,  SX1280_LORA_CR_LI_4_7,  6666, TLM_RATIO_1_32,   4, 12, 8],
-    [5, RadioType::SX128x_LORA, RfRate::LORA_50HZ,   SX1280_LORA_BW_0800,         SX1280_LORA_SF9,  SX1280_LORA_CR_LI_4_6, 20000, TLM_RATIO_NO_TLM, 2, 12, 8]
+const AirRateConfig: [ModSettings; RATE_MAX as usize] = [
+  ModSettings::new(0, RadioType::SX128x_FLRC, RATE_FLRC_1000HZ, SX1280_FLRC_BR_0_650_BW_0_6, SX1280_FLRC_BT_1, SX1280_FLRC_CR_1_2,     1000, TLM_RATIO_1_128,  8, 32, 8),
+    ModSettings::new(1, RadioType::SX128x_FLRC, RfRate::FLRC_500HZ,  SX1280_FLRC_BR_0_650_BW_0_6, SX1280_FLRC_BT_1, SX1280_FLRC_CR_1_2,     2000, TLM_RATIO_1_128,  4, 32, 8),
+    ModSettings::new(2, RadioType::SX128x_LORA, RfRate::LORA_500HZ,  SX1280_LORA_BW_0800,         SX1280_LORA_SF5,  SX1280_LORA_CR_LI_4_6,  2000, TLM_RATIO_1_128,  4, 12, 8),
+    ModSettings::new(3, RadioType::SX128x_LORA, RfRate::LORA_250HZ,  SX1280_LORA_BW_0800,         SX1280_LORA_SF6,  SX1280_LORA_CR_LI_4_7,  4000, TLM_RATIO_1_64,   4, 14, 8),
+    ModSettings::new(4, RadioType::SX128x_LORA, RfRate::LORA_150HZ,  SX1280_LORA_BW_0800,         SX1280_LORA_SF7,  SX1280_LORA_CR_LI_4_7,  6666, TLM_RATIO_1_32,   4, 12, 8),
+    ModSettings::new(5, RadioType::SX128x_LORA, RfRate::LORA_50HZ,   SX1280_LORA_BW_0800,         SX1280_LORA_SF9,  SX1280_LORA_CR_LI_4_6, 20000, TLM_RATIO_NO_TLM, 2, 12, 8)
 
 ];
 
-const AirRateRFperf: [expresslrs_rf_pref_params; RATE_MAX] = [
-    [0, RfRate::FLRC_1000HZ, -104,   389, 2500, 2500,  3, 5000],
-    [1, RfRate::FLRC_500HZ,  -104,   389, 2500, 2500,  3, 5000],
-    [2, RfRate::LORA_500HZ,  -105,  1665, 2500, 2500,  3, 5000],
-    [3, RfRate::LORA_250HZ,  -108,  3300, 3000, 2500,  6, 5000],
-    [4, RfRate::LORA_150HZ,  -112,  5871, 3500, 2500, 10, 5000],
-    [5, RfRate::LORA_50HZ,   -117, 18443, 4000, 2500,  0, 5000]
+const AirRateRFperf: [PrefParams; RATE_MAX as usize] = [
+    PrefParams::new(0, RfRate::FLRC_1000HZ, -104,   389, 2500, 2500,  3, 5000),
+    PrefParams::new(1, RfRate::FLRC_500HZ,  -104,   389, 2500, 2500,  3, 5000),
+    PrefParams::new(2, RfRate::LORA_500HZ,  -105,  1665, 2500, 2500,  3, 5000),
+    PrefParams::new(3, RfRate::LORA_250HZ,  -108,  3300, 3000, 2500,  6, 5000),
+    PrefParams::new(4, RfRate::LORA_150HZ,  -112,  5871, 3500, 2500, 10, 5000),
+    PrefParams::new(5, RfRate::LORA_50HZ,   -117, 18443, 4000, 2500,  0, 5000)
 ];
 
 
@@ -239,7 +265,7 @@ fn enumRatetoIndex(rate: u8) -> u8
     }
     // If 25Hz selected and not available, return the slowest rate available
     // else return the fastest rate available (500Hz selected but not available)
-    if rate == RATE_25HZ { RATE_MAX - 1 } else { 0 };
+    if rate == RATE_25HZ { RATE_MAX - 1 } else { 0 }
 }
 
 expresslrs_mod_settings_s *ExpressLRS_currAirRate_Modparams;
@@ -267,28 +293,6 @@ const BindingUID: [u8; 6] = [0, 1, 2, 3, 4, 5]; // Special binding UID values
 const MasterUID: [u8; 6] = [UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]]; // Special binding UID values
 
 const CRCInitializer: u16 = (UID[4] << 8) | UID[5];
-
-    // todo: Make the enum have u8 reprs, and delete this.
-uint8_t ICACHE_RAM_ATTR TLMratioEnumToValue(uint8_t const enumval)
-{
-    switch (enumval)
-    {
-    TLM_RATIO_NO_TLM => {
-        1;
-    TLM_RATIO_1_2 => {
-        2;
-    TLM_RATIO_1_4 => {
-        4;
-    TLM_RATIO_1_8 => {
-        8;
-    TLM_RATIO_1_16 => {
-        16;
-    TLM_RATIO_1_32 => {
-        32;
-    TLM_RATIO_1_64 => 64,
-    TLM_RATIO_1_128 => 128,
-    _ => 0,
-}
 
 fn uidMacSeedGet() -> u32
 {

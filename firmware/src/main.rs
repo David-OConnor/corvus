@@ -18,11 +18,11 @@ use stm32_hal2::{
     adc::{Adc, AdcDevice},
     clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllCfg, PllSrc},
     debug_workaround,
-    dma::{self, Dma, DmaChannel},
+    dma::{self, Dma, DmaChannel, DmaInterrupt},
     flash::Flash,
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, I2C1, I2C2, SPI2, TIM15},
+    pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15},
     rtc::Rtc,
     spi::{BaudRate, Spi},
     timer::{OutputCompare, TimChannel, Timer, TimerConfig, TimerInterrupt},
@@ -66,14 +66,16 @@ mod protocols;
 mod sensor_fusion;
 
 // cfg_if! {
-    // if #[cfg(feature = "matek-h743slim")] {
-        use drivers::baro_dps310 as baro;
-        use drivers::gps_x as gps;
-        // use drivers::imu_icm42605 as imu;
-        use drivers::imu_ism330dhcx as imu;
-        use drivers::osd_max7456 as osd;
-        use drivers::tof_vl53l1 as tof;
-    // }
+// if #[cfg(feature = "matek-h743slim")] {
+use drivers::baro_dps310 as baro;
+use drivers::gps_x as gps;
+// use drivers::imu_icm42605 as imu;
+use drivers::imu_ism330dhcx as imu;
+use drivers::osd_max7456 as osd;
+use drivers::tof_vl53l1 as tof;
+
+use protocols::{dshot, elrs};
+// }
 // }
 
 use flight_ctrls::{
@@ -197,33 +199,6 @@ const DEBUG_PARAMS: bool = true;
 /// ///
 /// 3 level loop? S, v, angle?? Or just 2? (position cmds in outer loop)
 
-// todo: If you use Vectors, use CMSIS-DSP?
-//
-// /// A vector in 3 dimensions
-// struct Vector {
-//     x: f32,
-//     y: f32,
-//     z: f32,
-// }
-//
-// impl Sub for Vector {
-//     type Output = Self;
-//
-//     fn sub(self, other: Self) -> Self::Output {
-//         Self {
-//             x: self.x - other.x,
-//             y: self.y - other.y,
-//             z: self.z - other.z,
-//         }
-//     }
-// }
-//
-// impl Vector {
-//     pub fn new(x: f32, y: f32, z: f32) -> Self {
-//         Self { x, y, z }
-//     }
-// }
-
 /// Utility fn to make up for `core::cmp::max` requiring f32 to impl `Ord`, which it doesn't.
 /// todo: Move elsewhere?
 fn max(a: f32, b: f32) -> f32 {
@@ -279,6 +254,13 @@ pub struct UserCfg {
     mapping_obstacles: bool,
     max_speed_hor: f32,
     max_speed_ver: f32,
+    /// The GPS module is connected
+    gps_attached: bool,
+    /// The time-of-flight sensor module is connected
+    tof_attached: bool,
+    /// It's common to arbitrarily wire motors to the ESC. Reverse each from its
+    /// default direction, as required.
+    motors_reversed: (bool, bool, bool, bool)
 }
 
 impl Default for UserCfg {
@@ -625,8 +607,10 @@ mod app {
         manual_inputs: CtrlInputs,
         current_pwr: RotorPower,
         dma: Dma<DMA1>,
+        spi1: Spi<SPI1>,
         spi2: Spi<SPI2>,
-        spi4: Spi<SPI4>,
+        spi3: Spi<SPI3>,
+        cs_imu: Pin,
         i2c1: I2c<I2C1>,
         i2c2: I2c<I2C2>,
         // rtc: Rtc,
@@ -644,11 +628,7 @@ mod app {
     }
 
     #[local]
-    struct Local {
-        imu_cs: Pin,
-        // dt_timer: Timer<TIM3>,
-        // last_rtc_time: (u8, u8), // seconds, minutes
-    }
+    struct Local {}
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
@@ -695,13 +675,16 @@ mod app {
         // Set up pins with appropriate modes.
         setup_pins();
 
-        // We use SPI4 for the IMU
+        // We use SPI1 for the IMU
         // SPI input clock is 400MHz. 400MHz / 32 = 12.5 MHz. The limit is the max SPI speed
         // of the ICM-42605 IMU of 24 MHz. This IMU can use any SPI mode, with the correct config on it.
-        let mut spi4 = Spi::new(dp.SPI4, Default::default(), BaudRate::Div32);
+        let mut spi1 = Spi::new(dp.SPI1, Default::default(), BaudRate::Div32);
 
-        // We use SPI2 for the... todo
+        // We use SPI2 for the OSD.  // todo: Find max speed and supported modes.
         let spi2 = Spi::new(dp.SPI2, Default::default(), BaudRate::Div32);
+
+        // We use SPI3 for the ELRS chip, and flash. // todo: Find max speed and supported modes.
+        let spi3 = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
 
         // We use I2C for the TOF sensor.(?) and for Matek digital airspeed and compass
         let i2c_cfg = I2cConfig {
@@ -783,6 +766,9 @@ mod app {
         rotor_timer_b.set_prescaler(DSHOT_PSC);
         rotor_timer_b.set_auto_reload(DSHOT_ARR);
 
+        let mut user_cfg = UserCfg::default();
+        dshot::setup_motor_dir(user_cfg.motors_reversed, &mut rotor_timer_a, &mut rotor_timer_b, &mut dma);
+
         // We use `dt_timer` to count the time between IMU updates, for use in the PID loop
         // integral, derivative, and filters. If set to 1Mhz, the CNT value is the number of
         // µs elapsed.
@@ -802,7 +788,7 @@ mod app {
 
         imu::setup(&mut spi4, &mut cs_imu);
 
-        let mut osd_cs = Pin::new(Port::B, 12, PinMode::Output);
+        let mut cs_osd = Pin::new(Port::B, 12, PinMode::Output);
 
         // In Betaflight, DMA is required for the ADC (current/voltage sensor),
         // motor outputs running bidirectional DShot, and gyro SPI bus.
@@ -884,7 +870,7 @@ mod app {
         (
             // todo: Make these local as able.
             Shared {
-                user_cfg: Default::default(),
+                user_cfg,
                 input_map: Default::default(),
                 input_mode: InputMode::Attitude,
                 autopilot_status: Default::default(),
@@ -896,8 +882,10 @@ mod app {
                 manual_inputs: Default::default(),
                 current_pwr: Default::default(),
                 dma,
+                spi1,
                 spi2,
-                spi4,
+                spi3,
+                cs_imu,
                 i2c1,
                 i2c2,
                 // rtc,
@@ -911,9 +899,7 @@ mod app {
                 base_point: Location::new(LocationType::Rel0, 0., 0., 0.),
                 command_state: Default::default(),
             },
-            Local {
-                imu_cs: cs_imu, // dt_timer,
-            },
+            Local {},
             init::Monotonics(),
         )
     }
@@ -930,7 +916,6 @@ mod app {
     shared = [current_params, manual_inputs, input_map, current_pwr,
     inner_flt_cmd, pid_mid, pid_deriv_filters,
     power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
-    spi4
     ],
     local = [],
     priority = 2
@@ -948,7 +933,6 @@ mod app {
             cx.shared.inner_flt_cmd,
             cx.shared.pid_mid,
             cx.shared.pid_deriv_filters,
-            cx.shared.spi4,
             cx.shared.power_used,
             cx.shared.input_mode,
             cx.shared.autopilot_status,
@@ -1030,10 +1014,9 @@ mod app {
     /// Runs when new IMU data is recieved. This functions as our PID inner loop, and updates
     /// pitch and roll. We use this ISR with an interrupt from the IMU, since we wish to
     /// update rotor power settings as soon as data is available.
-    #[task(binds = EXTI15_10, shared = [current_params, input_mode, autopilot_status,
-    inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr,
-    spi4, rotor_timer_a, rotor_timer_b,
-    ctrl_coeffs, command_state], local = [imu_cs], priority = 2)]
+    #[task(binds = EXTI15_10, shared = [
+    spi1, cs_imu, dma, rotor_timer_a, rotor_timer_b,
+    ], local = [], priority = 2)]
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
         unsafe {
             // Clear the interrupt flag.
@@ -1061,10 +1044,24 @@ mod app {
         // todo: Don't just use IMU; use sensor fusion. Starting with this by default
 
         // todo: Consider making this spi bus dedicated to the IMU, and making it local.
-        let imu_data = cx
-            .shared
-            .spi4
-            .lock(|spi| imu::read_all(spi, cx.local.imu_cs));
+        (cx
+             .shared
+             .spi1, cx.shared.cs_imu, cx.shared.dma)
+            .lock(|spi, cs, dma| {
+                imu::read_all_dma(spi, cs_imu, dma);
+
+            });
+    }
+
+
+    #[task(binds = DMA1_STR0, shared = [dma, current_params, input_mode, autopilot_status,
+    inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr, ctrl_coeffs, command_state, cs_imu], local = [], priority = 1)]
+    /// This ISR Handles received data from the IMU, after DMA transfer is complete.
+    fn imu_tc_isr(mut cx: usb_isr::Context) {
+        (cx.shared.dma, cx.shared.imu).lock(|dma, cs| {
+            dma.clear_interrupt(DmaChannel::C0, DmaInterrupt::TransferComplete);
+            cs.set_high();
+        });
 
         let mut sensor_data_fused = sensor_fusion::estimate_attitude(&imu_data);
 
@@ -1107,31 +1104,7 @@ mod app {
         cx.shared.current_params.lock(|params| {
             *params = sensor_data_fused;
 
-            //     Params {
-            //     s_x,
-            //     s_y,
-            //     s_z_msl,
-            //     s_z_agl,
-            //
-            //     s_pitch,
-            //     s_roll,
-            //     s_yaw,
-            //
-            //     v_x,
-            //     v_y,
-            //     v_z,
-            //     v_pitch: sensor_data_fused.v_pitch,
-            //     v_roll: sensor_data_fused.v_roll,
-            //     v_yaw: sensor_data_fused.v_yaw,
-            //
-            //     a_x: sensor_data_fused.a_x,
-            //     a_y: sensor_data_fused.a_y,
-            //     a_z: sensor_data_fused.a_z,
-            //     a_pitch,
-            //     a_roll,
-            //     a_yaw,
-            // };
-        });
+
 
         (
             cx.shared.current_params,
@@ -1149,33 +1122,33 @@ mod app {
         )
             .lock(
                 |params,
-                input_mode,
-                autopilot_status,
-                manual_inputs,
-                inner_flt_cmd,
-                pid_inner,
-                filters,
-                current_pwr,
-                // rotor_timer_a,
-                // rotor_timer_b,
-                coeffs| {
+                 input_mode,
+                 autopilot_status,
+                 manual_inputs,
+                 inner_flt_cmd,
+                 pid_inner,
+                 filters,
+                 current_pwr,
+                 // rotor_timer_a,
+                 // rotor_timer_b,
+                 coeffs| {
                     pid::run_pid_inner(
                         params,
                         *input_mode,
-                        manual_inputs,
                         autopilot_status,
                         manual_inputs,
                         inner_flt_cmd,
                         pid_inner,
                         filters,
                         current_pwr,
-                        // rotor_timer_a,
-                        // rotor_timer_b,
+                        rotor_timer_a,
+                        rotor_timer_b,
                         coeffs,
                         DT_IMU,
                     );
                 },
             );
+        })
     }
 
 
@@ -1213,18 +1186,19 @@ mod app {
         })
     }
 
+
 }
 
-// same panicking *behavior* as `panic-probe` but doesn't print a panic message
+    // same panicking *behavior* as `panic-probe` but doesn't print a panic message
 // this prevents the panic message being printed *twice* when `defmt::panic` is invoked
-#[defmt::panic_handler]
-fn panic() -> ! {
-    cortex_m::asm::udf()
-}
-
-/// Terminates the application and makes `probe-run` exit with exit-code = 0
-pub fn exit() -> ! {
-    loop {
-        cortex_m::asm::bkpt();
+    #[defmt::panic_handler]
+    fn panic() -> ! {
+        cortex_m::asm::udf()
     }
-}
+
+    /// Terminates the application and makes `probe-run` exit with exit-code = 0
+    pub fn exit() -> ! {
+        loop {
+            cortex_m::asm::bkpt();
+        }
+    }

@@ -38,6 +38,11 @@ pub const YAW_ASSIST_MIN_SPEED: f32 = 0.5; // m/s
 // angular velocity / accel: (radians/s) / (m/s^2) = radiants x s / m
 pub const YAW_ASSIST_COEFF: f32 = 0.1;
 
+/// We use this buffer for DMA transfers of IMU readings. Note that reading order is different
+/// between different IMUs, due to their reg layout, and consecutive reg reads. In both cases, 6 readings,
+/// each with 2 bytes each.
+static mut IMU_BUF: [u8; 12] = [0; 12];
+
 /// Utility function to linearly map an input value to an output
 fn map_linear(val: f32, range_in: (f32, f32), range_out: (f32, f32)) -> f32 {
     // todo: You may be able to optimize calls to this by having the ranges pre-store

@@ -51,13 +51,12 @@ unsigned long rebootTime = 0;
 extern bool webserverPreventAutoStart;
 #endif
 
-#if defined(GPIO_PIN_PWM_OUTPUTS)
-#include <Servo.h>
-static constexpr uint8_t SERVO_PINS[] = GPIO_PIN_PWM_OUTPUTS;
-static constexpr uint8_t SERVO_COUNT = ARRAY_SIZE(SERVO_PINS);
-static Servo *Servos[SERVO_COUNT];
-static bool newChannelsAvailable;
-#endif
+// #if defined(GPIO_PIN_PWM_OUTPUTS)
+static mut constexpr uint8_t SERVO_PINS[] = GPIO_PIN_PWM_OUTPUTS;
+static mut constexpr uint8_t SERVO_COUNT = ARRAY_SIZE(SERVO_PINS);
+static mut Servo *Servos[SERVO_COUNT];
+static mut bool newChannelsAvailable;
+// #endif
 
 /* CRSF_TX_SERIAL is used by CRSF output */
 #if defined(TARGET_RX_FM30_MINI)
