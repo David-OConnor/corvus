@@ -19,11 +19,11 @@ use stm32_hal2::{
     timer::{TimChannel, Timer},
 };
 
-use crate::flight_ctrls::Rotor;
+use anyleaf_quadcopter_firmware::Rotor;
 
 // Duty cycle values (to be written to CCMRx), based on our ARR value. 0. = 0%. ARR = 100%.
-const DUTY_HIGH: u32 = crate::DSHOT_ARR * 3 / 4;
-const DUTY_LOW: u32 = crate::DSHOT_ARR * 3 / 8;
+const DUTY_HIGH: u32 = anyleaf_quadcopter_firmware::DSHOT_ARR * 3 / 4;
+const DUTY_LOW: u32 = anyleaf_quadcopter_firmware::DSHOT_ARR * 3 / 8;
 
 // DMA buffers for each rotor. 16-bit data, but using a 32-bit API.
 static mut PAYLOAD_R1: [u32; 16] = [0; 16];

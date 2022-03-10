@@ -9,6 +9,5 @@ pub mod osd_max7456;
 // `tof_driver` uses partially-translated C code that doesn't conform to Rust naming conventions.
 mod camera_gimbal;
 pub mod tof_vl53l1;
-mod elrs;
 
 // pub mod crsf;  CRSF Deprecated in favor of ELRS

@@ -16,7 +16,7 @@ use cortex_m::{self, asm};
 use stm32_hal2::{
     self,
     adc::{Adc, AdcDevice},
-    clocks::{self, Clocks, Clk48Src, CrsSyncSrc, InputSrc, PllCfg, PllSrc},
+    clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllCfg, PllSrc},
     debug_workaround,
     dma::{self, Dma, DmaChannel},
     flash::Flash,
@@ -58,13 +58,12 @@ use panic_probe as _;
 use stm32_hal2::dma::DmaInput;
 
 mod drivers;
-mod dshot;
 mod flight_ctrls;
-mod osd;
+// mod osd;
 mod pid;
 mod pid_tuning;
+mod protocols;
 mod sensor_fusion;
-mod usb_protocol;
 
 // cfg_if! {
     // if #[cfg(feature = "matek-h743slim")] {
@@ -78,7 +77,7 @@ mod usb_protocol;
 // }
 
 use flight_ctrls::{
-    AutopilotStatus, ArmStatus, CommandState, CtrlInputs, InputMap, InputMode, Params, RotorPower,
+    ArmStatus, AutopilotStatus, CommandState, CtrlInputs, InputMap, InputMode, Params, RotorPower,
 };
 
 use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
