@@ -80,16 +80,16 @@ CRSF crsf(CRSF_TX_SERIAL);
 #endif
 
 StubbornSender TelemetrySender(ELRS_TELEMETRY_MAX_PACKAGES);
-static uint8_t telemetryBurstCount;
-static uint8_t telemetryBurstMax;
+static telemetryBurstCount: u8 = 0;
+static telemetryBurstMax: u8 = 0;
 // Maximum ms between LINK_STATISTICS packets for determining burst max
-#define TELEM_MIN_LINK_INTERVAL 512U
+const TELEM_MIN_LINK_INTERVAL: u16 = 512;
 
 StubbornReceiver MspReceiver(ELRS_MSP_MAX_PACKAGES);
-uint8_t MspData[ELRS_MSP_BUFFER];
+const MspData: [u8; ELRS_MSP_BUFFER] = [0; ELRS_MSP_BUFFER];
 
-static uint8_t NextTelemetryType = ELRS_TELEMETRY_TYPE_LINK;
-static bool telemBurstValid;
+static mut NextTelemetryType: u8 = ELRS_TELEMETRY_TYPE_LINK;
+static mut telemBurstValid: bool = false;
 /// Filters ////////////////
 LPF LPF_Offset(2);
 LPF LPF_OffsetDx(4);
@@ -103,17 +103,18 @@ LPF LPF_UplinkRSSI1(5);
 LQCALC<100> LQCalc;
 uint8_t uplinkLQ;
 
-uint8_t scanIndex = RATE_DEFAULT;
-uint8_t ExpressLRS_nextAirRateIndex;
+const scanIndex: u8 = RATE_DEFAULT;
+const ExpressLRS_nextAirRateIndex: u8 = 0;
 
-int32_t RawOffset;
-int32_t prevRawOffset;
-int32_t Offset;
-int32_t OffsetDx;
-int32_t prevOffset;
-RXtimerState_e RXtimerState;
-uint32_t GotConnectionMillis = 0;
-const uint32_t ConsiderConnGoodMillis = 1000; // minimum time before we can consider a connection to be 'good'
+// todo: Should these be consts, or static mut? I think the last is const?
+const RawOffset: i32 = 0;
+const prevRawOffset: i32 = 0;
+const Offset: i32 = 0;
+const  OffsetDx: i32 = 0;
+const prevOffset: i32 = 0;
+// RXtimerState_e RXtimerState;
+const GotConnectionMillis: u32 = 0;
+const ConsiderConnGoodMillis: u32 = 1000; // minimum time before we can consider a connection to be 'good'
 
 ///////////////////////////////////////////////
 
@@ -138,21 +139,21 @@ static bool lastPacketCrcError;
 ///////////////////////////////////////////////////////////////
 
 /// Variables for Sync Behaviour ////
-uint32_t cycleInterval; // in ms
-uint32_t RFmodeLastCycled = 0;
+const cycleInterval: u32 = 0; // in ms
+const RFmodeLastCycled: u32 = 0;
 #define RFmodeCycleMultiplierSlow 10
-uint8_t RFmodeCycleMultiplier;
-bool LockRFmode = false;
+const RFmodeCycleMultiplier: u8;
+const LockRFmode: bool = false;
 ///////////////////////////////////////
 
-#if defined(DEBUG_BF_LINK_STATS)
+// #if defined(DEBUG_BF_LINK_STATS)
 // Debug vars
-uint8_t debug1 = 0;
-uint8_t debug2 = 0;
-uint8_t debug3 = 0;
-int8_t debug4 = 0;
+const debug1: u8 = 0;
+const debug2: u8 = 0;
+const debug3: u8 = 0;
+const debug4: i8 = 0;
 ///////////////////////////////////////
-#endif
+// #endif
 
 bool InBindingMode = false;
 
@@ -337,7 +338,8 @@ bool ICACHE_RAM_ATTR HandleSendTelemetryResponse()
     return true;
 }
 
-void ICACHE_RAM_ATTR HandleFreqCorr(bool value)
+// ICACHE_RAM_ATTR
+fn HandleFreqCorr(value: bool)
 {
     //DBGVLN(FreqCorrection);
     if (!value)
@@ -544,7 +546,7 @@ void ICACHE_RAM_ATTR HWtimerCallbackTock()
     #endif
 }
 
-void LostConnection()
+fn LostConnection()
 {
     DBGLN("lost conn fc=%d fo=%d", FreqCorrection, hwTimer.FreqOffset);
 
@@ -577,7 +579,8 @@ void LostConnection()
     }
 }
 
-void ICACHE_RAM_ATTR TentativeConnection(unsigned long now)
+// ICACHE_RAM_ATTR
+fn TentativeConnection(now: u64)
 {
     PFDloop.reset();
     connectionState = tentative;
@@ -594,7 +597,7 @@ void ICACHE_RAM_ATTR TentativeConnection(unsigned long now)
     // the timer ISR will fire immediately and preempt any other code
 }
 
-void GotConnection(unsigned long now)
+fn GotConnection(now: u64)
 {
     if (connectionState == connected)
     {
@@ -615,32 +618,34 @@ void GotConnection(unsigned long now)
     DBGLN("got conn");
 }
 
-static void ICACHE_RAM_ATTR ProcessRfPacket_RC()
+// ICACHE_RAM_ATTR
+fn ProcessRfPacket_RC()
 {
     // Must be fully connected to process RC packets, prevents processing RC
     // during sync, where packets can be received before connection
     if (connectionState != connected)
         return;
 
-    bool telemetryConfirmValue = UnpackChannelData(Radio.RXdataBuffer, &crsf,
+    let telemetryConfirmValue: bool = UnpackChannelData(Radio.RXdataBuffer, &crsf,
         NonceRX, TLMratioEnumToValue(ExpressLRS_currAirRate_Modparams->TLMinterval));
     TelemetrySender.ConfirmCurrentPayload(telemetryConfirmValue);
 
     // No channels packets to the FC if no model match
     if (connectionHasModelMatch)
     {
-        #if defined(GPIO_PIN_PWM_OUTPUTS)
-        newChannelsAvailable = true;
-        #else
-        crsf.sendRCFrameToFC();
-        #endif
+        if GPIO_PIN_PWM_OUTPUTS {
+            newChannelsAvailable = true;
+        } else {
+            crsf.sendRCFrameToFC();
+        }
     }
 }
 
 /**
  * Process the assembled MSP packet in MspData[]
  **/
-static void ICACHE_RAM_ATTR MspReceiveComplete()
+// ICACHE_RAM_ATTR
+fn MspReceiveComplete()
 {
     if (MspData[7] == MSP_SET_RX_CONFIG && MspData[8] == MSP_ELRS_MODEL_ID)
     {
@@ -648,9 +653,7 @@ static void ICACHE_RAM_ATTR MspReceiveComplete()
     }
     else if (MspData[0] == MSP_ELRS_SET_RX_WIFI_MODE)
     {
-#if defined(PLATFORM_ESP32) || defined(PLATFORM_ESP8266)
-        connectionState = wifiUpdate;
-#endif
+
     }
 #if defined(HAS_VTX_SPI)
     else if (MspData[7] == MSP_SET_VTX_CONFIG)
@@ -688,7 +691,8 @@ static void ICACHE_RAM_ATTR MspReceiveComplete()
     MspReceiver.Unlock();
 }
 
-static void ICACHE_RAM_ATTR ProcessRfPacket_MSP()
+// ICACHE_RAM_ATTR
+fn ProcessRfPacket_MSP()
 {
     // Always examine MSP packets for bind information if in bind mode
     // [1] is the package index, first packet of the MSP
@@ -715,7 +719,8 @@ static void ICACHE_RAM_ATTR ProcessRfPacket_MSP()
     }
 }
 
-fn ICACHE_RAM_ATTR ProcessRfPacket_SYNC(now: u32) -> bool
+// ICACHE_RAM_ATTR
+fn  ProcessRfPacket_SYNC(now: u64) -> bool
 {
     // Verify the first two of three bytes of the binding ID, which should always match
     if (Radio.RXdataBuffer[4] != UID[3] || Radio.RXdataBuffer[5] != UID[4])
@@ -767,69 +772,66 @@ fn ICACHE_RAM_ATTR ProcessRfPacket_SYNC(now: u32) -> bool
     return false;
 }
 
-void ICACHE_RAM_ATTR ProcessRFPacket(SX12xxDriverCommon::rx_status const status)
+// ICACHE_RAM_ATTR
+fn ProcessRFPacket(SX12xxDriverCommon::rx_status const status)
 {
     if (status != SX12xxDriverCommon::SX12XX_RX_OK)
     {
         DBGVLN("HW CRC error");
-        #if defined(DEBUG_RX_SCOREBOARD)
-            lastPacketCrcError = true;
-        #endif
+        # if defined(DEBUG_RX_SCOREBOARD)
+        lastPacketCrcError = true;
+        # endif
         return;
     }
-    uint32_t const beginProcessing = micros();
-    uint16_t const inCRC = (((uint16_t)(Radio.RXdataBuffer[0] & 0b11111100)) << 6) | Radio.RXdataBuffer[7];
-    uint8_t const type = Radio.RXdataBuffer[0] & 0b11;
+    let beginProcessing = micros();
+    let inCRC: u16 = (((uint16_t)(Radio.RXdataBuffer[0] & 0b11111100)) << 6) | Radio.RXdataBuffer[7];
+    let type_: u8 = Radio.RXdataBuffer[0] & 0b11;
 
     // For smHybrid the CRC only has the packet type in byte 0
     // For smHybridWide the FHSS slot is added to the CRC in byte 0 on RC_DATA_PACKETs
-    if (type != RC_DATA_PACKET || OtaSwitchModeCurrent != smHybridWide)
+    if (type_ != RC_DATA_PACKET || OtaSwitchModeCurrent != smHybridWide)
     {
-        Radio.RXdataBuffer[0] = type;
+        Radio.RXdataBuffer[0] = type_;
+    } else {
+        let NonceFHSSresult: u8 = NonceRX % ExpressLRS_currAirRate_Modparams -> FHSShopInterval;
+        Radio.RXdataBuffer[0] = type_ | (NonceFHSSresult << 2);
     }
-    else
-    {
-        uint8_t NonceFHSSresult = NonceRX % ExpressLRS_currAirRate_Modparams->FHSShopInterval;
-        Radio.RXdataBuffer[0] = type | (NonceFHSSresult << 2);
-    }
-    uint16_t calculatedCRC = ota_crc.calc(Radio.RXdataBuffer, 7, CRCInitializer);
+    let calculatedCRC: u16 = ota_crc.calc(Radio.RXdataBuffer, 7, CRCInitializer);
 
     if (inCRC != calculatedCRC)
     {
         DBGV("CRC error: ");
-        for (int i = 0; i < 8; i++)
-        {
-            DBGV("%x,", Radio.RXdataBuffer[i]);
+        for i in 0..8 {
+            {
+                DBGV("%x,", Radio.RXdataBuffer[i]);
+            }
+            DBGVCR;
+            if DEBUG_RX_SCOREBOARD {
+                lastPacketCrcError = true;
+            }
+            return;
         }
-        DBGVCR;
-        #if defined(DEBUG_RX_SCOREBOARD)
-            lastPacketCrcError = true;
-        #endif
-        return;
-    }
-    PFDloop.extEvent(beginProcessing + PACKET_TO_TOCK_SLACK);
+        PFDloop.extEvent(beginProcessing + PACKET_TO_TOCK_SLACK);
 
-    bool doStartTimer = false;
-    unsigned long now = millis();
+        let mut doStartTimer = false;
+        let now = millis();
 
-    LastValidPacket = now;
+        LastValidPacket = now;
 
-    switch (type)
-    {
-    case RC_DATA_PACKET: //Standard RC Data Packet
-        ProcessRfPacket_RC();
-        break;
-    case MSP_DATA_PACKET:
-        ProcessRfPacket_MSP();
-        break;
-    case TLM_PACKET: //telemetry packet from master
-        // not implimented yet
-        break;
-    case SYNC_PACKET: //sync packet from master
+        match type_ {
+        RC_DATA_PACKET => { // Standard RC Data  Packet
+            ProcessRfPacket_RC();
+        }
+        MSP_DATA_PACKET => {
+            ProcessRfPacket_MSP();
+        }
+    TLM_PACKET => { //telemetry packet from master
+    // not implimented yet
+}
+    SYNC_PACKET => { //sync packet from master
         doStartTimer = ProcessRfPacket_SYNC(now) && !InBindingMode;
-        break;
-    default: // code to be executed if n doesn't match any cases
-        break;
+}
+    _ => ()
     }
 
     // Store the LQ/RSSI/Antenna
@@ -840,19 +842,21 @@ void ICACHE_RAM_ATTR ProcessRFPacket(SX12xxDriverCommon::rx_status const status)
     // but do not extend it indefinitely
     RFmodeCycleMultiplier = RFmodeCycleMultiplierSlow;
 
-#if defined(DEBUG_RX_SCOREBOARD)
-    if (type != SYNC_PACKET) DBGW(connectionHasModelMatch ? 'R' : 'r');
-#endif
+if DEBUG_RX_SCOREBOARD {
+    if ( type_ != SYNC_PACKET) DBGW(connectionHasModelMatch? 'R': 'r');
+}
     if (doStartTimer)
         hwTimer.resume(); // will throw an interrupt immediately
 }
 
-void ICACHE_RAM_ATTR RXdoneISR(SX12xxDriverCommon::rx_status const status)
+    // ICACHE_RAM_ATTR
+fn RXdoneISR(status: SX12xxDriverCommon::rx_status )
 {
     ProcessRFPacket(status);
 }
 
-void ICACHE_RAM_ATTR TXdoneISR()
+// ICACHE_RAM_ATTR
+fn  TXdoneISR()
 {
     Radio.RXnb();
 #if defined(DEBUG_RX_SCOREBOARD)
@@ -1033,8 +1037,8 @@ fn updateTelemetryBurst()
         return;
     telemBurstValid = true;
 
-    uint32_t hz = RateEnumToHz(ExpressLRS_currAirRate_Modparams->enum_rate);
-    uint32_t ratiodiv = TLMratioEnumToValue(ExpressLRS_currAirRate_Modparams->TLMinterval);
+    let hz: u32 = RateEnumToHz(ExpressLRS_currAirRate_Modparams.enum_rate);
+    let ratiodiv: u32 = TLMratioEnumToValue(ExpressLRS_currAirRate_Modparams.TLMinterval);
     // telemInterval = 1000 / (hz / ratiodiv);
     // burst = TELEM_MIN_LINK_INTERVAL / telemInterval;
     // This ^^^ rearranged to preserve precision vvv
@@ -1054,7 +1058,7 @@ fn updateTelemetryBurst()
 /* If not connected will rotate through the RF modes looking for sync
  * and blink LED
  */
-fn cycleRfMode(unsigned long now)
+fn cycleRfMode(now: u64)
 {
     if (connectionState == connected || connectionState == wifiUpdate || InBindingMode)
         return;
@@ -1077,7 +1081,7 @@ fn cycleRfMode(unsigned long now)
     } // if time to switch RF mode
 }
 
-fn servosUpdate(unsigned long now)
+fn servosUpdate(now: u64)
 {
 #if defined(GPIO_PIN_PWM_OUTPUTS)
     // The ESP waveform generator is nice because it doesn't change the value
@@ -1148,7 +1152,7 @@ fn updateBindingMode()
         ExitBindingMode();
     }
 
-#ifndef MY_UID
+// #ifndef MY_UID
     // If the power on counter is >=3, enter binding and clear counter
     if (config.GetPowerOnCounter() >= 3)
     {
@@ -1158,7 +1162,7 @@ fn updateBindingMode()
         INFOLN("Power on counter >=3, enter binding mode...");
         EnterBindingMode();
     }
-#endif
+// #endif
 }
 
 fn checkSendLinkStatsToFc(uint32_t now)
@@ -1181,24 +1185,7 @@ fn checkSendLinkStatsToFc(uint32_t now)
     }
 }
 
-#if defined(PLATFORM_ESP8266)
-// Called from core's user_rf_pre_init() function (which is called by SDK) before setup()
-RF_PRE_INIT()
-{
-    // Set whether the chip will do RF calibration or not when power up.
-    // I believe the Arduino core fakes this (byte 114 of phy_init_data.bin)
-    // to be 1, but the TX power calibration can pull over 300mA which can
-    // lock up receivers built with a underspeced LDO (such as the EP2 "SDG")
-    // Option 2 is just VDD33 measurement
-    #if defined(RF_CAL_MODE)
-    system_phy_set_powerup_option(RF_CAL_MODE);
-    #else
-    system_phy_set_powerup_option(2);
-    #endif
-}
-#endif
-
-void setup()
+fn setup()
 {
     setupTarget();
     // serial setup must be done before anything as some libs write

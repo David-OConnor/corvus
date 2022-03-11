@@ -42,25 +42,6 @@ impl TlmRatio {
     }
 }
 
-    switch (enumval)
-    {
-    TLM_RATIO_NO_TLM => {
-        1;
-    TLM_RATIO_1_2 => {
-        2;
-    TLM_RATIO_1_4 => {
-        4;
-    TLM_RATIO_1_8 => {
-        8;
-    TLM_RATIO_1_16 => {
-        16;
-    TLM_RATIO_1_32 => {
-        32;
-    TLM_RATIO_1_64 => 64,
-    TLM_RATIO_1_128 => 128,
-    _ => 0,
-
-
 enum ConnectionState
 {
     connected,
@@ -94,9 +75,6 @@ enum RXtimerState
     tim_tentative = 1,
     tim_locked = 2
 }
-
-extern connectionState_e connectionState;
-extern bool connectionHasModelMatch;
 
 #[repr(u8)]
 enum expresslrs_tlm_header
@@ -271,8 +249,8 @@ fn enumRatetoIndex(rate: u8) -> u8
 expresslrs_mod_settings_s *ExpressLRS_currAirRate_Modparams;
 expresslrs_rf_pref_params_s *ExpressLRS_currAirRate_RFperfParams;
 
-connectionState_e connectionState = disconnected;
-bool connectionHasModelMatch;
+static mut connectionState: ConnectionState = ConnectionState::disconnected;
+static mut connectionHasModelMatch: bool = false;
 
 const BindingUID: [u8; 6] = [0, 1, 2, 3, 4, 5]; // Special binding UID values
 // #if defined(MY_UID)
@@ -294,18 +272,18 @@ const MasterUID: [u8; 6] = [UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]]; // 
 
 const CRCInitializer: u16 = (UID[4] << 8) | UID[5];
 
-fn uidMacSeedGet() -> u32
+unsafe fn uidMacSeedGet() -> u32
 {
 ((UID[2] as u32) << 24) + ((UID[3] as u32) << 16) + ((UID[4] as u32) << 8) + UID[5]
 }
 
 // `options.cpp`
 
-#define QUOTE(arg) #arg
-#define STR(macro) QUOTE(macro)
-const unsigned char target_name[] = "\xBE\xEF\xCA\xFE" STR(TARGET_NAME);
+// #define QUOTE(arg) #arg
+// #define STR(macro) QUOTE(macro)
+const target_name: [char; 69] = "\xBE\xEF\xCA\xFE" STR(TARGET_NAME);
 const target_name_size: u8 = sizeof(target_name);
-const char device_name[] = DEVICE_NAME;
+const device_name: [char; 69] = DEVICE_NAME;
 const device_name_size: u8 = sizeof(device_name);
 const commit: [char; 1] [LATEST_COMMIT, 0];
 const version: [char; 1] = [LATEST_VERSION, 0];
