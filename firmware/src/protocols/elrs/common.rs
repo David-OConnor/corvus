@@ -213,29 +213,31 @@ const AirRateRFperf: [PrefParams; RATE_MAX as usize] = [
 
 fn get_elrs_airRateConfig(index: usize) -> ModSettings
 {
-    if RATE_MAX <= index
+    let mut i = index as u8;
+    if RATE_MAX <= i
     {
         // Set to last usable entry in the array
-        index = RATE_MAX - 1;
+        i = RATE_MAX - 1;
     }
-    ExpressLRS_AirRateConfig[index]
+    ExpressLRS_AirRateConfig[i as usize]
 }
 
 fn get_elrs_RFperfParams(index: usize) -> RfPrefParams {
 {
-    if RATE_MAX <= index
+    let mut i = index as u8;
+
+    if RATE_MAX <= i
     {
         // Set to last usable entry in the array
-        index = RATE_MAX - 1;
+        i = RATE_MAX - 1;
     }
-    AirRateRFperf[index]
+    AirRateRFperf[i as usize]
 }
 
 fn enumRatetoIndex(rate: u8) -> u8
 { // convert enum_rate to index
-    expresslrs_mod_settings_s const * ModParams;
-        for i in 0..RATE_MAX {
-        ModParams = get_elrs_airRateConfig(i);
+    for i in 0..RATE_MAX {
+        let ModParams = get_elrs_airRateConfig(i as usize);
         if ModParams.enum_rate == rate
         {
             return i;
@@ -268,9 +270,10 @@ const BindingUID: [u8; 6] = [0, 1, 2, 3, 4, 5]; // Special binding UID values
 //         uint8_t UID[6] = {0};
 //     #endif
 // #endif
-const MasterUID: [u8; 6] = [UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]]; // Special binding UID values
 
-const CRCInitializer: u16 = (UID[4] << 8) | UID[5];
+static MasterUID: [u8; 6] = unsafe { [UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]] }; // Special binding UID values
+
+static CRCInitializer: u16 = unsafe { ((UID[4] as u16) << 8) | (UID[5] as u16) };
 
 unsafe fn uidMacSeedGet() -> u32
 {
@@ -281,76 +284,28 @@ unsafe fn uidMacSeedGet() -> u32
 
 // #define QUOTE(arg) #arg
 // #define STR(macro) QUOTE(macro)
-const target_name: [char; 69] = "\xBE\xEF\xCA\xFE" STR(TARGET_NAME);
+const target_name: &str = "\xBE\xEF\xCA\xFE";
 const target_name_size: u8 = sizeof(target_name);
-const device_name: [char; 69] = DEVICE_NAME;
+const device_name: &str = "Anyleaf Mercury G4";
 const device_name_size: u8 = sizeof(device_name);
-const commit: [char; 1] [LATEST_COMMIT, 0];
-const version: [char; 1] = [LATEST_VERSION, 0];
+// const commit: [char; 1] [LATEST_COMMIT, 0];
+// const version: [char; 1] = [LATEST_VERSION, 0];
 
-// #if defined(TARGET_TX)
-const wifi_hostname: [char; 10] = "elrs_tx";
-const wifi_ap_ssid: [char; 10] = "ExpressLRS TX";
-// #else
-const wifi_hostname: [char; 6] = "elrs_rx";
-const wifi_ap_ssid: [char; 12] = "ExpressLRS RX";
+
+const wifi_hostname: &str = "elrs_rx";
+const wifi_ap_ssid: &str = "ExpressLRS RX";
+const wifi_ap_password: &str = "expresslrs";
+const wifi_ap_address: &str = "10.0.0.1";
+const home_wifi_ssid: &str = "";
+const home_wifi_password: &str = "";
+
+
+
+// const char PROGMEM compile_options[] = {
+// #ifdef MY_BINDING_PHRASE
+//     "-DMY_BINDING_PHRASE=\"" STR(MY_BINDING_PHRASE) "\" "
 // #endif
-const wifi_ap_password: [char; 10] = "expresslrs";
-const wifi_ap_address: [char; 10] = "10.0.0.1";
 
-const home_wifi_ssid: [char; 0] = ""
-//#ifdef HOME_WIFI_SSID
-STR(HOME_WIFI_SSID)
-//#endif
-;
-const home_wifi_password: [char; 0] = ""
-//#ifdef HOME_WIFI_PASSWORD
-STR(HOME_WIFI_PASSWORD)
-//#endif
-;
-
-const char PROGMEM compile_options[] = {
-#ifdef MY_BINDING_PHRASE
-    "-DMY_BINDING_PHRASE=\"" STR(MY_BINDING_PHRASE) "\" "
-#endif
-//
-// #ifdef TARGET_TX
-//     #ifdef UNLOCK_HIGHER_POWER
-//         "-DUNLOCK_HIGHER_POWER "
-//     #endif
-//     #ifdef NO_SYNC_ON_ARM
-//         "-DNO_SYNC_ON_ARM "
-//     #endif
-//     #ifdef UART_INVERTED
-//         "-DUART_INVERTED "
-//     #endif
-//     #ifdef DISABLE_ALL_BEEPS
-//         "-DDISABLE_ALL_BEEPS "
-//     #endif
-//     #ifdef JUST_BEEP_ONCE
-//         "-DJUST_BEEP_ONCE "
-//     #endif
-//     #ifdef DISABLE_STARTUP_BEEP
-//         "-DDISABLE_STARTUP_BEEP "
-//     #endif
-//     #ifdef MY_STARTUP_MELODY
-//         "-DMY_STARTUP_MELODY=\"" STR(MY_STARTUP_MELODY) "\" "
-//     #endif
-//     #ifdef WS2812_IS_GRB
-//         "-DWS2812_IS_GRB "
-//     #endif
-//     #ifdef TLM_REPORT_INTERVAL_MS
-//         "-DTLM_REPORT_INTERVAL_MS=" STR(TLM_REPORT_INTERVAL_MS) " "
-//     #endif
-//     #ifdef USE_TX_BACKPACK
-//         "-DUSE_TX_BACKPACK "
-//     #endif
-//     #ifdef USE_BLE_JOYSTICK
-//         "-DUSE_BLE_JOYSTICK "
-//     #endif
-// #endif
-//
-// #ifdef TARGET_RX
 //     #ifdef LOCK_ON_FIRST_CONNECTION
 //         "-DLOCK_ON_FIRST_CONNECTION "
 //     #endif
@@ -372,7 +327,6 @@ const char PROGMEM compile_options[] = {
 //     #ifdef USE_R9MM_R9MINI_SBUS
 //         "-DUSE_R9MM_R9MINI_SBUS "
 //     #endif
-// #endif
-};
+// };
 
 // `rx_main.cpp`
