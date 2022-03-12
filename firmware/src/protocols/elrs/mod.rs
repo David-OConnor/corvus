@@ -5,8 +5,10 @@
 // // rx_main gives the top level of the receiver, common defines the modem params, fhss covers the channels
 // // oh, and PFD is the code for syncing the rx to the tx, that's fairly critical. Most of this lives in src/lib/*"
 
-pub mod rx_main;
-pub mod common;
+mod rx_main;
+mod common;
+mod fhss
+mod ots;
 
 
 // todo: Should this mod be under drivers, or top level? Or a new top-level mod folder called protocols,

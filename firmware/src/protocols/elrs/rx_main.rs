@@ -36,7 +36,7 @@ device_affinity_t ui_devices[] = {
 #endif
 };
 
-uint8_t antenna = 0;    // which antenna is currently in use
+static mut antenna: u8 = 0;    // which antenna is currently in use
 
 hwTimer hwTimer;
 POWERMGNT POWERMGNT;
@@ -52,32 +52,11 @@ extern bool webserverPreventAutoStart;
 #endif
 
 // #if defined(GPIO_PIN_PWM_OUTPUTS)
-static mut constexpr uint8_t SERVO_PINS[] = GPIO_PIN_PWM_OUTPUTS;
-static mut constexpr uint8_t SERVO_COUNT = ARRAY_SIZE(SERVO_PINS);
+static mut SERVO_PINS: [u8; 69] = GPIO_PIN_PWM_OUTPUTS;
+static mut SERVO_COUNT: [u8; 69] = ARRAY_SIZE(SERVO_PINS);
 static mut Servo *Servos[SERVO_COUNT];
-static mut bool newChannelsAvailable;
+static mut newChannelsAvailable: bool = false;
 // #endif
-
-/* CRSF_TX_SERIAL is used by CRSF output */
-#if defined(TARGET_RX_FM30_MINI)
-    HardwareSerial CRSF_TX_SERIAL(USART2);
-#else
-    #define CRSF_TX_SERIAL Serial
-#endif
-CRSF crsf(CRSF_TX_SERIAL);
-
-/* CRSF_RX_SERIAL is used by telemetry receiver and can be on a different peripheral */
-#if defined(TARGET_RX_GHOST_ATTO_V1) /* !TARGET_RX_GHOST_ATTO_V1 */
-    #define CRSF_RX_SERIAL CrsfRxSerial
-    HardwareSerial CrsfRxSerial(USART1, HALF_DUPLEX_ENABLED);
-#elif defined(TARGET_R9SLIMPLUS_RX) /* !TARGET_R9SLIMPLUS_RX */
-    #define CRSF_RX_SERIAL CrsfRxSerial
-    HardwareSerial CrsfRxSerial(USART3);
-#elif defined(TARGET_RX_FM30_MINI)
-    #define CRSF_RX_SERIAL CRSF_TX_SERIAL
-#else
-    #define CRSF_RX_SERIAL Serial
-#endif
 
 StubbornSender TelemetrySender(ELRS_TELEMETRY_MAX_PACKAGES);
 static telemetryBurstCount: u8 = 0;
@@ -118,10 +97,10 @@ const ConsiderConnGoodMillis: u32 = 1000; // minimum time before we can consider
 
 ///////////////////////////////////////////////
 
-volatile uint8_t NonceRX = 0; // nonce that we THINK we are up to.
+static mut NonceRX: u8 = 0; // nonce that we THINK we are up to.
 
-bool alreadyFHSS = false;
-bool alreadyTLMresp = false;
+static mut alreadyFHSS: bool = false;
+static mut alreadyTLMresp: bool = false;
 
 //////////////////////////////////////////////////////////////
 
@@ -864,56 +843,6 @@ fn  TXdoneISR()
 #endif
 }
 
-static void setupSerial()
-{
-#if defined(CRSF_RCVR_NO_SERIAL)
-    // For PWM receivers with no CRSF I/O, only turn on the Serial port if logging is on
-    #if defined(DEBUG_LOG)
-    Serial.begin(RCVR_UART_BAUD);
-    #endif
-    return;
-#endif
-
-#ifdef PLATFORM_STM32
-#if defined(TARGET_R9SLIMPLUS_RX)
-    CRSF_RX_SERIAL.setRx(GPIO_PIN_RCSIGNAL_RX);
-    CRSF_RX_SERIAL.begin(RCVR_UART_BAUD);
-
-    CRSF_TX_SERIAL.setTx(GPIO_PIN_RCSIGNAL_TX);
-#else /* !TARGET_R9SLIMPLUS_RX */
-    CRSF_TX_SERIAL.setTx(GPIO_PIN_RCSIGNAL_TX);
-    CRSF_TX_SERIAL.setRx(GPIO_PIN_RCSIGNAL_RX);
-#endif /* TARGET_R9SLIMPLUS_RX */
-#if defined(TARGET_RX_GHOST_ATTO_V1)
-    // USART1 is used for RX (half duplex)
-    CRSF_RX_SERIAL.setHalfDuplex();
-    CRSF_RX_SERIAL.setTx(GPIO_PIN_RCSIGNAL_RX);
-    CRSF_RX_SERIAL.begin(RCVR_UART_BAUD);
-    CRSF_RX_SERIAL.enableHalfDuplexRx();
-
-    // USART2 is used for TX (half duplex)
-    // Note: these must be set before begin()
-    CRSF_TX_SERIAL.setHalfDuplex();
-    CRSF_TX_SERIAL.setRx((PinName)NC);
-    CRSF_TX_SERIAL.setTx(GPIO_PIN_RCSIGNAL_TX);
-#endif /* TARGET_RX_GHOST_ATTO_V1 */
-    CRSF_TX_SERIAL.begin(RCVR_UART_BAUD);
-#endif /* PLATFORM_STM32 */
-
-#if defined(TARGET_RX_FM30_MINI)
-    Serial.setRx(GPIO_PIN_DEBUG_RX);
-    Serial.setTx(GPIO_PIN_DEBUG_TX);
-    Serial.begin(RCVR_UART_BAUD); // Same baud as CRSF for simplicity
-#endif
-
-#if defined(PLATFORM_ESP8266)
-    Serial.begin(RCVR_UART_BAUD);
-    #if defined(RCVR_INVERT_TX)
-    USC0(UART0) |= BIT(UCTXI);
-    #endif
-#endif
-
-}
 
 static void setupConfigAndPocCheck()
 {
@@ -969,36 +898,6 @@ static void setupBindingFromConfig()
         }
         DBGLN("UID = %d, %d, %d, %d, %d, %d", UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]);
         CRCInitializer = (UID[4] << 8) | UID[5];
-    }
-#endif
-}
-
-static void HandleUARTin()
-{
-#if !defined(CRSF_RCVR_NO_SERIAL)
-    while (CRSF_RX_SERIAL.available())
-    {
-        telemetry.RXhandleUARTin(CRSF_RX_SERIAL.read());
-
-        if (telemetry.ShouldCallBootloader())
-        {
-            reset_into_bootloader();
-        }
-        if (telemetry.ShouldCallEnterBind())
-        {
-            EnterBindingMode();
-        }
-        if (telemetry.ShouldCallUpdateModelMatch())
-        {
-            UpdateModelMatch(telemetry.GetUpdatedModelMatch());
-        }
-        if (telemetry.ShouldSendDeviceFrame())
-        {
-            uint8_t deviceInformation[DEVICE_INFORMATION_LENGTH];
-            crsf.GetDeviceInformation(deviceInformation, 0);
-            crsf.SetExtendedHeaderAndCrc(deviceInformation, CRSF_FRAMETYPE_DEVICE_INFO, DEVICE_INFORMATION_FRAME_SIZE, CRSF_ADDRESS_CRSF_RECEIVER, CRSF_ADDRESS_FLIGHT_CONTROLLER);
-            crsf.sendMSPFrameToFC(deviceInformation);
-        }
     }
 #endif
 }
@@ -1188,9 +1087,7 @@ fn checkSendLinkStatsToFc(uint32_t now)
 fn setup()
 {
     setupTarget();
-    // serial setup must be done before anything as some libs write
-    // to the serial port and they'll block if the buffer fills
-    setupSerial();
+
     // Init EEPROM and load config, checking powerup count
     setupConfigAndPocCheck();
 
@@ -1301,38 +1198,6 @@ fn loop_()
     }
     updateTelemetryBurst();
     updateBindingMode();
-}
-
-struct bootloader {
-    uint32_t key;
-    uint32_t reset_type;
-};
-
-void reset_into_bootloader(void)
-{
-    CRSF_TX_SERIAL.println((const char *)&target_name[4]);
-    CRSF_TX_SERIAL.flush();
-#if defined(PLATFORM_STM32)
-    delay(100);
-    DBGLN("Jumping to Bootloader...");
-    delay(100);
-
-    /** Write command for firmware update.
-     *
-     * Bootloader checks this memory area (if newer enough) and
-     * perpare itself for fw update. Otherwise it skips the check
-     * and starts ELRS firmware immediately
-     */
-    extern __IO uint32_t _bootloader_data;
-    volatile struct bootloader * blinfo = ((struct bootloader*)&_bootloader_data) + 0;
-    blinfo->key = 0x454c5253; // ELRS
-    blinfo->reset_type = 0xACDC;
-
-    HAL_NVIC_SystemReset();
-#elif defined(PLATFORM_ESP8266)
-    delay(100);
-    ESP.rebootIntoUartDownloadMode();
-#endif
 }
 
 void EnterBindingMode()
