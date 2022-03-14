@@ -287,7 +287,8 @@ fn  UnpackChannelDataHybridSwitch8(volatile uint8_t* Buffer, CRSF *crsf, uint8_t
  * Output: crsf.PackedRCdataOut, crsf.LinkStatistics.uplink_TX_Power
  * Returns: TelemetryStatus bit
  */
-fn ICACHE_RAM_ATTR UnpackChannelDataHybridWide(Buffer: &mut [u8],crsf: &mut [CRSF], nonce: u8, tlmDenom: u8) -> bool
+// ICACHE_RAM_ATTR
+fn UnpackChannelDataHybridWide(Buffer: &mut [u8],crsf: &mut [CRSF], nonce: u8, tlmDenom: u8) -> bool
 {
     let TelemetryStatus: bool = false;
     let switchByte: u8 = Buffer[6];
@@ -297,7 +298,7 @@ fn ICACHE_RAM_ATTR UnpackChannelDataHybridWide(Buffer: &mut [u8],crsf: &mut [CRS
     crsf.PackedRCdataOut.ch4 = BIT_to_CRSF((switchByte & 0b10000000) >> 7);
 
     // The round-robin switch, 6-7 bits with the switch index implied by the nonce
-    uint8_t switchIndex = HybridWideNonceToSwitchIndex(nonce);
+    let switchIndex: u8 = HybridWideNonceToSwitchIndex(nonce);
     bool telemInEveryPacket = (tlmDenom < 8);
     if (telemInEveryPacket || switchIndex == 7)
           TelemetryStatus = (switchByte & 0b01000000) >> 6;
@@ -348,30 +349,18 @@ fn ICACHE_RAM_ATTR UnpackChannelDataHybridWide(Buffer: &mut [u8],crsf: &mut [CRS
 
     return TelemetryStatus;
 }
-#endif
 
 fn OtaSetSwitchMode(switchMode: OtaSwitchMode)
 {
-    match switchMode
+    OtaSwitchModeCurrent = match switchMode
     {
-    OtaSwitchMode::smHybridWide => {
-        #if defined(TARGET_TX) || defined(UNIT_TEST)
-        PackChannelData = &GenerateChannelDataHybridWide;
-        #endif
-        #if defined(TARGET_RX) || defined(UNIT_TEST)
-        UnpackChannelData = &UnpackChannelDataHybridWide;
-        #endif
-    }
-    _ => {
-        # if defined(TARGET_TX) || defined(UNIT_TEST)
-        PackChannelData = &GenerateChannelDataHybrid8;
-        # endif
-        # if defined(TARGET_RX) || defined(UNIT_TEST)
-        UnpackChannelData = &UnpackChannelDataHybridSwitch8;
-        # endif
-    }
-
-    OtaSwitchModeCurrent = switchMode;
+        OtaSwitchMode::smHybridWide => {
+            UnpackChannelData = &UnpackChannelDataHybridWide;
+        }
+        _ => {
+            UnpackChannelData = &UnpackChannelDataHybridSwitch8;
+        }
+    };
 }
 
 

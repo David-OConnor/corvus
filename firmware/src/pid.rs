@@ -653,6 +653,10 @@ pub fn run_pid_inner(
                 // todo: This naive approach, or command a velocity, like in Cmd mode? Probably latter.
                 // inner_flt_cmd.thrust = *alt_commanded; // See the inner loop for more on how this is handled.
 
+                // todo: In this mode, consider having the left stick being in the middle ~50% of the range mean
+                // todo hold alt, and the upper and lower 25% meaning increase set point and decrease set
+                // todo point respectively.
+
                 // Set a vertical velocity for the inner loop to maintain, based on distance
                 let dist = match alt_type {
                     AltType::Msl => alt_commanded - params.s_z_msl,

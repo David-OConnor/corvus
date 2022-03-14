@@ -30,6 +30,8 @@ use stm32_hal2::{
 
 };
 
+use defmt::println;
+
 cfg_if! {
     if #[cfg(feature = "anyleaf-mercury-g4")] {
         use stm32_hal2::usb::{Peripheral, UsbBus, UsbBusType};

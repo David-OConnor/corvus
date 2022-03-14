@@ -1,4 +1,5 @@
 //! Adapted from the official ELRS example here: https://github.com/ExpressLRS/ExpressLRS/tree/master/src
+//! There's no formal ELRS spec, so we use the official source code as our guide.
 
 // todo // Other files to look at: "
 // // OTA would be the main thing it sounds like you're missing
@@ -7,7 +8,7 @@
 
 mod rx_main;
 mod common;
-mod fhss
+mod fhss;
 mod ots;
 
 
