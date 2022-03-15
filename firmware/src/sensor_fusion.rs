@@ -14,6 +14,8 @@
 //! to the gravity vector)."
 //!
 //! Python guide: https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python
+//!
+//! [Youtube video: Phil's Lab](https://www.youtube.com/watch?v=hQUkiC5o0JI)
 
 // todo: Try this : https://github.com/Mayitzin/ahrs/blob/master/ahrs/filters/ekf.py
 
@@ -54,9 +56,28 @@ pub struct ImuReadings {
     pub v_yaw: f32,
 }
 
+/// Kalman filter predict step
+/// - Use dynamical model to update state estimates.  x^_n+1 = x^_n + T f(x^_n, u)
+/// - Update covaraince (P) P will always increase with this step.
+fn predict() {
+    // todo: Switch away from euler angles, eg to quaternions.
+
+    // Update nonlinear state-transition fn.
+    // x^_n+1 = x^_n + T_gyr dot f(x^, u)
+    // X_n = [[ϕ_n], [θ_n]] (state estimate at sample n). f(x^, u) = [[ϕdot], [θdot]] (euler rates)
+
+}
+
+/// Kalman filter update step
+/// - Use measurements from sensors to correct predictions: x^ = x^ + K(y - h(x^, u))
+/// - Update error covariance P (P should decrease in this step)
+fn update() {
+
+}
+
 /// Estimate attitude, based on IMU data of accelerations and roll rates.
 pub fn estimate_attitude(readings: &ImuReadings) -> Params {
-    // Euler angle conventions: θ = pitch. phi = roll.
+    // Euler angle conventions: θ = pitch. phi = roll. ^ indicates an estimate
 
     // todo: Put useful params here.
     // filter_ = signal.iirfilter(1, 60, btype="lowpass", ftype="bessel", output="sos", fs=32_000)

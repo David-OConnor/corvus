@@ -324,10 +324,8 @@ if (ChannelIsClear())
 fn HandleFreqCorr(value: bool)
 {
     //DBGVLN(FreqCorrection);
-    if (!value)
-    {
-        if (FreqCorrection < FreqCorrectionMax)
-        {
+    if !value {
+        if FreqCorrection < FreqCorrectionMax   {
             FreqCorrection += 1; //min freq step is ~ 61hz but don't forget we use FREQ_HZ_TO_REG_VAL so the units here are not hz!
         }
         else
@@ -339,7 +337,7 @@ fn HandleFreqCorr(value: bool)
     }
     else
     {
-        if (FreqCorrection > FreqCorrectionMin)
+        if FreqCorrection > FreqCorrectionMin
         {
             FreqCorrection -= 1; //min freq step is ~ 61hz
         }
@@ -367,11 +365,11 @@ fn updatePhaseLock()
         {
             if unsafe {NonceRX % 8 == 0} //limit rate of freq offset adjustment slightly
             {
-                if (Offset > 0)
+                if Offset > 0
                 {
                     hwTimer.incFreqOffset();
                 }
-                else if (Offset < 0)
+                else if Offset < 0
                 {
                     hwTimer.decFreqOffset();
                 }
@@ -409,7 +407,7 @@ unsafe fn HWtimerCallbackTick() // this is 180 out of phase with the other callb
     uplinkLQ = LQCalc.getLQ();
     crsf.LinkStatistics.uplink_Link_quality = uplinkLQ;
     // Only advance the LQI period counter if we didn't send Telemetry this period
-    if (!alreadyTLMresp) {
+    if !alreadyTLMresp {
         LQCalc.inc();
     }
 
@@ -453,7 +451,7 @@ if GPIO_PIN_ANTENNA_SELECT && USE_DIVERSITY {
         let otherRSSI: i32 = if antenna == 0 { LPF_UplinkRSSI1.SmoothDataINT } else { LPF_UplinkRSSI0.SmoothDataINT };
 
         //if rssi dropped by the amount of DIVERSITY_ANTENNA_RSSI_TRIGGER
-        if ((rssi < (prevRSSI - DIVERSITY_ANTENNA_RSSI_TRIGGER)) && antennaRSSIDropTrigger >= DIVERSITY_ANTENNA_INTERVAL)
+        if (rssi < (prevRSSI - DIVERSITY_ANTENNA_RSSI_TRIGGER)) && antennaRSSIDropTrigger >= DIVERSITY_ANTENNA_INTERVAL
         {
             switchAntenna();
             antennaLQDropTrigger = 1;
@@ -545,7 +543,7 @@ fn LostConnection()
         alreadyFHSS = false;
     }
 
-    if (!InBindingMode)
+    if !InBindingMode
     {
         while(micros() - PFDloop.getIntEventTime() > 250) {}; // time it just after the tock()
         hwTimer.stop();
@@ -595,7 +593,7 @@ fn ProcessRfPacket_RC()
 {
     // Must be fully connected to process RC packets, prevents processing RC
     // during sync, where packets can be received before connection
-    if (connectionState != connected) {
+    if connectionState != connected {
         return;
     }
 
@@ -604,8 +602,7 @@ fn ProcessRfPacket_RC()
     TelemetrySender.ConfirmCurrentPayload(telemetryConfirmValue);
 
     // No channels packets to the FC if no model match
-    if (connectionHasModelMatch)
-    {
+    if connectionHasModelMatch {
         if GPIO_PIN_PWM_OUTPUTS {
             unsafe { newChannelsAvailable = true; }
         } else {
@@ -643,8 +640,7 @@ fn MspReceiveComplete()
     else
     {
         // No MSP data to the FC if no model match
-        if (connectionHasModelMatch)
-        {
+        if connectionHasModelMatch {
             crsf_ext_header_t *receivedHeader = (crsf_ext_header_t *) MspData;
             if ((receivedHeader.dest_addr == CRSF_ADDRESS_BROADCAST || receivedHeader.dest_addr == CRSF_ADDRESS_FLIGHT_CONTROLLER))
             {
@@ -669,26 +665,25 @@ fn ProcessRfPacket_MSP()
 {
     // Always examine MSP packets for bind information if in bind mode
     // [1] is the package index, first packet of the MSP
-    if (unsafe { InBindingMode } && Radio.RXdataBuffer[1] == 1 && Radio.RXdataBuffer[2] == MSP_ELRS_BIND)
+    if unsafe { InBindingMode } && Radio.RXdataBuffer[1] == 1 && Radio.RXdataBuffer[2] == MSP_ELRS_BIND
     {
-        OnELRSBindMSP((uint8_t *)&Radio.RXdataBuffer[2]);
+        OnELRSBindMSP(&Radio.RXdataBuffer[2] as u8);
         return;
     }
 
     // Must be fully connected to process MSP, prevents processing MSP
     // during sync, where packets can be received before connection
-    if (connectionState != connected) {
+    if connectionState != connected {
         return;
     }
 
     let currentMspConfirmValue: bool = MspReceiver.GetCurrentConfirm();
     MspReceiver.ReceiveData(Radio.RXdataBuffer[1], Radio.RXdataBuffer + 2);
-    if (currentMspConfirmValue != MspReceiver.GetCurrentConfirm())
+    if currentMspConfirmValue != MspReceiver.GetCurrentConfirm()
     {
         unsafe { NextTelemetryType = ELRS_TELEMETRY_TYPE_LINK; }
     }
-    if (MspReceiver.HasFinishedData())
-    {
+    if MspReceiver.HasFinishedData() {
         MspReceiveComplete();
     }
 }
@@ -731,10 +726,10 @@ fn  ProcessRfPacket_SYNC(now: u64) -> bool
     let modelMatched: bool = Radio.RXdataBuffer[6] == (UID[5] ^ modelXor);
     DBGVLN("MM %u=%u %d", Radio.RXdataBuffer[6], UID[5], modelMatched);
 
-    if (connectionState == disconnected
+    if connectionState == disconnected
         || unsafe { NonceRX } != Radio.RXdataBuffer[2]
         || FHSSgetCurrIndex() != Radio.RXdataBuffer[1]
-        || connectionHasModelMatch != modelMatched)
+        || connectionHasModelMatch != modelMatched
     {
         //println!("\r\n%ux%ux%u", NonceRX, Radio.RXdataBuffer[2], Radio.RXdataBuffer[1]);
         FHSSsetCurrIndex(Radio.RXdataBuffer[1]);
@@ -751,8 +746,7 @@ fn  ProcessRfPacket_SYNC(now: u64) -> bool
 // ICACHE_RAM_ATTR
 unsafe fn ProcessRFPacket(status: SX12xxDriverCommon::rx_status)
 {
-    if (status != SX12xxDriverCommon::SX12XX_RX_OK)
-    {
+    if status != SX12xxDriverCommon::SX12XX_RX_OK {
         defmt::println!("HW CRC error");
         if DEBUG_RX_SCOREBOARD {
             lastPacketCrcError = true;
@@ -852,20 +846,19 @@ fn setupConfigAndPocCheck()
 
     println!("ModelId=%u", config.GetModelId());
 
-#ifndef MY_UID
+// #ifndef MY_UID
     // Increment the power on counter in eeprom
     config.SetPowerOnCounter(config.GetPowerOnCounter() + 1);
     config.Commit();
 
     // If we haven't reached our binding mode power cycles
     // and we've been powered on for 2s, reset the power on counter
-    if (config.GetPowerOnCounter() < 3)
-    {
+    if config.GetPowerOnCounter() < 3 {
         delay(2000);
         config.SetPowerOnCounter(0);
         config.Commit();
     }
-#endif
+// #endif
 }
 
 fn setupTarget() {
@@ -883,8 +876,7 @@ fn setupBindingFromConfig()
 // otherwise use the bind flag and UID in eeprom for UID
 if MY_UID {
     // Check the byte that indicates if RX has been bound
-    if (config.GetIsBound())
-    {
+    if config.GetIsBound()  {
         println!("RX has been bound previously, reading the UID from eeprom...");
         let storedUID: [u8; 69] = config.GetUID();
     for i in 0..UID_LEN {
@@ -924,7 +916,7 @@ fn setupRadio()
 
 unsafe fn updateTelemetryBurst()
 {
-    if (telemBurstValid) {
+    if telemBurstValid {
         return;
     }
     telemBurstValid = true;
@@ -934,7 +926,7 @@ unsafe fn updateTelemetryBurst()
     // telemInterval = 1000 / (hz / ratiodiv);
     // burst = TELEM_MIN_LINK_INTERVAL / telemInterval;
     // This ^^^ rearranged to preserve precision vvv
-    telemetryBurstMax = TELEM_MIN_LINK_INTERVAL * hz / ratiodiv / 1000U;
+    telemetryBurstMax = TELEM_MIN_LINK_INTERVAL * hz / ratiodiv / 1000;
 
     // Reserve one slot for LINK telemetry
     if telemetryBurstMax > 1 {
@@ -958,7 +950,7 @@ unsafe fn cycleRfMode(now: u64)
     }
 
     // Actually cycle the RF mode if not LOCK_ON_FIRST_CONNECTION
-    if (LockRFmode == false && (now - RFmodeLastCycled) > (cycleInterval * RFmodeCycleMultiplier))
+    if LockRFmode == false && (now - RFmodeLastCycled) > (cycleInterval * RFmodeCycleMultiplier)
     {
         RFmodeLastCycled = now as u32;
         LastSyncPacket = now as u32;           // reset this variable
@@ -1035,13 +1027,13 @@ fn updateBindingMode()
 {
     // If the eeprom is indicating that we're not bound
     // and we're not already in binding mode, enter binding
-    if (!config.GetIsBound() && !unsafe { InBindingMode })
+    if !config.GetIsBound() && !unsafe { InBindingMode }
     {
         INFOLN("RX has not been bound, enter binding mode...");
         EnterBindingMode();
     }
     // If in binding mode and the bind packet has come in, leave binding mode
-    else if (config.GetIsBound() && unsafe { InBindingMode })
+    else if config.GetIsBound() && unsafe { InBindingMode }
     {
         ExitBindingMode();
     }
@@ -1061,8 +1053,7 @@ fn updateBindingMode()
 
 unsafe fn checkSendLinkStatsToFc(now: u32)
 {
-    if (now - SendLinkStatstoFCintervalLastSent > SEND_LINK_STATS_TO_FC_INTERVAL)
-    {
+    if now - SendLinkStatstoFCintervalLastSent > SEND_LINK_STATS_TO_FC_INTERVAL as u32  {
         if (connectionState == disconnected)
         {
             getRFlinkInfo();
@@ -1073,8 +1064,9 @@ unsafe fn checkSendLinkStatsToFc(now: u32)
         {
             crsf.sendLinkStatisticsToFC();
             SendLinkStatstoFCintervalLastSent = now;
-            if (SendLinkStatstoFCForcedSends)
-                --SendLinkStatstoFCForcedSends;
+            if SendLinkStatstoFCForcedSends {
+               SendLinkStatstoFCForcedSends -= 1;
+            }
         }
     }
 }
@@ -1118,23 +1110,20 @@ fn loop_()
 {
     now: u64 = millis();
     HandleUARTin();
-    if (hwTimer.running == false)
-    {
+    if hwTimer.running == false {
         crsf.RXhandleUARTout();
     }
 
     devicesUpdate(now);
 
-    if (config.IsModified() && !InBindingMode)
-    {
+    if (config.IsModified() && unsafe { !InBindingMode })   {
         Radio.SetTxIdleMode();
         LostConnection();
         config.Commit();
         devicesTriggerEvent();
     }
 
-    if (connectionState > MODE_STATES)
-    {
+    if connectionState > MODE_STATES {
         return;
     }
 
@@ -1147,7 +1136,7 @@ fn loop_()
         SendLinkStatstoFCForcedSends = 2;
     }
 
-    if (connectionState == tentative && (now - LastSyncPacket > ExpressLRS_currAirRate_RFperfParams->RxLockTimeoutMs))
+    if connectionState == tentative && (now - unsafe { LastSyncPacket } > ExpressLRS_currAirRate_RFperfParams.RxLockTimeoutMs)
     {
         println!("Bad sync, aborting");
         LostConnection();
@@ -1160,7 +1149,7 @@ fn loop_()
         servosUpdate(now);
     }
 
-    let localLastValidPacket: u32 = unsafe { LastValidPacket; } // Required to prevent race condition due to LastValidPacket getting updated from ISR
+    let localLastValidPacket: u32 = unsafe { LastValidPacket }; // Required to prevent race condition due to LastValidPacket getting updated from ISR
     if ((connectionState == disconnectPending) ||
         ((connectionState == connected) && (ExpressLRS_currAirRate_RFperfParams.DisconnectTimeoutMs as i32 < (now - localLastValidPacket) as i32))) // check if we lost conn.
     {

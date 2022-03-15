@@ -7,11 +7,6 @@
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/include/common.h
 
 
-static mut BindingUID: [u8; 6] = [0; 6];
-static mut UID: [u8; 6] = [0; 6];
-static mut MasterUID: [u8; 6] = [0; 6];
-static mut CRCInitializer: u16 = 0;
-
 #[repr(u8)]
 enum TlmRatio
 {
@@ -123,7 +118,7 @@ enum RadioType {
     SX128x_FLRC,
 }
 
-struct PrefParams
+struct PerfParams
 {
     index: u8,
     enum_rate: RfRate,                    // Max value of 4 since only 2 bits have been assigned in the sync package.
@@ -135,7 +130,7 @@ struct PrefParams
     SyncPktIntervalConnected: u32,    // how often to send the SYNC_PACKET packet (ms) when there we have a connection
 }
 
-impl PrefParams {
+impl PerfParams {
     pub fn new(index: u8, enum_rate: RfRate, RXsensitivity: i32, TOA: u32, DisconnectTimeoutMs: u32, RxLockTimeoutMs: u32,
     SyncPktIntervalDisconnect: u32, SyncPktIntervalConnected: u32) -> Self {
         Self {
@@ -201,13 +196,13 @@ const AirRateConfig: [ModSettings; RATE_MAX as usize] = [
 
 ];
 
-const AirRateRFperf: [PrefParams; RATE_MAX as usize] = [
-    PrefParams::new(0, RfRate::FLRC_1000HZ, -104,   389, 2500, 2500,  3, 5000),
-    PrefParams::new(1, RfRate::FLRC_500HZ,  -104,   389, 2500, 2500,  3, 5000),
-    PrefParams::new(2, RfRate::LORA_500HZ,  -105,  1665, 2500, 2500,  3, 5000),
-    PrefParams::new(3, RfRate::LORA_250HZ,  -108,  3300, 3000, 2500,  6, 5000),
-    PrefParams::new(4, RfRate::LORA_150HZ,  -112,  5871, 3500, 2500, 10, 5000),
-    PrefParams::new(5, RfRate::LORA_50HZ,   -117, 18443, 4000, 2500,  0, 5000)
+const AirRateRFperf: [PerfParams; RATE_MAX as usize] = [
+    PerfParams::new(0, RfRate::FLRC_1000HZ, -104, 389, 2500, 2500, 3, 5000),
+    PerfParams::new(1, RfRate::FLRC_500HZ, -104, 389, 2500, 2500, 3, 5000),
+    PerfParams::new(2, RfRate::LORA_500HZ, -105, 1665, 2500, 2500, 3, 5000),
+    PerfParams::new(3, RfRate::LORA_250HZ, -108, 3300, 3000, 2500, 6, 5000),
+    PerfParams::new(4, RfRate::LORA_150HZ, -112, 5871, 3500, 2500, 10, 5000),
+    PerfParams::new(5, RfRate::LORA_50HZ, -117, 18443, 4000, 2500, 0, 5000)
 ];
 
 
@@ -222,16 +217,14 @@ fn get_elrs_airRateConfig(index: usize) -> ModSettings
     ExpressLRS_AirRateConfig[i as usize]
 }
 
-fn get_elrs_RFperfParams(index: usize) -> RfPrefParams {
-{
+fn get_elrs_RFperfParams(index: usize) -> PerfParams {
     let mut i = index as u8;
 
-    if RATE_MAX <= i
-    {
+    if RATE_MAX <= i {
         // Set to last usable entry in the array
         i = RATE_MAX - 1;
     }
-    AirRateRFperf[i as usize]
+    AirRateRFperf[i]
 }
 
 fn enumRatetoIndex(rate: u8) -> u8
@@ -248,13 +241,13 @@ fn enumRatetoIndex(rate: u8) -> u8
     if rate == RATE_25HZ { RATE_MAX - 1 } else { 0 }
 }
 
-expresslrs_mod_settings_s *ExpressLRS_currAirRate_Modparams;
-expresslrs_rf_pref_params_s *ExpressLRS_currAirRate_RFperfParams;
+// expresslrs_mod_settings_s *ExpressLRS_currAirRate_Modparams;
+// expresslrs_rf_pref_params_s *ExpressLRS_currAirRate_RFperfParams;
 
 static mut connectionState: ConnectionState = ConnectionState::disconnected;
 static mut connectionHasModelMatch: bool = false;
 
-const BindingUID: [u8; 6] = [0, 1, 2, 3, 4, 5]; // Special binding UID values
+static mut BindingUID: [u8; 6] = [0, 1, 2, 3, 4, 5]; // Special binding UID values
 // #if defined(MY_UID)
 //     uint8_t UID[6] = {MY_UID};
 // #else
@@ -271,9 +264,9 @@ const BindingUID: [u8; 6] = [0, 1, 2, 3, 4, 5]; // Special binding UID values
 //     #endif
 // #endif
 
-static MasterUID: [u8; 6] = unsafe { [UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]] }; // Special binding UID values
+static mut MasterUID: [u8; 6] = unsafe { [UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]] }; // Special binding UID values
 
-static CRCInitializer: u16 = unsafe { ((UID[4] as u16) << 8) | (UID[5] as u16) };
+static mut  CRCInitializer: u16 = unsafe { ((UID[4] as u16) << 8) | (UID[5] as u16) };
 
 unsafe fn uidMacSeedGet() -> u32
 {

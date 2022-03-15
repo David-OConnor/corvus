@@ -6,8 +6,8 @@
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/FHSS/FHSS.h
 
 
-const FreqCorrectionMax: i32 =  100000/FREQ_STEP;
-const FreqCorrectionMin: i32 = -100000/FREQ_STEP;
+const FreqCorrectionMax: i32 =  100000 / FREQ_STEP;
+const FreqCorrectionMin: i32 = -100000 / FREQ_STEP;
 
 // #define FREQ_HZ_TO_REG_VAL(freq) ((uint32_t)((double)freq/(double)FREQ_STEP))
 
@@ -44,7 +44,7 @@ fn FHSSsetCurrIndex(value: u8)
 fn FHSSgetNextFreq() -> u32
 {
     FHSSptr = (FHSSptr + 1) % FHSS_SEQUENCE_CNT;
-    uint32_t freq = FHSSfreqs[FHSSsequence[FHSSptr]] - FreqCorrection;
+    let freq: u32 = FHSSfreqs[FHSSsequence[FHSSptr]] - FreqCorrection;
     return freq;
 }
 
@@ -56,13 +56,13 @@ fn FHSSgetSequenceCount() -> u8
 }
 
 // Our table of FHSS frequencies. Define a regulatory domain to select the correct set for your location and radio
-#ifdef Regulatory_Domain_AU_433
-const uint32_t FHSSfreqs[] = {
+
+const FHSSfreqs_AU_433: [u32; 3] = [
     FREQ_HZ_TO_REG_VAL(433420000),
     FREQ_HZ_TO_REG_VAL(433920000),
-    FREQ_HZ_TO_REG_VAL(434420000)};
-#elif defined Regulatory_Domain_AU_915
-const uint32_t FHSSfreqs[] = {
+    FREQ_HZ_TO_REG_VAL(434420000)];
+
+const FHSSfreqs_AU_915: [u32; 20] = [
     FREQ_HZ_TO_REG_VAL(915500000),
     FREQ_HZ_TO_REG_VAL(916100000),
     FREQ_HZ_TO_REG_VAL(916700000),
@@ -86,8 +86,9 @@ const uint32_t FHSSfreqs[] = {
     FREQ_HZ_TO_REG_VAL(925100000),
     FREQ_HZ_TO_REG_VAL(925700000),
     FREQ_HZ_TO_REG_VAL(926300000),
-    FREQ_HZ_TO_REG_VAL(926900000)};
-#elif defined Regulatory_Domain_EU_868
+    FREQ_HZ_TO_REG_VAL(926900000)
+];
+
 /* Frequency bands taken from https://wetten.overheid.nl/BWBR0036378/2016-12-28#Bijlagen
  * Note: these frequencies fall in the license free H-band, but in combination with 500kHz
  * LoRa modem bandwidth used by ExpressLRS (EU allows up to 125kHz modulation BW only) they
@@ -96,7 +97,7 @@ const uint32_t FHSSfreqs[] = {
  * Therefore we simply maximize the usage of available spectrum so laboratory testing of the software won't disturb existing
  * 868MHz ISM band traffic too much.
  */
-const uint32_t FHSSfreqs[] = {
+const FHSSfreqs_EU_868: [u32; 13] = [
     FREQ_HZ_TO_REG_VAL(863275000), // band H1, 863 - 865MHz, 0.1% duty cycle or CSMA techniques, 25mW EIRP
     FREQ_HZ_TO_REG_VAL(863800000),
     FREQ_HZ_TO_REG_VAL(864325000),
@@ -109,8 +110,10 @@ const uint32_t FHSSfreqs[] = {
     FREQ_HZ_TO_REG_VAL(868000000),
     FREQ_HZ_TO_REG_VAL(868525000), // Band H3, 868.7-869.2MHz, 0.1% dutycycle or CSMA, 25mW EIRP
     FREQ_HZ_TO_REG_VAL(869050000),
-    FREQ_HZ_TO_REG_VAL(869575000)};
-#elif defined Regulatory_Domain_IN_866
+    FREQ_HZ_TO_REG_VAL(869575000),
+];
+
+
 /**
  * India currently delicensed the 865-867 MHz band with a maximum of 1W Transmitter power,
  * 4Watts Effective Radiated Power and 200Khz carrier bandwidth as per
@@ -118,24 +121,27 @@ const uint32_t FHSSfreqs[] = {
  * There is currently no mention of Direct-sequence spread spectrum,
  * So these frequencies are a subset of Regulatory_Domain_EU_868 frequencies.
  */
-const uint32_t FHSSfreqs[] = {
+const  FHSSfreqs_IN_86: [u32; 4] = [
     FREQ_HZ_TO_REG_VAL(865375000),
     FREQ_HZ_TO_REG_VAL(865900000),
     FREQ_HZ_TO_REG_VAL(866425000),
-    FREQ_HZ_TO_REG_VAL(866950000)};
-#elif defined Regulatory_Domain_EU_433
+    FREQ_HZ_TO_REG_VAL(866950000)
+];
+
+
 /* Frequency band G, taken from https://wetten.overheid.nl/BWBR0036378/2016-12-28#Bijlagen
  * Note: As is the case with the 868Mhz band, these frequencies only comply to the license free portion
  * of the spectrum, nothing else. As such, these are likely illegal to use.
  */
-const FHSSfreqs: [u32; 80] = [
+const FHSSfreqs_EU_43: [u32; 3] = [
     FREQ_HZ_TO_REG_VAL(433100000),
     FREQ_HZ_TO_REG_VAL(433925000),
-    FREQ_HZ_TO_REG_VAL(434450000)];
-#elif defined Regulatory_Domain_FCC_915
+    FREQ_HZ_TO_REG_VAL(434450000)
+];
+
 /* Very definitely not fully checked. An initial pass at increasing the hops
 */
-const FHSSfreqs: [u32; 80] = [
+const FHSSfreqs_FCC_915: [u32; 40] = [
     FREQ_HZ_TO_REG_VAL(903500000),
     FREQ_HZ_TO_REG_VAL(904100000),
     FREQ_HZ_TO_REG_VAL(904700000),
@@ -184,10 +190,11 @@ const FHSSfreqs: [u32; 80] = [
     FREQ_HZ_TO_REG_VAL(925100000),
     FREQ_HZ_TO_REG_VAL(925700000),
     FREQ_HZ_TO_REG_VAL(926300000),
-    FREQ_HZ_TO_REG_VAL(926900000)];
-#elif Regulatory_Domain_ISM_2400
+    FREQ_HZ_TO_REG_VAL(926900000)
+];
 
-const FHSSfreqs: [u32; 80] = [
+
+const FHSSfreqs_ISM_2400: [u32; 80] = [
     FREQ_HZ_TO_REG_VAL(2400400000),
     FREQ_HZ_TO_REG_VAL(2401400000),
     FREQ_HZ_TO_REG_VAL(2402400000),
@@ -282,23 +289,21 @@ const FHSSfreqs: [u32; 80] = [
     FREQ_HZ_TO_REG_VAL(2476400000),
     FREQ_HZ_TO_REG_VAL(2477400000),
     FREQ_HZ_TO_REG_VAL(2478400000),
-    FREQ_HZ_TO_REG_VAL(2479400000)];
-#else
-#error No regulatory domain defined, please define one in user_defines.txt
-#endif
+    FREQ_HZ_TO_REG_VAL(2479400000)
+];
 
 // Number of FHSS frequencies in the table
-constexpr uint32_t FHSS_FREQ_CNT = (sizeof(FHSSfreqs) / sizeof(uint32_t));
+const FHSS_FREQ_CNT: u32 = (sizeof(FHSSfreqs) / sizeof(u32));
 // Number of hops in the FHSSsequence list before circling back around, even multiple of the number of frequencies
-constexpr uint8_t  FHSS_SEQUENCE_CNT = (256 / FHSS_FREQ_CNT) * FHSS_FREQ_CNT;
+const FHSS_SEQUENCE_CNT: u8 = (256 / FHSS_FREQ_CNT) as u8 * FHSS_FREQ_CNT as u8;
 // Actual sequence of hops as indexes into the frequency list
-uint8_t FHSSsequence[FHSS_SEQUENCE_CNT];
+static mut FHSSsequence: [u8; FHSS_SEQUENCE_CNT] = [0; FHSS_SEQUENCE_CNT];
 // Which entry in the sequence we currently are on
-uint8_t volatile FHSSptr;
+static mut FHSSptr: u8 = 0;
 // Channel for sync packets and initial connection establishment
-uint_fast8_t sync_channel;
+static mut sync_channel: u8 = 0;
 // Offset from the predefined frequency determined by AFC on Team900 (register units)
-int32_t FreqCorrection;
+static mut FreqCorrection: i32 = 0;
 
 /**
 Requirements:
@@ -315,39 +320,39 @@ Approach:
 */
 fn FHSSrandomiseFHSSsequence(seed: u32)
 {
-#ifdef Regulatory_Domain_AU_915
-    INFOLN("Setting 915MHz AU Mode");
-#elif defined Regulatory_Domain_FCC_915
-    INFOLN("Setting 915MHz FCC Mode");
-#elif defined Regulatory_Domain_EU_868
-    INFOLN("Setting 868MHz EU Mode");
-#elif defined Regulatory_Domain_IN_866
-    INFOLN("Setting 866MHz IN Mode");
-#elif defined Regulatory_Domain_AU_433
-    INFOLN("Setting 433MHz AU Mode");
-#elif defined Regulatory_Domain_EU_433
-    INFOLN("Setting 433MHz EU Mode");
-#elif defined Regulatory_Domain_ISM_2400
-    INFOLN("Setting 2400MHz Mode");
-#else
-#error No regulatory domain defined, please define one in common.h
-#endif
+// #ifdef Regulatory_Domain_AU_915
+//     INFOLN("Setting 915MHz AU Mode");
+// #elif defined Regulatory_Domain_FCC_915
+//     INFOLN("Setting 915MHz FCC Mode");
+// #elif defined Regulatory_Domain_EU_868
+//     INFOLN("Setting 868MHz EU Mode");
+// #elif defined Regulatory_Domain_IN_866
+//     INFOLN("Setting 866MHz IN Mode");
+// #elif defined Regulatory_Domain_AU_433
+//     INFOLN("Setting 433MHz AU Mode");
+// #elif defined Regulatory_Domain_EU_433
+//     INFOLN("Setting 433MHz EU Mode");
+// #elif defined Regulatory_Domain_ISM_2400
+//     INFOLN("Setting 2400MHz Mode");
+// #else
+// #error No regulatory domain defined, please define one in common.h
+// #endif
 
-    DBGLN("Number of FHSS frequencies = %u", FHSS_FREQ_CNT);
+    println!("Number of FHSS frequencies = %u", FHSS_FREQ_CNT);
 
     sync_channel = FHSS_FREQ_CNT / 2;
-    DBGLN("Sync channel = %u", sync_channel);
+    println!("Sync channel = %u", sync_channel);
 
     // reset the pointer (otherwise the tests fail)
     FHSSptr = 0;
-    rngSeed(seed);
+    rngSeed(unsafe { seed });
 
     // initialize the sequence array
 for i in 0..FHSS_SEQUENCE_CNT
     {
-        if (i % FHSS_FREQ_CNT == 0) {
+        if i % FHSS_FREQ_CNT == 0 {
             FHSSsequence[i] = sync_channel;
-        } else if (i % FHSS_FREQ_CNT == sync_channel) {
+        } else if i % FHSS_FREQ_CNT == sync_channel {
             FHSSsequence[i] = 0;
         } else {
             FHSSsequence[i] = i % FHSS_FREQ_CNT;
@@ -357,24 +362,24 @@ for i in 0..FHSS_SEQUENCE_CNT
 for i in 0..FHSS_SEQUENCE_CNT
     {
         // if it's not the sync channel
-        if (i % FHSS_FREQ_CNT != 0)
+        if i % FHSS_FREQ_CNT != 0
         {
-            uint8_t offset = (i / FHSS_FREQ_CNT) * FHSS_FREQ_CNT; // offset to start of current block
-            uint8_t rand = rngN(FHSS_FREQ_CNT-1)+1; // random number between 1 and FHSS_FREQ_CNT
+            let offset: u8 = (i / FHSS_FREQ_CNT) * FHSS_FREQ_CNT; // offset to start of current block
+            let rand: u8 = rngN(FHSS_FREQ_CNT-1)+1; // random number between 1 and FHSS_FREQ_CNT
 
             // switch this entry and another random entry in the same block
-            uint8_t temp = FHSSsequence[i];
+            let temp: u8 = FHSSsequence[i];
             FHSSsequence[i] = FHSSsequence[offset+rand];
             FHSSsequence[offset+rand] = temp;
         }
     }
 
     // output FHSS sequence
-    for (uint8_t i=0; i < FHSS_SEQUENCE_CNT; i++)
-    {
-        DBG("%u ",FHSSsequence[i]);
-        if (i % 10 == 9)
-            DBGCR;
+        for i in 0..FHSS_SEQUENCE_CNT{
+        println!("{} ",FHSSsequence[i]);
+        if i % 10 == 9 {
+            // DBGCR;
+        }
     }
     DBGCR;
 }
@@ -397,29 +402,32 @@ fn rng() -> u16
     let m: u32 = 2147483648;
     let a: u32 = 214013;
     let c: u32 = 2531011;
-    seed = (a * seed + c) % m;
-    return seed >> 16;
+
+    unsafe {
+        seed = (a * seed + c) % m;
+        return (seed >> 16) as u16;
+    }
 }
 
-gn rngSeed(newSeed: u32)
+fn rngSeed(newSeed: u32)
 {
-    seed = newSeed;
+    unsafe { seed = newSeed };
 }
 
 // returns 0 <= x < max where max < 256
 fn rngN(max: u8) -> u8
 {
-    return rng() % max;
+    return (rng() % max) as u8;
 }
 
 // 0..255 returned
 fn rng8Bit() -> u8
 {
-    return rng() & 0xff;
+    return (rng() & 0xff) as u8;
 }
 
 // 0..31 returned
 fn rng5Bit() -> u8
 {
-    return rng() & 0x1F;
+    return (rng() & 0x1F) as u8;
 }

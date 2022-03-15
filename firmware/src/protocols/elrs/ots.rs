@@ -22,23 +22,8 @@ const MODELMATCH_MASK: u8 =  0x3f;
 
 enum OtaSwitchMode { sm1Bit, smHybrid, smHybridWide }
 
-
-#if defined(TARGET_TX) || defined(UNIT_TEST)
-typedef std::function<void (volatile uint8_t* Buffer, CRSF *crsf, bool TelemetryStatus, uint8_t nonce, uint8_t tlmDenom)> PackChannelData_t;
-extern PackChannelData_t PackChannelData;
-#if defined(UNIT_TEST)
-void OtaSetHybrid8NextSwitchIndex(uint8_t idx);
-#endif
-#endif
-
-#if defined(TARGET_RX) || defined(UNIT_TEST)
-typedef std::function<bool (volatile uint8_t* Buffer, CRSF *crsf, uint8_t nonce, uint8_t tlmDenom)> UnpackChannelData_t;
-extern UnpackChannelData_t UnpackChannelData;
-#endif
-
-#endif // H_OTA
-
-
+// typedef std::function<bool (volatile uint8_t* Buffer, CRSF *crsf, uint8_t nonce, uint8_t tlmDenom)> UnpackChannelData_t;
+// extern UnpackChannelData_t UnpackChannelData;
 
 /**
  * This file is part of ExpressLRS
@@ -63,161 +48,17 @@ fn HybridWideNonceToSwitchIndex(nonce: u8) -> u8
     return ((nonce & 0b111) + ((nonce >> 3) & 0b1)) % 8;
 }
 
-#if TARGET_TX or defined UNIT_TEST
-
-// Current ChannelData generator function being used by TX
-PackChannelData_t PackChannelData;
-
-// ICACHE_RAM_ATTR
-fn  PackChannelDataHybridCommon(Buffer: &mut [u8], crsf: &mut CRSF)
-{
-    Buffer[0] = RC_DATA_PACKET & 0b11;
-    Buffer[1] = ((crsf.ChannelDataIn[0]) >> 3);
-    Buffer[2] = ((crsf.ChannelDataIn[1]) >> 3);
-    Buffer[3] = ((crsf.ChannelDataIn[2]) >> 3);
-    Buffer[4] = ((crsf.ChannelDataIn[3]) >> 3);
-    Buffer[5] = ((crsf.ChannelDataIn[0] & 0b110) << 5) |
-                            ((crsf.ChannelDataIn[1] & 0b110) << 3) |
-                            ((crsf.ChannelDataIn[2] & 0b110) << 1) |
-                            ((crsf.ChannelDataIn[3] & 0b110) >> 1);
-}
-
-/**
- * Hybrid switches packet encoding for sending over the air
- *
- * Analog channels are reduced to 10 bits to allow for switch encoding
- * Switch[0] is sent on every packet.
- * A 3 bit switch index and 3-4 bit value is used to send the remaining switches
- * in a round-robin fashion.
- *
- * Inputs: crsf.ChannelDataIn, crsf.currentSwitches
- * Outputs: Radio.TXdataBuffer, side-effects the sentSwitch value
- */
-// The next switch index to send, where 0=AUX2 and 6=AUX8
-static mut Hybrid8NextSwitchIndex: u8 = 0;
-// #if defined(UNIT_TEST)
-// void OtaSetHybrid8NextSwitchIndex(uint8_t idx) { Hybrid8NextSwitchIndex = idx; }
-// #endif
-
-// ICACHE_RAM_ATTR
-fn GenerateChannelDataHybrid8(Buffer: &mut [u8], crsf: &mut CRSF, TelemetryStatus: bool, nonce: u8, tlmDenom: u8)
-{
-    PackChannelDataHybridCommon(Buffer, crsf);
-
-    // Actually send switchIndex - 1 in the packet, to shift down 1-7 (0b111) to 0-6 (0b110)
-    // If the two high bits are 0b11, the receiver knows it is the last switch and can use
-    // that bit to store data
-    let bitclearedSwitchIndex: u8 = Hybrid8NextSwitchIndex;
-    let mut value: u8 = 0;
-    // AUX8 is High Resolution 16-pos (4-bit)
-    if (bitclearedSwitchIndex == 6) {
-        value = CRSF_to_N(crsf.ChannelDataIn[6 + 1 + 4], 16);
-    } else    {
-        // AUX2-7 are Low Resolution, "7pos" 6+center (3-bit)
-        // The output is mapped evenly across 6 output values (0-5)
-        // with a special value 7 indicating the middle so it works
-        // with switches with a middle position as well as 6-position
-        let CHANNEL_BIN_COUNT: u16 = 6;
-        let  CHANNEL_BIN_SIZE: u16 = (CRSF_CHANNEL_VALUE_MAX - CRSF_CHANNEL_VALUE_MIN) / CHANNEL_BIN_COUNT;
-        let ch: u16 = crsf.ChannelDataIn[bitclearedSwitchIndex + 1 + 4];
-        // If channel is within 1/4 a BIN of being in the middle use special value 7
-        if (ch < (CRSF_CHANNEL_VALUE_MID-CHANNEL_BIN_SIZE/4)
-            || ch > (CRSF_CHANNEL_VALUE_MID+CHANNEL_BIN_SIZE/4)) {
-            value = CRSF_to_N(ch, CHANNEL_BIN_COUNT);
-        } else {
-            value = 7;
-        }
-    } // If not 16-pos
-
-    Buffer[6] =
-        TelemetryStatus << 7 |
-        // switch 0 is one bit sent on every packet - intended for low latency arm/disarm
-        CRSF_to_BIT(crsf->ChannelDataIn[4]) << 6 |
-        // tell the receiver which switch index this is
-        bitclearedSwitchIndex << 3 |
-        // include the switch value
-        value;
-
-    // update the sent value
-    unsafe {
-        Hybrid8NextSwitchIndex = (bitclearedSwitchIndex + 1) % 7;
-    }
-}
-
-/**
- * Return the OTA value respresentation of the switch contained in ChannelDataIn
- * Switches 1-6 (AUX2-AUX7) are 6 or 7 bit depending on the lowRes parameter
- */
-// ICACHE_RAM_ATTR
-fn HybridWideSwitchToOta(crsf: &mut CRSF, switchIdx: u8, lowRes: bool) -> u8
-{
-    let ch: u16 = crsf.ChannelDataIn[switchIdx + 4];
-    let binCount: u8 = if lowRes { 64 } else { 128 };
-    ch = CRSF_to_N(ch, binCount);
-    if (lowRes) {
-        return ch & 0b111111; // 6-bit
-    } else {
-    return ch & 0b1111111; // 7-bit
-}
-}
-
-/**
- * HybridWide switches packet encoding for sending over the air
- *
- * Analog channels are reduced to 10 bits to allow for switch encoding
- * Switch[0] is sent on every packet.
- * A 6 or 7 bit switch value is used to send the remaining switches
- * in a round-robin fashion.
- *
- * Inputs: crsf.ChannelDataIn, crsf.LinkStatistics.uplink_TX_Power
- * Outputs: Radio.TXdataBuffer
- **/
-// ICACHE_RAM_ATTR
-fn GenerateChannelDataHybridWide(Buffer: &mut [u8], crsf: &mut CRSF, TelemetryStatus: bool, nonce: u8, tlmDenom: u8)
-{
-    PackChannelDataHybridCommon(Buffer, crsf);
-
-    let telemBit: u8 = TelemetryStatus << 6;
-    let nextSwitchIndex: u8 = HybridWideNonceToSwitchIndex(nonce);
-    let mut value: u8 = 0;
-    // Using index 7 means the telemetry bit will always be sent in the packet
-    // preceding the RX's telemetry slot for all tlmDenom >= 8
-    // For more frequent telemetry rates, include the bit in every
-    // packet and degrade the value to 6-bit
-    // (technically we could squeeze 7-bits in for 2 channels with tlmDenom=4)
-    if (nextSwitchIndex == 7)
-    {
-        value = telemBit | crsf->LinkStatistics.uplink_TX_Power;
-    }
-    else
-    {
-        bool telemInEveryPacket = (tlmDenom < 8);
-        value = HybridWideSwitchToOta(crsf, nextSwitchIndex + 1, telemInEveryPacket);
-        if (telemInEveryPacket)
-            value |= telemBit;
-    }
-
-    Buffer[6] =
-        // switch 0 is one bit sent on every packet - intended for low latency arm/disarm
-        CRSF_to_BIT(crsf->ChannelDataIn[4]) << 7 |
-        // include the switch value
-        value;
-}
-
-#endif
-
-#if TARGET_RX or defined UNIT_TEST
-
 // Current ChannelData unpacker function being used by RX
-UnpackChannelData_t UnpackChannelData;
+// UnpackChannelData_t UnpackChannelData;
 
-static void ICACHE_RAM_ATTR UnpackChannelDataHybridCommon(volatile uint8_t* Buffer, CRSF *crsf)
+// ICACHE_RAM_ATTR
+fn UnpackChannelDataHybridCommon(Buffer: &mut [u8], crsf: &mut CRSF)
 {
     // The analog channels
-    crsf->PackedRCdataOut.ch0 = (Buffer[1] << 3) | ((Buffer[5] & 0b11000000) >> 5);
-    crsf->PackedRCdataOut.ch1 = (Buffer[2] << 3) | ((Buffer[5] & 0b00110000) >> 3);
-    crsf->PackedRCdataOut.ch2 = (Buffer[3] << 3) | ((Buffer[5] & 0b00001100) >> 1);
-    crsf->PackedRCdataOut.ch3 = (Buffer[4] << 3) | ((Buffer[5] & 0b00000011) << 1);
+    crsf.PackedRCdataOut.ch0 = (Buffer[1] << 3) | ((Buffer[5] & 0b11000000) >> 5);
+    crsf.PackedRCdataOut.ch1 = (Buffer[2] << 3) | ((Buffer[5] & 0b00110000) >> 3);
+    crsf.PackedRCdataOut.ch2 = (Buffer[3] << 3) | ((Buffer[5] & 0b00001100) >> 1);
+    crsf.PackedRCdataOut.ch3 = (Buffer[4] << 3) | ((Buffer[5] & 0b00000011) << 1);
 }
 
 /**
@@ -232,9 +73,9 @@ static void ICACHE_RAM_ATTR UnpackChannelDataHybridCommon(volatile uint8_t* Buff
  * Returns: TelemetryStatus bit
  */
 // ICACHE_RAM_ATTR
-fn  UnpackChannelDataHybridSwitch8(volatile uint8_t* Buffer, CRSF *crsf, uint8_t nonce, uint8_t tlmDenom) -> bool
+fn  UnpackChannelDataHybridSwitch8(Buffer: &mut [u8], crsf: &mut CRSF, nonce: u8, tlmDenom: u8) -> bool
 {
-    const uint8_t switchByte = Buffer[6];
+    let switchByte = Buffer[6];
     UnpackChannelDataHybridCommon(Buffer, crsf);
 
     // The low latency switch
@@ -265,14 +106,15 @@ fn  UnpackChannelDataHybridSwitch8(volatile uint8_t* Buffer, CRSF *crsf, uint8_t
      5=> {
         crsf.PackedRCdataOut.ch10 = switchValue;
         }
-     6=> ()  // Because AUX1 (index 0) is the low latency switch, the low bit
+     6=> (),  // Because AUX1 (index 0) is the low latency switch, the low bit
      7=> {   // of the switchIndex can be used as data, and arrives as index "6"
-        crsf->PackedRCdataOut.ch11 = N_to_CRSF(switchByte & 0b1111, 15);
+        crsf.PackedRCdataOut.ch11 = N_to_CRSF(switchByte & 0b1111, 15);
         }
+    _ => ()
     }
 
     // TelemetryStatus bit
-    return switchByte & (1 << 7);
+    return switchByte & (1 << 7) != 0;
 }
 
 /**
@@ -290,7 +132,7 @@ fn  UnpackChannelDataHybridSwitch8(volatile uint8_t* Buffer, CRSF *crsf, uint8_t
 // ICACHE_RAM_ATTR
 fn UnpackChannelDataHybridWide(Buffer: &mut [u8],crsf: &mut [CRSF], nonce: u8, tlmDenom: u8) -> bool
 {
-    let TelemetryStatus: bool = false;
+    let mut TelemetryStatus: bool = false;
     let switchByte: u8 = Buffer[6];
     UnpackChannelDataHybridCommon(Buffer, crsf);
 
@@ -299,26 +141,27 @@ fn UnpackChannelDataHybridWide(Buffer: &mut [u8],crsf: &mut [CRSF], nonce: u8, t
 
     // The round-robin switch, 6-7 bits with the switch index implied by the nonce
     let switchIndex: u8 = HybridWideNonceToSwitchIndex(nonce);
-    bool telemInEveryPacket = (tlmDenom < 8);
-    if (telemInEveryPacket || switchIndex == 7)
-          TelemetryStatus = (switchByte & 0b01000000) >> 6;
-    if (switchIndex == 7)
+    let telemInEveryPacket = (tlmDenom < 8);
+    if telemInEveryPacket || switchIndex == 7 {
+        TelemetryStatus = (switchByte & 0b01000000) >> 6 != 0;
+    }
+    if switchIndex == 7
     {
         crsf.LinkStatistics.uplink_TX_Power = switchByte & 0b111111;
     }
     else
     {
-        uint8_t bins;
-        uint16_t switchValue;
-        if (telemInEveryPacket)
+        let mut bins: u8 = 0;
+        let mut switchValue: u16 = 0;
+        if telemInEveryPacket
         {
             bins = 63;
-            switchValue = switchByte & 0b111111; // 6-bit
+            switchValue = switchByte as u16 & 0b111111; // 6-bit
         }
         else
         {
             bins = 127;
-            switchValue = switchByte & 0b1111111; // 7-bit
+            switchValue = switchByte as u16 & 0b1111111; // 7-bit
         }
 
         switchValue = N_to_CRSF(switchValue, bins);
@@ -344,6 +187,7 @@ fn UnpackChannelDataHybridWide(Buffer: &mut [u8],crsf: &mut [CRSF], nonce: u8, t
             6 => {
                 crsf.PackedRCdataOut.ch11 = switchValue;
                 }
+            _ => (),
         }
     }
 
