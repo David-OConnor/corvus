@@ -450,7 +450,7 @@ pub fn setup_pins() {
             let uart2_rx = Pin::new(Port::D, 3, PinMode::Alt(0));
 
             // Used to trigger a PID update based on new IMU data.
-            let mut imu_interrupt = Pin::new(Port::E, 15, PinMode::Input);
+            let mut imu_interrupt = Pin::new(Port::C, 15, PinMode::Input);
             imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
 
             // I2C1 for Matek digital airspeed and compass
@@ -490,7 +490,7 @@ pub fn setup_pins() {
             let _usb_dm = gpioa.new_pin(11, PinMode::Output);
             let _usb_dp = gpioa.new_pin(12, PinMode::Output);
 
-            let batt_v_adc_ = Pin::new(Port::C, 4, PinMode::Analog);
+            let batt_v_adc_ = Pin::new(Port::A, 4, PinMode::Analog);
             let current_sense_adc_ = Pin::new(Port::B, 2, PinMode::Analog);
 
             // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
@@ -521,7 +521,7 @@ pub fn setup_pins() {
             let uart4_rx = Pin::new(Port::C, 11, PinMode::Alt(7));
 
             // Used to trigger a PID update based on new IMU data.
-            let mut imu_interrupt = Pin::new(Port::A, 4, PinMode::Input); // PA4 for IMU interrupt.
+            let mut imu_interrupt = Pin::new(Port::C, 4, PinMode::Input); // PA4 for IMU interrupt.
             imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
 
             // I2C1 for external sensors, via pads
