@@ -73,7 +73,7 @@ use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
 // use drivers::imu_icm42605 as imu;
 use drivers::imu_ism330dhcx as imu;
-use drivers::osd_max7456 as osd;
+// use drivers::osd_max7456 as osd;
 use drivers::tof_vl53l1 as tof;
 
 use protocols::{dshot, elrs};
@@ -498,7 +498,7 @@ pub fn setup_pins() {
             let miso1_ = Pin::new(Port::A, 6, PinMode::Alt(5));
             let mosi1_ = Pin::new(Port::A, 7, PinMode::Alt(5));
 
-            // SPI2 for the OSD
+            // SPI2 for the LoRa chip
             let sck2_ = Pin::new(Port::B, 13, PinMode::Alt(5));
             let miso2_ = Pin::new(Port::B, 14, PinMode::Alt(5));
             let mosi2_ = Pin::new(Port::B, 15, PinMode::Alt(5));
@@ -682,10 +682,10 @@ mod app {
         // of the ICM-42605 IMU of 24 MHz. This IMU can use any SPI mode, with the correct config on it.
         let mut spi1 = Spi::new(dp.SPI1, Default::default(), BaudRate::Div32);
 
-        // We use SPI2 for the OSD.  // todo: Find max speed and supported modes.
+        // We use SPI2 for the LoRa ELRS chip.  // todo: Find max speed and supported modes.
         let spi2 = Spi::new(dp.SPI2, Default::default(), BaudRate::Div32);
 
-        // We use SPI3 for the ELRS chip, and flash. // todo: Find max speed and supported modes.
+        // We use SPI3 for flash. // todo: Find max speed and supported modes.
         let spi3 = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
 
         // We use I2C for the TOF sensor.(?) and for Matek digital airspeed and compass
@@ -790,7 +790,7 @@ mod app {
 
         imu::setup(&mut spi4, &mut cs_imu);
 
-        let mut cs_osd = Pin::new(Port::B, 12, PinMode::Output);
+        // let mut cs_osd = Pin::new(Port::B, 12, PinMode::Output);
 
         // In Betaflight, DMA is required for the ADC (current/voltage sensor),
         // motor outputs running bidirectional DShot, and gyro SPI bus.
