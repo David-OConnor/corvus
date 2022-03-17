@@ -1,4 +1,4 @@
-19839755190297513
+19841402678202747
 Anyleaf_Shared
 4_PIN_STAGGERED_2_54
 4-pin staggered footprint, 2.54MM pitch
@@ -13,6 +13,13 @@ Anyleaf_Shared
 0
 5
 5
+Anyleaf_Shared
+2450FM07D0034
+https://www.johansontechnology.com/datasheets/2450FM07D0034/2450FM07D0034.pdf
+Filter
+0
+4
+4
 Anyleaf_Shared
 BatteryHolder_Keystone_1060_1x2032
 http://www.keyelco.com/product-pdf.cfm?p=726
