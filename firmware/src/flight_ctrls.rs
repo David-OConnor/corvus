@@ -201,8 +201,13 @@ pub enum InputMode {
     Attitude,
     // GPS-hold, also known as Loiter. Maintains a specific position.
     /// In `Command` mode, the device loiters when idle. Otherwise, it flies at specific velocities,
-    /// and altitudes commanded by the controller.
+    /// and altitudes commanded by the controller. Allows for precise control, including in confined
+    /// spaces.
     Command,
+    // /// This mode is easy stable, and designed to make control easy, including in confined spaces.
+    // /// Similar to `Command` mode, it loiters when idle. It uses an internal model of
+    // /// todo: Same as Command mode? Consolidate?
+    // VideoGame,
 }
 
 /// Stores the current manual inputs to the system. `pitch`, `yaw`, and `roll` are in range -1. to +1.

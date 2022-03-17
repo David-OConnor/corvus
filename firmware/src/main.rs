@@ -490,8 +490,8 @@ pub fn setup_pins() {
             let _usb_dm = gpioa.new_pin(11, PinMode::Output);
             let _usb_dp = gpioa.new_pin(12, PinMode::Output);
 
-            let batt_v_adc_ = Pin::new(Port::A, 4, PinMode::Analog);
-            let current_sense_adc_ = Pin::new(Port::B, 2, PinMode::Analog);
+            let batt_v_adc_ = Pin::new(Port::A, 4, PinMode::Analog);  // ADC2, channel 17
+            let current_sense_adc_ = Pin::new(Port::B, 2, PinMode::Analog);  // ADC2, channel 12
 
             // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
             let sck1_ = Pin::new(Port::A, 5, PinMode::Alt(5));
