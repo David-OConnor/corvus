@@ -3,7 +3,9 @@
 #![allow(non_camel_case_types)]
 #[allow(non_upper_case_globals)]
 
+//! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/FHSS/FHSS.cpp
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/FHSS/FHSS.h
+//! Reviewed against source files: 2022-03-19
 
 
 const FreqCorrectionMax: i32 =  100000 / FREQ_STEP;
@@ -11,52 +13,49 @@ const FreqCorrectionMin: i32 = -100000 / FREQ_STEP;
 
 // #define FREQ_HZ_TO_REG_VAL(freq) ((uint32_t)((double)freq/(double)FREQ_STEP))
 
-pub const FHSSptr: u8 = 0;
-pub const FreqCorrection: i8 = 0;
-pub const FHSSsequence: [u8; 69] = [0; 69];
-pub const FHSSfreqs: [u32; 69] = [0; 69];
-pub const sync_channel: u8 = 0;
-pub const FHSS_SEQUENCE_CNT: u8 = 0;
-
 // get the initial frequency, which is also the sync channel
 #[inline(always)]
 fn GetInitialFreq() -> u32
 {
-    return FHSSfreqs[sync_channel] - FreqCorrection;
+    return FHSSfreqs[unsafe { sync_channel }] - unsafe { FreqCorrection };
 }
 
 // Get the current sequence pointer
 #[inline(always)]
 fn FHSSgetCurrIndex() -> u8
 {
-    return FHSSptr;
+    return unsafe { FHSSptr };
 }
 
-// Set the sequence pointer, used by RX on SYNC
+/// Set the sequence pointer, used by RX on SYNC
 #[inline(always)]
 fn FHSSsetCurrIndex(value: u8)
 {
-    FHSSptr = value % FHSS_SEQUENCE_CNT;
+    unsafe { FHSSptr = value % FHSS_SEQUENCE_CNT };
 }
 
-// Advance the pointer to the next hop and return the frequency of that channel
+/// Advance the pointer to the next hop and return the frequency of that channel
 #[inline(always)]
-fn FHSSgetNextFreq() -> u32
+unsafe fn FHSSgetNextFreq() -> u32
 {
     FHSSptr = (FHSSptr + 1) % FHSS_SEQUENCE_CNT;
-    let freq: u32 = FHSSfreqs[FHSSsequence[FHSSptr]] - FreqCorrection;
-    return freq;
+    FHSSfreqs[FHSSsequence[FHSSptr]] - FreqCorrection
 }
 
-// get the number of entries in the FHSS sequence
+/// get the number of entries in the FHSS sequence
 #[inline(always)]
 fn FHSSgetSequenceCount() -> u8
 {
-    return FHSS_SEQUENCE_CNT;
+    FHSS_SEQUENCE_CNT
 }
 
-// Our table of FHSS frequencies. Define a regulatory domain to select the correct set for your location and radio
+// todo: Where do we get this from?
+fn FREQ_HZ_TO_REG_VAL(val: u32) -> u32 {
+    0
+}
 
+/// Our tables of FHSS frequencies. Define a regulatory domain to select the correct set for your
+/// location and radio
 const FHSSfreqs_AU_433: [u32; 3] = [
     FREQ_HZ_TO_REG_VAL(433420000),
     FREQ_HZ_TO_REG_VAL(433920000),
@@ -297,7 +296,7 @@ const FHSS_FREQ_CNT: u32 = (sizeof(FHSSfreqs) / sizeof(u32));
 // Number of hops in the FHSSsequence list before circling back around, even multiple of the number of frequencies
 const FHSS_SEQUENCE_CNT: u8 = (256 / FHSS_FREQ_CNT) as u8 * FHSS_FREQ_CNT as u8;
 // Actual sequence of hops as indexes into the frequency list
-static mut FHSSsequence: [u8; FHSS_SEQUENCE_CNT] = [0; FHSS_SEQUENCE_CNT];
+static mut FHSSsequence: [u8; unsafe { FHSS_SEQUENCE_CNT as usize }] = [0; FHSS_SEQUENCE_CNT];
 // Which entry in the sequence we currently are on
 static mut FHSSptr: u8 = 0;
 // Channel for sync packets and initial connection establishment
@@ -317,9 +316,8 @@ Approach:
   Iterate through the array, and for each block, swap each entry in it with
   another random entry, excluding the sync channel.
 
-*/
-fn FHSSrandomiseFHSSsequence(seed: u32)
-{
+ */
+unsafe fn FHSSrandomiseFHSSsequence(seed: u32) {
 // #ifdef Regulatory_Domain_AU_915
 //     INFOLN("Setting 915MHz AU Mode");
 // #elif defined Regulatory_Domain_FCC_915
@@ -340,16 +338,15 @@ fn FHSSrandomiseFHSSsequence(seed: u32)
 
     println!("Number of FHSS frequencies = %u", FHSS_FREQ_CNT);
 
-    sync_channel = FHSS_FREQ_CNT / 2;
-    println!("Sync channel = %u", sync_channel);
+    sync_channel = (FHSS_FREQ_CNT / 2) as u8;
+    println!("Sync channel = {:?}", sync_channel);
 
     // reset the pointer (otherwise the tests fail)
     FHSSptr = 0;
     rngSeed(unsafe { seed });
 
     // initialize the sequence array
-for i in 0..FHSS_SEQUENCE_CNT
-    {
+    for i in 0..FHSS_SEQUENCE_CNT {
         if i % FHSS_FREQ_CNT == 0 {
             FHSSsequence[i] = sync_channel;
         } else if i % FHSS_FREQ_CNT == sync_channel {
@@ -359,13 +356,13 @@ for i in 0..FHSS_SEQUENCE_CNT
         }
     }
 
-for i in 0..FHSS_SEQUENCE_CNT
+    for i in 0..FHSS_SEQUENCE_CNT
     {
         // if it's not the sync channel
         if i % FHSS_FREQ_CNT != 0
         {
             let offset: u8 = (i / FHSS_FREQ_CNT) * FHSS_FREQ_CNT; // offset to start of current block
-            let rand: u8 = rngN(FHSS_FREQ_CNT-1)+1; // random number between 1 and FHSS_FREQ_CNT
+            let rand: u8 = rngN(unsafe { FHSS_FREQ_CNT } as u8 -1) +1; // random number between 1 and FHSS_FREQ_CNT
 
             // switch this entry and another random entry in the same block
             let temp: u8 = FHSSsequence[i];
@@ -375,13 +372,13 @@ for i in 0..FHSS_SEQUENCE_CNT
     }
 
     // output FHSS sequence
-        for i in 0..FHSS_SEQUENCE_CNT{
+    for i in 0..FHSS_SEQUENCE_CNT{
         println!("{} ",FHSSsequence[i]);
         if i % 10 == 9 {
             // DBGCR;
         }
     }
-    DBGCR;
+    // DBGCR;
 }
 
 fn FHSSgetChannelCount() -> u32
@@ -389,14 +386,16 @@ fn FHSSgetChannelCount() -> u32
     return FHSS_FREQ_CNT;
 }
 
+
+// from `FHSS/random.c` and `FHSS/random.h`.
 // the max value returned by rng
 const RNG_MAX: u16 = 0x7FFF;
 
 static mut seed: u32 = 0;
 
-// returns values between 0 and 0x7FFF
-// NB rngN depends on this output range, so if we change the
-// behaviour rngN will need updating
+/// returns values between 0 and 0x7FFF
+/// NB rngN depends on this output range, so if we change the
+/// behaviour rngN will need updating
 fn rng() -> u16
 {
     let m: u32 = 2147483648;
@@ -414,19 +413,19 @@ fn rngSeed(newSeed: u32)
     unsafe { seed = newSeed };
 }
 
-// returns 0 <= x < max where max < 256
+/// returns 0 <= x < max where max < 256
 fn rngN(max: u8) -> u8
 {
     return (rng() % max) as u8;
 }
 
-// 0..255 returned
+/// 0..255 returned
 fn rng8Bit() -> u8
 {
     return (rng() & 0xff) as u8;
 }
 
-// 0..31 returned
+/// 0..31 returned
 fn rng5Bit() -> u8
 {
     return (rng() & 0x1F) as u8;

@@ -5,25 +5,9 @@
 
 //! Adapted from the official ELRS example here: https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/OTA/OTA.cpp
 //! and https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/OTA/OTA.h
+//!
 
-
-// expresslrs packet header types
-// 00 -> standard channel data packet
-// 01 -> MSP data packet
-// 11 -> TLM packet
-// 10 -> sync packet
-const RC_DATA_PACKET: u8 = 0b00;
-const MSP_DATA_PACKET: u8 =  0b01;
-const TLM_PACKET: u8 =  0b11;
-const SYNC_PACKET: u8 =  0b10;
-
-// Mask used to XOR the ModelId into the SYNC packet for ModelMatch
-const MODELMATCH_MASK: u8 =  0x3f;
-
-enum OtaSwitchMode { sm1Bit, smHybrid, smHybridWide }
-
-// typedef std::function<bool (volatile uint8_t* Buffer, CRSF *crsf, uint8_t nonce, uint8_t tlmDenom)> UnpackChannelData_t;
-// extern UnpackChannelData_t UnpackChannelData;
+// todo: Do we want this, or is this for using the CRSF protocol?
 
 /**
  * This file is part of ExpressLRS
@@ -33,19 +17,42 @@ enum OtaSwitchMode { sm1Bit, smHybrid, smHybridWide }
  * be sent over the radio link.
  */
 
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum PacketHeaderType {
+    /// standard channel data packet
+    RC_DATA_PACKET = 0b00,
+    /// MSP data packet
+    MSP_DATA_PACKET=  0b01,
+    /// TLM packet
+    TLM_PACKET = 0b11,
+    /// sync packet
+    SYNC_PACKET = 0b10,
+}
+
+
+// Mask used to XOR the ModelId into the SYNC packet for ModelMatch
+const MODELMATCH_MASK: u8 =  0x3f;
+
+#[derive(Clone, Copy)]
+enum OtaSwitchMode {
+    sm1Bit,
+    smHybrid,
+    smHybridWide,
+}
+
 
 #[inline(always)]
-// ICACHE_RAM_ATTR 
-fn HybridWideNonceToSwitchIndex(nonce: u8) -> u8
-{
-    // Returns the sequence (0 to 7, then 0 to 7 rotated left by 1):
-    // 0, 1, 2, 3, 4, 5, 6, 7,
-    // 1, 2, 3, 4, 5, 6, 7, 0
-    // Because telemetry can occur on every 2, 4, 8, 16, 32, 64, 128th packet
-    // this makes sure each of the 8 values is sent at least once every 16 packets
-    // regardless of the TLM ratio
-    // Index 7 also can never fall on a telemetry slot
-    return ((nonce & 0b111) + ((nonce >> 3) & 0b1)) % 8;
+// ICACHE_RAM_ATTR
+/// Returns the sequence (0 to 7, then 0 to 7 rotated left by 1):
+/// 0, 1, 2, 3, 4, 5, 6, 7,
+/// 1, 2, 3, 4, 5, 6, 7, 0
+/// Because telemetry can occur on every 2, 4, 8, 16, 32, 64, 128th packet
+/// this makes sure each of the 8 values is sent at least once every 16 packets
+/// regardless of the TLM ratio
+/// Index 7 also can never fall on a telemetry slot
+fn HybridWideNonceToSwitchIndex(nonce: u8) -> u8 {
+    ((nonce & 0b111) + ((nonce >> 3) & 0b1)) % 8
 }
 
 // Current ChannelData unpacker function being used by RX

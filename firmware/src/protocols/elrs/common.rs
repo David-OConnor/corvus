@@ -5,8 +5,12 @@
 
 //! Adapted from the official ELRS example here: https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/common.cpp
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/include/common.h
+//! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/options.cpp
+//!
+//! Reviewed against source files: 2022-03-19
 
 
+#[derive(Copy, Clone)]
 #[repr(u8)]
 enum TlmRatio
 {
@@ -25,7 +29,7 @@ impl TlmRatio {
     pub fn value(&self) -> u8 {
         match self {
             Self::_NO_TLM => 1,
-            Self::_1_2 =>2,
+            Self::_1_2 => 2,
             Self::_1_4 => 4,
             Self::_1_8 => 8,
             Self::_1_16 =>1,
@@ -37,32 +41,33 @@ impl TlmRatio {
     }
 }
 
+#[derive(Copy, Clone)]
 enum ConnectionState
 {
     connected,
     tentative,
     disconnected,
     disconnectPending, // used on modelmatch change to drop the connection
-    MODE_STATES,
-    // States below here are special mode states
+MODE_STATES,
+    /// States below here are special mode states
     noCrossfire,
     wifiUpdate,
     bleJoystick,
-    // Failure states go below here to display immediately
+    /// Failure states go below here to display immediately
     FAILURE_STATES,
     radioFailed
 }
 
-/**
- * On the TX, tracks what to do when the Tock timer fires
- **/
+///On the TX, tracks what to do when the Tock timer fires
+#[derive(Copy, Clone)]
 enum TxTlmRcvPhase
 {
     ttrpTransmitting,     // Transmitting RC channels as normal
-    ttrpPreReceiveGap,    // Has switched to Receive mode for telemetry, but in the gap between TX done and Tock
-    ttrpExpectingTelem    // Still in Receive mode, Tock has fired, receiving telem as far as we know
+ttrpPreReceiveGap,    // Has switched to Receive mode for telemetry, but in the gap between TX done and Tock
+ttrpExpectingTelem    // Still in Receive mode, Tock has fired, receiving telem as far as we know
 }
 
+#[derive(Copy, Clone)]
 #[repr(u8)]
 enum RXtimerState
 {
@@ -71,16 +76,18 @@ enum RXtimerState
     tim_locked = 2
 }
 
+#[derive(Copy, Clone)]
 #[repr(u8)]
-enum expresslrs_tlm_header
+enum TlmHeader
 {
     RF_DOWNLINK_INFO = 0,
     RF_UPLINK_INFO = 1,
     RF_AIRMODE_PARAMETERS = 2
 }
 
+#[derive(Copy, Clone)]
 #[repr(u8)]
-enum RfRate
+enum RfRates
 {
     LORA_4HZ = 0,
     LORA_25HZ,
@@ -111,28 +118,28 @@ impl RfRate {
     }
 }
 
-
+#[derive(Copy, Clone)]
 enum RadioType {
     SX127x_LORA,
     SX128x_LORA,
     SX128x_FLRC,
 }
 
-struct PerfParams
+struct PrefParams
 {
     index: u8,
-    enum_rate: RfRate,                    // Max value of 4 since only 2 bits have been assigned in the sync package.
-    RXsensitivity: i32,                // expected RF sensitivity based on
-    TOA: u32,                         // time on air in microseconds
-    DisconnectTimeoutMs: u32,         // Time without a packet before receiver goes to disconnected (ms)
-    RxLockTimeoutMs: u32,             // Max time to go from tentative -> connected state on receiver (ms)
-    SyncPktIntervalDisconnected: u32, // how often to send the SYNC_PACKET packet (ms) when there is no response from RX
-    SyncPktIntervalConnected: u32,    // how often to send the SYNC_PACKET packet (ms) when there we have a connection
+    enum_rate: RfRates,                    // Max value of 4 since only 2 bits have been assigned in the sync package.
+RXsensitivity: i32,                // expected RF sensitivity based on
+TOA: u32,                         // time on air in microseconds
+DisconnectTimeoutMs: u32,         // Time without a packet before receiver goes to disconnected (ms)
+RxLockTimeoutMs: u32,             // Max time to go from tentative -> connected state on receiver (ms)
+SyncPktIntervalDisconnected: u32, // how often to send the SYNC_PACKET packet (ms) when there is no response from RX
+SyncPktIntervalConnected: u32,    // how often to send the SYNC_PACKET packet (ms) when there we have a connection
 }
 
-impl PerfParams {
+impl PrefParams {
     pub fn new(index: u8, enum_rate: RfRate, RXsensitivity: i32, TOA: u32, DisconnectTimeoutMs: u32, RxLockTimeoutMs: u32,
-    SyncPktIntervalDisconnect: u32, SyncPktIntervalConnected: u32) -> Self {
+               SyncPktIntervalDisconnected: u32, SyncPktIntervalConnected: u32) -> Self {
         Self {
             index, enum_rate, RXsensitivity, TOA, DisconnectTimeoutMs, RxLockTimeoutMs, SyncPktIntervalDisconnected, SyncPktIntervalConnected
         }
@@ -142,15 +149,15 @@ impl PerfParams {
 struct ModSettings
 {
     index: u8,
-    radio_type: u8,
+    radio_type: RadioType,
     enum_rate: RfRate,          // Max value of 4 since only 2 bits have been assigned in the sync package.
-    bw: u8,
+bw: u8,
     sf: u8,
     cr: u8,
     interval: u32,         // interval in us seconds that corresponds to that frequency
-    TLMinterval: u8,        // every X packets is a response TLM packet, should be a power of 2
-    FHSShopInterval: u8,    // every X packets we hop to a new frequency. Max value of 16 since only 4 bits have been assigned in the sync package.
-    PreambleLen: u8,
+TLMinterval: u8,        // every X packets is a response TLM packet, should be a power of 2
+FHSShopInterval: u8,    // every X packets we hop to a new frequency. Max value of 16 since only 4 bits have been assigned in the sync package.
+PreambleLen: u8,
     PayloadLength: u8,     // Number of OTA bytes to be sent.
 }
 
@@ -181,45 +188,43 @@ const AUX10: u8 =  13;
 const AUX11: u8 =  14;
 const AUX12: u8 =  15;
 
-//ELRS SPECIFIC OTA CRC
-//Koopman formatting https://users.ece.cmu.edu/~koopman/crc/
+// ELRS SPECIFIC OTA CRC
+// Koopman formatting https://users.ece.cmu.edu/~koopman/crc/
 const ELRS_CRC_POLY: u8 = 0x07; // 0x83
 const ELRS_CRC14_POLY: u8 =  0x2E57; // 0x372B
+
 // Sx1280[1] only
 const AirRateConfig: [ModSettings; RATE_MAX as usize] = [
-  ModSettings::new(0, RadioType::SX128x_FLRC, RATE_FLRC_1000HZ, SX1280_FLRC_BR_0_650_BW_0_6, SX1280_FLRC_BT_1, SX1280_FLRC_CR_1_2,     1000, TLM_RATIO_1_128,  8, 32, 8),
+    ModSettings::new(0, RadioType::SX128x_FLRC, RATE_FLRC_1000HZ, SX1280_FLRC_BR_0_650_BW_0_6, SX1280_FLRC_BT_1, SX1280_FLRC_CR_1_2,     1000, TLM_RATIO_1_128,  8, 32, 8),
     ModSettings::new(1, RadioType::SX128x_FLRC, RfRate::FLRC_500HZ,  SX1280_FLRC_BR_0_650_BW_0_6, SX1280_FLRC_BT_1, SX1280_FLRC_CR_1_2,     2000, TLM_RATIO_1_128,  4, 32, 8),
     ModSettings::new(2, RadioType::SX128x_LORA, RfRate::LORA_500HZ,  SX1280_LORA_BW_0800,         SX1280_LORA_SF5,  SX1280_LORA_CR_LI_4_6,  2000, TLM_RATIO_1_128,  4, 12, 8),
     ModSettings::new(3, RadioType::SX128x_LORA, RfRate::LORA_250HZ,  SX1280_LORA_BW_0800,         SX1280_LORA_SF6,  SX1280_LORA_CR_LI_4_7,  4000, TLM_RATIO_1_64,   4, 14, 8),
     ModSettings::new(4, RadioType::SX128x_LORA, RfRate::LORA_150HZ,  SX1280_LORA_BW_0800,         SX1280_LORA_SF7,  SX1280_LORA_CR_LI_4_7,  6666, TLM_RATIO_1_32,   4, 12, 8),
     ModSettings::new(5, RadioType::SX128x_LORA, RfRate::LORA_50HZ,   SX1280_LORA_BW_0800,         SX1280_LORA_SF9,  SX1280_LORA_CR_LI_4_6, 20000, TLM_RATIO_NO_TLM, 2, 12, 8)
-
 ];
 
-const AirRateRFperf: [PerfParams; RATE_MAX as usize] = [
-    PerfParams::new(0, RfRate::FLRC_1000HZ, -104, 389, 2500, 2500, 3, 5000),
-    PerfParams::new(1, RfRate::FLRC_500HZ, -104, 389, 2500, 2500, 3, 5000),
-    PerfParams::new(2, RfRate::LORA_500HZ, -105, 1665, 2500, 2500, 3, 5000),
-    PerfParams::new(3, RfRate::LORA_250HZ, -108, 3300, 3000, 2500, 6, 5000),
-    PerfParams::new(4, RfRate::LORA_150HZ, -112, 5871, 3500, 2500, 10, 5000),
-    PerfParams::new(5, RfRate::LORA_50HZ, -117, 18443, 4000, 2500, 0, 5000)
+const AirRateRFperf: [PrefParams; RATE_MAX as usize] = [
+    PrefParams::new(0, RfRate::FLRC_1000HZ, -104, 389, 2500, 2500, 3, 5000),
+    PrefParams::new(1, RfRate::FLRC_500HZ, -104, 389, 2500, 2500, 3, 5000),
+    PrefParams::new(2, RfRate::LORA_500HZ, -105, 1665, 2500, 2500, 3, 5000),
+    PrefParams::new(3, RfRate::LORA_250HZ, -108, 3300, 3000, 2500, 6, 5000),
+    PrefParams::new(4, RfRate::LORA_150HZ, -112, 5871, 3500, 2500, 10, 5000),
+    PrefParams::new(5, RfRate::LORA_50HZ, -117, 18443, 4000, 2500, 0, 5000)
 ];
 
 
-fn get_elrs_airRateConfig(index: usize) -> ModSettings
-{
+fn get_elrs_airRateConfig(index: usize) -> ModSettings {
     let mut i = index as u8;
     if RATE_MAX <= i
     {
         // Set to last usable entry in the array
         i = RATE_MAX - 1;
     }
-    ExpressLRS_AirRateConfig[i as usize]
+    AirRateConfig[i as usize]
 }
 
-fn get_elrs_RFperfParams(index: usize) -> PerfParams {
+fn get_elrs_RFperfParams(index: usize) -> PrefParams {
     let mut i = index as u8;
-
     if RATE_MAX <= i {
         // Set to last usable entry in the array
         i = RATE_MAX - 1;
@@ -227,8 +232,8 @@ fn get_elrs_RFperfParams(index: usize) -> PerfParams {
     AirRateRFperf[i]
 }
 
-fn enumRatetoIndex(rate: u8) -> u8
-{ // convert enum_rate to index
+/// Convert enum_rate to index
+fn enumRatetoIndex(rate: u8) -> u8 {
     for i in 0..RATE_MAX {
         let ModParams = get_elrs_airRateConfig(i as usize);
         if ModParams.enum_rate == rate
@@ -247,22 +252,17 @@ fn enumRatetoIndex(rate: u8) -> u8
 static mut connectionState: ConnectionState = ConnectionState::disconnected;
 static mut connectionHasModelMatch: bool = false;
 
+// todo: Fix this binding ID.
 static mut BindingUID: [u8; 6] = [0, 1, 2, 3, 4, 5]; // Special binding UID values
-// #if defined(MY_UID)
-//     uint8_t UID[6] = {MY_UID};
-// #else
-//     #ifdef PLATFORM_ESP32
-//         uint8_t UID[6];
-//         esp_err_t WiFiErr = esp_read_mac(UID, ESP_MAC_WIFI_STA);
-//     #elif PLATFORM_STM32
-//         uint8_t UID[6] = {
+// if MY_UID {
+//     = {MY_UID};
+// }
+// #else {
+//          = [
 //             (uint8_t)HAL_GetUIDw0(), (uint8_t)(HAL_GetUIDw0() >> 8),
 //             (uint8_t)HAL_GetUIDw1(), (uint8_t)(HAL_GetUIDw1() >> 8),
 //             (uint8_t)HAL_GetUIDw2(), (uint8_t)(HAL_GetUIDw2() >> 8)};
-//     #else
-//         uint8_t UID[6] = {0};
-//     #endif
-// #endif
+// }
 
 static mut MasterUID: [u8; 6] = unsafe { [UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]] }; // Special binding UID values
 
@@ -270,7 +270,7 @@ static mut  CRCInitializer: u16 = unsafe { ((UID[4] as u16) << 8) | (UID[5] as u
 
 unsafe fn uidMacSeedGet() -> u32
 {
-((UID[2] as u32) << 24) + ((UID[3] as u32) << 16) + ((UID[4] as u32) << 8) + UID[5]
+    ((UID[2] as u32) << 24) + ((UID[3] as u32) << 16) + ((UID[4] as u32) << 8) + UID[5]
 }
 
 // `options.cpp`
