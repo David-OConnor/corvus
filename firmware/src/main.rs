@@ -508,6 +508,7 @@ pub fn setup_pins() {
             let miso3_ = Pin::new(Port::B, 4, PinMode::Alt(6));
             let mosi3_ = Pin::new(Port::B, 5, PinMode::Alt(6));
 
+
             // We use UARTs for misc external devices, including ESC telemetry,
             // and "Smart Audio" (for video)
 
@@ -541,6 +542,7 @@ pub fn setup_pins() {
             let mut sda2 = Pin::new(Port::A, 8, PinMode::Alt(4));
             sda2.output_type(OutputType::OpenDrain);
             sda2.pull(Pull::Up);
+
         }
     }
 }
@@ -685,8 +687,12 @@ mod app {
         // We use SPI2 for the LoRa ELRS chip.  // todo: Find max speed and supported modes.
         let spi2 = Spi::new(dp.SPI2, Default::default(), BaudRate::Div32);
 
+        let elrs_dio = Pin::new(Port::C, 13, PinMode::Output); // todo: input or output?
+
         // We use SPI3 for flash. // todo: Find max speed and supported modes.
         let spi3 = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
+
+        let cs_flash = Pin::new(Port::C, 6, PinMode::Output);
 
         // We use I2C for the TOF sensor.(?) and for Matek digital airspeed and compass
         let i2c_cfg = I2cConfig {
