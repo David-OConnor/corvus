@@ -1,13 +1,16 @@
 #![allow(non_snake_case)]
 #![allow(unused_parens)]
 #![allow(non_camel_case_types)]
-#[allow(non_upper_case_globals)]
+#![allow(non_upper_case_globals)]
 
 //! Adapted from the official ELRS example here: https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/common.cpp
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/include/common.h
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/options.cpp
 //!
 //! Reviewed against source files: 2022-03-19
+
+use super::sx1280_regs::{LoRaBandwidths, FlrcBandwidths, LoraSpreadingFactors, FlrcGaussianFilter,
+FlrcCodingRates, LoRaCodingRates};
 
 
 #[derive(Copy, Clone)]
@@ -28,7 +31,7 @@ enum TlmRatio
 impl TlmRatio {
     pub fn value(&self) -> u8 {
         match self {
-            Self::_NO_TLM => 1,
+            Self::NO_TLM => 1,
             Self::_1_2 => 2,
             Self::_1_4 => 4,
             Self::_1_8 => 8,
@@ -146,19 +149,29 @@ impl PrefParams {
     }
 }
 
+/// Note: Some of these draw from one of two enums (FLRC, LoRa), so we store as their u8-reprs.
 struct ModSettings
 {
     index: u8,
     radio_type: RadioType,
-    enum_rate: RfRate,          // Max value of 4 since only 2 bits have been assigned in the sync package.
-bw: u8,
+    rf_rate: RfRates,          // Max value of 4 since only 2 bits have been assigned in the sync package.
+    bw: u8,
     sf: u8,
     cr: u8,
     interval: u32,         // interval in us seconds that corresponds to that frequency
-TLMinterval: u8,        // every X packets is a response TLM packet, should be a power of 2
-FHSShopInterval: u8,    // every X packets we hop to a new frequency. Max value of 16 since only 4 bits have been assigned in the sync package.
-PreambleLen: u8,
+    TLMinterval: TlmRatio,        // every X packets is a response TLM packet, should be a power of 2
+    FHSShopInterval: u8,    // every X packets we hop to a new frequency. Max value of 16 since only 4 bits have been assigned in the sync package.
+    PreambleLen: u8,
     PayloadLength: u8,     // Number of OTA bytes to be sent.
+}
+
+impl ModSettings {
+    pub fn new(index: u8, radio_type: RadioType, rf_rate: RfRates, bw: u8, sf: u8, cr: u8, interval: u32, TLMinterval: TlmRatio,
+    FHSShopInterval: u8, PreambleLen: u8, PayloadLength: u8) -> Self {
+        Self {
+            index, radio_type, rf_rate, bw, sf, cr, interval, TLMinterval, FHSShopInterval, PreambleLen, PayloadLength
+        }
+    }
 }
 
 // #ifndef UNIT_TEST
@@ -195,21 +208,21 @@ const ELRS_CRC14_POLY: u8 =  0x2E57; // 0x372B
 
 // Sx1280[1] only
 const AirRateConfig: [ModSettings; RATE_MAX as usize] = [
-    ModSettings::new(0, RadioType::SX128x_FLRC, RATE_FLRC_1000HZ, SX1280_FLRC_BR_0_650_BW_0_6, SX1280_FLRC_BT_1, SX1280_FLRC_CR_1_2,     1000, TLM_RATIO_1_128,  8, 32, 8),
-    ModSettings::new(1, RadioType::SX128x_FLRC, RfRate::FLRC_500HZ,  SX1280_FLRC_BR_0_650_BW_0_6, SX1280_FLRC_BT_1, SX1280_FLRC_CR_1_2,     2000, TLM_RATIO_1_128,  4, 32, 8),
-    ModSettings::new(2, RadioType::SX128x_LORA, RfRate::LORA_500HZ,  SX1280_LORA_BW_0800,         SX1280_LORA_SF5,  SX1280_LORA_CR_LI_4_6,  2000, TLM_RATIO_1_128,  4, 12, 8),
-    ModSettings::new(3, RadioType::SX128x_LORA, RfRate::LORA_250HZ,  SX1280_LORA_BW_0800,         SX1280_LORA_SF6,  SX1280_LORA_CR_LI_4_7,  4000, TLM_RATIO_1_64,   4, 14, 8),
-    ModSettings::new(4, RadioType::SX128x_LORA, RfRate::LORA_150HZ,  SX1280_LORA_BW_0800,         SX1280_LORA_SF7,  SX1280_LORA_CR_LI_4_7,  6666, TLM_RATIO_1_32,   4, 12, 8),
-    ModSettings::new(5, RadioType::SX128x_LORA, RfRate::LORA_50HZ,   SX1280_LORA_BW_0800,         SX1280_LORA_SF9,  SX1280_LORA_CR_LI_4_6, 20000, TLM_RATIO_NO_TLM, 2, 12, 8)
+    ModSettings::new(0, RadioType::SX128x_FLRC, RfRates::FLRC_1000HZ, FlrcBandwidths::BR_0_650_BW_0_6 as u8, FlrcGaussianFilter::BT_1 as u8, FlrcCodingRates::CR_1_2 as u8,     1000, TlmRatio::_1_128,  8, 32, 8),
+    ModSettings::new(1, RadioType::SX128x_FLRC, RfRates::FLRC_500HZ,  FlrcBandwidths::BR_0_650_BW_0_6 as u8, LoRaBandwidths::BW_0800 as u8, FlrcCodingRates::CR_1_2 as u8,     2000, TlmRatio::_1_128,  4, 32, 8),
+    ModSettings::new(2, RadioType::SX128x_LORA, RfRates::LORA_500HZ,  LoRaBandwidths::BW_0800 as u8,         LoraSpreadingFactors::SF5 as u8,  LoRaCodingRates::CR_4_6 as u8,  2000, TlmRatio::_1_128,  4, 12, 8),
+    ModSettings::new(3, RadioType::SX128x_LORA, RfRates::LORA_250HZ,  LoRaBandwidths::BW_0800 as u8,         LoraSpreadingFactors::SF6 as u8,  LoRaCodingRates::CR_4_7 as u8,  4000, TlmRatio::_1_64,   4, 14, 8),
+    ModSettings::new(4, RadioType::SX128x_LORA, RfRates::LORA_150HZ,  LoRaBandwidths::BW_0800 as u8,         LoraSpreadingFactors::SF7 as u8,LoRaCodingRates::CR_4_7 as u8,  6666, TlmRatio::_1_32,   4, 12, 8),
+    ModSettings::new(5, RadioType::SX128x_LORA, RfRates::LORA_50HZ,   LoRaBandwidths::BW_0800 as u8,         LoraSpreadingFactors::SF9 as u8,  LoRaCodingRates::CR_4_6 as u8, 20000, TlmRatio::NO_TLM, 2, 12, 8)
 ];
 
 const AirRateRFperf: [PrefParams; RATE_MAX as usize] = [
-    PrefParams::new(0, RfRate::FLRC_1000HZ, -104, 389, 2500, 2500, 3, 5000),
-    PrefParams::new(1, RfRate::FLRC_500HZ, -104, 389, 2500, 2500, 3, 5000),
-    PrefParams::new(2, RfRate::LORA_500HZ, -105, 1665, 2500, 2500, 3, 5000),
-    PrefParams::new(3, RfRate::LORA_250HZ, -108, 3300, 3000, 2500, 6, 5000),
-    PrefParams::new(4, RfRate::LORA_150HZ, -112, 5871, 3500, 2500, 10, 5000),
-    PrefParams::new(5, RfRate::LORA_50HZ, -117, 18443, 4000, 2500, 0, 5000)
+    PrefParams::new(0, RfRates::FLRC_1000HZ, -104, 389, 2500, 2500, 3, 5000),
+    PrefParams::new(1, RfRates::FLRC_500HZ, -104, 389, 2500, 2500, 3, 5000),
+    PrefParams::new(2, RfRates::LORA_500HZ, -105, 1665, 2500, 2500, 3, 5000),
+    PrefParams::new(3, RfRates::LORA_250HZ, -108, 3300, 3000, 2500, 6, 5000),
+    PrefParams::new(4, RfRates::LORA_150HZ, -112, 5871, 3500, 2500, 10, 5000),
+    PrefParams::new(5, RfRates::LORA_50HZ, -117, 18443, 4000, 2500, 0, 5000)
 ];
 
 
@@ -229,7 +242,7 @@ fn get_elrs_RFperfParams(index: usize) -> PrefParams {
         // Set to last usable entry in the array
         i = RATE_MAX - 1;
     }
-    AirRateRFperf[i]
+    AirRateRFperf[i as usize]
 }
 
 /// Convert enum_rate to index

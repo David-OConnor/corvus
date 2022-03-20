@@ -1148,7 +1148,7 @@ fn loop_()
 
     let localLastValidPacket: u32 = unsafe { LastValidPacket }; // Required to prevent race condition due to LastValidPacket getting updated from ISR
     if (connectionState == disconnectPending) ||
-        ((connectionState == connected) && (ExpressLRS_currAirRate_RFperfParams.DisconnectTimeoutMs as i32<(now -localLastValidPacket) as i32)) // check if we lost conn.
+        ((connectionState == connected) && (ExpressLRS_currAirRate_RFperfParams.DisconnectTimeoutMs as i32 < (now - localLastValidPacket) as i32)) // check if we lost conn.
     {
         LostConnection();
     }

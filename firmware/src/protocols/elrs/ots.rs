@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 #![allow(unused_parens)]
 #![allow(non_camel_case_types)]
-#[allow(non_upper_case_globals)]
+#![allow(non_upper_case_globals)]
 
 //! Adapted from the official ELRS example here: https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/OTA/OTA.cpp
 //! and https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/OTA/OTA.h

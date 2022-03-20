@@ -123,7 +123,6 @@ impl Default for CtrlCoeffsYT {
     }
 }
 
-#[derive(Default)]
 pub struct CtrlCoeffGroup {
     pub pitch: CtrlCoeffsPR,
     pub roll: CtrlCoeffsPR,
@@ -150,7 +149,7 @@ impl Default for CtrlCoeffGroup {
                 k_d_s_from_v: 30.,
                 ..Default::default()
             },
-            yaw: Default::deafult(),
+            yaw: Default::default(),
             thrust: CtrlCoeffsYT {
                 k_p_s: 0.1,
                 k_i_s: 0.0,

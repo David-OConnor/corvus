@@ -65,7 +65,7 @@ mod flight_ctrls;
 mod pid;
 mod pid_tuning;
 mod protocols;
-mod sensor_fusion;
+// mod sensor_fusion; // todo
 
 // cfg_if! {
 // if #[cfg(feature = "matek-h743slim")] {
@@ -281,6 +281,9 @@ impl Default for UserCfg {
             mapping_obstacles: false,
             max_speed_hor: 20.,
             max_speed_ver: 20.,
+            gps_attached: false,
+            tof_attached: false,
+            motors_reversed: (false, false, false, false),
         }
     }
 }

@@ -296,7 +296,7 @@ const FHSS_FREQ_CNT: u32 = (sizeof(FHSSfreqs) / sizeof(u32));
 // Number of hops in the FHSSsequence list before circling back around, even multiple of the number of frequencies
 const FHSS_SEQUENCE_CNT: u8 = (256 / FHSS_FREQ_CNT) as u8 * FHSS_FREQ_CNT as u8;
 // Actual sequence of hops as indexes into the frequency list
-static mut FHSSsequence: [u8; unsafe { FHSS_SEQUENCE_CNT as usize }] = [0; FHSS_SEQUENCE_CNT];
+static mut FHSSsequence: [u8; FHSS_SEQUENCE_CNT as usize] = [0; FHSS_SEQUENCE_CNT as usize];
 // Which entry in the sequence we currently are on
 static mut FHSSptr: u8 = 0;
 // Channel for sync packets and initial connection establishment
@@ -346,22 +346,22 @@ unsafe fn FHSSrandomiseFHSSsequence(seed: u32) {
     rngSeed(unsafe { seed });
 
     // initialize the sequence array
-    for i in 0..FHSS_SEQUENCE_CNT {
+    for i in 0..FHSS_SEQUENCE_CNT as u32 {
         if i % FHSS_FREQ_CNT == 0 {
             FHSSsequence[i] = sync_channel;
-        } else if i % FHSS_FREQ_CNT == sync_channel {
+        } else if i % FHSS_FREQ_CNT == sync_channel as u32 {
             FHSSsequence[i] = 0;
         } else {
             FHSSsequence[i] = i % FHSS_FREQ_CNT;
         }
     }
 
-    for i in 0..FHSS_SEQUENCE_CNT
+    for i in 0..FHSS_SEQUENCE_CNT as u32
     {
         // if it's not the sync channel
         if i % FHSS_FREQ_CNT != 0
         {
-            let offset: u8 = (i / FHSS_FREQ_CNT) * FHSS_FREQ_CNT; // offset to start of current block
+            let offset: u8 = ((i / FHSS_FREQ_CNT) * FHSS_FREQ_CNT) as u8; // offset to start of current block
             let rand: u8 = rngN(unsafe { FHSS_FREQ_CNT } as u8 -1) +1; // random number between 1 and FHSS_FREQ_CNT
 
             // switch this entry and another random entry in the same block
@@ -416,7 +416,7 @@ fn rngSeed(newSeed: u32)
 /// returns 0 <= x < max where max < 256
 fn rngN(max: u8) -> u8
 {
-    return (rng() % max) as u8;
+    (rng() % max as u16) as u8
 }
 
 /// 0..255 returned

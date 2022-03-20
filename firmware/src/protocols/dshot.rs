@@ -118,7 +118,7 @@ pub fn setup_payload(rotor: Rotor, cmd: CmdType) {
     // Bits 12:15 are CRC, to validate data.
 
     let data_word = match cmd {
-        CmdType::Command(c) => c,
+        CmdType::Command(c) => c as u16,
         CmdType::Power(pwr) => (pwr * 1_999.) as u16 + 48,
     };
 
