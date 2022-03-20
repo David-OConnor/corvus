@@ -17,7 +17,7 @@ use cmsis_dsp_sys as sys;
 
 use num_traits::float::FloatCore; // Absolute value.
 
-use crate::{drivers::crsf, dshot, pid::PidState, CtrlCoeffGroup, Location, Rotor, UserCfg};
+use crate::{dshot, pid::PidState, CtrlCoeffGroup, Location, Rotor, UserCfg};
 
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
@@ -416,8 +416,8 @@ impl RotorPower {
     /// Send this power command to the rotors
     pub fn set(
         &mut self,
-        rotor_timer_a: &mut Timer<TIM3>,
-        rotor_timer_b: &mut Timer<TIM5>,
+        rotor_timer_a: &mut Timer<TIM2>,
+        rotor_timer_b: &mut Timer<TIM3>,
         dma: &mut Dma<DMA1>,
     ) {
         self.clamp();
@@ -455,8 +455,9 @@ fn change_attitude(
     yaw: f32,
     throttle: f32,
     current_pwr: &mut RotorPower,
-    rotor_pwm_a: &mut Timer<TIM3>,
-    rotor_pwm_b: &mut Timer<TIM5>,
+    rotor_pwm_a: &mut Timer<TIM2>,
+    rotor_pwm_b: &mut Timer<TIM3>,
+    dma: &mut Dma<DMA1>,
 ) {
     current_pwr.p1 += pitch;
     current_pwr.p2 += pitch;
@@ -478,7 +479,7 @@ fn change_attitude(
     current_pwr.p3 *= throttle;
     current_pwr.p4 *= throttle;
 
-    current_pwr.set(rotor_pwm_a, rotor_pwm_b);
+    current_pwr.set(rotor_pwm_a, rotor_pwm_b, dma);
 }
 
 /// Calculate the horizontal arget velocity (m/s), for a given distance (m) from a point horizontally.
@@ -565,8 +566,9 @@ pub fn apply_ctrls(
     pid_pwr: &PidState,
     coeffs: &CtrlCoeffGroup,
     current_pwr: &mut RotorPower,
-    rotor_pwm_a: &mut Timer<TIM3>,
-    rotor_pwm_b: &mut Timer<TIM5>,
+    rotor_pwm_a: &mut Timer<TIM2>,
+    rotor_pwm_b: &mut Timer<TIM3>,
+    dma: &mut Dma<DMA1>,
 ) {
     // todo: Is this fn superfluous?
 
@@ -583,5 +585,6 @@ pub fn apply_ctrls(
         current_pwr, // modified in place, and therefore upstream.
         rotor_pwm_a,
         rotor_pwm_b,
+        dma
     );
 }

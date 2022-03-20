@@ -19,7 +19,7 @@ use stm32_hal2::{
     timer::{TimChannel, Timer},
 };
 
-use anyleaf_quadcopter_firmware::Rotor;
+use crate::Rotor;
 
 // Duty cycle values (to be written to CCMRx), based on our ARR value. 0. = 0%. ARR = 100%.
 const DUTY_HIGH: u32 = anyleaf_quadcopter_firmware::DSHOT_ARR * 3 / 4;
@@ -50,17 +50,17 @@ pub enum Command {
     SaveSettings = 12,
     SpinDirNormal = 20,
     SpinDirReversed = 21,
-    Led0On = 22, // BLHeli32 only
-    Led1On = 23, // BLHeli32 only
-    Led2On = 24, // BLHeli32 only
-    Led3On = 25, // BLHeli32 only
-    Led0Off = 26, // BLHeli32 only
-    Led1Off = 27, // BLHeli32 only
-    Led2Off = 28, // BLHeli32 only
-    Led3Off = 29, // BLHeli32 only
+    Led0On = 22,               // BLHeli32 only
+    Led1On = 23,               // BLHeli32 only
+    Led2On = 24,               // BLHeli32 only
+    Led3On = 25,               // BLHeli32 only
+    Led0Off = 26,              // BLHeli32 only
+    Led1Off = 27,              // BLHeli32 only
+    Led2Off = 28,              // BLHeli32 only
+    Led3Off = 29,              // BLHeli32 only
     AudioStreamModeOnOff = 30, // KISS audio Stream mode on/Off
-    SilendModeOnOff = 31, // KISS silent Mode on/Off
-    Max = 47
+    SilendModeOnOff = 31,      // KISS silent Mode on/Off
+    Max = 47,
 }
 
 enum CmdType {
@@ -82,31 +82,36 @@ pub fn stop_all(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>, dma: &mut 
 }
 
 /// Set up the direction for each motor, in accordance with user config.
-pub fn cfg_motor_dir(motors_reversed: (bool, bool, bool, bool), timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
+pub fn cfg_motor_dir(
+    motors_reversed: (bool, bool, bool, bool),
+    timer_a: &mut Timer<TIM2>,
+    timer_b: &mut Timer<TIM3>,
+    dma: &mut Dma<DMA1>,
+) {
     // todo: DRY
-        if motors_reversed.0 {
-            send_cmd_a(Rotor::R1, Command::SpinDirReversed, timer_a, dma);
-        } else {
-            send_cmd_a(Rotor::R1, Command::SpinDirNormal, timer_a, dma);
-        }
-    
-            if motors_reversed.1 {
-            send_cmd_a(Rotor::R2, Command::SpinDirReversed, timer_a, dma);
-        } else {
-            send_cmd_a(Rotor::R2, Command::SpinDirNormal, timer_a, dma);
-        }
-    
-            if motors_reversed.2 {
-            send_cmd_a(Rotor::R3, Command::SpinDirReversed, timer_b, dma);
-        } else {
-            send_cmd_a(Rotor::R3, Command::SpinDirNormal, timer_b, dma);
-        }
-    
-            if motors_reversed.3 {
-            send_cmd_a(Rotor::R4, Command::SpinDirReversed, timer_b, dma);
-        } else {
-            send_cmd_a(Rotor::R4, Command::SpinDirNormal, timer_b, dma);
-        }
+    if motors_reversed.0 {
+        send_cmd_a(Rotor::R1, Command::SpinDirReversed, timer_a, dma);
+    } else {
+        send_cmd_a(Rotor::R1, Command::SpinDirNormal, timer_a, dma);
+    }
+
+    if motors_reversed.1 {
+        send_cmd_a(Rotor::R2, Command::SpinDirReversed, timer_a, dma);
+    } else {
+        send_cmd_a(Rotor::R2, Command::SpinDirNormal, timer_a, dma);
+    }
+
+    if motors_reversed.2 {
+        send_cmd_b(Rotor::R3, Command::SpinDirReversed, timer_b, dma);
+    } else {
+        send_cmd_b(Rotor::R3, Command::SpinDirNormal, timer_b, dma);
+    }
+
+    if motors_reversed.3 {
+        send_cmd_b(Rotor::R4, Command::SpinDirReversed, timer_b, dma);
+    } else {
+        send_cmd_b(Rotor::R4, Command::SpinDirNormal, timer_b, dma);
+    }
 }
 
 /// Update our DSHOT payload for a given rotor, with a given power level.
@@ -178,7 +183,7 @@ pub fn set_power_b(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>, dma: &mut 
 }
 
 fn send_payload_a(rotor: Rotor, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
-    let dma_cfg = ChannelCfg::Default();
+    let dma_cfg = ChannelCfg::default();
 
     let payload = &unsafe {
         match rotor {
@@ -207,7 +212,7 @@ fn send_payload_a(rotor: Rotor, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
 
 // todo: DRY again. Trait?
 fn send_payload_b(rotor: Rotor, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
-    let dma_cfg = ChannelCfg::Default();
+    let dma_cfg = ChannelCfg::default();
 
     let payload = &unsafe {
         match rotor {

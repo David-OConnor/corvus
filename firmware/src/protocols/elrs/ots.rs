@@ -23,16 +23,15 @@ enum PacketHeaderType {
     /// standard channel data packet
     RC_DATA_PACKET = 0b00,
     /// MSP data packet
-    MSP_DATA_PACKET=  0b01,
+    MSP_DATA_PACKET = 0b01,
     /// TLM packet
     TLM_PACKET = 0b11,
     /// sync packet
     SYNC_PACKET = 0b10,
 }
 
-
 // Mask used to XOR the ModelId into the SYNC packet for ModelMatch
-const MODELMATCH_MASK: u8 =  0x3f;
+const MODELMATCH_MASK: u8 = 0x3f;
 
 #[derive(Clone, Copy)]
 enum OtaSwitchMode {
@@ -40,7 +39,6 @@ enum OtaSwitchMode {
     smHybrid,
     smHybridWide,
 }
-
 
 #[inline(always)]
 // ICACHE_RAM_ATTR
@@ -59,8 +57,7 @@ fn HybridWideNonceToSwitchIndex(nonce: u8) -> u8 {
 // UnpackChannelData_t UnpackChannelData;
 
 // ICACHE_RAM_ATTR
-fn UnpackChannelDataHybridCommon(Buffer: &mut [u8], crsf: &mut CRSF)
-{
+fn UnpackChannelDataHybridCommon(Buffer: &mut [u8], crsf: &mut CRSF) {
     // The analog channels
     crsf.PackedRCdataOut.ch0 = (Buffer[1] << 3) | ((Buffer[5] & 0b11000000) >> 5);
     crsf.PackedRCdataOut.ch1 = (Buffer[2] << 3) | ((Buffer[5] & 0b00110000) >> 3);
@@ -80,8 +77,12 @@ fn UnpackChannelDataHybridCommon(Buffer: &mut [u8], crsf: &mut CRSF)
  * Returns: TelemetryStatus bit
  */
 // ICACHE_RAM_ATTR
-fn  UnpackChannelDataHybridSwitch8(Buffer: &mut [u8], crsf: &mut CRSF, nonce: u8, tlmDenom: u8) -> bool
-{
+fn UnpackChannelDataHybridSwitch8(
+    Buffer: &mut [u8],
+    crsf: &mut CRSF,
+    nonce: u8,
+    tlmDenom: u8,
+) -> bool {
     let switchByte = Buffer[6];
     UnpackChannelDataHybridCommon(Buffer, crsf);
 
@@ -95,29 +96,30 @@ fn  UnpackChannelDataHybridSwitch8(Buffer: &mut [u8], crsf: &mut CRSF, nonce: u8
     let switchValue: u16 = SWITCH3b_to_CRSF(switchByte & 0b111);
 
     match switchIndex {
-     0=> {
-        crsf.PackedRCdataOut.ch5 = switchValue;
+        0 => {
+            crsf.PackedRCdataOut.ch5 = switchValue;
         }
-     1=> {
-        crsf.PackedRCdataOut.ch6 = switchValue;
+        1 => {
+            crsf.PackedRCdataOut.ch6 = switchValue;
         }
-     2=> {
-        crsf.PackedRCdataOut.ch7 = switchValue;
+        2 => {
+            crsf.PackedRCdataOut.ch7 = switchValue;
         }
-     3=> {
-        crsf.PackedRCdataOut.ch8 = switchValue;
+        3 => {
+            crsf.PackedRCdataOut.ch8 = switchValue;
         }
-     4=> {
-        crsf.PackedRCdataOut.ch9 = switchValue;
+        4 => {
+            crsf.PackedRCdataOut.ch9 = switchValue;
         }
-     5=> {
-        crsf.PackedRCdataOut.ch10 = switchValue;
+        5 => {
+            crsf.PackedRCdataOut.ch10 = switchValue;
         }
-     6=> (),  // Because AUX1 (index 0) is the low latency switch, the low bit
-     7=> {   // of the switchIndex can be used as data, and arrives as index "6"
-        crsf.PackedRCdataOut.ch11 = N_to_CRSF(switchByte & 0b1111, 15);
+        6 => (), // Because AUX1 (index 0) is the low latency switch, the low bit
+        7 => {
+            // of the switchIndex can be used as data, and arrives as index "6"
+            crsf.PackedRCdataOut.ch11 = N_to_CRSF(switchByte & 0b1111, 15);
         }
-    _ => ()
+        _ => (),
     }
 
     // TelemetryStatus bit
@@ -137,8 +139,12 @@ fn  UnpackChannelDataHybridSwitch8(Buffer: &mut [u8], crsf: &mut CRSF, nonce: u8
  * Returns: TelemetryStatus bit
  */
 // ICACHE_RAM_ATTR
-fn UnpackChannelDataHybridWide(Buffer: &mut [u8],crsf: &mut [CRSF], nonce: u8, tlmDenom: u8) -> bool
-{
+fn UnpackChannelDataHybridWide(
+    Buffer: &mut [u8],
+    crsf: &mut [CRSF],
+    nonce: u8,
+    tlmDenom: u8,
+) -> bool {
     let mut TelemetryStatus: bool = false;
     let switchByte: u8 = Buffer[6];
     UnpackChannelDataHybridCommon(Buffer, crsf);
@@ -152,21 +158,15 @@ fn UnpackChannelDataHybridWide(Buffer: &mut [u8],crsf: &mut [CRSF], nonce: u8, t
     if telemInEveryPacket || switchIndex == 7 {
         TelemetryStatus = (switchByte & 0b01000000) >> 6 != 0;
     }
-    if switchIndex == 7
-    {
+    if switchIndex == 7 {
         crsf.LinkStatistics.uplink_TX_Power = switchByte & 0b111111;
-    }
-    else
-    {
+    } else {
         let mut bins: u8 = 0;
         let mut switchValue: u16 = 0;
-        if telemInEveryPacket
-        {
+        if telemInEveryPacket {
             bins = 63;
             switchValue = switchByte as u16 & 0b111111; // 6-bit
-        }
-        else
-        {
+        } else {
             bins = 127;
             switchValue = switchByte as u16 & 0b1111111; // 7-bit
         }
@@ -175,25 +175,25 @@ fn UnpackChannelDataHybridWide(Buffer: &mut [u8],crsf: &mut [CRSF], nonce: u8, t
         match switchIndex {
             0 => {
                 crsf.PackedRCdataOut.ch5 = switchValue;
-                }
+            }
             1 => {
                 crsf.PackedRCdataOut.ch6 = switchValue;
-                }
+            }
             2 => {
                 crsf.PackedRCdataOut.ch7 = switchValue;
-                }
+            }
             3 => {
                 crsf.PackedRCdataOut.ch8 = switchValue;
-                }
+            }
             4 => {
                 crsf.PackedRCdataOut.ch9 = switchValue;
-                }
+            }
             5 => {
                 crsf.PackedRCdataOut.ch10 = switchValue;
-                }
+            }
             6 => {
                 crsf.PackedRCdataOut.ch11 = switchValue;
-                }
+            }
             _ => (),
         }
     }
@@ -201,10 +201,8 @@ fn UnpackChannelDataHybridWide(Buffer: &mut [u8],crsf: &mut [CRSF], nonce: u8, t
     return TelemetryStatus;
 }
 
-fn OtaSetSwitchMode(switchMode: OtaSwitchMode)
-{
-    OtaSwitchModeCurrent = match switchMode
-    {
+fn OtaSetSwitchMode(switchMode: OtaSwitchMode) {
+    OtaSwitchModeCurrent = match switchMode {
         OtaSwitchMode::smHybridWide => {
             UnpackChannelData = &UnpackChannelDataHybridWide;
         }
@@ -213,5 +211,3 @@ fn OtaSetSwitchMode(switchMode: OtaSwitchMode)
         }
     };
 }
-
-

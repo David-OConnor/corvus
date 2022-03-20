@@ -12,6 +12,5 @@ mod fhss;
 mod ots;
 mod sx1280_regs;
 
-
 // todo: Should this mod be under drivers, or top level? Or a new top-level mod folder called protocols,
 // todo where DSHOT, and our USB comms also is?

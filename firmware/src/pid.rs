@@ -4,7 +4,8 @@
 use core::f32::consts::TAU;
 
 use stm32_hal2::{
-    pac::{TIM3, TIM5},
+    dma::Dma,
+    pac::{DMA1, TIM2, TIM3},
     timer::Timer,
 };
 
@@ -12,7 +13,8 @@ use cmsis_dsp_api as dsp_api;
 
 use crate::{
     flight_ctrls::{
-        self, AltType, YAW_ASSIST_MIN_SPEED, YAW_ASSIST_COEFF, InputMap, AutopilotStatus, CommandState, CtrlInputs, IirInstWrapper, InputMode, Params,
+        self, AltType, AutopilotStatus, CommandState, CtrlInputs, IirInstWrapper, InputMap,
+        InputMode, Params, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED,
     },
     UserCfg, DT,
 };
@@ -627,16 +629,15 @@ pub fn run_pid_inner(
     pid_inner: &mut PidGroup,
     filters: &mut PidDerivFilters,
     current_pwr: &mut crate::RotorPower,
-    rotor_timer_a: &mut Timer<TIM3>,
-    rotor_timer_b: &mut Timer<TIM5>,
+    rotor_timer_a: &mut Timer<TIM2>,
+    rotor_timer_b: &mut Timer<TIM3>,
+    dma: &mut Dma<DMA1>,
     coeffs: &CtrlCoeffGroup,
     dt: f32,
 ) {
-
     match input_mode {
         InputMode::Acro => {
             // If acro, we get our inputs each IMU update; ie the inner loop.
-
 
             *inner_flt_cmd = CtrlInputs {
                 pitch: input_map.calc_pitch_rate(manual_inputs.pitch),
@@ -693,8 +694,6 @@ pub fn run_pid_inner(
         }
         _ => {} // todo otherwise, handled in mid loop?
     }
-
-
 
     // In Acro mode, the inner PID loops controls pitch and roll in terms of rotational velocities. In other mode,
     // it controls them for specific attitudes.
@@ -822,5 +821,6 @@ pub fn run_pid_inner(
         current_pwr,
         rotor_timer_a,
         rotor_timer_b,
+        dma
     );
 }

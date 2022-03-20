@@ -7,10 +7,9 @@
 //!
 // todo: ICM-42688 instead? Compare features and availability
 
-use stm32_hal2::{gpio::Pin, pac::SPI4, spi::Spi};
+use stm32_hal2::{gpio::Pin, pac::SPI1, spi::Spi};
 
 use crate::sensor_fusion::ImuReadings;
-
 
 /// See Datasheet, Table 19.
 #[repr(u8)]
@@ -47,7 +46,7 @@ enum Reg {
     OutxHG = 0x23,
     OutyLG = 0x24,
     OutyHG = 0x25,
-    OutzLG= 0x26,
+    OutzLG = 0x26,
     OutzHG = 0x27,
     OutxLA = 0x28,
     OutxHA = 0x29,
@@ -70,16 +69,14 @@ enum Reg {
     FifoDataOutYH = 0x7C,
     FifoDataOutZL = 0x7D,
     FifoDataOutZH = 0x7E,
-
 }
-
 
 // todo: Read via DMA at a very high rate, then apply a lowpass filter?
 
 // https://github.com/pms67/Attitude-Estimation
 
 /// Utility function to read a single byte.
-fn read_one(reg: u8, spi: &mut Spi<SPI4>, cs: &mut Pin) -> u8 {
+fn read_one(reg: u8, spi: &mut Spi<SPI1>, cs: &mut Pin) -> u8 {
     let mut buf = [reg, 0];
 
     cs.set_low();
@@ -90,7 +87,7 @@ fn read_one(reg: u8, spi: &mut Spi<SPI4>, cs: &mut Pin) -> u8 {
 }
 
 /// Configure the device.
-pub fn setup(spi: &mut Spi<SPI4>, cs: &mut Pin) {
+pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin) {
     // Leave default of SPI mode 0 and 3.
 
     // "The accelerometer is activated from power-down by writing ODR_XL[3:0] in CTRL1_XL (10h) while the gyroscope
@@ -125,7 +122,6 @@ pub fn setup(spi: &mut Spi<SPI4>, cs: &mut Pin) {
     spi.write(&[Reg::Int1Ctrl as u8, 0b0000_0011]).ok();
     cs.set_high();
 
-
     // todo: Finish this; check what other settings are avail.
 }
 
@@ -134,7 +130,7 @@ pub fn setup(spi: &mut Spi<SPI4>, cs: &mut Pin) {
 // todo: Combine read_temp and read_all with ICM driver?, but pass different reg values
 
 /// Read temperature.
-pub fn read_temp(spi: &mut Spi<SPI4>, cs: &mut Pin) -> f32 {
+pub fn read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> f32 {
     let upper_byte = read_one(Reg::OutTempH as u8, spi, cs);
     let lower_byte = read_one(Reg::OutTempL as u8, spi, cs);
 
@@ -148,7 +144,7 @@ pub fn read_temp(spi: &mut Spi<SPI4>, cs: &mut Pin) -> f32 {
 // todo: Do we want to use FIFO over DMA?
 
 /// Read all data
-pub fn read_all(spi: &mut Spi<SPI4>, cs: &mut Pin) -> ImuReadings {
+pub fn read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> ImuReadings {
     let accel_x_upper = read_one(Reg::OutxHA as u8, spi, cs);
     let accel_x_lower = read_one(Reg::OutxLA as u8, spi, cs);
     let accel_y_upper = read_one(Reg::OutyHA as u8, spi, cs);

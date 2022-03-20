@@ -1,3 +1,8 @@
+#![allow(non_snake_case)]
+#![allow(unused_parens)]
+#![allow(non_camel_case_types)]
+#![allow(non_upper_case_globals)]
+
 //! This module contains code for the ST VL53L1CB time-of-flight sensor. We use it to find AGL altitude
 //! when near the ground in level flight. Advertised at up to 8M range.
 //!
