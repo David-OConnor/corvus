@@ -1,5 +1,7 @@
 //! This module contains code related to the flight control PID loop. It can be thought of
 //! as a sub-module for `flight_ctrls`.
+//!
+//! See the OneNote document for notes on how we handle the more complicated / cascaded control modes.
 
 use core::f32::consts::TAU;
 
@@ -473,7 +475,7 @@ pub fn run_pid_mid(
                 pitch: input_map.calc_pitch_angle(inputs.pitch),
                 roll: input_map.calc_roll_angle(inputs.roll),
                 yaw: input_map.calc_yaw_rate(inputs.yaw),
-                thrust: input_map.calc_pitch_rate(inputs.thrust),
+                thrust: input_map.calc_thrust_rate(inputs.thrust),
             };
 
             // todo: DRY from above in Acro mode for alt hold autopilot enabled.

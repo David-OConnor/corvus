@@ -1,0 +1,14 @@
+All of these are from perpspective of port on top, PCB towards you, wires away, left to right.
+
+ESC
+T-motor: Gnd, Gnd, Bat, 10v out, 4, 3, 2, 1, CRT, Tx
+Diatone: Curr, Tele, 4, 3, 2, 1, VCC, Gnd
+Aikon: Tele, Cnt, 4, 3, 2, 1, Bat, Gnd (like Diatone, but Cnt/tele swapped)
+
+
+Vtx
+DJI: Pwr, Gnd, Fc TX, Fc Rx, GND, SBUS/HDL (Fc Rx)
+
+
+
+# todo: Do you aim for identical pattern, or the reverse?

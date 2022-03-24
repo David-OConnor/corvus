@@ -41,7 +41,7 @@ cfg_if! {
     }
 }
 
-#[cfg(feature = "matek-h743slim")]
+#[cfg(feature = "anyleaf-mercury-h7")]
 use crate::{
     clocks::VosRange,
     pac::SPI4,
@@ -61,7 +61,7 @@ mod protocols;
 // mod sensor_fusion; // todo
 
 // cfg_if! {
-// if #[cfg(feature = "matek-h743slim")] {
+// if #[cfg(feature = "anyleaf-mercury-h7")] {
 use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
 // use drivers::imu_icm42605 as imu;
@@ -86,6 +86,10 @@ static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 // Our DT timer speed, in Hz.
 const DT_TIM_FREQ: u32 = 200_000_000;
 
+
+// 6 readings; 2 bytes each.
+static mut IMU_READINGS: [u8; 6 * 2] = [0; 6 * 2];
+
 // The frequency our motor-driving PWM operates at, in Hz.
 // todo: Make this higher (eg 96kHz) after making sure the ESC
 // const PWM_FREQ: f32 = 12_000.;
@@ -102,7 +106,7 @@ const DT_TIM_FREQ: u32 = 200_000_000;
 // todo: Is this even what we want?
 
 cfg_if! {
-    if #[cfg(feature = "matek-h743slim")] {
+    if #[cfg(feature = "anyleaf-mercury-h7")] {
         const DSHOT_PSC: u32 = 0;
         const DSHOT_ARR: u32 = 332;
     } else if #[cfg(feature = "anyleaf-mercury-g4")] {
@@ -233,7 +237,7 @@ impl Location {
 pub struct UserCfg {
     /// Set a ceiling the aircraft won't exceed. Defaults to 400' (Legal limit in US for drones).
     /// In meters.
-    ceiling: f32,
+    ceiling: Option<f32>,
     /// In Attitude and related control modes, max pitch angle (from straight up), ie
     /// full speed, without going horizontal or further.
     max_angle: f32, // radians
@@ -261,7 +265,7 @@ pub struct UserCfg {
 impl Default for UserCfg {
     fn default() -> Self {
         Self {
-            ceiling: 122.,
+            ceiling: Some(122.),
             // todo: Do we want max angle and vel here? Do we use them, vice settings in InpuMap?
             max_angle: TAU * 0.22,
             max_velocity: 30., // todo: raise?
@@ -409,67 +413,8 @@ pub fn setup_pins() {
     // We use the same SCK and FS clocks for all 4 ICs.
 
     cfg_if! {
-        if #[cfg(feature = "matek-h743slim")] {
-            // For use with Matek H7 board:
-            // http://www.mateksys.com/?portfolio=h743-slim#tab-id-7
-
-            // todo: Determine what output speeds to use.
-
-            // Rotors connected to TIM3 CH3, 4; TIM5 CH1, 2
-            let mut rotor1 = Pin::new(Port::B, 0, PinMode::Alt(2));
-            let mut rotor2 = Pin::new(Port::B, 1, PinMode::Alt(2));
-            let mut rotor3 = Pin::new(Port::A, 0, PinMode::Alt(2));
-            let mut rotor4 = Pin::new(Port::A, 1, PinMode::Alt(2));
-
-            rotor1.output_speed(OutputSpeed::High);
-            rotor2.output_speed(OutputSpeed::High);
-            rotor3.output_speed(OutputSpeed::High);
-            rotor4.output_speed(OutputSpeed::High);
-
-            let current_sense_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
-
-            // SPI4 for IMU.
-            let mosi4_ = Pin::new(Port::E, 14, PinMode::Alt(5));
-            let miso4_ = Pin::new(Port::E, 13, PinMode::Alt(5));
-            let sck4_ = Pin::new(Port::E, 12, PinMode::Alt(5));
-
-            // SPI2 for Matek OSD (MAX7456?)
-            let mosi4_ = Pin::new(Port::B, 15, PinMode::Alt(5));
-            let miso4_ = Pin::new(Port::B, 14, PinMode::Alt(5));
-            let sck4_ = Pin::new(Port::B, 13, PinMode::Alt(5));
-
-            // We use  UARTs for ESC telemetry, "Smart Audio" (for video) and...
-            // todo: set these up
-            let uart1_tx = Pin::new(Port::D, 0, PinMode::Alt(0));
-            let uart1_rx = Pin::new(Port::D, 1, PinMode::Alt(0));
-            let uart2_tx = Pin::new(Port::D, 2, PinMode::Alt(0));
-            let uart2_rx = Pin::new(Port::D, 3, PinMode::Alt(0));
-
-            // Used to trigger a PID update based on new IMU data.
-            let mut imu_interrupt = Pin::new(Port::C, 15, PinMode::Input);
-            imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
-
-            // I2C1 for Matek digital airspeed and compass
-            let mut scl1 = Pin::new(Port::B, 6, PinMode::Alt(4));
-            scl1.output_type(OutputType::OpenDrain);
-            scl1.pull(Pull::Up);
-
-            let mut sda1 = Pin::new(Port::B, 7, PinMode::Alt(4));
-            sda1.output_type(OutputType::OpenDrain);
-            sda1.pull(Pull::Up);
-
-            // I2C2 for Matek's DPS310 barometer
-            let mut scl2 = Pin::new(Port::B, 10, PinMode::Alt(4));
-            scl2.output_type(OutputType::OpenDrain);
-            scl2.pull(Pull::Up);
-
-            let mut sda2 = Pin::new(Port::B, 11, PinMode::Alt(4));
-            sda2.output_type(OutputType::OpenDrain);
-            sda2.pull(Pull::Up);
-
-            // todo: Use one of these buses for TOF sensor, or its own?
-
-            let bat_adc_ = Pin::new(Port::C, 0, PinMode::Analog);
+        if #[cfg(feature = "anyleaf-mercury-h7")] {
+            // todo
         } else if #[cfg(feature = "anyleaf-mercury-g4")] {
             // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
             let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(1)); // Tim2 ch1
@@ -637,18 +582,18 @@ mod app {
         // Set up microcontroller peripherals
         let mut dp = pac::Peripherals::take().unwrap();
 
-        #[cfg(feature = "matek-h743slim")]
+        #[cfg(feature = "anyleaf-mercury-h7")]
         SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
 
         // Set up clocks
         let clock_cfg = Clocks {
             // Config for 480Mhz full speed:
-            #[cfg(feature = "matek-h743slim")]
+            #[cfg(feature = "anyleaf-mercury-h7")]
             pll_src: PllSrc::Hse(8_000_000),
             #[cfg(feature = "anyleaf-mercury-g4")]
             input_src: InputSrc::Pll(PllSrc::Hse(16_000_000)),
             // vos_range: VosRange::VOS0, // Note: This may use extra power. todo: Put back!
-            #[cfg(feature = "matek-h743slim")]
+            #[cfg(feature = "anyleaf-mercury-h7")]
             pll1: PllCfg {
                 divm: 4, // To compensate with 8Mhz HSE instead of 64Mhz HSI
                 // divn: 480,// todo: Put back! No longer working??
@@ -690,7 +635,7 @@ mod app {
 
         let cs_flash = Pin::new(Port::C, 6, PinMode::Output);
 
-        // We use I2C for the TOF sensor.(?) and for Matek digital airspeed and compass
+        // We use I2C for the TOF sensor.(?)
         let i2c_cfg = I2cConfig {
             speed: I2cSpeed::FastPlus1M,
             // speed: I2cSpeed::Fast400k,
@@ -741,7 +686,7 @@ mod app {
         // timer with 4 channels would be fine.
 
         cfg_if! {
-            if #[cfg(feature = "matek-h743slim")] {
+            if #[cfg(feature = "anyleaf-mercury-h7")] {
                 let mut rotor_timer_a =
                     Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg.clone(), &clock_cfg);
 
@@ -791,8 +736,7 @@ mod app {
         // dt_timer.set_prescaler(DT_PSC);
         // dt_timer.set_auto_reload(DT_ARR);
 
-        // From Matek
-        #[cfg(feature = "matek-h743slim")]
+        #[cfg(feature = "anyleaf-mercury-h7")]
         let mut cs_imu = Pin::new(Port::E, 11, PinMode::Output);
         #[cfg(feature = "anyleaf-mercury-g4")]
         let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
@@ -1043,8 +987,7 @@ mod app {
             dx.shared.dma,
         )
             .lock(|state, rotor_timer_a, rotor_timer_b, dma| {
-                // todo: Put this armed check in the update isr? Somewhere else?
-                if state.armed != ArmStatus::Armed || state.pre_armed != ArmStatus::Armed {
+                if state.armed != ArmStatus::Armed {
                     dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
                 }
             });
@@ -1077,6 +1020,12 @@ mod app {
             cs.set_high();
         });
 
+        let imu_data =
+
+
+        // todo: In this inner, ~8kHz update whwere we call sensor fusion? Or should we (perhaps with)
+        // todo a lowpass filter applied, just set the angular rates here, and perform fusion/
+        // todo attitude platform etc only in the `update` isr?
         let mut sensor_data_fused = sensor_fusion::estimate_attitude(&imu_data);
 
         // todo: Temp replacing back in imu data while we sort out the fusion.
@@ -1087,33 +1036,6 @@ mod app {
         sensor_data_fused.a_x = imu_data.a_x;
         sensor_data_fused.a_y = imu_data.a_y;
         sensor_data_fused.a_z = imu_data.a_z;
-
-        // todo: Reflow this section once you have a better grasp of what you get from teh sensor
-        // fusion data. Most of those lines below will likely go away, and be replaced with
-        // an ekf already in `sensor_data_fused`.
-
-        // todo: Move these into a `Params` method?
-        // We have acceleration data for x, y, z: Integrate to get velocity and position.
-        // let v_x = sensor_data_fused.v_x + sensor_data_fused.a_x * DT;
-        // let v_y = sensor_data_fused.v_y + sensor_data_fused.a_y * DT;
-        // let v_z = sensor_data_fused.v_z + sensor_data_fused.a_z * DT;
-        //
-        // // Estimate position by integrating velocity.
-        // let s_x = sensor_data_fused.s_x + params.v_x * DT;
-        // let s_y = sensor_data_fused.s_y + params.v_y * DT;
-        // let s_z_msl = sensor_data_fused.s_z_msl + params.v_z * DT;
-        // let s_z_agl = sensor_data_fused.s_z_agl + params.v_z * DT;
-        //
-        // // We have position data for pitch, roll, yaw: Take derivative to get velocity and acceleration
-        // let s_pitch = sensor_data_fused.s_pitch + sensor_data_fused.v_pitch * DT;
-        // let s_roll = sensor_data_fused.s_roll + sensor_data_fused.v_roll * DT;
-        // let s_yaw = sensor_data_fused.s_yaw + sensor_data_fused.v_yaw * DT;
-        //
-        // // Estimate attitude acceleration by taking a derivative of its position.
-        // // todo: Handle thsi with EKF etc.
-        // let a_pitch = (sensor_data_fused.v_pitch - params.v_pitch) / DT;
-        // let a_roll = (sensor_data_fused.v_roll - params.v_roll) * DT;
-        // let a_yaw = (sensor_data_fused.v_yaw - params.v_yaw) / DT;
 
         cx.shared.current_params.lock(|params| {
             *params = sensor_data_fused;

@@ -176,10 +176,17 @@ pub fn read_all_dma(spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
     unsafe {
         spi.write_dma(
             &buf,
-            dma::ChannelCfg {
-                circular: dma::Circular::Enabled,
-                ..Default::default()
-            },
+            DmaChannel::C1,
+            Default::default(),
+            dma,
+        );
+    }
+
+    unsafe {
+        spi.read_dma(
+            &mut crate::IMU_READINGS,
+            DmaChannel::C2,
+            Default::default(),
             dma,
         );
     }

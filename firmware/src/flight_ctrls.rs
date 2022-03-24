@@ -26,7 +26,7 @@ const MIN_CAL_ALT: f32 = 6.;
 const PITCH_RNG: (f32, f32) = (-1., 1.);
 const ROLL_RNG: (f32, f32) = (-1., 1.);
 const YAW_RNG: (f32, f32) = (-1., 1.);
-const THRUST_RNG: (f32, f32) = (-0., 1.);
+const THRUST_RNG: (f32, f32) = (0., 1.);
 
 // Minimium speed before auto-yaw will engate. (if we end up setting up auto-yaw to align flight path
 // with heading)
@@ -85,6 +85,10 @@ impl InputMap {
 
     pub fn calc_yaw_rate(&self, input: f32) -> f32 {
         map_linear(input, YAW_RNG, self.yaw_rate)
+    }
+
+    pub fn calc_thrust_rate(&self, input: f32) -> f32 {
+        map_linear(input, THRUST_RNG, self.power_level)
     }
 
     pub fn calc_pitch_angle(&self, input: f32) -> f32 {

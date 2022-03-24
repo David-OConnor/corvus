@@ -31,9 +31,8 @@ cfg-if = "1.0.0"  # if/else blocks for feature-gating based on flight controller
 
 # Use these features to specify GPIO mapping, and which peripherals to use.
 [features]
-matek-h743slim = ["stm32-hal2/h7rt", "stm32-hal2/h747cm7"]
 anyleaf-mercury-g4 = ["stm32-hal2/g4rt", "stm32-hal2/g431", "stm32-hal2/usb", "stm32-usbd"]
-#anyleaf-mercury-h7 = ["stm32-hal2/h7rt", "stm32-hal2/h725"]
+anyleaf-mercury-h7 = ["stm32-hal2/h7rt", "stm32-hal2/h743"]
 
 # cargo build/run
 [profile.dev]
