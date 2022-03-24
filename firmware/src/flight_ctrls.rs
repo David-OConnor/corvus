@@ -426,10 +426,10 @@ impl RotorPower {
     ) {
         self.clamp();
 
-        dshot::set_power_a(Rotor::R1, self.p1, rotor_timer_a, dma);
-        dshot::set_power_a(Rotor::R2, self.p2, rotor_timer_a, dma);
-        dshot::set_power_b(Rotor::R3, self.p3, rotor_timer_b, dma);
-        dshot::set_power_b(Rotor::R4, self.p4, rotor_timer_b, dma);
+        dshot::set_power_a(Rotor::R1, Rotor::R2, self.p1, self.p2, rotor_timer_a, dma);
+        // dshot::set_power_a(Rotor::R2, self.p2, rotor_timer_a, dma);
+        dshot::set_power_b(Rotor::R3, Rotor::R4, self.p3, self.p4, rotor_timer_b, dma);
+        // dshot::set_power_b(Rotor::R4, self.p4, rotor_timer_b, dma);
     }
 }
 

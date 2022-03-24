@@ -5,7 +5,15 @@
 #![allow(non_snake_case)]
 #![allow(unused_parens)]
 #![allow(non_camel_case_types)]
+
 #[allow(non_upper_case_globals)]
+
+use core::{
+    mem::size_of,
+    u32,
+};
+
+use defmt::println;
 
 const FreqCorrectionMax: i32 = 100000 / FREQ_STEP;
 const FreqCorrectionMin: i32 = -100000 / FREQ_STEP;
@@ -15,7 +23,7 @@ const FreqCorrectionMin: i32 = -100000 / FREQ_STEP;
 // get the initial frequency, which is also the sync channel
 #[inline(always)]
 fn GetInitialFreq() -> u32 {
-    return FHSSfreqs[unsafe { sync_channel }] - unsafe { FreqCorrection };
+    return (unsafe {FHSSfreqs[ sync_channel as usize] } as i32 - unsafe { FreqCorrection }) as u32;
 }
 
 // Get the current sequence pointer
@@ -255,8 +263,11 @@ const FHSSfreqs_ISM_2400: [u32; 80] = [
     FREQ_HZ_TO_REG_VAL(2479400000),
 ];
 
+// todo: Hard set temp
+const FHSSfreqs: [u32; 80] = FHSSfreqs_ISM_2400;
+
 // Number of FHSS frequencies in the table
-const FHSS_FREQ_CNT: u32 = (sizeof(FHSSfreqs) / sizeof(u32));
+const FHSS_FREQ_CNT: u32 = unsafe { size_of::<[u32; 80]>() / size_of::<u32>() }; // todo: Make sure you change this array type as GHSSfreqs changes.
 // Number of hops in the FHSSsequence list before circling back around, even multiple of the number of frequencies
 const FHSS_SEQUENCE_CNT: u8 = (256 / FHSS_FREQ_CNT) as u8 * FHSS_FREQ_CNT as u8;
 // Actual sequence of hops as indexes into the frequency list
@@ -300,7 +311,7 @@ unsafe fn FHSSrandomiseFHSSsequence(seed: u32) {
     // #error No regulatory domain defined, please define one in common.h
     // #endif
 
-    println!("Number of FHSS frequencies = %u", FHSS_FREQ_CNT);
+    println!("Number of FHSS frequencies = {}", FHSS_FREQ_CNT);
 
     sync_channel = (FHSS_FREQ_CNT / 2) as u8;
     println!("Sync channel = {:?}", sync_channel);

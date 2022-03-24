@@ -9,7 +9,7 @@
 // mod rx_main; // todo
 mod common;
 mod fhss;
-mod ots;
+// mod ots; // todo: Not sure if this is required. Maybe CRSF interface code?
 mod sx1280_regs;
 
 // todo: Should this mod be under drivers, or top level? Or a new top-level mod folder called protocols,

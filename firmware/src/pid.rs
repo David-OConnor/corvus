@@ -562,7 +562,7 @@ pub fn run_pid_mid(
             // let thrust_cmd = 0.;
 
             pid_mid.pitch = calc_pid_error(
-                pitch_cmd,
+                inner_flt_cmd.pitch,
                 param_y,
                 &pid_mid.pitch,
                 k_p_pitch,
@@ -573,7 +573,7 @@ pub fn run_pid_mid(
             );
 
             pid_mid.roll = calc_pid_error(
-                roll_cmd,
+                inner_flt_cmd.roll,
                 param_x,
                 &pid_mid.roll,
                 // coeffs,
@@ -585,7 +585,7 @@ pub fn run_pid_mid(
             );
 
             pid_mid.yaw = calc_pid_error(
-                yaw_cmd,
+                inner_flt_cmd.yaw,
                 params.s_yaw,
                 &pid_mid.yaw,
                 coeffs.yaw.k_p_s,
@@ -596,7 +596,7 @@ pub fn run_pid_mid(
             );
 
             pid_mid.thrust = calc_pid_error(
-                thrust_cmd,
+                inner_flt_cmd.thrust,
                 params.s_z_msl,
                 &pid_mid.thrust,
                 coeffs.thrust.k_p_s,
@@ -635,6 +635,8 @@ pub fn run_pid_inner(
     rotor_timer_b: &mut Timer<TIM3>,
     dma: &mut Dma<DMA1>,
     coeffs: &CtrlCoeffGroup,
+    max_speed_ver: f32,
+    input_map: InputMap,
     dt: f32,
 ) {
     match input_mode {
@@ -666,7 +668,7 @@ pub fn run_pid_inner(
                 };
                 // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
                 inner_flt_cmd.thrust =
-                    flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
+                    flight_ctrls::enroute_speed_ver(dist, max_speed_ver, params.s_z_agl);
             }
 
             if autopilot_status.yaw_assist {
@@ -771,7 +773,7 @@ pub fn run_pid_inner(
     };
 
     pid_inner.pitch = calc_pid_error(
-        inputs.pitch,
+        manual_inputs.pitch,
         param_pitch,
         &pid_inner.pitch,
         coeffs_pitch.0,
@@ -782,7 +784,7 @@ pub fn run_pid_inner(
     );
 
     pid_inner.roll = calc_pid_error(
-        inputs.roll,
+        manual_inputs.roll,
         param_roll,
         &pid_inner.roll,
         coeffs_roll.0,
@@ -793,7 +795,7 @@ pub fn run_pid_inner(
     );
 
     pid_inner.yaw = calc_pid_error(
-        inputs.yaw,
+        manual_inputs.yaw,
         param_yaw,
         &pid_inner.yaw,
         coeffs_yaw.0,
@@ -804,7 +806,7 @@ pub fn run_pid_inner(
     );
 
     pid_inner.thrust = calc_pid_error(
-        inputs.thrust,
+        manual_inputs.thrust,
         param_thrust,
         &pid_inner.thrust,
         coeffs_thrust.0,

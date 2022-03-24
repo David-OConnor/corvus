@@ -29,10 +29,14 @@ num-traits = {version = "0.2.14", default_features = false} # Absolute value etc
 
 cfg-if = "1.0.0"  # if/else blocks for feature-gating based on flight controller and MCU layout
 
+usb-device = "0.2.8"
+usbd-serial = "0.1.1"
+
 # Use these features to specify GPIO mapping, and which peripherals to use.
 [features]
 anyleaf-mercury-g4 = ["stm32-hal2/g4rt", "stm32-hal2/g431", "stm32-hal2/usb", "stm32-usbd"]
 anyleaf-mercury-h7 = ["stm32-hal2/h7rt", "stm32-hal2/h743"]
+
 
 # cargo build/run
 [profile.dev]

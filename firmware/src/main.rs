@@ -34,7 +34,6 @@ cfg_if! {
     if #[cfg(feature = "anyleaf-mercury-g4")] {
         use stm32_hal2::usb::{Peripheral, UsbBus, UsbBusType};
 
-        use usbd_serial::{SerialPort, USB_CLASS_CDC};
         use usb_device::bus::UsbBusAllocator;
         use usb_device::prelude::*;
         use usbd_serial::{SerialPort, USB_CLASS_CDC};
@@ -260,6 +259,7 @@ pub struct UserCfg {
     /// It's common to arbitrarily wire motors to the ESC. Reverse each from its
     /// default direction, as required.
     motors_reversed: (bool, bool, bool, bool),
+    baro_cal: baro::BaroCalPt,
 }
 
 impl Default for UserCfg {
@@ -281,6 +281,7 @@ impl Default for UserCfg {
             gps_attached: false,
             tof_attached: false,
             motors_reversed: (false, false, false, false),
+            baro_cal: Default::default(),
         }
     }
 }
@@ -363,7 +364,7 @@ pub enum SwarmRole {
 
 /// Run on startup, or when desired. Run on the ground. Gets an initial GPS fix,
 /// and other initialization functions.
-fn init(params: &mut Params, baro: baro::Barometer, base_pt: &mut Location, i2c: &mut I2c<I2C1>) {
+fn init_sensors(params: &mut Params, base_pt: &mut Location, i2c1: &mut I2c<I2C1>, i2c2: &mut I2c<I2C2>) {
     let eps = 0.001;
 
     // Don't init if in motion.
@@ -376,13 +377,13 @@ fn init(params: &mut Params, baro: baro::Barometer, base_pt: &mut Location, i2c:
         return;
     }
 
-    if let Some(agl) = tof::read(params.s_pitch, params.s_roll, i2c) {
+    if let Some(agl) = tof::read(params.s_pitch, params.s_roll, i2c1) {
         if agl > 0.01 {
             return;
         }
     }
 
-    let fix = gps::get_fix(i2c);
+    let fix = gps::get_fix(i2c1);
 
     match fix {
         Ok(f) => {
@@ -391,17 +392,14 @@ fn init(params: &mut Params, baro: baro::Barometer, base_pt: &mut Location, i2c:
             params.s_z_msl = f.z;
 
             *base_pt = Location::new(LocationType::LatLon, f.y, f.x, f.z);
+
+            let temp = 0.; // todo: Which sensor reads temp? The IMU?
+            baro::calibrate(f.z, temp, i2c2);
         }
         Err(e) => (), // todo
     }
 
     // todo: Use Rel0 location type if unable to get fix.
-
-    let temp = 0.; // todo: Which sensor reads temp? The IMU?
-
-    // todo: Put back etc
-    // let barometer: baro::Barometer::new(&mut i2c);
-    // barometer.calibrate(fix.alt, temp);
 }
 
 #[rtic::app(device = pac, peripherals = false)]
@@ -591,6 +589,9 @@ mod app {
         rotor_timer_b.set_auto_reload(DSHOT_ARR);
 
         let mut user_cfg = UserCfg::default();
+
+        let mut dma = Dma::new(dp.DMA1);
+
         dshot::setup_motor_dir(
             user_cfg.motors_reversed,
             &mut rotor_timer_a,
@@ -660,8 +661,12 @@ mod app {
 
         let mut flash = Flash::new(dp.FLASH); // todo temp mut to test
 
-        // rotor_timer_a.enable();
-        // rotor_timer_b.enable();
+        let mut params = Default::default();
+
+        // todo: Instead of a `Barometer` struct, perhaps store baro calibration elsewhere.
+        baro::setup(&mut i2c2);
+
+        init_sensors(&mut params, Location::default(), &mut i2c1, &mut i2c2);
 
         update_timer.enable();
 
@@ -673,7 +678,7 @@ mod app {
                 input_mode: InputMode::Attitude,
                 autopilot_status: Default::default(),
                 ctrl_coeffs: Default::default(),
-                current_params: Default::default(),
+                current_params: params,
                 inner_flt_cmd: Default::default(),
                 pid_mid: Default::default(),
                 pid_inner: Default::default(),
@@ -829,7 +834,7 @@ mod app {
             cx.shared.command_state,
             cx.shared.rotor_timer_a,
             cx.shared.rotor_timer_b,
-            dx.shared.dma,
+            cx.shared.dma,
         )
             .lock(|state, rotor_timer_a, rotor_timer_b, dma| {
                 if state.armed != ArmStatus::Armed {
@@ -855,8 +860,8 @@ mod app {
         });
     }
 
-    #[task(binds = DMA1_CH1, shared = [dma, current_params, input_mode, manual_inputs, autopilot_status,
-    inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr, ctrl_coeffs, command_state, cs_imu,
+    #[task(binds = DMA1_CH1, shared = [dma, current_params, input_mode, manual_inputs, input_map, autopilot_status,
+    inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr, ctrl_coeffs, command_state, cs_imu, user_cfg,
     rotor_timer_a, rotor_timer_b], local = [], priority = 1)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
@@ -897,6 +902,8 @@ mod app {
                 cx.shared.rotor_timer_b,
                 cx.shared.dma,
                 cx.shared.ctrl_coeffs,
+                cx.shared.user_cfg,
+                cx.shared.input_map,
             )
                 .lock(
                     |params,
@@ -910,7 +917,10 @@ mod app {
                      rotor_timer_a,
                      rotor_timer_b,
                      dma,
-                     coeffs| {
+                     coeffs,
+                    cfg,
+                    input_map,
+                    | {
                         pid::run_pid_inner(
                             params,
                             *input_mode,
@@ -924,6 +934,8 @@ mod app {
                             rotor_timer_b,
                             dma,
                             coeffs,
+                            cfg.max_speed_ver,
+                            input_map,
                             DT_IMU,
                         );
                     },
@@ -969,7 +981,7 @@ mod app {
     #[task(binds = TIM2, shared = [rotor_timer_a], priority = 1)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_a(cx: dshot_isr_a::Context) {
-        rotor_timer_a.lock(|timer| {
+        cx.shared.rotor_timer_a.lock(|timer| {
             timer.clear_interrupt(TimerInterrupt::Update);
             timer.disable();
         });
@@ -977,8 +989,8 @@ mod app {
 
     #[task(binds = TIM3, shared = [rotor_timer_b], priority = 1)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
-    fn dshot_isr_ba(cx: dshot_isr_b::Context) {
-        rotor_timer_b.lock(|timer| {
+    fn dshot_isr_b(cx: dshot_isr_b::Context) {
+        cx.shared.rotor_timer_b.lock(|timer| {
             timer.clear_interrupt(TimerInterrupt::Update);
             timer.disable();
         });

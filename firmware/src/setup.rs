@@ -6,7 +6,8 @@ use cfg_if::cfg_if;
 use crate::Rotor;
 
 use stm32_hal2::{
-    dma::{Dma, DmaChannel, DmaInput},
+    gpio::{Pin, PinMode, OutputSpeed, Port, Pull},
+    dma::{self, Dma, DmaChannel, DmaInput},
     pac::{DMA1, DMAMUX},
     timer::TimChannel,
 };
@@ -89,8 +90,8 @@ pub fn setup_pins() {
             let mut buzzer = Pin::new(Port::A, 10, PinMode::Alt(6)); // Tim1 ch3
 
             // todo: USB? How do we set them up (no alt fn) PA11(DN) and PA12 (DP).
-            let _usb_dm = gpioa.new_pin(11, PinMode::Output);
-            let _usb_dp = gpioa.new_pin(12, PinMode::Output);
+            let _usb_dm = Pin::new(Port::A, 11, PinMode::Output);
+            let _usb_dp = Pin::new(Port::A, 12, PinMode::Output);
 
             let batt_v_adc_ = Pin::new(Port::A, 4, PinMode::Analog);  // ADC2, channel 17
             let current_sense_adc_ = Pin::new(Port::B, 2, PinMode::Analog);  // ADC2, channel 12
@@ -152,8 +153,8 @@ pub fn setup_pins() {
 /// Assign DMA channels to peripherals.
 pub fn setup_dma_channels(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     // IMU
-    dma::mux(DmaChannel::C1, dma::DmaInput::Spi1Tx, &mut dp.DMAMUX);
-    dma::mux(DmaChannel::C2, dma::DmaInput::Spi1Rx, &mut dp.DMAMUX);
+    dma::mux(DmaChannel::C1, DmaInput::Spi1Tx, mux);
+    dma::mux(DmaChannel::C2, DmaInput::Spi1Rx, mux);
 
     // todo: Give you're using burst DMA here, one channel per timer, how does this work?
 

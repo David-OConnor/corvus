@@ -24,8 +24,8 @@ use stm32_hal2::{
 use crate::Rotor;
 
 // Duty cycle values (to be written to CCMRx), based on our ARR value. 0. = 0%. ARR = 100%.
-const DUTY_HIGH: u32 = anyleaf_quadcopter_firmware::DSHOT_ARR * 3 / 4;
-const DUTY_LOW: u32 = anyleaf_quadcopter_firmware::DSHOT_ARR * 3 / 8;
+const DUTY_HIGH: u32 = crate::DSHOT_ARR * 3 / 4;
+const DUTY_LOW: u32 = crate::DSHOT_ARR * 3 / 8;
 
 // DMA buffers for each rotor. 16-bit data, but using a 32-bit API. Note that
 // rotors 1/2 and 3/4 share a timer, so we can use the same DMA stream with them. Data for the 2
@@ -82,9 +82,9 @@ pub fn stop_all(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>, dma: &mut 
     setup_payload(Rotor::R4, CmdType::Command(Command::MotorStop));
 
     // todo: Make sure you have the right motors here.
-    send_payload_a(Rotor::R1, timer_a, dma);
+    send_payload_a(timer_a, dma);
     // send_payload_a(Rotor::R2, timer_a, dma);
-    send_payload_b(Rotor::R3, timer_b, dma);
+    send_payload_b(timer_b, dma);
     // send_payload_b(Rotor::R4, timer_b, dma);
 }
 
@@ -97,28 +97,31 @@ pub fn cfg_motor_dir(
 ) {
     // todo: DRY
     if motors_reversed.0 {
-        send_cmd_a(Rotor::R1, Command::SpinDirReversed, timer_a, dma);
+        setup_payload(Rotor::R1, CmdType::Command(Command::SpinDirReversed));
     } else {
-        send_cmd_a(Rotor::R1, Command::SpinDirNormal, timer_a, dma);
+        setup_payload(Rotor::R1, CmdType::Command(Command::SpinDirNormal));
     }
 
     if motors_reversed.1 {
-        send_cmd_a(Rotor::R2, Command::SpinDirReversed, timer_a, dma);
+        setup_payload(Rotor::R2, CmdType::Command(Command::SpinDirReversed));
     } else {
-        send_cmd_a(Rotor::R2, Command::SpinDirNormal, timer_a, dma);
+        setup_payload(Rotor::R2, CmdType::Command(Command::SpinDirNormal));
     }
 
     if motors_reversed.2 {
-        send_cmd_b(Rotor::R3, Command::SpinDirReversed, timer_b, dma);
+        setup_payload(Rotor::R3, CmdType::Command(Command::SpinDirReversed));
     } else {
-        send_cmd_b(Rotor::R3, Command::SpinDirNormal, timer_b, dma);
+        setup_payload(Rotor::R3, CmdType::Command(Command::SpinDirNormal));
     }
 
     if motors_reversed.3 {
-        send_cmd_b(Rotor::R4, Command::SpinDirReversed, timer_b, dma);
+        setup_payload(Rotor::R4, CmdType::Command(Command::SpinDirReversed));
     } else {
-        send_cmd_b(Rotor::R4, Command::SpinDirNormal, timer_b, dma);
+        setup_payload(Rotor::R4, CmdType::Command(Command::SpinDirNormal));
     }
+
+    send_payload_a(timer_a, dma: &mut Dma<DMA1>);
+    send_payload_b(timer_b, dma: &mut Dma<DMA1>);
 }
 
 /// Update our DSHOT payload for a given rotor, with a given power level.
@@ -142,12 +145,12 @@ pub fn setup_payload(rotor: Rotor, cmd: CmdType) {
     let mut packet = (packet << 4) | crc;
 
     // todo: method on rotor for payload?
-    let (payload, offset) = &mut unsafe {
+    let (payload, offset) = unsafe {
         match rotor {
-            Rotor::R1 => (PAYLOAD_R1_2, 0),
-            Rotor::R2 => (PAYLOAD_R1_2, 1),
-            Rotor::R3 => (PAYLOAD_R3_4, 0),
-            Rotor::R4 => (PAYLOAD_R3_4, 1),
+            Rotor::R1 => (&mut PAYLOAD_R1_2, 0),
+            Rotor::R2 => (&mut PAYLOAD_R1_2, 1),
+            Rotor::R3 => (&mut PAYLOAD_R3_4, 0),
+            Rotor::R4 => (&mut PAYLOAD_R3_4, 1),
         }
     };
 
@@ -164,44 +167,50 @@ pub fn setup_payload(rotor: Rotor, cmd: CmdType) {
     }
 }
 
-pub fn send_cmd_a(rotor: Rotor, cmd: Command, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
-    setup_payload(rotor, CmdType::Command(cmd));
-
-    send_payload_a(rotor, timer, dma: &mut Dma<DMA1>)
-}
-
-pub fn send_cmd_b(rotor: Rotor, cmd: Command, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
-    setup_payload(rotor, CmdType::Command(cmd));
-
-    send_payload_b(rotor, timer, dma: &mut Dma<DMA1>)
-}
-
 /// Set an individual rotor's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
 /// settings. `power` ranges from 0. to 1.
-pub fn set_power_a(rotor: Rotor, power: f32, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
-    setup_payload(rotor, CmdType::Power(power));
+pub fn set_power_a(
+    rotor1: Rotor,
+    rotor2: Rotor,
+    power1: f32,
+    power2: f32,
+    timer: &mut Timer<TIM2>,
+    dma: &mut Dma<DMA1>,
+) {
+    setup_payload(rotor1, CmdType::Power(power1));
+    setup_payload(rotor2, CmdType::Power(power2));
 
-    send_payload_a(rotor, timer, dma: &mut Dma<DMA1>)
+    send_payload_a(timer, dma: &mut Dma<DMA1>)
 }
 
 // todo: DRY due to type issue. Use a trait?
-pub fn set_power_b(rotor: Rotor, power: f32, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
-    setup_payload(rotor, CmdType::Power(power));
+pub fn set_power_b(
+    rotor1: Rotor,
+    rotor2: Rotor,
+    power1: f32,
+    power2: f32,
+    timer: &mut Timer<TIM3>,
+    dma: &mut Dma<DMA1>,
+) {
+    setup_payload(rotor1, CmdType::Power(power1));
+    setup_payload(rotor2, CmdType::Power(power2));
 
-    send_payload_b(rotor, timer, dma: &mut Dma<DMA1>)
+    send_payload_b(timer, dma: &mut Dma<DMA1>)
 }
 
 /// Send the stored payload for timer A. (2 channels).
 /// Make sure, in the timer's ISR, you disable the timer.
-fn send_payload_a(rotor: Rotor, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
-    let payload = &unsafe {
-        match rotor {
-            Rotor::R1 => PAYLOAD_R1_2,
-            Rotor::R2 => PAYLOAD_R1_2,
-            Rotor::R3 => PAYLOAD_R3_4,
-            Rotor::R4 => PAYLOAD_R3_4,
-        }
-    };
+fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
+    // let payload = &unsafe {
+    //     match rotor {
+    //         Rotor::R1 => PAYLOAD_R1_2,
+    //         Rotor::R2 => PAYLOAD_R1_2,
+    //         Rotor::R3 => PAYLOAD_R3_4,
+    //         Rotor::R4 => PAYLOAD_R3_4,
+    //     }
+    // };
+
+    let payload = unsafe { &PAYLOAD_R1_2 };
 
     unsafe {
         timer.write_dma_burst(
@@ -225,15 +234,17 @@ fn send_payload_a(rotor: Rotor, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
 
 // todo: DRY again. Trait?
 /// Send the stored payload for timer B. (2 channels)
-fn send_payload_b(rotor: Rotor, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
-    let payload = &unsafe {
-        match rotor {
-            Rotor::R1 => PAYLOAD_R1_2,
-            Rotor::R2 => PAYLOAD_R1_2,
-            Rotor::R3 => PAYLOAD_R3_4,
-            Rotor::R4 => PAYLOAD_R3_4,
-        }
-    };
+fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
+    // let payload = &unsafe {
+    //     match rotor {
+    //         Rotor::R1 => PAYLOAD_R1_2,
+    //         Rotor::R2 => PAYLOAD_R1_2,
+    //         Rotor::R3 => PAYLOAD_R3_4,
+    //         Rotor::R4 => PAYLOAD_R3_4,
+    //     }
+    // };
+    //
+    let payload = unsafe { &PAYLOAD_R3_4 };
 
     unsafe {
         timer.write_dma_burst(

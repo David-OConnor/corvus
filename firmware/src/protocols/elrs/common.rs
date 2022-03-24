@@ -387,22 +387,25 @@ unsafe fn uidMacSeedGet() -> u32 {
 
 // `options.cpp`
 
-/// Our function to deal with the `target_name`.
-pub fn encode_hex(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        write!(&mut s, "{:02x}", b).unwrap();
-    }
-    s
-}
+// /// Our function to deal with the `target_name`.
+// pub fn encode_hex(bytes: [u8; 4]) -> &str {
+//     let mut s = String::with_capacity(bytes.len() * 2);
+//     for &b in bytes {
+//         write!(&mut s, "{:02x}", b).unwrap();
+//     }
+//     s
+// }
+
+
+// todo: How to do this??
 
 // #define QUOTE(arg) #arg
 // #define STR(macro) QUOTE(macro)
 // const target_name: &str = "\xBE\xEF\xCA\xFE";
-const target_name: &str = &encode_hex(&[0xbE, 0xEF, 0xCA, 0xFE]);
-const target_name_size: u8 = sizeof(target_name);
-const device_name: &str = "Anyleaf Mercury G4";
-const device_name_size: u8 = sizeof(device_name);
+// const target_name: &str = &encode_hex(&[0xbE, 0xEF, 0xCA, 0xFE]);
+// const target_name_size: u8 = target_name.len() as u8; // todo: Is this right? (sizeof)
+// const device_name: &str = "Anyleaf Mercury G4";
+// const device_name_size: u8 = device_name.len() as u8; // todo: Is this right? (sizeof)
 // const commit: [char; 1] [LATEST_COMMIT, 0];
 // const version: [char; 1] = [LATEST_VERSION, 0];
 

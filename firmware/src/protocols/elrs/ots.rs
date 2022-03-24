@@ -86,6 +86,8 @@ fn UnpackChannelDataHybridSwitch8(
     let switchByte = Buffer[6];
     UnpackChannelDataHybridCommon(Buffer, crsf);
 
+    // todo: Do we want this, since it uses a lot of Crsf?
+
     // The low latency switch
     crsf.PackedRCdataOut.ch4 = BIT_to_CRSF((switchByte & 0b01000000) >> 6);
 
@@ -201,8 +203,11 @@ fn UnpackChannelDataHybridWide(
     return TelemetryStatus;
 }
 
+
+static mut OtaSwitchModeCurrent: OtaSwitchMode = OtaSwitchMode::sm1Bit;
+
 fn OtaSetSwitchMode(switchMode: OtaSwitchMode) {
-    OtaSwitchModeCurrent = match switchMode {
+    match switchMode {
         OtaSwitchMode::smHybridWide => {
             UnpackChannelData = &UnpackChannelDataHybridWide;
         }
@@ -210,4 +215,7 @@ fn OtaSetSwitchMode(switchMode: OtaSwitchMode) {
             UnpackChannelData = &UnpackChannelDataHybridSwitch8;
         }
     };
+
+    unsafe { OtaSwitchModeCurrent = switchMode };
+
 }

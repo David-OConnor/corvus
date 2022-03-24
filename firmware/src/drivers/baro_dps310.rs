@@ -44,7 +44,7 @@ fn fix_i24_sign(val: &mut i32) {
 
 /// Used to calibrate. Can use a single point, in conjunction with a standard
 /// atmosphere model.
-struct BaroCalPt {
+pub struct BaroCalPt {
     pressure: f32, // Pa
     altitude: f32, // MSL, via GPS, in meters
     temp: f32,     // C
@@ -61,57 +61,45 @@ impl Default for BaroCalPt {
     }
 }
 
-pub struct Barometer {
-    calibration: BaroCalPt,
+/// Configure settings, including pressure mreasurement rate, and return an instance.
+pub fn setup(i2c: &mut I2c<I2C2>) {
+    // Set 16 x oversampling, and 128 measurements per second
+    // todo: Balance oversampling between time and precision
+    i2c.write(ADDR, &[PRS_CFG, 0b0111_0100]);
+
+    // todo: Do more config!
 }
 
-impl Barometer {
-    /// Configure settings, including pressure mreasurement rate, and return an instance.
-    pub fn new(i2c: &mut I2c<I2C2>) -> Self {
-        // Set 16 x oversampling, and 128 measurements per second
-        // todo: Balance oversampling between time and precision
-        i2c.write(ADDR, &[PRS_CFG, 0b0111_0100]);
-
-        // todo: Do more config!
-
-        let mut result = Self {
-            calibration: Default::default(),
-        };
-
-        result
+pub fn calibrate(altitude: f32, temp: f32, i2c: &mut I2c<I2C2>) -> BaroCalPt {
+    BaroCalPt {
+        pressure: read(i2c),
+        altitude,
+        temp,
     }
+}
 
-    pub fn calibrate(&mut self, altitude: f32, temp: f32, i2c: &mut I2c<I2C2>) {
-        self.calibration = BaroCalPt {
-            pressure: self.read(i2c),
-            altitude,
-            temp,
-        }
-    }
+/// Read atmospheric pressure, in kPa.
+pub fn read(i2c: &mut I2c<I2C2>) -> f32 {
+    // todo: FIFO instead?
 
-    /// Read atmospheric pressure, in kPa.
-    pub fn read(&mut self, i2c: &mut I2c<I2C2>) -> f32 {
-        // todo: FIFO instead?
+    // let reading = i2c.write_read()
 
-        // let reading = i2c.write_read()
+    // The Pressure Data registers contains the 24 bit (3 bytes) 2's complement pressure measurement value.
+    // If the FIFO is enabled, the register will contain the FIFO pressure and/or temperature results. Otherwise, the
+    // register contains the pressure measurement results and will not be cleared after read.
 
-        // The Pressure Data registers contains the 24 bit (3 bytes) 2's complement pressure measurement value.
-        // If the FIFO is enabled, the register will contain the FIFO pressure and/or temperature results. Otherwise, the
-        // register contains the pressure measurement results and will not be cleared after read.
+    // todo: Do we need to do 3 separate reads here?
+    let mut buf2 = [0];
+    let mut buf1 = [0];
+    let mut buf0 = [0];
+    i2c.write_read(ADDR, &[PSR_B2], &mut buf2);
+    i2c.write_read(ADDR, &[PSR_B1], &mut buf1);
+    i2c.write_read(ADDR, &[PSR_B0], &mut buf0);
 
-        // todo: Do we need to do 3 separate reads here?
-        let mut buf2 = [0];
-        let mut buf1 = [0];
-        let mut buf0 = [0];
-        i2c.write_read(ADDR, &[PSR_B2], &mut buf2);
-        i2c.write_read(ADDR, &[PSR_B1], &mut buf1);
-        i2c.write_read(ADDR, &[PSR_B0], &mut buf0);
+    let mut result = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
+    fix_i24_sign(&mut result);
 
-        let mut result = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
-        fix_i24_sign(&mut result);
-
-        result as f32 // todo: Is this right?
-    }
+    result as f32 // todo: Is this right?
 }
 
 // todo: temp read fn, similar to pressure read? Or use the IMU?
