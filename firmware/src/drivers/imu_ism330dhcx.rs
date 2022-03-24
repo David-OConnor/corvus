@@ -7,7 +7,12 @@
 //!
 // todo: ICM-42688 instead? Compare features and availability
 
-use stm32_hal2::{dma::{Dma, DmaChannel}, gpio::Pin, pac::SPI1, spi::Spi};
+use stm32_hal2::{
+    dma::{Dma, DmaChannel},
+    gpio::Pin,
+    pac::{DMA1, SPI1},
+    spi::Spi,
+};
 
 use crate::sensor_fusion::ImuReadings;
 
@@ -182,18 +187,17 @@ pub fn read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> ImuReadings {
 pub fn read_all_dma(spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
     // todo: Is this right? What should it be?
     let buf = [
-        Reg::AccelDataX1 as u8,
-        Reg::AccelDataX0 as u8,
-        Reg::AccelDataY1 as u8,
-        Reg::AccelDataY0 as u8,
-        Reg::AccelDataZ1 as u8,
-        Reg::AccelDataZ0 as u8,
-        Reg::GyroDataX1 as u8,
-        Reg::GyroDataX0 as u8,
-        Reg::GyroDataY1 as u8,
-        Reg::GyroDataY0 as u8,
-        Reg::GyroDataZ1 as u8,
-        Reg::GyroDataZ0 as u8,
+        Reg::OutxHG as u8,
+        Reg::OutyLG as u8,
+        Reg::OutyHG as u8,
+        Reg::OutzLG as u8,
+        Reg::OutzHG as u8,
+        Reg::OutxLA as u8,
+        Reg::OutxHA as u8,
+        Reg::OutyLA as u8,
+        Reg::OutyHA as u8,
+        Reg::OutzLA as u8,
+        Reg::OutzHA as u8,
         0,
         0,
         0,
@@ -212,12 +216,7 @@ pub fn read_all_dma(spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
     // imu::read_all(spi, cx.local.imu_cs));
 
     unsafe {
-        spi.write_dma(
-            &buf,
-            DmaChannel::C1,
-            Default::default(),
-            dma,
-        );
+        spi.write_dma(&buf, DmaChannel::C1, Default::default(), dma);
     }
 
     unsafe {
@@ -231,4 +230,3 @@ pub fn read_all_dma(spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
 
     // todo: Do we need to enable SPI here, or can we leave it enabled the whole time?
 }
-

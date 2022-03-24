@@ -56,6 +56,23 @@ pub struct ImuReadings {
     pub v_yaw: f32,
 }
 
+impl ImuReadings {
+    /// We use this to assemble readings from the DMA buffer.
+    pub fn from_buffer(buf: &[u8]) -> Self {
+        // todo: What is the algo? Check DS and/or Betaflight
+
+        // todo: Note: this mapping may be different for diff IMUs, eg if they use a different reading register ordering.
+        Self {
+            a_x: 0.,
+            a_y: 0.,
+            a_z: 0.,
+            v_pitch: 0.,
+            v_roll: 0.,
+            v_yaw: 0.,
+        }
+
+}
+
 /// Kalman filter predict step
 /// - Use dynamical model to update state estimates.  x^_n+1 = x^_n + T f(x^_n, u)
 /// - Update covaraince (P) P will always increase with this step.

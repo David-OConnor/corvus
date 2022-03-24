@@ -823,6 +823,6 @@ pub fn run_pid_inner(
         current_pwr,
         rotor_timer_a,
         rotor_timer_b,
-        dma
+        dma,
     );
 }

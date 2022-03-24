@@ -21,7 +21,7 @@ use stm32_hal2::{
     flash::Flash,
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM2, TIM3, TIM15},
+    pac::{self, DMA1, DMAMUX, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM2, TIM3},
     rtc::Rtc,
     spi::{BaudRate, Spi},
     timer::{OutputCompare, TimChannel, Timer, TimerConfig, TimerInterrupt},
@@ -58,6 +58,7 @@ mod flight_ctrls;
 mod pid;
 mod pid_tuning;
 mod protocols;
+mod setup;
 // mod sensor_fusion; // todo
 
 // cfg_if! {
@@ -85,7 +86,6 @@ static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 // Our DT timer speed, in Hz.
 const DT_TIM_FREQ: u32 = 200_000_000;
-
 
 // 6 readings; 2 bytes each.
 static mut IMU_READINGS: [u8; 6 * 2] = [0; 6 * 2];
@@ -342,52 +342,6 @@ pub enum Rotor {
     R4,
 }
 
-impl Rotor {
-    // todo: Feature gate these methods based on board, as required.
-    pub fn tim_channel(&self) -> TimChannel {
-        match self {
-            Self::R1 => TimChannel::C1,
-            Self::R2 => TimChannel::C4,
-            Self::R3 => TimChannel::C3,
-            Self::R4 => TimChannel::C4,
-        }
-    }
-
-    /// Dma input channel. This should be in line with `tim_channel`.
-    pub fn dma_input(&self) -> DmaInput {
-        match self {
-            Self::R1 => DmaInput::Tim2Ch1,
-            Self::R2 => DmaInput::Tim2Ch4,
-            Self::R3 => DmaInput::Tim3Ch3,
-            Self::R4 => DmaInput::Tim3Ch4,
-        }
-    }
-
-    /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
-    pub fn dma_channel(&self) -> DmaChannel {
-        // Offset 16 for DMA base register of CCR1?
-        // 17 for CCR2, 18 CCR3, and 19 CCR4?
-        match self {
-            Self::R1 => DmaChannel::C3,
-            Self::R2 => DmaChannel::C4,
-            Self::R3 => DmaChannel::C5,
-            Self::R4 => DmaChannel::C6,
-        }
-    }
-
-    /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
-    pub fn base_addr_offset(&self) -> u8 {
-        // Offset 16 for DMA base register of CCR1?
-        // 17 for CCR2, 18 CCR3, and 19 CCR4?
-        match self.tim_channel() {
-            TimChannel::C1 => 16,
-            TimChannel::C2 => 17,
-            TimChannel::C3 => 18,
-            TimChannel::C4 => 19,
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 /// Role in a swarm of drones
 pub enum SwarmRole {
@@ -407,90 +361,9 @@ pub enum SwarmRole {
 //     Landing,
 // }
 
-/// Set up the pins that have structs that don't need to be accessed after.
-pub fn setup_pins() {
-    // SAI pins to accept input from the 4 PDM ICs, using SAI1, and 4, both blocks.
-    // We use the same SCK and FS clocks for all 4 ICs.
-
-    cfg_if! {
-        if #[cfg(feature = "anyleaf-mercury-h7")] {
-            // todo
-        } else if #[cfg(feature = "anyleaf-mercury-g4")] {
-            // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
-            let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(1)); // Tim2 ch1
-            let mut rotor2 = Pin::new(Port::A, 10, PinMode::Alt(10)); // Tim2 ch4
-            let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
-            let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
-
-            rotor1.output_speed(OutputSpeed::High);
-            rotor2.output_speed(OutputSpeed::High);
-            rotor3.output_speed(OutputSpeed::High);
-            rotor4.output_speed(OutputSpeed::High);
-
-            // todo: USB? How do we set them up (no alt fn) PA11(DN) and PA12 (DP).
-            let _usb_dm = gpioa.new_pin(11, PinMode::Output);
-            let _usb_dp = gpioa.new_pin(12, PinMode::Output);
-
-            let batt_v_adc_ = Pin::new(Port::A, 4, PinMode::Analog);  // ADC2, channel 17
-            let current_sense_adc_ = Pin::new(Port::B, 2, PinMode::Analog);  // ADC2, channel 12
-
-            // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
-            let sck1_ = Pin::new(Port::A, 5, PinMode::Alt(5));
-            let miso1_ = Pin::new(Port::A, 6, PinMode::Alt(5));
-            let mosi1_ = Pin::new(Port::A, 7, PinMode::Alt(5));
-
-            // SPI2 for the LoRa chip
-            let sck2_ = Pin::new(Port::B, 13, PinMode::Alt(5));
-            let miso2_ = Pin::new(Port::B, 14, PinMode::Alt(5));
-            let mosi2_ = Pin::new(Port::B, 15, PinMode::Alt(5));
-
-            // SPI3 for flash
-            let sck3_ = Pin::new(Port::B, 3, PinMode::Alt(6));
-            let miso3_ = Pin::new(Port::B, 4, PinMode::Alt(6));
-            let mosi3_ = Pin::new(Port::B, 5, PinMode::Alt(6));
-
-
-            // We use UARTs for misc external devices, including ESC telemetry,
-            // and "Smart Audio" (for video)
-
-            let uart1_tx = Pin::new(Port::B, 6, PinMode::Alt(7));
-            let uart1_rx = Pin::new(Port::B, 7, PinMode::Alt(7));
-            let uart2_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
-            let uart2_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
-            let uart3_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
-            let uart3_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
-            let uart4_tx = Pin::new(Port::C, 10, PinMode::Alt(7));
-            let uart4_rx = Pin::new(Port::C, 11, PinMode::Alt(7));
-
-            // Used to trigger a PID update based on new IMU data.
-            let mut imu_interrupt = Pin::new(Port::C, 4, PinMode::Input); // PA4 for IMU interrupt.
-            imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
-
-            // I2C1 for external sensors, via pads
-            let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
-            scl1.output_type(OutputType::OpenDrain);
-            scl1.pull(Pull::Up);
-
-            let mut sda1 = Pin::new(Port::B, 7, PinMode::Alt(4));
-            sda1.output_type(OutputType::OpenDrain);
-            sda1.pull(Pull::Up);
-
-            // I2C2 for the DPS310 barometer, and pads.
-            let mut scl2 = Pin::new(Port::A, 9, PinMode::Alt(4));
-            scl2.output_type(OutputType::OpenDrain);
-            scl2.pull(Pull::Up);
-
-            let mut sda2 = Pin::new(Port::A, 8, PinMode::Alt(4));
-            sda2.output_type(OutputType::OpenDrain);
-            sda2.pull(Pull::Up);
-
-        }
-    }
-}
-
 /// Run on startup, or when desired. Run on the ground. Gets an initial GPS fix,
 /// and other initialization functions.
-fn init(params: &mut Params, baro: baro::Barometer, base_pt: &mut Location, i2c: &mut I2c<I2C2>) {
+fn init(params: &mut Params, baro: baro::Barometer, base_pt: &mut Location, i2c: &mut I2c<I2C1>) {
     let eps = 0.001;
 
     // Don't init if in motion.
@@ -618,7 +491,7 @@ mod app {
         cp.SCB.enable_icache();
 
         // Set up pins with appropriate modes.
-        setup_pins();
+        setup::setup_pins();
 
         // We use SPI1 for the IMU
         // SPI input clock is 400MHz. 400MHz / 32 = 12.5 MHz. The limit is the max SPI speed
@@ -774,35 +647,7 @@ mod app {
         let mut elrs_reset = Pin::new(Port::A, 1, PinMode::Output);
         elrs_busy.enable_interrupt(Edge::Falling); // todo: Rising or falling?
 
-        // IMU
-        dma::mux(DmaChannel::C1, dma::DmaInput::Spi1Tx, &mut dp.DMAMUX);
-        dma::mux(DmaChannel::C2, dma::DmaInput::Spi1Rx, &mut dp.DMAMUX);
-
-        // todo: TIMUP??
-        // DSHOT, motor 1
-        dma::mux(
-            Rotor::R1.dma_channel(),
-            Rotor::R1.dma_input(),
-            &mut dp.DMAMUX,
-        );
-        // DSHOT, motor 2
-        dma::mux(
-            Rotor::R2.dma_channel(),
-            Rotor::R2.dma_input(),
-            &mut dp.DMAMUX,
-        );
-        // DSHOT, motor 3
-        dma::mux(
-            Rotor::R3.dma_channel(),
-            Rotor::R3.dma_input(),
-            &mut dp.DMAMUX,
-        );
-        // DSHOT, motor 4
-        dma::mux(
-            Rotor::R4.dma_channel(),
-            Rotor::R4.dma_input(),
-            &mut dp.DMAMUX,
-        );
+        setup::setup_dma_channels(&mut dma, &mut dp.DMAMUX);
 
         // todo: DMA for voltage ADC (?)
 
@@ -1020,8 +865,7 @@ mod app {
             cs.set_high();
         });
 
-        let imu_data =
-
+        let imu_data = sensor_fusion::ImuReadings::from_buffer(&IMU_READINGS);
 
         // todo: In this inner, ~8kHz update whwere we call sensor fusion? Or should we (perhaps with)
         // todo a lowpass filter applied, just set the angular rates here, and perform fusion/
@@ -1090,10 +934,12 @@ mod app {
     #[task(binds = EXTI3, shared = [user_cfg, manual_inputs, spi3], local = [], priority = 3)]
     /// We use this ISR when receiving data from the radio, via ELRS
     fn radio_data_isr(mut cx: radio_data_isr::Context) {
-        (cx.shared.user_cfg, cx.shared.manual_inputs, cx.shared.spi3).lock(|cfg, manual_inputs, spi| {
-            *manual_inputs = elrs::get_inputs(spi);
-            *manual_inputs = CtrlInputs::get_manual_inputs(cfg); // todo: this?
-        })
+        (cx.shared.user_cfg, cx.shared.manual_inputs, cx.shared.spi3).lock(
+            |cfg, manual_inputs, spi| {
+                *manual_inputs = elrs::get_inputs(spi);
+                *manual_inputs = CtrlInputs::get_manual_inputs(cfg); // todo: this?
+            },
+        )
     }
 
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params], local = [], priority = 3)]
@@ -1118,6 +964,24 @@ mod app {
                 }
             },
         )
+    }
+
+    #[task(binds = TIM2, shared = [rotor_timer_a], priority = 1)]
+    /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
+    fn dshot_isr_a(cx: dshot_isr_a::Context) {
+        rotor_timer_a.lock(|timer| {
+            timer.clear_interrupt(TimerInterrupt::Update);
+            timer.disable();
+        });
+    }
+
+    #[task(binds = TIM3, shared = [rotor_timer_b], priority = 1)]
+    /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
+    fn dshot_isr_ba(cx: dshot_isr_b::Context) {
+        rotor_timer_b.lock(|timer| {
+            timer.clear_interrupt(TimerInterrupt::Update);
+            timer.disable();
+        });
     }
 }
 

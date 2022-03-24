@@ -1,5 +1,5 @@
-//! This module contains code for the ICM42605 inertial measuring unit.
-//! This IMU has a 8kHz maximum update rate.
+//! This module contains code for the ICM42605, and ICM42688 inertial measuring units.
+//! This IMU has a 8kHz maximum update rate (42605), or 32kHz for ICM42688.
 //! SPI speed max is 24Mhz.
 //!
 //! Note that both this and the DPS310 barometer read temperature.
@@ -53,7 +53,7 @@ enum Reg {
 // https://github.com/pms67/Attitude-Estimation
 
 /// Utility function to read a single byte.
-fn read_one(reg: u8, spi: &mut Spi<SPI4>, cs: &mut Pin) -> u8 {
+fn read_one(reg: u8, spi: &mut Spi<SPI1>, cs: &mut Pin) -> u8 {
     let mut buf = [reg, 0];
 
     cs.set_low();
@@ -64,7 +64,7 @@ fn read_one(reg: u8, spi: &mut Spi<SPI4>, cs: &mut Pin) -> u8 {
 }
 
 /// Configure the device.
-pub fn setup(spi: &mut Spi<SPI4>, cs: &mut Pin) {
+pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin) {
     // Leave default of SPI mode 0 and 3.
 
     // Enable gyros and accelerometers in low noise mode.
@@ -93,7 +93,7 @@ pub fn setup(spi: &mut Spi<SPI4>, cs: &mut Pin) {
 // todo: Low power fn
 
 /// Read temperature.
-pub fn read_temp(spi: &mut Spi<SPI4>, cs: &mut Pin) -> f32 {
+pub fn read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> f32 {
     let upper_byte = read_one(Reg::TempData1 as u8, spi, cs);
     let lower_byte = read_one(Reg::TempData0 as u8, spi, cs);
 
@@ -106,7 +106,7 @@ pub fn read_temp(spi: &mut Spi<SPI4>, cs: &mut Pin) -> f32 {
 // todo: Do we want to use FIFO over DMA?
 
 /// Read all data
-pub fn read_all(spi: &mut Spi<SPI4>, cs: &mut Pin) -> ImuReadings {
+pub fn read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> ImuReadings {
     let accel_x_upper = read_one(Reg::AccelDataX1 as u8, spi, cs);
     let accel_x_lower = read_one(Reg::AccelDataX0 as u8, spi, cs);
     let accel_y_upper = read_one(Reg::AccelDataY1 as u8, spi, cs);
@@ -174,12 +174,7 @@ pub fn read_all_dma(spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
     // imu::read_all(spi, cx.local.imu_cs));
 
     unsafe {
-        spi.write_dma(
-            &buf,
-            DmaChannel::C1,
-            Default::default(),
-            dma,
-        );
+        spi.write_dma(&buf, DmaChannel::C1, Default::default(), dma);
     }
 
     unsafe {

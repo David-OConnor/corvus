@@ -553,7 +553,7 @@ pub fn takeoff_speed(height: f32, max_v: f32) -> f32 {
 pub struct UnsuitableParams {}
 
 /// Execute a profile designed to test PID and motor gain coefficients; update them.
-pub fn calibrate_coeffs(params: &Params, timer: &mut Timer<TIM15>) -> Result<(), UnsuitableParams> {
+pub fn calibrate_coeffs(params: &Params) -> Result<(), UnsuitableParams> {
     if params.s_z_agl < MIN_CAL_ALT {
         return Err(UnsuitableParams {});
     }
@@ -589,6 +589,6 @@ pub fn apply_ctrls(
         current_pwr, // modified in place, and therefore upstream.
         rotor_pwm_a,
         rotor_pwm_b,
-        dma
+        dma,
     );
 }
