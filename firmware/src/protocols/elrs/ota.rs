@@ -6,6 +6,18 @@
 //! Adapted from the official ELRS example here: https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/OTA/OTA.cpp
 //! and https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/OTA/OTA.h
 //!
+//! James K, from ELRS: "Yes, the OTA code packs and unpacks the data buffers in the format to send over the radio -
+//! literally Over The Air.
+//! ESP processors run most of their code from large flash memories.
+//! To speed things up there is a section of ram that blocks of code are cached into - that's icache.
+//! The ICACHE_RAM_ATTR is used to mark a function to always be loaded into icache.
+//! On esp this is important because you can't run interrupt handlers from flash, so anything that
+//! runs in an interrupt context has to be fixed in icache.
+//!
+//! Historically, elrs has run most of the code in interrupt context, so there's a lot of
+//! pressure on icache. We used to hit the max on 8285 all the time, but a recent-ish
+//! release of the sdk allowed us to repartition the static vs dynamic cache sizes so now
+//! there's more room.
 
 // todo: Do we want this, or is this for using the CRSF protocol?
 
@@ -41,7 +53,6 @@ enum OtaSwitchMode {
 }
 
 #[inline(always)]
-// ICACHE_RAM_ATTR
 /// Returns the sequence (0 to 7, then 0 to 7 rotated left by 1):
 /// 0, 1, 2, 3, 4, 5, 6, 7,
 /// 1, 2, 3, 4, 5, 6, 7, 0
@@ -54,16 +65,19 @@ fn HybridWideNonceToSwitchIndex(nonce: u8) -> u8 {
 }
 
 // Current ChannelData unpacker function being used by RX
-// UnpackChannelData_t UnpackChannelData;
+// todo: What is this?
+// static mut UnpackChannelData_: UnpackChannelData = UnpackChannelData {
+//
+// };
 
-// ICACHE_RAM_ATTR
-fn UnpackChannelDataHybridCommon(Buffer: &mut [u8], crsf: &mut CRSF) {
-    // The analog channels
-    crsf.PackedRCdataOut.ch0 = (Buffer[1] << 3) | ((Buffer[5] & 0b11000000) >> 5);
-    crsf.PackedRCdataOut.ch1 = (Buffer[2] << 3) | ((Buffer[5] & 0b00110000) >> 3);
-    crsf.PackedRCdataOut.ch2 = (Buffer[3] << 3) | ((Buffer[5] & 0b00001100) >> 1);
-    crsf.PackedRCdataOut.ch3 = (Buffer[4] << 3) | ((Buffer[5] & 0b00000011) << 1);
-}
+// todo: Put back once you figure out where CRSF comes from.
+// fn UnpackChannelDataHybridCommon(Buffer: &mut [u8], crsf: &mut CRSF) {
+//     // The analog channels
+//     crsf.PackedRCdataOut.ch0 = (Buffer[1] << 3) | ((Buffer[5] & 0b11000000) >> 5);
+//     crsf.PackedRCdataOut.ch1 = (Buffer[2] << 3) | ((Buffer[5] & 0b00110000) >> 3);
+//     crsf.PackedRCdataOut.ch2 = (Buffer[3] << 3) | ((Buffer[5] & 0b00001100) >> 1);
+//     crsf.PackedRCdataOut.ch3 = (Buffer[4] << 3) | ((Buffer[5] & 0b00000011) << 1);
+// }
 
 /**
  * Hybrid switches decoding of over the air data
@@ -76,7 +90,6 @@ fn UnpackChannelDataHybridCommon(Buffer: &mut [u8], crsf: &mut CRSF) {
  * Output: crsf->PackedRCdataOut
  * Returns: TelemetryStatus bit
  */
-// ICACHE_RAM_ATTR
 fn UnpackChannelDataHybridSwitch8(
     Buffer: &mut [u8],
     crsf: &mut CRSF,
@@ -89,40 +102,44 @@ fn UnpackChannelDataHybridSwitch8(
     // todo: Do we want this, since it uses a lot of Crsf?
 
     // The low latency switch
-    crsf.PackedRCdataOut.ch4 = BIT_to_CRSF((switchByte & 0b01000000) >> 6);
+    // todo where from?
+    // crsf.PackedRCdataOut.ch4 = BIT_to_CRSF((switchByte & 0b01000000) >> 6);
 
     // The round-robin switch, switchIndex is actually index-1
     // to leave the low bit open for switch 7 (sent as 0b11x)
     // where x is the high bit of switch 7
     let switchIndex: u8 = (switchByte & 0b111000) >> 3;
-    let switchValue: u16 = SWITCH3b_to_CRSF(switchByte & 0b111);
-
-    match switchIndex {
-        0 => {
-            crsf.PackedRCdataOut.ch5 = switchValue;
-        }
-        1 => {
-            crsf.PackedRCdataOut.ch6 = switchValue;
-        }
-        2 => {
-            crsf.PackedRCdataOut.ch7 = switchValue;
-        }
-        3 => {
-            crsf.PackedRCdataOut.ch8 = switchValue;
-        }
-        4 => {
-            crsf.PackedRCdataOut.ch9 = switchValue;
-        }
-        5 => {
-            crsf.PackedRCdataOut.ch10 = switchValue;
-        }
-        6 => (), // Because AUX1 (index 0) is the low latency switch, the low bit
-        7 => {
-            // of the switchIndex can be used as data, and arrives as index "6"
-            crsf.PackedRCdataOut.ch11 = N_to_CRSF(switchByte & 0b1111, 15);
-        }
-        _ => (),
-    }
+    // todo: Where does SWITCH...CRSF come from??
+    // let switchValue: u16 = SWITCH3b_to_CRSF(switchByte & 0b111);
+    //
+    // todo put back once able
+    // match switchIndex {
+    //     0 => {
+    //         crsf.PackedRCdataOut.ch5 = switchValue;
+    //     }
+    //     1 => {
+    //         crsf.PackedRCdataOut.ch6 = switchValue;
+    //     }
+    //     2 => {
+    //         crsf.PackedRCdataOut.ch7 = switchValue;
+    //     }
+    //     3 => {
+    //         crsf.PackedRCdataOut.ch8 = switchValue;
+    //     }
+    //     4 => {
+    //         crsf.PackedRCdataOut.ch9 = switchValue;
+    //     }
+    //     5 => {
+    //         crsf.PackedRCdataOut.ch10 = switchValue;
+    //     }
+    //     6 => (), // Because AUX1 (index 0) is the low latency switch, the low bit
+    //     7 => {
+    //         // of the switchIndex can be used as data, and arrives as index "6"
+    //         // todo: Where does N_TO_CRSF come from?
+    //         // crsf.PackedRCdataOut.ch11 = N_to_CRSF(switchByte & 0b1111, 15);
+    //     }
+    //     _ => (),
+    // }
 
     // TelemetryStatus bit
     return switchByte & (1 << 7) != 0;
@@ -140,10 +157,9 @@ fn UnpackChannelDataHybridSwitch8(
  * Output: crsf.PackedRCdataOut, crsf.LinkStatistics.uplink_TX_Power
  * Returns: TelemetryStatus bit
  */
-// ICACHE_RAM_ATTR
 fn UnpackChannelDataHybridWide(
     Buffer: &mut [u8],
-    crsf: &mut [CRSF],
+    // crsf: &mut [CRSF], // todo: Where does CRSF come from?
     nonce: u8,
     tlmDenom: u8,
 ) -> bool {
@@ -152,7 +168,8 @@ fn UnpackChannelDataHybridWide(
     UnpackChannelDataHybridCommon(Buffer, crsf);
 
     // The low latency switch (AUX1)
-    crsf.PackedRCdataOut.ch4 = BIT_to_CRSF((switchByte & 0b10000000) >> 7);
+    // todo: Where does BIT_TO_CRSF come from?
+    // crsf.PackedRCdataOut.ch4 = BIT_to_CRSF((switchByte & 0b10000000) >> 7);
 
     // The round-robin switch, 6-7 bits with the switch index implied by the nonce
     let switchIndex: u8 = HybridWideNonceToSwitchIndex(nonce);
@@ -161,7 +178,8 @@ fn UnpackChannelDataHybridWide(
         TelemetryStatus = (switchByte & 0b01000000) >> 6 != 0;
     }
     if switchIndex == 7 {
-        crsf.LinkStatistics.uplink_TX_Power = switchByte & 0b111111;
+        // todo: Put back once you figure out where CRSF comes from
+        // crsf.LinkStatistics.uplink_TX_Power = switchByte & 0b111111;
     } else {
         let mut bins: u8 = 0;
         let mut switchValue: u16 = 0;
@@ -173,49 +191,49 @@ fn UnpackChannelDataHybridWide(
             switchValue = switchByte as u16 & 0b1111111; // 7-bit
         }
 
-        switchValue = N_to_CRSF(switchValue, bins);
-        match switchIndex {
-            0 => {
-                crsf.PackedRCdataOut.ch5 = switchValue;
-            }
-            1 => {
-                crsf.PackedRCdataOut.ch6 = switchValue;
-            }
-            2 => {
-                crsf.PackedRCdataOut.ch7 = switchValue;
-            }
-            3 => {
-                crsf.PackedRCdataOut.ch8 = switchValue;
-            }
-            4 => {
-                crsf.PackedRCdataOut.ch9 = switchValue;
-            }
-            5 => {
-                crsf.PackedRCdataOut.ch10 = switchValue;
-            }
-            6 => {
-                crsf.PackedRCdataOut.ch11 = switchValue;
-            }
-            _ => (),
-        }
+        // todo: Where does N_to_CRSF come from?
+        // switchValue = N_to_CRSF(switchValue, bins);
+        // match switchIndex {
+        //     0 => {
+        //         crsf.PackedRCdataOut.ch5 = switchValue;
+        //     }
+        //     1 => {
+        //         crsf.PackedRCdataOut.ch6 = switchValue;
+        //     }
+        //     2 => {
+        //         crsf.PackedRCdataOut.ch7 = switchValue;
+        //     }
+        //     3 => {
+        //         crsf.PackedRCdataOut.ch8 = switchValue;
+        //     }
+        //     4 => {
+        //         crsf.PackedRCdataOut.ch9 = switchValue;
+        //     }
+        //     5 => {
+        //         crsf.PackedRCdataOut.ch10 = switchValue;
+        //     }
+        //     6 => {
+        //         crsf.PackedRCdataOut.ch11 = switchValue;
+        //     }
+        //     _ => (),
+        // }
     }
 
     return TelemetryStatus;
 }
-
 
 static mut OtaSwitchModeCurrent: OtaSwitchMode = OtaSwitchMode::sm1Bit;
 
 fn OtaSetSwitchMode(switchMode: OtaSwitchMode) {
     match switchMode {
         OtaSwitchMode::smHybridWide => {
-            UnpackChannelData = &UnpackChannelDataHybridWide;
+            // todo: Where do these come from??
+            // unsafe { UnpackChannelData = &UnpackChannelDataHybridWide; }
         }
         _ => {
-            UnpackChannelData = &UnpackChannelDataHybridSwitch8;
+            // unsafe { UnpackChannelData = &UnpackChannelDataHybridSwitch8; }
         }
     };
 
     unsafe { OtaSwitchModeCurrent = switchMode };
-
 }

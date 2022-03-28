@@ -15,8 +15,6 @@ use stm32_hal2::{
 
 use cmsis_dsp_sys as sys;
 
-use num_traits::float::FloatCore; // Absolute value.
-
 use crate::{dshot, pid::PidState, CtrlCoeffGroup, Location, Rotor, UserCfg};
 
 // Don't execute the calibration procedure from below this altitude, eg for safety.

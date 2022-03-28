@@ -166,9 +166,9 @@ pub enum LoRaCodingRates {
 pub enum LoRaPacketLengthsModes {
     VARIABLE_LENGTH = 0x00, // The packet is on variable size, header included
     FIXED_LENGTH = 0x80,    // The packet is known on both sides, no header included in the packet
-    // todo: What does this mean?
-    // EXPLICIT = SX1280_LORA_PACKET_VARIABLE_LENGTH,
-    // IMPLICIT = SX1280_LORA_PACKET_FIXED_LENGTH,
+                            // todo: What does this mean?
+                            // EXPLICIT = SX1280_LORA_PACKET_VARIABLE_LENGTH,
+                            // IMPLICIT = SX1280_LORA_PACKET_FIXED_LENGTH,
 }
 
 #[repr(u8)]

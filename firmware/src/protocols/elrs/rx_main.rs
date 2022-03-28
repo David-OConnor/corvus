@@ -18,24 +18,24 @@ const DIVERSITY_ANTENNA_RSSI_TRIGGER: u8 = 5;
 const PACKET_TO_TOCK_SLACK: u8 = 200; // Desired buffer time between Packet ISR and Tock ISR
 ///////////////////
 
-device_affinity_t ui_devices[] = {
-#ifdef HAS_LED
-{&LED_device, 0},
-#endif
-{&LUA_device,0},
-#ifdef HAS_RGB
-{&RGB_device, 0},
-#endif
-#ifdef HAS_WIFI
-{&WIFI_device, 0},
-#endif
-#ifdef HAS_BUTTON
-{&Button_device, 0},
-#endif
-#ifdef HAS_VTX_SPI
-{&VTxSPI_device, 0},
-#endif
-};
+// device_affinity_t ui_devices[] = {
+// #ifdef HAS_LED
+// {&LED_device, 0},
+// #endif
+// {&LUA_device,0},
+// #ifdef HAS_RGB
+// {&RGB_device, 0},
+// #endif
+// #ifdef HAS_WIFI
+// {&WIFI_device, 0},
+// #endif
+// #ifdef HAS_BUTTON
+// {&Button_device, 0},
+// #endif
+// #ifdef HAS_VTX_SPI
+// {&VTxSPI_device, 0},
+// #endif
+// };
 
 static mut antenna: u8 = 0;    // which antenna is currently in use
 
@@ -46,11 +46,6 @@ GENERIC_CRC14 ota_crc(ELRS_CRC14_POLY);
 ELRS_EEPROM eeprom;
 RxConfig config;
 Telemetry telemetry;
-
-#ifdef PLATFORM_ESP8266
-unsigned long rebootTime = 0;
-extern bool webserverPreventAutoStart;
-#endif
 
 // #if defined(GPIO_PIN_PWM_OUTPUTS)
 static mut SERVO_PINS: [u8; 69] = GPIO_PIN_PWM_OUTPUTS;
@@ -158,7 +153,6 @@ fn minLqForChaos() -> u8
     return interval * ((interval * numfhss + 99) / (interval * numfhss));
 }
 
-// ICACHE_RAM_ATTR
 unsafe fn getRFlinkInfo()
 {
     let mut rssiDBM0: i32 = LPF_UplinkRSSI0.SmoothDataINT;
@@ -230,7 +224,7 @@ fn SetRFLinkRate(index: u8) // Set speed of RF link
     unsafe { telemBurstValid = false; }
 }
 
-// ICACHE_RAM_ATTR
+
 unsafe fn  HandleFHSS() -> bool
 {
     let modresultFHSS: u8 = (NonceRX + 1) % ExpressLRS_currAirRate_Modparams.FHSShopInterval;
@@ -252,7 +246,7 @@ unsafe fn  HandleFHSS() -> bool
     return true;
 }
 
-// ICACHE_RAM_ATTR
+
 unsafe fn HandleSendTelemetryResponse() -> bool
 {
     let mut data: [u8; 69] = [0; 69];
@@ -319,7 +313,7 @@ unsafe fn HandleSendTelemetryResponse() -> bool
     true
 }
 
-// ICACHE_RAM_ATTR
+
 fn HandleFreqCorr(value: bool)
 {
     //DBGVLN(FreqCorrection);
@@ -349,7 +343,7 @@ fn HandleFreqCorr(value: bool)
     }
 }
 
-// ICACHE_RAM_ATTR
+
 fn updatePhaseLock()
 {
     if connectionState != disconnected
@@ -391,7 +385,7 @@ fn updatePhaseLock()
     DBGVLN("%d:%d:%d:%d:%d", Offset, RawOffset, OffsetDx, hwTimer.FreqOffset, unsafe { uplinkLQ });
 }
 
-// ICACHE_RAM_ATTR
+
 unsafe fn HWtimerCallbackTick() // this is 180 out of phase with the other callback, occurs mid-packet reception
 {
     updatePhaseLock();
@@ -437,7 +431,7 @@ static mut prevRSSI: i32 = 0;        // saved rssi so that we can compare if swi
 static mut antennaLQDropTrigger: i32 = 0;
 static mut antennaRSSIDropTrigger: i32 = 0;
 
-// ICACHE_RAM_ATTR
+
 unsafe fn updateDiversity()
 {
 
@@ -492,7 +486,7 @@ unsafe fn updateDiversity()
     }
 }
 
-// ICACHE_RAM_ATTR
+
 unsafe fn HWtimerCallbackTock()
 {
     if Regulatory_Domain_EU_CE_2400 {
@@ -550,7 +544,7 @@ fn LostConnection()
     }
 }
 
-// ICACHE_RAM_ATTR
+
 fn TentativeConnection(now: u64)
 {
     PFDloop.reset();
@@ -586,7 +580,7 @@ fn GotConnection(now: u64)
     println!("got conn");
 }
 
-// ICACHE_RAM_ATTR
+
 fn ProcessRfPacket_RC()
 {
     // Must be fully connected to process RC packets, prevents processing RC
@@ -612,7 +606,7 @@ fn ProcessRfPacket_RC()
 /**
  * Process the assembled MSP packet in MspData[]
  **/
-// ICACHE_RAM_ATTR
+
 fn MspReceiveComplete()
 {
     if MspData[7] == MSP_SET_RX_CONFIG && MspData[8] == MSP_ELRS_MODEL_ID
@@ -658,7 +652,7 @@ fn MspReceiveComplete()
     MspReceiver.Unlock();
 }
 
-// ICACHE_RAM_ATTR
+
 fn ProcessRfPacket_MSP()
 {
     // Always examine MSP packets for bind information if in bind mode
@@ -686,7 +680,7 @@ fn ProcessRfPacket_MSP()
     }
 }
 
-// ICACHE_RAM_ATTR
+
 fn  ProcessRfPacket_SYNC(now: u64) -> bool
 {
     // Verify the first two of three bytes of the binding ID, which should always match
@@ -741,7 +735,7 @@ fn  ProcessRfPacket_SYNC(now: u64) -> bool
     return false;
 }
 
-// ICACHE_RAM_ATTR
+
 unsafe fn ProcessRFPacket(status: SX12xxDriverCommon::rx_status) {
     if status != SX12xxDriverCommon::SX12XX_RX_OK {
         defmt::println!("HW CRC error");
@@ -819,13 +813,13 @@ unsafe fn ProcessRFPacket(status: SX12xxDriverCommon::rx_status) {
     }
 }
 
-// ICACHE_RAM_ATTR
+
 unsafe fn RXdoneISR(status: SX12xxDriverCommon::rx_status )
 {
     ProcessRFPacket(status);
 }
 
-// ICACHE_RAM_ATTR
+
 fn  TXdoneISR()
 {
     Radio.RXnb();
@@ -1237,7 +1231,7 @@ fn ExitBindingMode()
     devicesTriggerEvent();
 }
 
-// ICACHE_RAM_ATTR
+
 fn OnELRSBindMSP(packet: &[u8])
 {
     for i in 1..=4 {

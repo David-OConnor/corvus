@@ -4,7 +4,6 @@
 #![allow(non_upper_case_globals)]
 
 //! Adapted from the official ELRS example here: https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/common.cpp
-//! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/include/common.h
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/options.cpp
 //!
 //! Reviewed against source files: 2022-03-19
@@ -98,7 +97,7 @@ enum RfRates {
     FLRC_1000HZ,
 } // Max value of 16 since only 4 bits have been assigned in the sync package.
 
-impl RfRate {
+impl RfRates {
     pub fn hz(&self) -> u16 {
         match self {
             Self::FLRC_1000HZ => 1000,
@@ -122,6 +121,7 @@ enum RadioType {
     SX128x_FLRC,
 }
 
+#[derive(Clone)]
 struct PrefParams {
     index: u8,
     enum_rate: RfRates, // Max value of 4 since only 2 bits have been assigned in the sync package.
@@ -136,7 +136,7 @@ struct PrefParams {
 impl PrefParams {
     pub fn new(
         index: u8,
-        enum_rate: RfRate,
+        enum_rate: RfRates,
         RXsensitivity: i32,
         TOA: u32,
         DisconnectTimeoutMs: u32,
@@ -158,6 +158,7 @@ impl PrefParams {
 }
 
 /// Note: Some of these draw from one of two enums (FLRC, LoRa), so we store as their u8-reprs.
+#[derive(Clone)]
 struct ModSettings {
     index: u8,
     radio_type: RadioType,
@@ -330,7 +331,7 @@ fn get_elrs_airRateConfig(index: usize) -> ModSettings {
         // Set to last usable entry in the array
         i = RATE_MAX - 1;
     }
-    AirRateConfig[i as usize]
+    AirRateConfig[i as usize].clone()
 }
 
 fn get_elrs_RFperfParams(index: usize) -> PrefParams {
@@ -339,7 +340,7 @@ fn get_elrs_RFperfParams(index: usize) -> PrefParams {
         // Set to last usable entry in the array
         i = RATE_MAX - 1;
     }
-    AirRateRFperf[i as usize]
+    AirRateRFperf[i as usize].clone()
 }
 
 /// Convert enum_rate to index
@@ -352,7 +353,7 @@ fn enumRatetoIndex(rate: u8) -> u8 {
     }
     // If 25Hz selected and not available, return the slowest rate available
     // else return the fastest rate available (500Hz selected but not available)
-    if rate == RATE_25HZ {
+    if rate == RfRates::LORA_25HZ as u8 {
         RATE_MAX - 1
     } else {
         0
@@ -377,12 +378,14 @@ static mut BindingUID: [u8; 6] = [0, 1, 2, 3, 4, 5]; // Special binding UID valu
                                                      //             (uint8_t)HAL_GetUIDw2(), (uint8_t)(HAL_GetUIDw2() >> 8)};
                                                      // }
 
+static mut UID: [u8; 6] = [0; 6];
+
 static mut MasterUID: [u8; 6] = unsafe { [UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]] }; // Special binding UID values
 
 static mut CRCInitializer: u16 = unsafe { ((UID[4] as u16) << 8) | (UID[5] as u16) };
 
 unsafe fn uidMacSeedGet() -> u32 {
-    ((UID[2] as u32) << 24) + ((UID[3] as u32) << 16) + ((UID[4] as u32) << 8) + UID[5]
+    ((UID[2] as u32) << 24) + ((UID[3] as u32) << 16) + ((UID[4] as u32) << 8) + UID[5] as u32
 }
 
 // `options.cpp`
@@ -395,7 +398,6 @@ unsafe fn uidMacSeedGet() -> u32 {
 //     }
 //     s
 // }
-
 
 // todo: How to do this??
 

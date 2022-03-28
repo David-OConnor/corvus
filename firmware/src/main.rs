@@ -5,7 +5,7 @@
 
 use core::{
     f32::consts::TAU,
-    sync::atomic::{AtomicBool, AtomicU32, Ordering},
+    sync::atomic::{AtomicU32, Ordering},
 };
 
 use cfg_if::cfg_if;
@@ -17,11 +17,11 @@ use stm32_hal2::{
     adc::{Adc, AdcDevice},
     clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllCfg, PllSrc},
     debug_workaround,
-    dma::{self, Dma, DmaChannel, DmaInterrupt},
+    dma::{Dma, DmaChannel, DmaInterrupt},
     flash::Flash,
-    gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
+    gpio::{Edge, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, DMAMUX, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM2, TIM3},
+    pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM2, TIM3},
     rtc::Rtc,
     spi::{BaudRate, Spi},
     timer::{OutputCompare, TimChannel, Timer, TimerConfig, TimerInterrupt},
@@ -37,6 +37,11 @@ cfg_if! {
         use usb_device::bus::UsbBusAllocator;
         use usb_device::prelude::*;
         use usbd_serial::{SerialPort, USB_CLASS_CDC};
+
+
+        // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
+        // In practice, we only mutate it at initialization.
+        static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
     }
 }
 
@@ -54,11 +59,12 @@ use stm32_hal2::dma::DmaInput;
 mod drivers;
 mod flight_ctrls;
 // mod osd;
+mod control_interface;
 mod pid;
 mod pid_tuning;
 mod protocols;
+mod sensor_fusion;
 mod setup;
-// mod sensor_fusion; // todo
 
 // cfg_if! {
 // if #[cfg(feature = "anyleaf-mercury-h7")] {
@@ -78,10 +84,6 @@ use flight_ctrls::{
 };
 
 use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
-
-// Due to the way USB serial is set up, the USB bus must have a static lifetime.
-// In practice, we only mutate it at initialization.
-static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 // Our DT timer speed, in Hz.
 const DT_TIM_FREQ: u32 = 200_000_000;
@@ -218,7 +220,14 @@ pub enum LocationType {
     Rel0,
 }
 
+impl Default for LocationType {
+    fn default() -> Self {
+        Self::Rel0
+    }
+}
+
 /// If type is LatLon, `x` and `y` are in degrees. If Rel0, in meters. `z` is in m MSL.
+#[derive(Default)]
 pub struct Location {
     pub type_: LocationType,
     pub x: f32,
@@ -364,7 +373,12 @@ pub enum SwarmRole {
 
 /// Run on startup, or when desired. Run on the ground. Gets an initial GPS fix,
 /// and other initialization functions.
-fn init_sensors(params: &mut Params, base_pt: &mut Location, i2c1: &mut I2c<I2C1>, i2c2: &mut I2c<I2C2>) {
+fn init_sensors(
+    params: &mut Params,
+    base_pt: &mut Location,
+    i2c1: &mut I2c<I2C1>,
+    i2c2: &mut I2c<I2C2>,
+) {
     let eps = 0.001;
 
     // Don't init if in motion.
@@ -396,7 +410,7 @@ fn init_sensors(params: &mut Params, base_pt: &mut Location, i2c1: &mut I2c<I2C1
             let temp = 0.; // todo: Which sensor reads temp? The IMU?
             baro::calibrate(f.z, temp, i2c2);
         }
-        Err(e) => (), // todo
+        Err(_) => (), // todo
     }
 
     // todo: Use Rel0 location type if unable to get fix.
@@ -423,7 +437,6 @@ mod app {
         manual_inputs: CtrlInputs,
         current_pwr: RotorPower,
         dma: Dma<DMA1>,
-        spi1: Spi<SPI1>,
         spi2: Spi<SPI2>,
         spi3: Spi<SPI3>,
         cs_imu: Pin,
@@ -433,8 +446,9 @@ mod app {
         update_timer: Timer<TIM15>,
         rotor_timer_a: Timer<TIM2>,
         rotor_timer_b: Timer<TIM3>,
-        usb_dev: UsbDevice<UsbBusType>,
-        usb_serial: SerialPort<UsbBusType>,
+        // todo: Figure out how to store usb_dev and usb_serial as resources. Getting errors atm.
+        // usb_dev: UsbDevice<UsbBusType>,
+        // usb_serial: SerialPort<UsbBusType>,
         // `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
         power_used: f32,
         // Store filter instances for the PID loop derivatives. One for each param used.
@@ -444,7 +458,9 @@ mod app {
     }
 
     #[local]
-    struct Local {}
+    struct Local {
+        spi1: Spi<SPI1>,
+    }
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
@@ -514,10 +530,10 @@ mod app {
         };
 
         // We use I2C1 for offboard sensors: Magnetometer, GPS, and TOF sensor.
-        let i2c1 = I2c::new(dp.I2C1, i2c_cfg.clone(), &clock_cfg);
+        let mut i2c1 = I2c::new(dp.I2C1, i2c_cfg.clone(), &clock_cfg);
 
         // We use I2C2 for the barometer.
-        let i2c2 = I2c::new(dp.I2C2, i2c_cfg, &clock_cfg);
+        let mut i2c2 = I2c::new(dp.I2C2, i2c_cfg, &clock_cfg);
 
         // We use `uart1` for the radio controller receiver, via CRSF protocol.
         // CRSF protocol uses a single wire half duplex uart connection.
@@ -615,23 +631,18 @@ mod app {
         #[cfg(feature = "anyleaf-mercury-g4")]
         let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
-        imu::setup(&mut spi4, &mut cs_imu);
-
-        // let mut cs_osd = Pin::new(Port::B, 12, PinMode::Output);
-
-        // In Betaflight, DMA is required for the ADC (current/voltage sensor),
-        // motor outputs running bidirectional DShot, and gyro SPI bus.
-
-        // todo: Consider how you use DMA, and bus splitting.
-        // todo: Feature-gate these based on board, as required.
+        imu::setup(&mut spi1, &mut cs_imu);
 
         cfg_if! {
             if #[cfg(feature = "anyleaf-mercury-g4")] {
-                let usb = Peripheral { usb: dp.USB };
-                let usb_bus = UsbBus::new(usb);
-                let usb_serial = SerialPort::new(usb_bus);
+                let usb = Peripheral { regs: dp.USB };
+                // let usb_bus = UsbBus::new(usb);
 
-                let usb_dev = UsbDeviceBuilder::new(USB_BUS.as_ref().unwrap(), UsbVidPid(0x16c0, 0x27dd))
+                unsafe { USB_BUS = Some(UsbBus::new(usb)) };
+
+                let usb_serial = SerialPort::new(unsafe { &USB_BUS.as_ref().unwrap() });
+
+                let usb_dev = UsbDeviceBuilder::new(unsafe { USB_BUS.as_ref().unwrap() }, UsbVidPid(0x16c0, 0x27dd))
                     .manufacturer("Anyleaf")
                     .product("Serial port")
                     // We use `serial_number` to identify the device to the PC. If it's too long,
@@ -666,7 +677,8 @@ mod app {
         // todo: Instead of a `Barometer` struct, perhaps store baro calibration elsewhere.
         baro::setup(&mut i2c2);
 
-        init_sensors(&mut params, Location::default(), &mut i2c1, &mut i2c2);
+        let mut base_point = Location::default();
+        init_sensors(&mut params, &mut base_point, &mut i2c1, &mut i2c2);
 
         update_timer.enable();
 
@@ -685,7 +697,6 @@ mod app {
                 manual_inputs: Default::default(),
                 current_pwr: Default::default(),
                 dma,
-                spi1,
                 spi2,
                 spi3,
                 cs_imu,
@@ -695,14 +706,15 @@ mod app {
                 update_timer,
                 rotor_timer_a,
                 rotor_timer_b,
-                usb_dev,
-                usb_serial,
+                // todo: Put these back. If you have to, use mutex<refcell.
+                // usb_dev,
+                // usb_serial,
                 power_used: 0.,
                 pid_deriv_filters: PidDerivFilters::new(),
-                base_point: Location::new(LocationType::Rel0, 0., 0., 0.),
+                base_point,
                 command_state: Default::default(),
             },
-            Local {},
+            Local { spi1 },
             init::Monotonics(),
         )
     }
@@ -731,7 +743,7 @@ mod app {
         (
             cx.shared.current_params,
             cx.shared.manual_inputs,
-            cs.shared.input_map,
+            cx.shared.input_map,
             cx.shared.current_pwr,
             cx.shared.inner_flt_cmd,
             cx.shared.pid_mid,
@@ -751,7 +763,6 @@ mod app {
                  inner_flt_cmd,
                  pid_mid,
                  filters,
-                 spi,
                  power_used,
                  input_mode,
                  autopilot_status,
@@ -819,15 +830,15 @@ mod app {
     /// pitch and roll. We use this ISR with an interrupt from the IMU, since we wish to
     /// update rotor power settings as soon as data is available.
     #[task(binds = EXTI15_10, shared = [
-    spi1, cs_imu, dma, rotor_timer_a, rotor_timer_b, command_state
-    ], local = [], priority = 2)]
+    cs_imu, dma, rotor_timer_a, rotor_timer_b, command_state
+    ], local = [spi1], priority = 2)]
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
         unsafe {
             // Clear the interrupt flag.
             #[cfg(feature = "anyleaf-mercury-h7")]
             (*pac::EXTI::ptr()).c1pr1.modify(|_, w| w.pr15().set_bit());
             #[cfg(feature = "anyleaf-mercury-g4")]
-            (*pac::EXTI::ptr()).pr1.modify(|_, w| w.pr15().set_bit());
+            (*pac::EXTI::ptr()).pr1.modify(|_, w| w.pif15().set_bit());
         }
 
         (
@@ -835,29 +846,16 @@ mod app {
             cx.shared.rotor_timer_a,
             cx.shared.rotor_timer_b,
             cx.shared.dma,
+            cx.shared.cs_imu,
         )
-            .lock(|state, rotor_timer_a, rotor_timer_b, dma| {
+            .lock(|state, rotor_timer_a, rotor_timer_b, dma, cs_imu| {
                 if state.armed != ArmStatus::Armed {
                     dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
                 }
+
+                // todo: Don't just use IMU; use sensor fusion. Starting with this by default
+                imu::read_all_dma(cx.local.spi1, cs_imu, dma);
             });
-
-        // let timer_val = cx.local.dt_timer.read_count();
-        // cx.local.dt_timer.disable();
-        // cx.local.dt_timer.reset_countdown();
-        // cx.local.tim_timer.enable();
-
-        // the DT timer is set to tick at 1Mhz. This means each tick is a microsecond. We want
-        // seconds.
-        // todo: Can we get away with a fixed rate, like 8kHz?
-        // todo: If you use this
-
-        // todo: Don't just use IMU; use sensor fusion. Starting with this by default
-
-        // todo: Consider making this spi bus dedicated to the IMU, and making it local.
-        (cx.shared.spi1, cx.shared.cs_imu, cx.shared.dma).lock(|spi, cs, dma| {
-            imu::read_all_dma(spi, cs_imu, dma);
-        });
     }
 
     #[task(binds = DMA1_CH1, shared = [dma, current_params, input_mode, manual_inputs, input_map, autopilot_status,
@@ -865,12 +863,16 @@ mod app {
     rotor_timer_a, rotor_timer_b], local = [], priority = 1)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
-        (cx.shared.dma, cx.shared.cs_imu).lock(|dma, cs| {
-            dma.clear_interrupt(DmaChannel::C1, DmaInterrupt::TransferComplete);
+        // Clear DMA interrupt this way due to RTIC conflict.
+        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.teif1().set_bit()) }
+
+        // (cx.shared.dma, cx.shared.cs_imu).lock(|dma, cs| {
+        cx.shared.cs_imu.lock(|cs| {
+            // dma.clear_interrupt(DmaChannel::C1, DmaInterrupt::TransferComplete);
             cs.set_high();
         });
 
-        let imu_data = sensor_fusion::ImuReadings::from_buffer(&IMU_READINGS);
+        let imu_data = sensor_fusion::ImuReadings::from_buffer(unsafe { &IMU_READINGS });
 
         // todo: In this inner, ~8kHz update whwere we call sensor fusion? Or should we (perhaps with)
         // todo a lowpass filter applied, just set the angular rates here, and perform fusion/
@@ -886,61 +888,58 @@ mod app {
         sensor_data_fused.a_y = imu_data.a_y;
         sensor_data_fused.a_z = imu_data.a_z;
 
-        cx.shared.current_params.lock(|params| {
-            *params = sensor_data_fused;
+        (
+            cx.shared.current_params,
+            cx.shared.manual_inputs,
+            cx.shared.input_mode,
+            cx.shared.autopilot_status,
+            cx.shared.inner_flt_cmd,
+            cx.shared.pid_inner,
+            cx.shared.pid_deriv_filters,
+            cx.shared.current_pwr,
+            cx.shared.rotor_timer_a,
+            cx.shared.rotor_timer_b,
+            cx.shared.dma,
+            cx.shared.ctrl_coeffs,
+            cx.shared.user_cfg,
+            cx.shared.input_map,
+        )
+            .lock(
+                |params,
+                 manual_inputs,
+                 input_mode,
+                 autopilot_status,
+                 inner_flt_cmd,
+                 pid_inner,
+                 filters,
+                 current_pwr,
+                 rotor_timer_a,
+                 rotor_timer_b,
+                 dma,
+                 coeffs,
+                 cfg,
+                 input_map| {
+                    *params = sensor_data_fused;
 
-            (
-                cx.shared.current_params,
-                cx.shared.manual_inputs,
-                cx.shared.input_mode,
-                cx.shared.autopilot_status,
-                cx.shared.inner_flt_cmd,
-                cx.shared.pid_inner,
-                cx.shared.pid_deriv_filters,
-                cx.shared.current_pwr,
-                cx.shared.rotor_timer_a,
-                cx.shared.rotor_timer_b,
-                cx.shared.dma,
-                cx.shared.ctrl_coeffs,
-                cx.shared.user_cfg,
-                cx.shared.input_map,
-            )
-                .lock(
-                    |params,
-                     manual_inputs,
-                     input_mode,
-                     autopilot_status,
-                     inner_flt_cmd,
-                     pid_inner,
-                     filters,
-                     current_pwr,
-                     rotor_timer_a,
-                     rotor_timer_b,
-                     dma,
-                     coeffs,
-                    cfg,
-                    input_map,
-                    | {
-                        pid::run_pid_inner(
-                            params,
-                            *input_mode,
-                            autopilot_status,
-                            manual_inputs,
-                            inner_flt_cmd,
-                            pid_inner,
-                            filters,
-                            current_pwr,
-                            rotor_timer_a,
-                            rotor_timer_b,
-                            dma,
-                            coeffs,
-                            cfg.max_speed_ver,
-                            input_map,
-                            DT_IMU,
-                        );
-                    },
-                );
-        })
+                    pid::run_pid_inner(
+                        params,
+                        *input_mode,
+                        autopilot_status,
+                        manual_inputs,
+                        inner_flt_cmd,
+                        pid_inner,
+                        filters,
+                        current_pwr,
+                        rotor_timer_a,
+                        rotor_timer_b,
+                        dma,
+                        coeffs,
+                        cfg.max_speed_ver,
+                        input_map,
+                        DT_IMU,
+                    );
+                },
+            );
     }
 
     #[task(binds = EXTI3, shared = [user_cfg, manual_inputs, spi3], local = [], priority = 3)]
@@ -954,33 +953,34 @@ mod app {
         )
     }
 
-    #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params], local = [], priority = 3)]
-    /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
-    /// application.
-    fn usb_isr(mut cx: usb_isr::Context) {
-        (cx.shared.usb_dev, cx.shared.usb_serial, cx.shared.params).lock(
-            |usb_dev, usb_serial, params| {
-                if !usb_dev.poll(&mut [usb_serial]) {
-                    return;
-                }
-
-                let mut buf = [0u8; 8];
-                match usb_serial.read(&mut buf) {
-                    // todo: match all start bits and end bits. Running into an error using the naive approach.
-                    Ok(count) => {
-                        usb_serial.write(&[1, 2, 3]).ok();
-                    }
-                    Err(_) => {
-                        //...
-                    }
-                }
-            },
-        )
-    }
+    // todo: Put this USB ISR back in once you've sorted your RTIC resource for usb_dev and usb_serial.
+    // #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params], local = [], priority = 3)]
+    // /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
+    // /// application.
+    // fn usb_isr(mut cx: usb_isr::Context) {
+    //     (cx.shared.usb_dev, cx.shared.usb_serial, cx.shared.params).lock(
+    //         |usb_dev, usb_serial, params| {
+    //             if !usb_dev.poll(&mut [usb_serial]) {
+    //                 return;
+    //             }
+    //
+    //             let mut buf = [0u8; 8];
+    //             match usb_serial.read(&mut buf) {
+    //                 // todo: match all start bits and end bits. Running into an error using the naive approach.
+    //                 Ok(count) => {
+    //                     usb_serial.write(&[1, 2, 3]).ok();
+    //                 }
+    //                 Err(_) => {
+    //                     //...
+    //                 }
+    //             }
+    //         },
+    //     )
+    // }
 
     #[task(binds = TIM2, shared = [rotor_timer_a], priority = 1)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
-    fn dshot_isr_a(cx: dshot_isr_a::Context) {
+    fn dshot_isr_a(mut cx: dshot_isr_a::Context) {
         cx.shared.rotor_timer_a.lock(|timer| {
             timer.clear_interrupt(TimerInterrupt::Update);
             timer.disable();
@@ -989,7 +989,7 @@ mod app {
 
     #[task(binds = TIM3, shared = [rotor_timer_b], priority = 1)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
-    fn dshot_isr_b(cx: dshot_isr_b::Context) {
+    fn dshot_isr_b(mut cx: dshot_isr_b::Context) {
         cx.shared.rotor_timer_b.lock(|timer| {
             timer.clear_interrupt(TimerInterrupt::Update);
             timer.disable();

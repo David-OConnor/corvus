@@ -636,7 +636,7 @@ pub fn run_pid_inner(
     dma: &mut Dma<DMA1>,
     coeffs: &CtrlCoeffGroup,
     max_speed_ver: f32,
-    input_map: InputMap,
+    input_map: &InputMap,
     dt: f32,
 ) {
     match input_mode {
@@ -683,7 +683,7 @@ pub fn run_pid_inner(
                 if hor_speed > YAW_ASSIST_MIN_SPEED {
                     inner_flt_cmd.yaw += yaw_correction_factor;
                 }
-            } else if autopilot_roll_assist {
+            } else if autopilot_status.roll_assist {
                 // todo!
                 let hor_dir = 0.; // radians
                 let hor_speed = 0.; // m/s

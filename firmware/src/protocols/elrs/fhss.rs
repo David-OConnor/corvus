@@ -7,13 +7,12 @@
 #![allow(non_camel_case_types)]
 
 #[allow(non_upper_case_globals)]
-
-use core::{
-    mem::size_of,
-    u32,
-};
+use core::{mem::size_of, u32};
 
 use defmt::println;
+
+// todo: Dummy value for freq_step. What is this??
+const FREQ_STEP: i32 = 69;
 
 const FreqCorrectionMax: i32 = 100000 / FREQ_STEP;
 const FreqCorrectionMin: i32 = -100000 / FREQ_STEP;
@@ -23,7 +22,7 @@ const FreqCorrectionMin: i32 = -100000 / FREQ_STEP;
 // get the initial frequency, which is also the sync channel
 #[inline(always)]
 fn GetInitialFreq() -> u32 {
-    return (unsafe {FHSSfreqs[ sync_channel as usize] } as i32 - unsafe { FreqCorrection }) as u32;
+    return (unsafe { FHSSfreqs[sync_channel as usize] } as i32 - unsafe { FreqCorrection }) as u32;
 }
 
 // Get the current sequence pointer
@@ -42,7 +41,7 @@ fn FHSSsetCurrIndex(value: u8) {
 #[inline(always)]
 unsafe fn FHSSgetNextFreq() -> u32 {
     FHSSptr = (FHSSptr + 1) % FHSS_SEQUENCE_CNT;
-    FHSSfreqs[FHSSsequence[FHSSptr]] - FreqCorrection
+    (FHSSfreqs[FHSSsequence[FHSSptr as usize] as usize] as i32 - FreqCorrection) as u32
 }
 
 /// get the number of entries in the FHSS sequence
@@ -267,7 +266,8 @@ const FHSSfreqs_ISM_2400: [u32; 80] = [
 const FHSSfreqs: [u32; 80] = FHSSfreqs_ISM_2400;
 
 // Number of FHSS frequencies in the table
-const FHSS_FREQ_CNT: u32 = unsafe { size_of::<[u32; 80]>() / size_of::<u32>() }; // todo: Make sure you change this array type as GHSSfreqs changes.
+// todo: Make sure you change this array type as GHSSfreqs changes.
+const FHSS_FREQ_CNT: u32 = (size_of::<[u32; 80]>() / size_of::<u32>()) as u32;
 // Number of hops in the FHSSsequence list before circling back around, even multiple of the number of frequencies
 const FHSS_SEQUENCE_CNT: u8 = (256 / FHSS_FREQ_CNT) as u8 * FHSS_FREQ_CNT as u8;
 // Actual sequence of hops as indexes into the frequency list
@@ -292,7 +292,7 @@ Approach:
   another random entry, excluding the sync channel.
 
  */
-unsafe fn FHSSrandomiseFHSSsequence(seed: u32) {
+unsafe fn FHSSrandomiseFHSSsequence(seed_: u32) {
     // #ifdef Regulatory_Domain_AU_915
     //     INFOLN("Setting 915MHz AU Mode");
     // #elif defined Regulatory_Domain_FCC_915
@@ -318,16 +318,16 @@ unsafe fn FHSSrandomiseFHSSsequence(seed: u32) {
 
     // reset the pointer (otherwise the tests fail)
     FHSSptr = 0;
-    rngSeed(unsafe { seed });
+    rngSeed(seed);
 
     // initialize the sequence array
     for i in 0..FHSS_SEQUENCE_CNT as u32 {
         if i % FHSS_FREQ_CNT == 0 {
-            FHSSsequence[i] = sync_channel;
+            FHSSsequence[i as usize] = sync_channel;
         } else if i % FHSS_FREQ_CNT == sync_channel as u32 {
-            FHSSsequence[i] = 0;
+            FHSSsequence[i as usize] = 0;
         } else {
-            FHSSsequence[i] = i % FHSS_FREQ_CNT;
+            FHSSsequence[i as usize] = (i as u32 % FHSS_FREQ_CNT) as u8;
         }
     }
 
@@ -335,18 +335,18 @@ unsafe fn FHSSrandomiseFHSSsequence(seed: u32) {
         // if it's not the sync channel
         if i % FHSS_FREQ_CNT != 0 {
             let offset: u8 = ((i / FHSS_FREQ_CNT) * FHSS_FREQ_CNT) as u8; // offset to start of current block
-            let rand: u8 = rngN(unsafe { FHSS_FREQ_CNT } as u8 - 1) + 1; // random number between 1 and FHSS_FREQ_CNT
+            let rand: u8 = rngN(FHSS_FREQ_CNT as u8 - 1) + 1; // random number between 1 and FHSS_FREQ_CNT
 
             // switch this entry and another random entry in the same block
-            let temp: u8 = FHSSsequence[i];
-            FHSSsequence[i] = FHSSsequence[offset + rand];
-            FHSSsequence[offset + rand] = temp;
+            let temp: u8 = FHSSsequence[i as usize];
+            FHSSsequence[i as usize] = FHSSsequence[offset as usize + rand as usize];
+            FHSSsequence[offset as usize + rand as usize] = temp;
         }
     }
 
     // output FHSS sequence
     for i in 0..FHSS_SEQUENCE_CNT {
-        println!("{} ", FHSSsequence[i]);
+        println!("{} ", FHSSsequence[i as usize]);
         if i % 10 == 9 {
             // DBGCR;
         }

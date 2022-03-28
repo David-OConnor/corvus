@@ -27,6 +27,9 @@ use crate::Rotor;
 const DUTY_HIGH: u32 = crate::DSHOT_ARR * 3 / 4;
 const DUTY_LOW: u32 = crate::DSHOT_ARR * 3 / 8;
 
+// DSHOT-600
+pub const TIM_FREQ: f32 = 600.;
+
 // DMA buffers for each rotor. 16-bit data, but using a 32-bit API. Note that
 // rotors 1/2 and 3/4 share a timer, so we can use the same DMA stream with them. Data for the 2
 // channels are interleaved.
@@ -89,7 +92,7 @@ pub fn stop_all(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>, dma: &mut 
 }
 
 /// Set up the direction for each motor, in accordance with user config.
-pub fn cfg_motor_dir(
+pub fn setup_motor_dir(
     motors_reversed: (bool, bool, bool, bool),
     timer_a: &mut Timer<TIM2>,
     timer_b: &mut Timer<TIM3>,
@@ -120,8 +123,8 @@ pub fn cfg_motor_dir(
         setup_payload(Rotor::R4, CmdType::Command(Command::SpinDirNormal));
     }
 
-    send_payload_a(timer_a, dma: &mut Dma<DMA1>);
-    send_payload_b(timer_b, dma: &mut Dma<DMA1>);
+    send_payload_a(timer_a, dma);
+    send_payload_b(timer_b, dma);
 }
 
 /// Update our DSHOT payload for a given rotor, with a given power level.
@@ -158,12 +161,10 @@ pub fn setup_payload(rotor: Rotor, cmd: CmdType) {
     for i in 0..16 {
         let bit = (packet >> i) & 1;
         let val = if bit == 1 { DUTY_HIGH } else { DUTY_LOW };
-        unsafe {
-            // DSHOT uses MSB first alignment.
-            // Values alternate in the buffer between the 2 registers we're editing, so
-            // we interleave values here. (Each timer and DMA stream is associated with 2 channels).
-            payload[(15 - i) * 2 + offset] = val;
-        }
+        // DSHOT uses MSB first alignment.
+        // Values alternate in the buffer between the 2 registers we're editing, so
+        // we interleave values here. (Each timer and DMA stream is associated with 2 channels).
+        payload[(15 - i) * 2 + offset] = val;
     }
 }
 
@@ -180,7 +181,7 @@ pub fn set_power_a(
     setup_payload(rotor1, CmdType::Power(power1));
     setup_payload(rotor2, CmdType::Power(power2));
 
-    send_payload_a(timer, dma: &mut Dma<DMA1>)
+    send_payload_a(timer, dma)
 }
 
 // todo: DRY due to type issue. Use a trait?
@@ -195,7 +196,7 @@ pub fn set_power_b(
     setup_payload(rotor1, CmdType::Power(power1));
     setup_payload(rotor2, CmdType::Power(power2));
 
-    send_payload_b(timer, dma: &mut Dma<DMA1>)
+    send_payload_b(timer, dma)
 }
 
 /// Send the stored payload for timer A. (2 channels).
@@ -215,9 +216,9 @@ fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
     unsafe {
         timer.write_dma_burst(
             payload,
-            rotor.base_addr_offset(),
+            Rotor::R1.base_addr_offset(),
             2, // Burst len of 2, since we're updating 2 channels.
-            rotor.dma_channel(),
+            Rotor::R1.dma_channel(),
             Default::default(),
             dma,
         );
@@ -245,13 +246,14 @@ fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     // };
     //
     let payload = unsafe { &PAYLOAD_R3_4 };
+    let base_addr_offset = Rotor::R3.base_addr_offset();
 
     unsafe {
         timer.write_dma_burst(
             payload,
-            rotor.base_addr_offset(),
+            Rotor::R3.base_addr_offset(),
             2, // Burst len of 2, since we're updating 2 channels.
-            rotor.dma_channel(),
+            Rotor::R3.dma_channel(),
             Default::default(),
             dma,
         );

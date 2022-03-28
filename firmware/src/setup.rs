@@ -6,8 +6,8 @@ use cfg_if::cfg_if;
 use crate::Rotor;
 
 use stm32_hal2::{
-    gpio::{Pin, PinMode, OutputSpeed, Port, Pull},
     dma::{self, Dma, DmaChannel, DmaInput},
+    gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     pac::{DMA1, DMAMUX},
     timer::TimChannel,
 };
@@ -87,7 +87,7 @@ pub fn setup_pins() {
             rotor3.output_speed(OutputSpeed::High);
             rotor4.output_speed(OutputSpeed::High);
 
-            let mut buzzer = Pin::new(Port::A, 10, PinMode::Alt(6)); // Tim1 ch3
+            let _buzzer = Pin::new(Port::A, 10, PinMode::Alt(6)); // Tim1 ch3
 
             // todo: USB? How do we set them up (no alt fn) PA11(DN) and PA12 (DP).
             let _usb_dm = Pin::new(Port::A, 11, PinMode::Output);
@@ -97,32 +97,32 @@ pub fn setup_pins() {
             let current_sense_adc_ = Pin::new(Port::B, 2, PinMode::Analog);  // ADC2, channel 12
 
             // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
-            let sck1_ = Pin::new(Port::A, 5, PinMode::Alt(5));
-            let miso1_ = Pin::new(Port::A, 6, PinMode::Alt(5));
-            let mosi1_ = Pin::new(Port::A, 7, PinMode::Alt(5));
+            let _sck1 = Pin::new(Port::A, 5, PinMode::Alt(5));
+            let _miso1 = Pin::new(Port::A, 6, PinMode::Alt(5));
+            let _mosi1 = Pin::new(Port::A, 7, PinMode::Alt(5));
 
             // SPI2 for the LoRa chip
-            let sck2_ = Pin::new(Port::B, 13, PinMode::Alt(5));
-            let miso2_ = Pin::new(Port::B, 14, PinMode::Alt(5));
-            let mosi2_ = Pin::new(Port::B, 15, PinMode::Alt(5));
+            let _sck2 = Pin::new(Port::B, 13, PinMode::Alt(5));
+            let _miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
+            let _mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
 
             // SPI3 for flash
-            let sck3_ = Pin::new(Port::B, 3, PinMode::Alt(6));
-            let miso3_ = Pin::new(Port::B, 4, PinMode::Alt(6));
-            let mosi3_ = Pin::new(Port::B, 5, PinMode::Alt(6));
+            let _sck3 = Pin::new(Port::B, 3, PinMode::Alt(6));
+            let _miso3 = Pin::new(Port::B, 4, PinMode::Alt(6));
+            let _mosi3 = Pin::new(Port::B, 5, PinMode::Alt(6));
 
 
             // We use UARTs for misc external devices, including ESC telemetry,
-            // and "Smart Audio" (for video)
+            // and VTX OSD.
 
-            let uart1_tx = Pin::new(Port::B, 6, PinMode::Alt(7));
-            let uart1_rx = Pin::new(Port::B, 7, PinMode::Alt(7));
-            let uart2_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
-            let uart2_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
-            let uart3_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
-            let uart3_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
-            let uart4_tx = Pin::new(Port::C, 10, PinMode::Alt(7));
-            let uart4_rx = Pin::new(Port::C, 11, PinMode::Alt(7));
+            let _uart1_tx = Pin::new(Port::B, 6, PinMode::Alt(7));
+            let _uart1_rx = Pin::new(Port::B, 7, PinMode::Alt(7));
+            let _uart2_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
+            let _uart2_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
+            let _uart3_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
+            let _uart3_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
+            let _uart4_tx = Pin::new(Port::C, 10, PinMode::Alt(7));
+            let _uart4_rx = Pin::new(Port::C, 11, PinMode::Alt(7));
 
             // Used to trigger a PID update based on new IMU data.
             let mut imu_interrupt = Pin::new(Port::C, 4, PinMode::Input); // PA4 for IMU interrupt.
