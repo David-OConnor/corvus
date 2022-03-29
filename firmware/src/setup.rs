@@ -25,16 +25,7 @@ impl Rotor {
 
     /// Dma input channel. This should be in line with `tim_channel`.
     pub fn dma_input(&self) -> DmaInput {
-        // todo: Give you're using burst DMA here, one channel per timer, how does this work?
-        // match self {
-        //     Self::R1 => DmaInput::Tim2Ch1,
-        //     Self::R2 => DmaInput::Tim2Ch2,
-        //     Self::R3 => DmaInput::Tim3Ch3,
-        //     Self::R4 => DmaInput::Tim3Ch4,
-        // }
-
         match self {
-            // todo: Is this right? Maybe TimxTrig?
             Self::R1 => DmaInput::Tim2Up,
             Self::R2 => DmaInput::Tim2Up,
             Self::R3 => DmaInput::Tim3Up,

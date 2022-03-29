@@ -1,4 +1,5 @@
-//! This module contains code related to flight controls.
+//! This module contains code related to flight controls. Code specific to the PID
+//! loops are in the `pid` module.
 
 // todo: Split up further
 
@@ -85,7 +86,7 @@ impl InputMap {
         map_linear(input, YAW_RNG, self.yaw_rate)
     }
 
-    pub fn calc_thrust_rate(&self, input: f32) -> f32 {
+    pub fn calc_thrust(&self, input: f32) -> f32 {
         map_linear(input, THRUST_RNG, self.power_level)
     }
 
@@ -187,6 +188,9 @@ pub struct AutopilotStatus {
     pub takeoff: bool,
     /// Land automatically
     pub land: bool,
+    /// Recover to stable, altitude-holding flight. Generally initiated by a "panic button"-style
+    /// switch activation
+    pub recover: Option<f32>, // value is MSL alt to hold, eg our alt at time of command.
 }
 
 /// Mode used for control inputs. These are the three "industry-standard" modes.

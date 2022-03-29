@@ -391,73 +391,49 @@ pub fn run_pid_mid(
     commands: &mut CommandState,
     coeffs: &CtrlCoeffGroup,
 ) {
+
+    // todo, mar 29 2022: Review this and inner, and make it cleaner / more correct. Especially regarding
+    // interaction of these fns, and autopilot etc.
+
+    // Initiate a recovery, regardless of control mode.
+    // todo: Set commanded alt to current alt.
+    if let Some(alt_msl_commanded) = autopilot_status.auto_recover {
+        let dist_v = alt_msl_commanded - params.s_z_msl;
+
+        // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
+        let thrust =
+            flight_ctrls::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.s_z_agl);
+
+        // todo: DRY from alt_hold autopilot code.
+
+        *inner_flt_cmd = CtrlInputs {
+            pitch: input_map.calc_pitch_angle(0.),
+            roll: input_map.calc_roll_angle(0.),
+            yaw: input_map.calc_yaw_rate(0.),
+            thrust,
+        };
+
+        return;
+    }
+
+    // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
+    // either MSL or AGL.
+    if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
+        // Set a vertical velocity for the inner loop to maintain, based on distance
+        let dist = match alt_type {
+            AltType::Msl => alt_commanded - params.s_z_msl,
+            AltType::Agl => alt_commanded - params.s_z_agl,
+        };
+        // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
+        inner_flt_cmd.thrust =
+            flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
+
+        return;
+    }
+
     match input_mode {
         InputMode::Acro => {
             // (Acro mode has handled exclusively by the inner loop, for now at least)
-
-            // In rate mode, simply update the inner command; don't do anything
-            // in the outer PID loop.
-
-            // todo: If in acro mode, consider moving some of these to the inner loop for faster updates!
-            // todo eg control polling.
-            //
-            // *inner_flt_cmd = CtrlInputs {
-            //     pitch: input_map.calc_pitch_rate(inputs.pitch),
-            //     roll: input_map.calc_roll_rate(inputs.roll),
-            //     yaw: input_map.calc_yaw_rate(inputs.yaw),
-            //     thrust: input_map.calc_pitch_rate(inputs.thrust),
-            // };
-            //
-            // // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
-            // // either MSL or AGL.
-            // // if let AutopilotMode::AltHold(alt_type, alt_commanded) = autopilot_mode {
-            // if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
-            //     // todo: This naive approach, or command a velocity, like in Cmd mode? Probably latter.
-            //     // inner_flt_cmd.thrust = *alt_commanded; // See the inner loop for more on how this is handled.
-            //
-            //     // Set a vertical velocity for the inner loop to maintain, based on distance
-            //     let dist = match alt_type {
-            //         AltType::Msl => alt_commanded - params.s_z_msl,
-            //         AltType::Agl => alt_commanded - params.s_z_agl,
-            //     };
-            //     // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-            //     inner_flt_cmd.thrust =
-            //         flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
-            // }
-            //
-            // if autopilot_status.yaw_assist {
-            //     // Blend manual inputs with teh autocorrection factor. If there are no manual inputs,
-            //     // this autopilot mode should neutralize all sideslip.
-            //
-            //     // todo: Instead of comparing heading to VVI, maybe you could just neutralize
-            //     // X/Y acceleration?
-            //
-            //     // let net_hor_direction = 0.;
-            //     // let current_yaw = params.s_yaw;
-            //
-            //     // todo: Do we want a function that maps to a commanded yaw velocity, or
-            //     // todo, something more simple?
-            //
-            //     // let yaw_correction_factor = 0.; // todo
-            //
-            //     // todo: What should this coeff be? Is linear OK?
-            //
-            //     // if coeff = 0.5, if accel is 1 m/s^2, yaw correction is 1/2 rad/s
-            //     // angular velocity / accel: (radians/s) / (m/s^2) = radiants x s / m
-            //     let coeff = 0.1;
-            //
-            //     let yaw_correction_factor = params.a_x * coeff;
-            //
-            //     // todo: Impl for Attitude mode too? Or is it not appropriate there?
-            //     inner_flt_cmd.yaw += yaw_correction_factor;
-            // } else if autopilot_roll_assist {
-            //     let coeff = 0.1;
-            //
-            //     let roll_correction_factor = -params.a_x * coeff;
-            //
-            //     // todo: Impl for Attitude mode too.
-            //     inner_flt_cmd.yaw += roll_correction_factor;
-            // }
         }
 
         InputMode::Attitude => {
@@ -475,24 +451,10 @@ pub fn run_pid_mid(
                 pitch: input_map.calc_pitch_angle(inputs.pitch),
                 roll: input_map.calc_roll_angle(inputs.roll),
                 yaw: input_map.calc_yaw_rate(inputs.yaw),
-                thrust: input_map.calc_thrust_rate(inputs.thrust),
+                thrust: input_map.calc_thrust(inputs.thrust),
             };
 
-            // todo: DRY from above in Acro mode for alt hold autopilot enabled.
-            // if let AutopilotMode::AltHold(alt_type, alt_commanded) = autopilot_mode {
-            if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
-                // todo: This naive approach, or command a velocity, like in Cmd mode? Probably latter.
-                // inner_flt_cmd.thrust = *alt_commanded; // See the inner loop for more on how this is handled.
 
-                // Set a vertical velocity for the inner loop to maintain, based on distance
-                let dist = match alt_type {
-                    AltType::Msl => alt_commanded - params.s_z_msl,
-                    AltType::Agl => alt_commanded - params.s_z_agl,
-                };
-                // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-                inner_flt_cmd.thrust =
-                    flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
-            }
         }
         InputMode::Command => {
             // todo: Impl
@@ -515,112 +477,111 @@ pub fn run_pid_mid(
                     thrust: flight_ctrls::landing_speed(params.s_z_agl, cfg.max_speed_ver),
                 };
             }
-            // _ => (),
-
-            let mut param_x = params.v_x;
-            let mut param_y = params.v_y;
-
-            let mut k_p_pitch = coeffs.pitch.k_p_s_from_v;
-            let mut k_i_pitch = coeffs.pitch.k_i_s_from_v;
-            let mut k_d_pitch = coeffs.pitch.k_d_s_from_v;
-
-            let mut k_p_roll = coeffs.roll.k_p_s_from_v;
-            let mut k_i_roll = coeffs.roll.k_i_s_from_v;
-            let mut k_d_roll = coeffs.roll.k_d_s_from_v;
-
-            let eps1 = 0.01;
-            if inputs.pitch > eps1 || inputs.roll > eps1 {
-                commands.loiter_set = false;
-            }
-
-            let eps2 = 0.01;
-            // todo: Commanded velocity 0 to trigger loiter logic, or actual velocity?
-            // if mid_flight_cmd.y_pitch.unwrap().2 < eps && mid_flight_cmd.x_roll.unwrap().2 < eps {
-            if params.s_x < eps2 && params.s_y < eps2 {
-                if !commands.loiter_set {
-                    commands.x = params.s_x;
-                    commands.y = params.s_y;
-                    commands.loiter_set = true;
-                }
-
-                param_x = commands.x;
-                param_y = commands.y;
-
-                k_p_pitch = coeffs.pitch.k_p_s_from_s;
-                k_i_pitch = coeffs.pitch.k_i_s_from_s;
-                k_d_pitch = coeffs.pitch.k_d_s_from_s;
-
-                k_p_roll = coeffs.roll.k_p_s_from_s;
-                k_i_roll = coeffs.roll.k_i_s_from_s;
-                k_d_roll = coeffs.roll.k_d_s_from_s;
-            }
-
-            // todo
-            // let pitch_cmd = input_map.calc_pitch_rate(inputs.pitch); ??
-            // let roll_cmd = 0.;
-            // let yaw_cmd = 0.;
-            // let thrust_cmd = 0.;
-
-            pid_mid.pitch = calc_pid_error(
-                inner_flt_cmd.pitch,
-                param_y,
-                &pid_mid.pitch,
-                k_p_pitch,
-                k_i_pitch,
-                k_d_pitch,
-                &mut filters.mid_y,
-                DT,
-            );
-
-            pid_mid.roll = calc_pid_error(
-                inner_flt_cmd.roll,
-                param_x,
-                &pid_mid.roll,
-                // coeffs,
-                k_p_roll,
-                k_i_roll,
-                k_d_roll,
-                &mut filters.mid_x,
-                DT,
-            );
-
-            pid_mid.yaw = calc_pid_error(
-                inner_flt_cmd.yaw,
-                params.s_yaw,
-                &pid_mid.yaw,
-                coeffs.yaw.k_p_s,
-                coeffs.yaw.k_i_s,
-                coeffs.yaw.k_d_s,
-                &mut filters.mid_thrust,
-                DT,
-            );
-
-            pid_mid.thrust = calc_pid_error(
-                inner_flt_cmd.thrust,
-                params.s_z_msl,
-                &pid_mid.thrust,
-                coeffs.thrust.k_p_s,
-                coeffs.thrust.k_i_s,
-                coeffs.thrust.k_d_s,
-                &mut filters.mid_thrust,
-                DT,
-            );
-
-            // Determine commanded pitch and roll positions, and z velocity,
-            // based on our middle-layer PID.
-
-            *inner_flt_cmd = CtrlInputs {
-                pitch: pid_mid.pitch.out(),
-                roll: pid_mid.roll.out(),
-                yaw: pid_mid.yaw.out(),
-                thrust: pid_mid.thrust.out(),
-            };
         }
     }
+
+    let mut param_x = params.v_x;
+    let mut param_y = params.v_y;
+
+    let mut k_p_pitch = coeffs.pitch.k_p_s_from_v;
+    let mut k_i_pitch = coeffs.pitch.k_i_s_from_v;
+    let mut k_d_pitch = coeffs.pitch.k_d_s_from_v;
+
+    let mut k_p_roll = coeffs.roll.k_p_s_from_v;
+    let mut k_i_roll = coeffs.roll.k_i_s_from_v;
+    let mut k_d_roll = coeffs.roll.k_d_s_from_v;
+
+    let eps1 = 0.01;
+    if inputs.pitch > eps1 || inputs.roll > eps1 {
+        commands.loiter_set = false;
+    }
+
+    let eps2 = 0.01;
+    // todo: Commanded velocity 0 to trigger loiter logic, or actual velocity?
+    // if mid_flight_cmd.y_pitch.unwrap().2 < eps && mid_flight_cmd.x_roll.unwrap().2 < eps {
+    if params.s_x < eps2 && params.s_y < eps2 {
+        if !commands.loiter_set {
+            commands.x = params.s_x;
+            commands.y = params.s_y;
+            commands.loiter_set = true;
+        }
+
+        param_x = commands.x;
+        param_y = commands.y;
+
+        k_p_pitch = coeffs.pitch.k_p_s_from_s;
+        k_i_pitch = coeffs.pitch.k_i_s_from_s;
+        k_d_pitch = coeffs.pitch.k_d_s_from_s;
+
+        k_p_roll = coeffs.roll.k_p_s_from_s;
+        k_i_roll = coeffs.roll.k_i_s_from_s;
+        k_d_roll = coeffs.roll.k_d_s_from_s;
+    }
+
+    // todo
+    // let pitch_cmd = input_map.calc_pitch_rate(inputs.pitch); ??
+    // let roll_cmd = 0.;
+    // let yaw_cmd = 0.;
+    // let thrust_cmd = 0.;
+
+    pid_mid.pitch = calc_pid_error(
+        inner_flt_cmd.pitch,
+        param_y,
+        &pid_mid.pitch,
+        k_p_pitch,
+        k_i_pitch,
+        k_d_pitch,
+        &mut filters.mid_y,
+        DT,
+    );
+
+    pid_mid.roll = calc_pid_error(
+        inner_flt_cmd.roll,
+        param_x,
+        &pid_mid.roll,
+        // coeffs,
+        k_p_roll,
+        k_i_roll,
+        k_d_roll,
+        &mut filters.mid_x,
+        DT,
+    );
+
+    pid_mid.yaw = calc_pid_error(
+        inner_flt_cmd.yaw,
+        params.s_yaw,
+        &pid_mid.yaw,
+        coeffs.yaw.k_p_s,
+        coeffs.yaw.k_i_s,
+        coeffs.yaw.k_d_s,
+        &mut filters.mid_thrust,
+        DT,
+    );
+
+    pid_mid.thrust = calc_pid_error(
+        inner_flt_cmd.thrust,
+        params.s_z_msl,
+        &pid_mid.thrust,
+        coeffs.thrust.k_p_s,
+        coeffs.thrust.k_i_s,
+        coeffs.thrust.k_d_s,
+        &mut filters.mid_thrust,
+        DT,
+    );
+
+    // Determine commanded pitch and roll positions, and z velocity,
+    // based on our middle-layer PID.
+
+    *inner_flt_cmd = CtrlInputs {
+        pitch: pid_mid.pitch.out(),
+        roll: pid_mid.roll.out(),
+        yaw: pid_mid.yaw.out(),
+        thrust: pid_mid.thrust.out(),
+    };
 }
 
-/// Run the inner PID loop: This is what directly affects motor output by commanding pitch and roll
-/// position or rate. Also commands yaw and thrust rates. `inputs` for pitch and roll could be
+/// Run the inner PID loop: This is what directly affects motor output by commanding pitch, roll, and
+/// yaw rates. Also affects thrust (rate?) `inputs` for pitch and roll could be
 /// position or velocity, depending on `input_mode`.
 pub fn run_pid_inner(
     params: &Params,
@@ -641,21 +602,19 @@ pub fn run_pid_inner(
 ) {
     match input_mode {
         InputMode::Acro => {
-            // If acro, we get our inputs each IMU update; ie the inner loop.
+            // If acro, we get our inputs each IMU update; ie the inner loop. In other modes,
+            // (or with certain autopilot flags enabled?) the inner loop is commanded by the mid loop.
 
             *inner_flt_cmd = CtrlInputs {
                 pitch: input_map.calc_pitch_rate(manual_inputs.pitch),
                 roll: input_map.calc_roll_rate(manual_inputs.roll),
                 yaw: input_map.calc_yaw_rate(manual_inputs.yaw),
-                thrust: input_map.calc_thrust_rate(manual_inputs.thrust),
+                thrust: input_map.calc_thrust(manual_inputs.thrust),
             };
 
             // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
             // either MSL or AGL.
-            // if let AutopilotMode::AltHold(alt_type, alt_commanded) = autopilot_mode {
             if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
-                // todo: This naive approach, or command a velocity, like in Cmd mode? Probably latter.
-                // inner_flt_cmd.thrust = *alt_commanded; // See the inner loop for more on how this is handled.
 
                 // todo: In this mode, consider having the left stick being in the middle ~50% of the range mean
                 // todo hold alt, and the upper and lower 25% meaning increase set point and decrease set
@@ -696,81 +655,106 @@ pub fn run_pid_inner(
                 }
             }
         }
-        _ => {} // todo otherwise, handled in mid loop?
+        // If not in acro mode, `inner_flt_cmd` is set by the mid loop, so don't do anything here.
+        _ => ()
     }
 
-    // In Acro mode, the inner PID loops controls pitch and roll in terms of rotational velocities. In other mode,
-    // it controls them for specific attitudes.
-    let (param_pitch, param_roll, param_yaw, mut param_thrust) = match input_mode {
-        InputMode::Acro => {
-            let mut thrust_param = params.v_z;
+    // // In Acro mode, the inner PID loops controls pitch and roll in terms of rotational velocities. In other mode,
+    // // it controls them for specific attitudes.
+    // let (param_pitch, param_roll, param_yaw, mut param_thrust) = match input_mode {
+    //     InputMode::Acro => {
+    //         let mut thrust_param = params.v_z;
+    //
+    //         // todo: If at more than 90 degrees attitude and below (or near?) commanded altitude,
+    //         // todo: cut motor power entirely until level if an Acro + alt hold mode.
+    //
+    //         (params.v_pitch, params.v_roll, params.v_yaw, thrust_param)
+    //     }
+    //     InputMode::Attitude => (params.s_pitch, params.s_roll, params.v_yaw, params.v_z),
+    //     InputMode::Command => (params.s_pitch, params.s_roll, params.s_yaw, params.s_z_msl),
+    // };
 
-            // todo: If at more than 90 degrees attitude and below (or near?) commanded altitude,
-            // todo: cut motor power entirely until level if an Acro + alt hold mode.
+    // Note that
+    let (param_pitch, param_roll, param_yaw, param_thrust) =
+        (params.v_pitch, params.v_roll, params.v_yaw, params.v_z);
 
-            (params.v_pitch, params.v_roll, params.v_yaw, thrust_param)
-        }
-        InputMode::Attitude => (params.s_pitch, params.s_roll, params.v_yaw, params.v_z),
-        InputMode::Command => (params.s_pitch, params.s_roll, params.s_yaw, params.s_z_msl),
-    };
+    let (coeffs_pitch, coeffs_roll, coeffs_yaw, coeffs_thrust) = (
+        (
+            coeffs.pitch.k_p_s_from_v,
+            coeffs.pitch.k_i_s_from_v,
+            coeffs.pitch.k_d_s_from_v,
+        ),
+        (
+            coeffs.roll.k_p_s_from_v,
+            coeffs.roll.k_i_s_from_v,
+            coeffs.roll.k_d_s_from_v,
+        ),
+        (coeffs.yaw.k_p_v, coeffs.yaw.k_i_v, coeffs.yaw.k_d_v),
+        // todo: Is this right for thrust?? Probaly not used on acro, where thrust has a direct effect?
+        (
+            coeffs.thrust.k_p_v,
+            coeffs.thrust.k_i_v,
+            coeffs.thrust.k_d_v,
+        )
+    );
 
     // todo: Messy / DRY
-    let (coeffs_pitch, coeffs_roll, coeffs_yaw, coeffs_thrust) = match input_mode {
-        InputMode::Acro => (
-            (
-                coeffs.pitch.k_p_s_from_v,
-                coeffs.pitch.k_i_s_from_v,
-                coeffs.pitch.k_d_s_from_v,
-            ),
-            (
-                coeffs.roll.k_p_s_from_v,
-                coeffs.roll.k_i_s_from_v,
-                coeffs.roll.k_d_s_from_v,
-            ),
-            (coeffs.yaw.k_p_v, coeffs.yaw.k_i_v, coeffs.yaw.k_d_v),
-            (
-                coeffs.thrust.k_p_v,
-                coeffs.thrust.k_i_v,
-                coeffs.thrust.k_d_v,
-            ),
-        ),
-        InputMode::Attitude => (
-            (
-                coeffs.pitch.k_p_s_from_s,
-                coeffs.pitch.k_i_s_from_s,
-                coeffs.pitch.k_d_s_from_s,
-            ),
-            (
-                coeffs.roll.k_p_s_from_s,
-                coeffs.roll.k_i_s_from_s,
-                coeffs.roll.k_d_s_from_s,
-            ),
-            (coeffs.yaw.k_p_v, coeffs.yaw.k_i_v, coeffs.yaw.k_d_v),
-            (
-                coeffs.thrust.k_p_v,
-                coeffs.thrust.k_i_v,
-                coeffs.thrust.k_d_v,
-            ),
-        ),
-        InputMode::Command => (
-            (
-                coeffs.pitch.k_p_s_from_s,
-                coeffs.pitch.k_i_s_from_s,
-                coeffs.pitch.k_d_s_from_s,
-            ),
-            (
-                coeffs.roll.k_p_s_from_s,
-                coeffs.roll.k_i_s_from_s,
-                coeffs.roll.k_d_s_from_s,
-            ),
-            (coeffs.yaw.k_p_s, coeffs.yaw.k_i_s, coeffs.yaw.k_d_s),
-            (
-                coeffs.thrust.k_p_s,
-                coeffs.thrust.k_i_s,
-                coeffs.thrust.k_d_s,
-            ),
-        ),
-    };
+    // let (coeffs_pitch, coeffs_roll, coeffs_yaw, coeffs_thrust) = match input_mode {
+    //     InputMode::Acro => (
+    //         (
+    //             coeffs.pitch.k_p_s_from_v,
+    //             coeffs.pitch.k_i_s_from_v,
+    //             coeffs.pitch.k_d_s_from_v,
+    //         ),
+    //         (
+    //             coeffs.roll.k_p_s_from_v,
+    //             coeffs.roll.k_i_s_from_v,
+    //             coeffs.roll.k_d_s_from_v,
+    //         ),
+    //         (coeffs.yaw.k_p_v, coeffs.yaw.k_i_v, coeffs.yaw.k_d_v),
+    //         (
+    //             coeffs.thrust.k_p_v,
+    //             coeffs.thrust.k_i_v,
+    //             coeffs.thrust.k_d_v,
+    //         ),
+    //     ),
+    //     InputMode::Attitude => (
+    //         (
+    //             coeffs.pitch.k_p_s_from_s,
+    //             coeffs.pitch.k_i_s_from_s,
+    //             coeffs.pitch.k_d_s_from_s,
+    //         ),
+    //         (
+    //             coeffs.roll.k_p_s_from_s,
+    //             coeffs.roll.k_i_s_from_s,
+    //             coeffs.roll.k_d_s_from_s,
+    //         ),
+    //         (coeffs.yaw.k_p_v, coeffs.yaw.k_i_v, coeffs.yaw.k_d_v),
+    //         (
+    //             coeffs.thrust.k_p_v,
+    //             coeffs.thrust.k_i_v,
+    //             coeffs.thrust.k_d_v,
+    //         ),
+    //     ),
+    //     InputMode::Command => (
+    //         (
+    //             coeffs.pitch.k_p_s_from_s,
+    //             coeffs.pitch.k_i_s_from_s,
+    //             coeffs.pitch.k_d_s_from_s,
+    //         ),
+    //         (
+    //             coeffs.roll.k_p_s_from_s,
+    //             coeffs.roll.k_i_s_from_s,
+    //             coeffs.roll.k_d_s_from_s,
+    //         ),
+    //         (coeffs.yaw.k_p_s, coeffs.yaw.k_i_s, coeffs.yaw.k_d_s),
+    //         (
+    //             coeffs.thrust.k_p_s,
+    //             coeffs.thrust.k_i_s,
+    //             coeffs.thrust.k_d_s,
+    //         ),
+    //     ),
+    // };
 
     pid_inner.pitch = calc_pid_error(
         manual_inputs.pitch,
@@ -805,6 +789,8 @@ pub fn run_pid_inner(
         dt,
     );
 
+    // todo: For acro etc, how do we manage thrust? It shouldn't be part of PID, right, unless
+    // todo there's an autopilot mode in use?
     pid_inner.thrust = calc_pid_error(
         manual_inputs.thrust,
         param_thrust,

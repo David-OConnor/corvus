@@ -1,4 +1,5 @@
-//! This module handles mapping control inputs from the radio controller to program functions.
+//! This module handles mapping control inputs from the ELRS radio controller to program functions.
+//! It is not based on the ELRS spec; it's an interface layer between that, and the rest of this program.
 
 /// Represents data from a channel, including what channel it is, and the data passed.
 /// [ELRS FAQ](https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support)

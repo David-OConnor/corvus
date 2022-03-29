@@ -58,7 +58,7 @@ use stm32_hal2::dma::DmaInput;
 
 mod drivers;
 mod flight_ctrls;
-// mod osd;
+mod osd;
 mod control_interface;
 mod pid;
 mod pid_tuning;

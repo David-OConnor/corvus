@@ -1,6 +1,9 @@
-//! This module contains hardware-agnostic code for drawing the on-screen display.
+//! This module contains code for interfacing with DJI's OSD system, via UART.
 
-use crate::drivers::osd_max7456;
+use stm32_hal2::{
+    usart::Usart,
+    pac::USART2
+};
 
 // todo: Osd struct, or individual functions?
 
