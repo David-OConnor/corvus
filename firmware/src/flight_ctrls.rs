@@ -21,11 +21,17 @@ use crate::{dshot, pid::PidState, CtrlCoeffGroup, Location, Rotor, UserCfg};
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
 
-/// Our input ranges for the 4 controls.
-const PITCH_RNG: (f32, f32) = (-1., 1.);
-const ROLL_RNG: (f32, f32) = (-1., 1.);
-const YAW_RNG: (f32, f32) = (-1., 1.);
-const THRUST_RNG: (f32, f32) = (0., 1.);
+/// Our input ranges for the 4 controls
+const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
+const ROLL_IN_RNG: (f32, f32) = (-1., 1.);
+const YAW_IN_RNG: (f32, f32) = (-1., 1.);
+const THRUST_IN_RNG: (f32, f32) = (0., 1.);
+
+// Our output ranges for motor power.
+const PITCH_PWR_RNG: (f32, f32) = (-1., 1.);
+const ROLL_PWR_RNG: (f32, f32) = (-1., 1.);
+const YAW_PWR_RNG: (f32, f32) = (-1., 1.);
+const THRUST_PWR_RNG: (f32, f32) = (0., 1.);
 
 // Minimium speed before auto-yaw will engate. (if we end up setting up auto-yaw to align flight path
 // with heading)
@@ -74,28 +80,45 @@ pub struct InputMap {
 }
 
 impl InputMap {
+    /// Convert from control inputs to radians/s.
     pub fn calc_pitch_rate(&self, input: f32) -> f32 {
-        map_linear(input, PITCH_RNG, self.pitch_rate)
+        map_linear(input, PITCH_IN_RNG, self.pitch_rate)
     }
 
     pub fn calc_roll_rate(&self, input: f32) -> f32 {
-        map_linear(input, ROLL_RNG, self.roll_rate)
+        map_linear(input, ROLL_IN_RNG, self.roll_rate)
     }
 
     pub fn calc_yaw_rate(&self, input: f32) -> f32 {
-        map_linear(input, YAW_RNG, self.yaw_rate)
+        map_linear(input, YAW_IN_RNG, self.yaw_rate)
     }
 
-    pub fn calc_thrust(&self, input: f32) -> f32 {
-        map_linear(input, THRUST_RNG, self.power_level)
+    /// Convert from radians/s to the range used to set motor power.
+    pub fn calc_pitch_rate_pwr(&self, input: f32) -> f32 {
+        map_linear(input, self.pitch_rate, PITCH_PWR_RNG)
     }
 
+    pub fn calc_roll_rate_pwr(&self, input: f32) -> f32 {
+        map_linear(input, self.roll_rate, ROLL_PWR_RNG)
+    }
+
+    pub fn calc_yaw_rate_pwr(&self, input: f32) -> f32 {
+        map_linear(input,self.yaw_rate, YAW_PWR_RNG)
+    }
+
+    // /// Note that for some uses, eg in acro mode, we apply power directly, and don't use a PID for it,
+    // /// so we don't need this or its reverse.
+    // pub fn calc_thrust(&self, input: f32) -> f32 {
+    //     map_linear(input, THRUST_IN_RNG, self.power_level)
+    // }
+
+    /// eg for attitude mode.
     pub fn calc_pitch_angle(&self, input: f32) -> f32 {
-        map_linear(input, PITCH_RNG, self.pitch_angle)
+        map_linear(input, PITCH_IN_RNG, self.pitch_angle)
     }
 
     pub fn calc_roll_angle(&self, input: f32) -> f32 {
-        map_linear(input, ROLL_RNG, self.roll_angle)
+        map_linear(input, ROLL_IN_RNG, self.roll_angle)
     }
 
     pub fn calc_yaw_angle(&self, input: f32) -> f32 {
@@ -418,7 +441,7 @@ impl RotorPower {
     pub fn total(&self) -> f32 {
         self.p1 + self.p2 + self.p3 + self.p4
     }
-    
+
     /// Find the highest motor power level. Used for scaling power, so as
     /// not to exceed full power on any motor, while preserving power ratios between motors.
     pub fn highest(&self) -> f32 {
@@ -473,17 +496,19 @@ fn estimate_rotor_angle(
 /// all motors is 100%. No individual power level is allowed to be above 1. Rather than clip, we
 /// scale other rotor power levels to leave the one set to exceed 1. at 1.
 ///
-/// Pitch = 0. means equal front/aft power. Pitch = 1.0 means aft/front rotor power is 100%. Pitch = -1.
-/// means aft / front power is 0%.... pitch_ratio = 1. means max fwd rotation. roll_ratio = 1. means max right rotation.
-/// yaw_ratio 1.0 means max clockwise rotation.
+/// `pitch_rate` = 0. means equal front/aft power. `pitch_rate` = 1.0 means aft/front rotor power is 100%.
+/// `pitch_rate`= -1. means aft / front power is 0%.... pitch_rate = 1. means max fwd rotation. roll_rate = 1.
+/// means max right rotation. yaw_rate 1.0 means max clockwise rotation.
 /// Rotor 1 is aft right. R2 is front right. R3 is aft left. R4 is front left.
+///
+/// Important: Rates here are in terms of max/min - they're not in real units like radians/s!
 ///
 /// Keep in mind: We're trying to map stick position (or more generally, commanded angular rate) to
 /// ratios between prop pairs.
 pub fn apply_controls(
-    pitch_ratio: f32,
-    roll_ratio: f32,
-    yaw_ratio: f32,
+    pitch_rate: f32,
+    roll_rate: f32,
+    yaw_rate: f32,
     throttle: f32,
     current_pwr: &mut RotorPower,
     rotor_tim_a: &mut Timer<TIM2>,
@@ -495,12 +520,12 @@ pub fn apply_controls(
     let mut pwr = RotorPower::default();
     // todo: Do you want a linear mapping between power ratio like this, or is it non-linear?
     // todo: Make some type of trig function?
-    let aft = pitch_ratio / 2. + 0.5;
-    let front = -pitch_ratio / 2. + 0.5;
-    let left = roll_ratio / 2. + 0.5;
-    let right = -roll_ratio / 2. + 0.5;
-    let ccw = yaw_ratio / 2. + 0.5;
-    let cw = -yaw_ratio / 2. + 0.5;
+    let aft = pitch_rate / 2. + 0.5;
+    let front = -pitch_rate / 2. + 0.5;
+    let left = roll_rate / 2. + 0.5;
+    let right = -roll_rate / 2. + 0.5;
+    let ccw = yaw_rate / 2. + 0.5;
+    let cw = -yaw_rate / 2. + 0.5;
 
     pwr.p1 += aft;
     pwr.p3 += aft;

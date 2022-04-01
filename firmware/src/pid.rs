@@ -136,10 +136,10 @@ pub struct CtrlCoeffGroup {
     // These coefficients are our rotor gains.
     // todo: Think about how to handle these, and how to map them to the aircraft data struct,
     // todo, and the input range.
-    pub gain_pitch: f32,
-    pub gain_roll: f32,
-    pub gain_yaw: f32,
-    pub gain_thrust: f32,
+    // pub gain_pitch: f32,
+    // pub gain_roll: f32,
+    // pub gain_yaw: f32,
+    // pub gain_thrust: f32,
 }
 
 impl Default for CtrlCoeffGroup {
@@ -167,11 +167,11 @@ impl Default for CtrlCoeffGroup {
 
             // These coefficients are our rotor gains.
             // todo: Think about how to handle these, and how to map them to the aircraft data struct,
-            // todo, and the input range.
-            gain_pitch: 0.,
-            gain_roll: 0.,
-            gain_yaw: 0.,
-            gain_thrust: 0.,
+            // // todo, and the input range.
+            // gain_pitch: 0.,
+            // gain_roll: 0.,
+            // gain_yaw: 0.,
+            // gain_thrust: 0.,
         }
     }
 }
@@ -214,7 +214,6 @@ impl PidState {
     }
 
     pub fn out(&self) -> f32 {
-        // todo: Consider where you want this. This is fine for now; maybe even in general.
         self.p + self.i + self.d
     }
 }
@@ -406,14 +405,14 @@ pub fn run_pid_mid(
 
         // todo: DRY from alt_hold autopilot code.
 
+        // todo: Figure out exactly what you need to pass for the autopilot modes to inner_flt_cmd
+        // todo while in acro mode.
         *inner_flt_cmd = CtrlInputs {
             pitch: input_map.calc_pitch_angle(0.),
             roll: input_map.calc_roll_angle(0.),
             yaw: input_map.calc_yaw_rate(0.),
             thrust,
         };
-
-        return;
     }
 
     // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
@@ -427,8 +426,6 @@ pub fn run_pid_mid(
         // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
         inner_flt_cmd.thrust =
             flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
-
-        return;
     }
 
     match input_mode {
@@ -753,8 +750,9 @@ pub fn run_pid_inner(
     //     ),
     // };
 
+    // Map the manual input rates (eg -1. to +1. etc) to real units, eg randians/s.
     pid_inner.pitch = calc_pid_error(
-        manual_inputs.pitch,
+        input_map.calc_pitch_rate(manual_inputs.pitch),
         param_pitch,
         &pid_inner.pitch,
         coeffs_pitch.0,
@@ -765,7 +763,7 @@ pub fn run_pid_inner(
     );
 
     pid_inner.roll = calc_pid_error(
-        manual_inputs.roll,
+        input_map.calc_roll_rate(manual_inputs.roll),
         param_roll,
         &pid_inner.roll,
         coeffs_roll.0,
@@ -776,7 +774,7 @@ pub fn run_pid_inner(
     );
 
     pid_inner.yaw = calc_pid_error(
-        manual_inputs.yaw,
+        input_map.calc_yaw_rate(manual_inputs.yaw),
         param_yaw,
         &pid_inner.yaw,
         coeffs_yaw.0,
@@ -786,13 +784,19 @@ pub fn run_pid_inner(
         dt,
     );
 
-    let pitch = pid_pitch.out() * coeffs.gain_pitch;
-    let roll = pid_roll.out() * coeffs.gain_roll;
-    let yaw = pid_yaw.out() * coeffs.gain_yaw;
+    // Adjust gains to map control range and pid out in radians/s to the -1. to 1 rates used by the motor
+    // control logic.
+    let pitch = input_map.calc_pitch_rate_pwr(pid_inner.pitch.out());
+    let roll = input_map.calc_roll_rate_pwr(pid_inner.roll.out());
+    let yaw = input_map.calc_yaw_rate_pwr(pid_inner.yaw.out());
 
-    let throttle = if input_mode == InputMode::Command || autopilot_status.alt_hold.is_some() {
+    let throttle = if input_mode == InputMode::Command || autopilot_status.alt_hold.is_some() ||
+            autopilot_status.takeoff || autopilot_status.land {
+
+        let set_pt = 0.; // todo fill this in!
+
         pid_inner.thrust = calc_pid_error(
-            manual_inputs.thrust,
+            set_pt,
             param_thrust,
             &pid_inner.thrust,
             coeffs_thrust.0,
@@ -808,11 +812,6 @@ pub fn run_pid_inner(
     };
 
     flight_ctrls::apply_controls(
-        // &pid_inner.pitch,
-        // &pid_inner.roll,
-        // &pid_inner.yaw,
-        // &pid_inner.thrust,
-        // coeffs,
         pitch,
         roll,
         yaw,
