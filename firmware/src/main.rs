@@ -134,10 +134,6 @@ const UPDATE_RATE: f32 = 1_600.; // IMU rate / 5.
 const DT_IMU: f32 = 1. / IMU_UPDATE_RATE;
 const DT: f32 = 1. / UPDATE_RATE;
 
-// Speed in meters per second commanded by full power.
-// todo: This may not be what you want; could be unachievable, or maybe you really want
-// full speed.
-// const V_FULL_DEFLECTION: f32 = 20.;
 
 // Max distance from curent location, to point, then base a
 // direct-to point can be, in meters. A sanity check
@@ -438,7 +434,6 @@ mod app {
         current_pwr: RotorPower,
         dma: Dma<DMA1>,
         spi2: Spi<SPI2>,
-        spi3: Spi<SPI3>,
         cs_imu: Pin,
         i2c1: I2c<I2C1>,
         i2c2: I2c<I2C2>,
@@ -460,6 +455,7 @@ mod app {
     #[local]
     struct Local {
         spi1: Spi<SPI1>,
+        spi3: Spi<SPI3>,
     }
 
     #[init]
@@ -470,7 +466,7 @@ mod app {
         let mut dp = pac::Peripherals::take().unwrap();
 
         #[cfg(feature = "anyleaf-mercury-h7")]
-        SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
+            SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
 
         // Set up clocks
         let clock_cfg = Clocks {
@@ -627,9 +623,9 @@ mod app {
         // dt_timer.set_auto_reload(DT_ARR);
 
         #[cfg(feature = "anyleaf-mercury-h7")]
-        let mut cs_imu = Pin::new(Port::E, 11, PinMode::Output);
+            let mut cs_imu = Pin::new(Port::E, 11, PinMode::Output);
         #[cfg(feature = "anyleaf-mercury-g4")]
-        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+            let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
         imu::setup(&mut spi1, &mut cs_imu);
 
@@ -698,7 +694,6 @@ mod app {
                 current_pwr: Default::default(),
                 dma,
                 spi2,
-                spi3,
                 cs_imu,
                 i2c1,
                 i2c2,
@@ -714,7 +709,7 @@ mod app {
                 base_point,
                 command_state: Default::default(),
             },
-            Local { spi1 },
+            Local { spi1, spi3 },
             init::Monotonics(),
         )
     }
@@ -726,6 +721,23 @@ mod app {
         }
     }
 
+    #[task(bind = TIM4, shared = [params], priority = 5)]
+    /// Used to periodically print things to the console.
+    fn debug_timer_isr(cx: debug_timer_isr::Context) {
+        // todo: Set up this timer.
+        cx.shared.params.lock(|params| {
+            defmt::println!(
+                "Pitch rate: {}
+                Roll rate: {}
+                Yaw rate: {}",
+                params.v_roll,
+                params.v_pitch,
+                params.v_yaw,
+                // todo etc
+            );
+        });
+    }
+
     #[task(
     binds = TIM1_BRK_TIM15,
     shared = [current_params, manual_inputs, input_map, current_pwr,
@@ -735,6 +747,8 @@ mod app {
     local = [],
     priority = 2
     )]
+    /// This runs periodically, on a ~1kHz timer. It's used to trigger the outer PID loop, ie for
+    /// sending commands to the inner PID loop based on things like autopilot, command-mode etc.
     fn update_isr(cx: update_isr::Context) {
         // todo: Loop index is to dtermine if we need to run the outer (position-tier)
         // todo loop.
@@ -783,32 +797,6 @@ mod app {
                     // *power_used += current_pwr.total() * DT;
                     // }
 
-                    // todo: Placeholder for sensor inputs/fusion.
-
-                    // if loop_i % OUTER_LOOP_RATIO == 0 {
-                    //     match input_mode {
-                    //         InputMode::Command => {
-                    //             // let flt_cmd = FlightCmd::from_inputs(inputs, input_mode);
-                    //
-                    //             // todo: impl ?
-
-                    //         _ => (),
-                    //     }
-                    // }
-
-                    // todo: Don't run this debug every loop maybe in a timer
-                    if DEBUG_PARAMS {
-                        defmt::println!(
-                            "Pitch rate: {}
-                            Roll rate: {}
-                            Yaw rate: {}",
-                            params.v_roll,
-                            params.v_pitch,
-                            params.v_yaw,
-                            // todo etc
-                        );
-                    }
-
                     pid::run_pid_mid(
                         params,
                         manual_inputs,
@@ -835,9 +823,9 @@ mod app {
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
         unsafe {
             // Clear the interrupt flag.
-            #[cfg(feature = "anyleaf-mercury-h7")]
+                #[cfg(feature = "anyleaf-mercury-h7")]
             (*pac::EXTI::ptr()).c1pr1.modify(|_, w| w.pr15().set_bit());
-            #[cfg(feature = "anyleaf-mercury-g4")]
+                #[cfg(feature = "anyleaf-mercury-g4")]
             (*pac::EXTI::ptr()).pr1.modify(|_, w| w.pif15().set_bit());
         }
 
@@ -853,22 +841,20 @@ mod app {
                     dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
                 }
 
-                // todo: Don't just use IMU; use sensor fusion. Starting with this by default
                 imu::read_all_dma(cx.local.spi1, cs_imu, dma);
             });
     }
 
-    #[task(binds = DMA1_CH1, shared = [dma, current_params, input_mode, manual_inputs, input_map, autopilot_status,
+    #[task(binds = DMA1_CH2, shared = [dma, current_params, input_mode, manual_inputs, input_map, autopilot_status,
     inner_flt_cmd, pid_inner, pid_deriv_filters, current_pwr, ctrl_coeffs, command_state, cs_imu, user_cfg,
     rotor_timer_a, rotor_timer_b], local = [], priority = 1)]
-    /// This ISR Handles received data from the IMU, after DMA transfer is complete.
+    /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
+    /// we receive IMU data; it triggers the inner PID loop.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         // Clear DMA interrupt this way due to RTIC conflict.
-        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.teif1().set_bit()) }
+        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit()) }
 
-        // (cx.shared.dma, cx.shared.cs_imu).lock(|dma, cs| {
         cx.shared.cs_imu.lock(|cs| {
-            // dma.clear_interrupt(DmaChannel::C1, DmaInterrupt::TransferComplete);
             cs.set_high();
         });
 
@@ -942,12 +928,12 @@ mod app {
             );
     }
 
-    #[task(binds = EXTI3, shared = [user_cfg, manual_inputs, spi3], local = [], priority = 3)]
+    #[task(binds = EXTI3, shared = [user_cfg, manual_inputs], local = [spi3], priority = 3)]
     /// We use this ISR when receiving data from the radio, via ELRS
     fn radio_data_isr(mut cx: radio_data_isr::Context) {
-        (cx.shared.user_cfg, cx.shared.manual_inputs, cx.shared.spi3).lock(
-            |cfg, manual_inputs, spi| {
-                *manual_inputs = elrs::get_inputs(spi);
+        (cx.shared.user_cfg, cx.shared.manual_inputs).lock(
+            |cfg, manual_inputs| {
+                *manual_inputs = elrs::get_inputs(cx.local.spi3);
                 *manual_inputs = CtrlInputs::get_manual_inputs(cfg); // todo: this?
             },
         )

@@ -583,6 +583,10 @@ pub fn run_pid_mid(
 /// Run the inner PID loop: This is what directly affects motor output by commanding pitch, roll, and
 /// yaw rates. Also affects thrust (rate?) `inputs` for pitch and roll could be
 /// position or velocity, depending on `input_mode`.
+///
+/// If acro, we get our inputs each IMU update; ie the inner loop. In other modes,
+/// (or with certain autopilot flags enabled?) the inner loop is commanded by the mid loop
+/// once per update cycle, eg to set commanded angular rates.
 pub fn run_pid_inner(
     params: &Params,
     input_mode: InputMode,
@@ -602,9 +606,6 @@ pub fn run_pid_inner(
 ) {
     match input_mode {
         InputMode::Acro => {
-            // If acro, we get our inputs each IMU update; ie the inner loop. In other modes,
-            // (or with certain autopilot flags enabled?) the inner loop is commanded by the mid loop.
-
             *inner_flt_cmd = CtrlInputs {
                 pitch: input_map.calc_pitch_rate(manual_inputs.pitch),
                 roll: input_map.calc_roll_rate(manual_inputs.roll),
@@ -612,14 +613,10 @@ pub fn run_pid_inner(
                 thrust: input_map.calc_thrust(manual_inputs.thrust),
             };
 
-            // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
-            // either MSL or AGL.
             if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
-
                 // todo: In this mode, consider having the left stick being in the middle ~50% of the range mean
                 // todo hold alt, and the upper and lower 25% meaning increase set point and decrease set
                 // todo point respectively.
-
                 // Set a vertical velocity for the inner loop to maintain, based on distance
                 let dist = match alt_type {
                     AltType::Msl => alt_commanded - params.s_z_msl,
@@ -789,25 +786,37 @@ pub fn run_pid_inner(
         dt,
     );
 
-    // todo: For acro etc, how do we manage thrust? It shouldn't be part of PID, right, unless
-    // todo there's an autopilot mode in use?
-    pid_inner.thrust = calc_pid_error(
-        manual_inputs.thrust,
-        param_thrust,
-        &pid_inner.thrust,
-        coeffs_thrust.0,
-        coeffs_thrust.1,
-        coeffs_thrust.2,
-        &mut filters.inner_thrust,
-        dt,
-    );
+    let pitch = pid_pitch.out() * coeffs.gain_pitch;
+    let roll = pid_roll.out() * coeffs.gain_roll;
+    let yaw = pid_yaw.out() * coeffs.gain_yaw;
 
-    flight_ctrls::apply_ctrls(
-        &pid_inner.pitch,
-        &pid_inner.roll,
-        &pid_inner.yaw,
-        &pid_inner.thrust,
-        coeffs,
+    let throttle = if input_mode == InputMode::Command || autopilot_status.alt_hold.is_some() {
+        pid_inner.thrust = calc_pid_error(
+            manual_inputs.thrust,
+            param_thrust,
+            &pid_inner.thrust,
+            coeffs_thrust.0,
+            coeffs_thrust.1,
+            coeffs_thrust.2,
+            &mut filters.inner_thrust,
+            dt,
+        );
+
+        pid_thrust.out() * coeffs.gain_thrust
+    } else {
+        manual_inputs.thrust
+    };
+
+    flight_ctrls::apply_controls(
+        // &pid_inner.pitch,
+        // &pid_inner.roll,
+        // &pid_inner.yaw,
+        // &pid_inner.thrust,
+        // coeffs,
+        pitch,
+        roll,
+        yaw,
+        throttle,
         current_pwr,
         rotor_timer_a,
         rotor_timer_b,
