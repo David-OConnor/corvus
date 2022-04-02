@@ -5,7 +5,7 @@
 
 use core::{
     f32::consts::TAU,
-    ops::{Add, Mul, Sub, DivAssign, MulAssign},
+    ops::{Add, DivAssign, Mul, MulAssign, Sub},
 };
 
 use stm32_hal2::{
@@ -103,7 +103,7 @@ impl InputMap {
     }
 
     pub fn calc_yaw_rate_pwr(&self, input: f32) -> f32 {
-        map_linear(input,self.yaw_rate, YAW_PWR_RNG)
+        map_linear(input, self.yaw_rate, YAW_PWR_RNG)
     }
 
     // /// Note that for some uses, eg in acro mode, we apply power directly, and don't use a PID for it,
@@ -122,7 +122,7 @@ impl InputMap {
     }
 
     pub fn calc_yaw_angle(&self, input: f32) -> f32 {
-        map_linear(input, YAW_RNG, self.yaw_angle)
+        map_linear(input, YAW_IN_RNG, self.yaw_angle)
     }
 }
 
@@ -271,10 +271,10 @@ impl CtrlInputs {
         let thrust = 0.;
 
         Self {
-            pitch: map_linear(pitch, cfg.pitch_input_range, PITCH_RNG),
-            roll: map_linear(roll, cfg.roll_input_range, ROLL_RNG),
-            yaw: map_linear(yaw, cfg.pitch_input_range, YAW_RNG),
-            thrust: map_linear(thrust, cfg.throttle_input_range, THRUST_RNG),
+            pitch: map_linear(pitch, cfg.pitch_input_range, PITCH_IN_RNG),
+            roll: map_linear(roll, cfg.roll_input_range, ROLL_IN_RNG),
+            yaw: map_linear(yaw, cfg.pitch_input_range, YAW_IN_RNG),
+            thrust: map_linear(thrust, cfg.throttle_input_range, THRUST_IN_RNG),
         }
     }
 }
@@ -411,10 +411,10 @@ pub struct RotorPower {
 
     // For info on ratios, see `apply_controls()`.
     pub pitch_ratio: f32, // scale of -1. to 1..
-    pub roll_ratio: f32, // scale of -1. to 1..
-    pub yaw_ratio: f32, // scale of -1. to 1..
-    pub throttle: f32, // scale of -0. to 1.
-    // todo: You may need to add ratios and throttle here.
+    pub roll_ratio: f32,  // scale of -1. to 1..
+    pub yaw_ratio: f32,   // scale of -1. to 1..
+    pub throttle: f32,    // scale of -0. to 1.
+                          // todo: You may need to add ratios and throttle here.
 }
 
 impl MulAssign<f32> for RotorPower {
@@ -446,13 +446,13 @@ impl RotorPower {
     /// not to exceed full power on any motor, while preserving power ratios between motors.
     pub fn highest(&self) -> f32 {
         let mut result = self.p1;
-        if self.p2 > highest_v {
+        if self.p2 > result {
             result = self.p2;
         }
-        if self.p3 > highest_v {
+        if self.p3 > result {
             result = self.p3;
         }
-        if self.p4 > highest_v {
+        if self.p4 > result {
             result = self.p4;
         }
 
@@ -515,11 +515,11 @@ pub fn apply_controls(
     rotor_tim_b: &mut Timer<TIM3>,
     dma: &mut Dma<DMA1>,
 ) {
-    // todo: Store current ratios somehwere probably. Maybe even ditch current power, and/or replace
-    // todo it with ratios.
     let mut pwr = RotorPower::default();
     // todo: Do you want a linear mapping between power ratio like this, or is it non-linear?
-    // todo: Make some type of trig function?
+    // todo: Make some type of trig function? Note that the linear mapping here is probably
+    // todo good enough for your PID loop to map to specific angular rates.
+    // Map from -1. to 1. we use for our input rates, to 0. to 1. for power levels.
     let aft = pitch_rate / 2. + 0.5;
     let front = -pitch_rate / 2. + 0.5;
     let left = roll_rate / 2. + 0.5;

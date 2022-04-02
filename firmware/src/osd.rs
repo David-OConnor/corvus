@@ -1,9 +1,6 @@
 //! This module contains code for interfacing with DJI's OSD system, via UART.
 
-use stm32_hal2::{
-    usart::Usart,
-    pac::USART2
-};
+use stm32_hal2::{pac::USART2, usart::Usart};
 
 // todo: Osd struct, or individual functions?
 

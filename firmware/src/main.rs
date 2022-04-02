@@ -16,7 +16,6 @@ use stm32_hal2::{
     self,
     adc::{Adc, AdcDevice},
     clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllCfg, PllSrc},
-    debug_workaround,
     dma::{Dma, DmaChannel, DmaInterrupt},
     flash::Flash,
     gpio::{Edge, Pin, PinMode, Port},
@@ -48,7 +47,6 @@ cfg_if! {
 #[cfg(feature = "anyleaf-mercury-h7")]
 use crate::{
     clocks::VosRange,
-    pac::SPI4,
     power::{SupplyConfig, VoltageLevel},
 };
 
@@ -56,10 +54,10 @@ use defmt_rtt as _; // global logger
 use panic_probe as _;
 use stm32_hal2::dma::DmaInput;
 
+mod control_interface;
 mod drivers;
 mod flight_ctrls;
 mod osd;
-mod control_interface;
 mod pid;
 mod pid_tuning;
 mod protocols;
@@ -75,9 +73,8 @@ use drivers::imu_ism330dhcx as imu;
 // use drivers::osd_max7456 as osd;
 use drivers::tof_vl53l1 as tof;
 
-use protocols::{dshot, elrs};
-// }
-// }
+// use protocols::{dshot, elrs};
+use protocols::{dshot};
 
 use flight_ctrls::{
     ArmStatus, AutopilotStatus, CommandState, CtrlInputs, InputMap, InputMode, Params, RotorPower,
@@ -133,7 +130,6 @@ const UPDATE_RATE: f32 = 1_600.; // IMU rate / 5.
 
 const DT_IMU: f32 = 1. / IMU_UPDATE_RATE;
 const DT: f32 = 1. / UPDATE_RATE;
-
 
 // Max distance from curent location, to point, then base a
 // direct-to point can be, in meters. A sanity check
@@ -466,7 +462,7 @@ mod app {
         let mut dp = pac::Peripherals::take().unwrap();
 
         #[cfg(feature = "anyleaf-mercury-h7")]
-            SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
+        SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
 
         // Set up clocks
         let clock_cfg = Clocks {
@@ -493,7 +489,9 @@ mod app {
         clocks::enable_crs(CrsSyncSrc::Usb);
 
         defmt::println!("Clocks setup successfully");
-        debug_workaround();
+
+        // (We don't need the debug workaround, since we don't use low power modes.)
+        // debug_workaround();
 
         // Improves performance, at a cost of slightly increased power use.
         // May be required to prevent sound problems.
@@ -507,6 +505,25 @@ mod app {
         // SPI input clock is 400MHz. 400MHz / 32 = 12.5 MHz. The limit is the max SPI speed
         // of the ICM-42605 IMU of 24 MHz. This IMU can use any SPI mode, with the correct config on it.
         let mut spi1 = Spi::new(dp.SPI1, Default::default(), BaudRate::Div32);
+
+        #[cfg(feature = "anyleaf-mercury-h7")]
+        let mut cs_imu = Pin::new(Port::E, 11, PinMode::Output);
+        #[cfg(feature = "anyleaf-mercury-g4")]
+        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+
+        imu::setup(&mut spi1, &mut cs_imu);
+
+        // todo: Testing IMU.
+        let readings = imu::read_all(&mut spi1, &mut cs_imu);
+        println!(
+            "Ax: {}, Ay: {}, Az: {}, pitch: {}, roll: {}, yaw: {}",
+            readings.a_x,
+            readings.a_y,
+            readings.a_z,
+            readings.v_pitch,
+            readings.v_roll,
+            readings.v_yaw
+        );
 
         // We use SPI2 for the LoRa ELRS chip.  // todo: Find max speed and supported modes.
         let spi2 = Spi::new(dp.SPI2, Default::default(), BaudRate::Div32);
@@ -622,13 +639,6 @@ mod app {
         // dt_timer.set_prescaler(DT_PSC);
         // dt_timer.set_auto_reload(DT_ARR);
 
-        #[cfg(feature = "anyleaf-mercury-h7")]
-            let mut cs_imu = Pin::new(Port::E, 11, PinMode::Output);
-        #[cfg(feature = "anyleaf-mercury-g4")]
-            let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
-
-        imu::setup(&mut spi1, &mut cs_imu);
-
         cfg_if! {
             if #[cfg(feature = "anyleaf-mercury-g4")] {
                 let usb = Peripheral { regs: dp.USB };
@@ -721,11 +731,11 @@ mod app {
         }
     }
 
-    #[task(bind = TIM4, shared = [params], priority = 5)]
+    #[task(binds = TIM4, shared = [current_params], priority = 5)]
     /// Used to periodically print things to the console.
-    fn debug_timer_isr(cx: debug_timer_isr::Context) {
+    fn debug_timer_isr(mut cx: debug_timer_isr::Context) {
         // todo: Set up this timer.
-        cx.shared.params.lock(|params| {
+        cx.shared.current_params.lock(|params| {
             defmt::println!(
                 "Pitch rate: {}
                 Roll rate: {}
@@ -823,9 +833,9 @@ mod app {
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
         unsafe {
             // Clear the interrupt flag.
-                #[cfg(feature = "anyleaf-mercury-h7")]
+            #[cfg(feature = "anyleaf-mercury-h7")]
             (*pac::EXTI::ptr()).c1pr1.modify(|_, w| w.pr15().set_bit());
-                #[cfg(feature = "anyleaf-mercury-g4")]
+            #[cfg(feature = "anyleaf-mercury-g4")]
             (*pac::EXTI::ptr()).pr1.modify(|_, w| w.pif15().set_bit());
         }
 
@@ -931,12 +941,10 @@ mod app {
     #[task(binds = EXTI3, shared = [user_cfg, manual_inputs], local = [spi3], priority = 3)]
     /// We use this ISR when receiving data from the radio, via ELRS
     fn radio_data_isr(mut cx: radio_data_isr::Context) {
-        (cx.shared.user_cfg, cx.shared.manual_inputs).lock(
-            |cfg, manual_inputs| {
-                *manual_inputs = elrs::get_inputs(cx.local.spi3);
-                *manual_inputs = CtrlInputs::get_manual_inputs(cfg); // todo: this?
-            },
-        )
+        (cx.shared.user_cfg, cx.shared.manual_inputs).lock(|cfg, manual_inputs| {
+            // *manual_inputs = elrs::get_inputs(cx.local.spi3);
+            *manual_inputs = CtrlInputs::get_manual_inputs(cfg); // todo: this?
+        })
     }
 
     // todo: Put this USB ISR back in once you've sorted your RTIC resource for usb_dev and usb_serial.

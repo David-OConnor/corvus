@@ -7,9 +7,10 @@
 // // rx_main gives the top level of the receiver, common defines the modem params, fhss covers the channels
 // // oh, and PFD is the code for syncing the rx to the tx, that's fairly critical. Most of this lives in src/lib/*"
 
-mod rx_main;
 mod common;
 mod fhss;
+mod pfd;
+mod rx_main;
 // todo: So many missing things from OTA like CRSF values I can't find the origin of.
 // mod ota;
 mod sx1280_regs;

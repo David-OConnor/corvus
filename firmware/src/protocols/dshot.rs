@@ -70,7 +70,7 @@ pub enum Command {
     Max = 47,
 }
 
-enum CmdType {
+pub enum CmdType {
     Command(Command),
     Power(f32),
 }

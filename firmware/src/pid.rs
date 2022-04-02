@@ -132,7 +132,6 @@ pub struct CtrlCoeffGroup {
     pub roll: CtrlCoeffsPR,
     pub yaw: CtrlCoeffsYT,
     pub thrust: CtrlCoeffsYT,
-
     // These coefficients are our rotor gains.
     // todo: Think about how to handle these, and how to map them to the aircraft data struct,
     // todo, and the input range.
@@ -164,7 +163,6 @@ impl Default for CtrlCoeffGroup {
                 k_d_v: 0.0,
                 pid_deriv_lowpass_cutoff: LowpassCutoff::H1k,
             },
-
             // These coefficients are our rotor gains.
             // todo: Think about how to handle these, and how to map them to the aircraft data struct,
             // // todo, and the input range.
@@ -390,18 +388,16 @@ pub fn run_pid_mid(
     commands: &mut CommandState,
     coeffs: &CtrlCoeffGroup,
 ) {
-
     // todo, mar 29 2022: Review this and inner, and make it cleaner / more correct. Especially regarding
     // interaction of these fns, and autopilot etc.
 
     // Initiate a recovery, regardless of control mode.
     // todo: Set commanded alt to current alt.
-    if let Some(alt_msl_commanded) = autopilot_status.auto_recover {
+    if let Some(alt_msl_commanded) = autopilot_status.recover {
         let dist_v = alt_msl_commanded - params.s_z_msl;
 
         // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-        let thrust =
-            flight_ctrls::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.s_z_agl);
+        let thrust = flight_ctrls::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.s_z_agl);
 
         // todo: DRY from alt_hold autopilot code.
 
@@ -448,10 +444,8 @@ pub fn run_pid_mid(
                 pitch: input_map.calc_pitch_angle(inputs.pitch),
                 roll: input_map.calc_roll_angle(inputs.roll),
                 yaw: input_map.calc_yaw_rate(inputs.yaw),
-                thrust: input_map.calc_thrust(inputs.thrust),
+                thrust: inputs.thrust,
             };
-
-
         }
         InputMode::Command => {
             // todo: Impl
@@ -607,7 +601,7 @@ pub fn run_pid_inner(
                 pitch: input_map.calc_pitch_rate(manual_inputs.pitch),
                 roll: input_map.calc_roll_rate(manual_inputs.roll),
                 yaw: input_map.calc_yaw_rate(manual_inputs.yaw),
-                thrust: input_map.calc_thrust(manual_inputs.thrust),
+                thrust: manual_inputs.thrust,
             };
 
             if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
@@ -650,7 +644,7 @@ pub fn run_pid_inner(
             }
         }
         // If not in acro mode, `inner_flt_cmd` is set by the mid loop, so don't do anything here.
-        _ => ()
+        _ => (),
     }
 
     // // In Acro mode, the inner PID loops controls pitch and roll in terms of rotational velocities. In other mode,
@@ -689,7 +683,7 @@ pub fn run_pid_inner(
             coeffs.thrust.k_p_v,
             coeffs.thrust.k_i_v,
             coeffs.thrust.k_d_v,
-        )
+        ),
     );
 
     // todo: Messy / DRY
@@ -790,9 +784,11 @@ pub fn run_pid_inner(
     let roll = input_map.calc_roll_rate_pwr(pid_inner.roll.out());
     let yaw = input_map.calc_yaw_rate_pwr(pid_inner.yaw.out());
 
-    let throttle = if input_mode == InputMode::Command || autopilot_status.alt_hold.is_some() ||
-            autopilot_status.takeoff || autopilot_status.land {
-
+    let throttle = if input_mode == InputMode::Command
+        || autopilot_status.alt_hold.is_some()
+        || autopilot_status.takeoff
+        || autopilot_status.land
+    {
         let set_pt = 0.; // todo fill this in!
 
         pid_inner.thrust = calc_pid_error(
@@ -806,7 +802,7 @@ pub fn run_pid_inner(
             dt,
         );
 
-        pid_thrust.out() * coeffs.gain_thrust
+        pid_inner.thrust.out()
     } else {
         manual_inputs.thrust
     };

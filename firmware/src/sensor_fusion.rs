@@ -1,4 +1,4 @@
-#![allow(uncommon_codepoints)] // eg ϕ
+// #![allow(uncommon_codepoints)] // eg ϕ
 
 //! This module contains code related to sensor fusion, eg using an extended kalman filter
 //! to combine inputs from multiple sensors. It also includes code for interpreting, integrating,

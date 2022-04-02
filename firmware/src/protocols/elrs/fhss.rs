@@ -292,7 +292,7 @@ Approach:
   another random entry, excluding the sync channel.
 
  */
-unsafe fn FHSSrandomiseFHSSsequence(seed_: u32) {
+pub unsafe fn randomiseFHSSsequence(seed_: u32) {
     // #ifdef Regulatory_Domain_AU_915
     //     INFOLN("Setting 915MHz AU Mode");
     // #elif defined Regulatory_Domain_FCC_915
@@ -354,7 +354,7 @@ unsafe fn FHSSrandomiseFHSSsequence(seed_: u32) {
     // DBGCR;
 }
 
-fn FHSSgetChannelCount() -> u32 {
+pub fn getChannelCount() -> u32 {
     return FHSS_FREQ_CNT;
 }
 
