@@ -4,8 +4,7 @@
 //!
 //! Note that both this and the DPS310 barometer read temperature.
 //!
-//!
-// todo: ICM-42688 instead? Compare features and availability
+//! 24 MHz max SPI frequency
 
 use stm32_hal2::{
     dma::{Dma, DmaChannel},

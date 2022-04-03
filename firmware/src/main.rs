@@ -22,7 +22,7 @@ use stm32_hal2::{
     i2c::{I2c, I2cConfig, I2cSpeed},
     pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM2, TIM3},
     rtc::Rtc,
-    spi::{BaudRate, Spi},
+    spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{OutputCompare, TimChannel, Timer, TimerConfig, TimerInterrupt},
     usart::Usart,
 };
@@ -74,7 +74,7 @@ use drivers::imu_ism330dhcx as imu;
 use drivers::tof_vl53l1 as tof;
 
 // use protocols::{dshot, elrs};
-use protocols::{dshot};
+use protocols::dshot;
 
 use flight_ctrls::{
     ArmStatus, AutopilotStatus, CommandState, CtrlInputs, InputMap, InputMode, Params, RotorPower,
@@ -502,9 +502,22 @@ mod app {
         setup::setup_pins();
 
         // We use SPI1 for the IMU
-        // SPI input clock is 400MHz. 400MHz / 32 = 12.5 MHz. The limit is the max SPI speed
-        // of the ICM-42605 IMU of 24 MHz. This IMU can use any SPI mode, with the correct config on it.
-        let mut spi1 = Spi::new(dp.SPI1, Default::default(), BaudRate::Div32);
+        // SPI input clock is 400MHz for H7, and 172Mhz for G4. 400MHz / 32 = 12.5 MHz. 170Mhz / 8 = 21.25Mhz.
+        // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
+        // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
+        #[cfg(feature = "anyleaf-mercury-g4")]
+        // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
+        let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
+        #[cfg(feature = "anyleaf-mercury-h7")]
+        // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
+        let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
+
+        let imu_spi_cfg = SpiConfig {
+            mode: SpiMode.mode3(), // todo: Is this required?
+            ..Default::default()
+        };
+
+        let mut spi1 = Spi::new(dp.SPI1, imu_spi_cfg, imu_baud_div);
 
         #[cfg(feature = "anyleaf-mercury-h7")]
         let mut cs_imu = Pin::new(Port::E, 11, PinMode::Output);

@@ -1,5 +1,5 @@
 //! This module contains code for the ICM42605 inertial measuring unit.
-//! This IMU has a 8kHz maximum update rate.
+//! This IMU has a 8kHz maximum update rate. Also compatible with ICM42688
 //! SPI speed max is 24Mhz.
 //!
 //! Note that both this and the DPS310 barometer read temperature.
@@ -186,39 +186,41 @@ pub fn read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> ImuReadings {
 
 pub fn read_all_dma(spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
     // todo: Is this right? What should it be?
-    let buf = [
-        Reg::OutxHG as u8,
-        Reg::OutyLG as u8,
-        Reg::OutyHG as u8,
-        Reg::OutzLG as u8,
-        Reg::OutzHG as u8,
-        Reg::OutxLA as u8,
-        Reg::OutxHA as u8,
-        Reg::OutyLA as u8,
-        Reg::OutyHA as u8,
-        Reg::OutzLA as u8,
-        Reg::OutzHA as u8,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-    ]; // todo
+    // let buf = [
+    //     Reg::OutxHG as u8,
+    //     Reg::OutyLG as u8,
+    //     Reg::OutyHG as u8,
+    //     Reg::OutzLG as u8,
+    //     Reg::OutzHG as u8,
+    //     Reg::OutxLA as u8,
+    //     Reg::OutxHA as u8,
+    //     Reg::OutyLA as u8,
+    //     Reg::OutyHA as u8,
+    //     Reg::OutzLA as u8,
+    //     Reg::OutzHA as u8,
+    //     0,
+    //     0,
+    //     0,
+    //     0,
+    //     0,
+    //     0,
+    //     0,
+    //     0,
+    //     0,
+    //     0,
+    //     0,
+    //     0,
+    // ];
+
+    let buf = [Reg::OutxHG as u8, 0, 0, 0];
 
     cs.set_low();
-    // imu::read_all(spi, cx.local.imu_cs));
 
     unsafe {
         spi.write_dma(&buf, DmaChannel::C1, Default::default(), dma);
     }
 
+    // todo - to TS, swap order?
     unsafe {
         spi.read_dma(
             &mut crate::IMU_READINGS,
