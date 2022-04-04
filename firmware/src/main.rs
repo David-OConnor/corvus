@@ -30,7 +30,7 @@ use stm32_hal2::{
 use defmt::println;
 
 cfg_if! {
-    if #[cfg(feature = "anyleaf-mercury-g4")] {
+    if #[cfg(feature = "mercury-g4")] {
         use stm32_hal2::usb::{Peripheral, UsbBus, UsbBusType};
 
         use usb_device::bus::UsbBusAllocator;
@@ -44,7 +44,7 @@ cfg_if! {
     }
 }
 
-#[cfg(feature = "anyleaf-mercury-h7")]
+#[cfg(feature = "mercury-h7")]
 use crate::{
     clocks::VosRange,
     power::{SupplyConfig, VoltageLevel},
@@ -65,7 +65,7 @@ mod sensor_fusion;
 mod setup;
 
 // cfg_if! {
-// if #[cfg(feature = "anyleaf-mercury-h7")] {
+// if #[cfg(feature = "mercury-h7")] {
 use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
 // use drivers::imu_icm42605 as imu;
@@ -104,10 +104,10 @@ static mut IMU_READINGS: [u8; 6 * 2] = [0; 6 * 2];
 // todo: Is this even what we want?
 
 cfg_if! {
-    if #[cfg(feature = "anyleaf-mercury-h7")] {
+    if #[cfg(feature = "mercury-h7")] {
         const DSHOT_PSC: u32 = 0;
         const DSHOT_ARR: u32 = 332;
-    } else if #[cfg(feature = "anyleaf-mercury-g4")] {
+    } else if #[cfg(feature = "mercury-g4")] {
         // 170Mhz tim clock. Results in 600.707kHz.
         const DSHOT_PSC: u16 = 0;
         const DSHOT_ARR: u32 = 282;
@@ -461,18 +461,18 @@ mod app {
         // Set up microcontroller peripherals
         let mut dp = pac::Peripherals::take().unwrap();
 
-        #[cfg(feature = "anyleaf-mercury-h7")]
+        #[cfg(feature = "mercury-h7")]
         SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
 
         // Set up clocks
         let clock_cfg = Clocks {
             // Config for 480Mhz full speed:
-            #[cfg(feature = "anyleaf-mercury-h7")]
+            #[cfg(feature = "mercury-h7")]
             pll_src: PllSrc::Hse(8_000_000),
-            #[cfg(feature = "anyleaf-mercury-g4")]
+            #[cfg(feature = "mercury-g4")]
             input_src: InputSrc::Pll(PllSrc::Hse(16_000_000)),
             // vos_range: VosRange::VOS0, // Note: This may use extra power. todo: Put back!
-            #[cfg(feature = "anyleaf-mercury-h7")]
+            #[cfg(feature = "mercury-h7")]
             pll1: PllCfg {
                 divm: 4, // To compensate with 8Mhz HSE instead of 64Mhz HSI
                 // divn: 480,// todo: Put back! No longer working??
@@ -505,23 +505,23 @@ mod app {
         // SPI input clock is 400MHz for H7, and 172Mhz for G4. 400MHz / 32 = 12.5 MHz. 170Mhz / 8 = 21.25Mhz.
         // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
         // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
-        #[cfg(feature = "anyleaf-mercury-g4")]
+        #[cfg(feature = "mercury-g4")]
         // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
         let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
-        #[cfg(feature = "anyleaf-mercury-h7")]
+        #[cfg(feature = "mercury-h7")]
         // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
         let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
 
         let imu_spi_cfg = SpiConfig {
-            mode: SpiMode.mode3(), // todo: Is this required?
+            mode: SpiMode::mode3(), // todo: Is this required?
             ..Default::default()
         };
 
         let mut spi1 = Spi::new(dp.SPI1, imu_spi_cfg, imu_baud_div);
 
-        #[cfg(feature = "anyleaf-mercury-h7")]
+        #[cfg(feature = "mercury-h7")]
         let mut cs_imu = Pin::new(Port::E, 11, PinMode::Output);
-        #[cfg(feature = "anyleaf-mercury-g4")]
+        #[cfg(feature = "mercury-g4")]
         let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
         imu::setup(&mut spi1, &mut cs_imu);
@@ -574,6 +574,7 @@ mod app {
         //  * Max frame size is 64 bytes
         //  * A 64 byte frame plus 1 sync byte can be transmitted in 1393 microseconds.
 
+        // todo note: We'd like to move to ELRS long term, but use this for now.
         // The STM32-HAL default UART config includes stop bits = 1, parity disabled, and 8-bit words,
         // which is what we want.
         let uart1 = Usart::new(dp.USART1, 420_000, Default::default(), &clock_cfg);
@@ -599,7 +600,7 @@ mod app {
         // timer with 4 channels would be fine.
 
         cfg_if! {
-            if #[cfg(feature = "anyleaf-mercury-h7")] {
+            if #[cfg(feature = "mercury-h7")] {
                 let mut rotor_timer_a =
                     Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg.clone(), &clock_cfg);
 
@@ -611,7 +612,7 @@ mod app {
 
                 rotor_timer_b.enable_pwm_output(TimChannel::C3, OutputCompare::Pwm1, 0.);
                 rotor_timer_b.enable_pwm_output(TimChannel::C4, OutputCompare::Pwm1, 0.);
-            } else if #[cfg(feature = "anyleaf-mercury-g4")] {
+            } else if #[cfg(feature = "mercury-g4")] {
                 let mut rotor_timer_a =
                Timer::new_tim2(dp.TIM2, dshot::TIM_FREQ, rotor_timer_cfg.clone(), &clock_cfg);
 
@@ -653,7 +654,7 @@ mod app {
         // dt_timer.set_auto_reload(DT_ARR);
 
         cfg_if! {
-            if #[cfg(feature = "anyleaf-mercury-g4")] {
+            if #[cfg(feature = "mercury-g4")] {
                 let usb = Peripheral { regs: dp.USB };
                 // let usb_bus = UsbBus::new(usb);
 
@@ -846,9 +847,9 @@ mod app {
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
         unsafe {
             // Clear the interrupt flag.
-            #[cfg(feature = "anyleaf-mercury-h7")]
+            #[cfg(feature = "mercury-h7")]
             (*pac::EXTI::ptr()).c1pr1.modify(|_, w| w.pr15().set_bit());
-            #[cfg(feature = "anyleaf-mercury-g4")]
+            #[cfg(feature = "mercury-g4")]
             (*pac::EXTI::ptr()).pr1.modify(|_, w| w.pif15().set_bit());
         }
 

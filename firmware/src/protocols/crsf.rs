@@ -8,13 +8,17 @@
 //!
 //! https://github.com/betaflight/betaflight/blob/master/src/main/telemetry/crsf.h
 //! https://github.com/betaflight/betaflight/blob/master/src/main/telemetry/crsf.c
+//! https://github.com/betaflight/betaflight/blob/master/src/main/rx/rx.h
+//!
+//! todo: https://github.com/betaflight/betaflight/blob/master/src/main/rx/rx.c ?
 
 #![allow(non_snake_case)]
 #![allow(unused_parens)]
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
 
-// Note: We've commented out the CRSF-V3 feature-gated code, since ELRS uses V2 only.
+// todo We've commented out the CRSF-V3 feature-gated code, since ELRS uses V2 only currently.
+// todo: Make sure you put back before V3 is supported in ELRS!
 
 //  * This file is part of Cleanflight and Betaflight.
 //  *
@@ -58,6 +62,192 @@
 /*
  * Crossfire constants provided by Team Black Sheep under terms of the 2-Clause BSD License
  */
+
+// `rx.h`:
+
+// todo: These are defines; QC types.
+const STICK_CHANNEL_COUNT: u8 = 4;
+
+const PWM_RANGE_MIN: u16 = 1000;
+const PWM_RANGE_MAX: u16 = 2000;
+const PWM_RANGE: u16 = (PWM_RANGE_MAX - PWM_RANGE_MIN);
+const PWM_RANGE_MIDDLE: u16 = (PWM_RANGE_MIN + (PWM_RANGE / 2));
+
+const PWM_PULSE_MIN: u16 = 750; // minimum PWM pulse width which is considered valid
+const PWM_PULSE_MAX: u16 = 2250; // maximum PWM pulse width which is considered valid
+
+fn RXFAIL_STEP_TO_CHANNEL_VALUE(step: u16) -> u16 {
+    (PWM_PULSE_MIN + 25 * step)
+}
+fn CHANNEL_VALUE_TO_RXFAIL_STEP(channelValue: u16) -> u16 {
+    // todo: Type on the param and output?
+    (constrain(channelValue, PWM_PULSE_MIN, PWM_PULSE_MAX) - PWM_PULSE_MIN) / 25
+}
+const MAX_RXFAIL_RANGE_STEP: u16 = ((PWM_PULSE_MAX - PWM_PULSE_MIN) / 25);
+
+const DEFAULT_SERVO_MIN: u16 = 1000;
+const DEFAULT_SERVO_MIDDLE: u16 = 1500;
+const DEFAULT_SERVO_MAX: u16 = 2000;
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum RxFrameState {
+    PENDING = 0,
+    COMPLETE = (1 << 0),
+    FAILSAFE = (1 << 1),
+    PROCESSING_REQUIRED = (1 << 2),
+    DROPPED = (1 << 3),
+}
+
+// Todo: We can probably remove this, since we only use Crsf
+enum SerialRxType {
+    // SERIALRX_SPEKTRUM1024 = 0,
+    // SERIALRX_SPEKTRUM2048 = 1,
+    // SERIALRX_SBUS = 2,
+    // SERIALRX_SUMD = 3,
+    // SERIALRX_SUMH = 4,
+    // SERIALRX_XBUS_MODE_B = 5,
+    // SERIALRX_XBUS_MODE_B_RJ01 = 6,
+    // SERIALRX_IBUS = 7,
+    // SERIALRX_JETIEXBUS = 8,
+    SERIALRX_CRSF = 9,
+    // SERIALRX_SRXL = 10,
+    // SERIALRX_TARGET_CUSTOM = 11,
+    // SERIALRX_FPORT = 12,
+    // SERIALRX_SRXL2 = 13,
+    // SERIALRX_GHST = 14
+}
+
+// todo: Defines; not sure of type
+const MAX_SUPPORTED_RC_PPM_CHANNEL_COUNT: u8 = 12;
+const MAX_SUPPORTED_RC_PARALLEL_PWM_CHANNEL_COUNT: u8 = 8;
+const MAX_SUPPORTED_RC_CHANNEL_COUNT: usize = 18;
+
+const NON_AUX_CHANNEL_COUNT: usize = 4;
+const MAX_AUX_CHANNEL_COUNT: usize = MAX_SUPPORTED_RC_CHANNEL_COUNT - NON_AUX_CHANNEL_COUNT;
+
+// #if MAX_SUPPORTED_RC_PARALLEL_PWM_CHANNEL_COUNT > MAX_SUPPORTED_RC_PPM_CHANNEL_COUNT
+// const MAX_SUPPORTED_RX_PARALLEL_PWM_OR_PPM_CHANNEL_COUNT: u8 = MAX_SUPPORTED_RC_PARALLEL_PWM_CHANNEL_COUNT;
+// #else
+const MAX_SUPPORTED_RX_PARALLEL_PWM_OR_PPM_CHANNEL_COUNT: u8 = MAX_SUPPORTED_RC_PPM_CHANNEL_COUNT;
+// #endif
+
+// extern const char rcChannelLetters[];
+
+const rcData: [f32; MAX_SUPPORTED_RC_CHANNEL_COUNT] = [0.; MAX_SUPPORTED_RC_CHANNEL_COUNT]; // interval [1000;2000]
+
+const RSSI_SCALE_MIN: u8 = 1;
+const RSSI_SCALE_MAX: u8 = 255;
+
+const RSSI_SCALE_DEFAULT: u8 = 100;
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum RxFailsafeChannelMode {
+    AUTO = 0,
+    HOLD,
+    SET,
+    INVALID,
+}
+
+const RX_FAILSAFE_MODE_COUNT: u8 = 3; // #define
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum RxFailsafeChannelType {
+    FLIGHT = 0,
+    AUX,
+}
+
+const RX_FAILSAFE_TYPE_COUNT: u8 = 2;
+
+struct RxFailsafeChannelConfig {
+    pub mode: u8, // See rxFailsafeChannelMode_e
+    pub step: u8,
+}
+
+// PG_DECLARE_ARRAY(rxFailsafeChannelConfig_t, MAX_SUPPORTED_RC_CHANNEL_COUNT, rxFailsafeChannelConfigs);
+
+struct RxChannelRangeConfig {
+    min: u16,
+    max: u16,
+}
+
+// PG_DECLARE_ARRAY(rxChannelRangeConfig_t, NON_AUX_CHANNEL_COUNT, rxChannelRangeConfigs);
+
+// struct rxRuntimeState_s;
+// typedef float (*rcReadRawDataFnPtr)(const struct rxRuntimeState_s *rxRuntimeState, uint8_t chan); // used by receiver driver to return channel data
+// typedef uint8_t (*rcFrameStatusFnPtr)(struct rxRuntimeState_s *rxRuntimeState);
+// typedef bool (*rcProcessFrameFnPtr)(const struct rxRuntimeState_s *rxRuntimeState);
+// typedef timeUs_t rcGetFrameTimeUsFn(void);  // used to retrieve the timestamp in microseconds for the last channel data frame
+
+// todo: Probably not required.
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum RxProvider {
+    RX_PROVIDER_NONE = 0,
+    RX_PROVIDER_PARALLEL_PWM,
+    RX_PROVIDER_PPM,
+    RX_PROVIDER_SERIAL,
+    RX_PROVIDER_MSP,
+    RX_PROVIDER_SPI,
+}
+
+struct RxRuntimeState {
+    pub rxProvider: RxProvider,
+    pub serialrxProvider: SerialRxType,
+    pub channelCount: u8, // number of RC channels as reported by current input driver
+    pub rxRefreshRate: u16,
+    pub rcReadRawFn: ReadRawDataFn,
+    pub rcFrameStatusFn: FrameStatusFn,
+    pub rcProcessFrameFn: ProcessFrameFn,
+    pub rcFrameTimeUsFn: GetFrameTimeUsFn,
+    pub channelData: [u16; 69],
+    pub frameData: [u8; 69], // todo void??
+    pub lastRcFrameTimeUs: timeUs,
+}
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum RssiSource {
+    NONE = 0,
+    ADC,
+    RX_CHANNEL,
+    RX_PROTOCOL,
+    MSP,
+    FRAME_ERRORS,
+    RX_PROTOCOL_CRSF,
+}
+
+// extern rssiSource_e rssiSource;
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum LinkQualitySource {
+    NONE = 0,
+    RX_PROTOCOL_CRSF,
+    RX_PROTOCOL_GHST,
+}
+
+// extern linkQualitySource_e linkQualitySource;
+
+// extern rxRuntimeState_t rxRuntimeState; //!!TODO remove this extern, only needed once for channelCount
+
+// struct rxConfig_s;
+
+const RSSI_MAX_VALUE: u16 = 1023; // define
+
+// void setRssiDirect(uint16_t newRssi, rssiSource_e source);
+// void setRssi(uint16_t rssiValue, rssiSource_e source);
+// void setRssiMsp(uint8_t newMspRssi);
+// void updateRSSI(timeUs_t currentTimeUs);
+// uint16_t getRssi(void);
+// uint8_t getRssiPercent(void);
+// bool isRssiConfigured(void);
+
+const LINK_QUALITY_MAX_VALUE: u16 = 1023;
+
+// `crsf.h`:
 
 // todo: QC these types.
 const CRSF_BAUDRATE: u32 = 420000;
@@ -195,9 +385,9 @@ const CRSF_SUBSET_RC_RES_BITS_13B: u8 = 13;
 const CRSF_SUBSET_RC_RES_MASK_13B: u16 = 0x1FFF;
 const CRSF_SUBSET_RC_CHANNEL_SCALE_13B: f32 = 0.125;
 
-const CRSF_RSSI_MIN: u8 = -130;
+const CRSF_RSSI_MIN: i8 = -130;
 const CRSF_RSSI_MAX: u8 = 0;
-const CRSF_SNR_MIN: u8 = -30;
+const CRSF_SNR_MIN: i8 = -30;
 const CRSF_SNR_MAX: u8 = 20;
 
 /* For documentation purposes
@@ -208,6 +398,7 @@ typedef enum {
 } crsfRfMode_e;
 */
 
+#[derive(Clone, Copy)] // required to be used in a union.
 struct FrameDef {
     pub deviceAddress: u8,
     pub frameLength: u8,
@@ -462,7 +653,7 @@ fn handleCrsfLinkStatisticsFrame(stats: &LinkStatistics, currentTimeUs: timeUs) 
         } else {
             0
         };
-    rxSetUplinkTxPwrMw(uplinkTXPowerStatesMw[crsfUplinkPowerStatesItemIndex]);
+    rxSetUplinkTxPwrMw(uplinkTXPowerStatesMw[crsfUplinkPowerStatesItemIndex as usize]);
     // #endif
 
     // todo?
@@ -731,7 +922,7 @@ unsafe fn crsfFrameStatus(rxRuntimeState: &RxRuntimeState) -> u8 {
 
             // get the configuration byte
             readByteIndex += 1;
-            let mut configByte: u8 = payload[readByteIndex];
+            let mut configByte: u8 = payload[readByteIndex as usize];
 
             // get the channel number of start channel
             let startChannel: u8 = configByte & CRSF_SUBSET_RC_STARTING_CHANNEL_MASK;
@@ -783,11 +974,11 @@ unsafe fn crsfFrameStatus(rxRuntimeState: &RxRuntimeState) -> u8 {
             for n in 0..numOfChannels {
                 while bitsMerged < channelBits {
                     readByteIndex += 1;
-                    let mut readByte: u8 = payload[readByteIndex];
+                    let mut readByte: u8 = payload[readByteIndex as usize];
                     readValue |= (readByte as u32) << bitsMerged as u32;
                     bitsMerged += 8;
                 }
-                crsfChannelData[startChannel + n] = readValue & channelMask;
+                crsfChannelData[(startChannel + n) as usize] = readValue & channelMask as u32;
                 readValue >>= channelBits;
                 bitsMerged -= channelBits;
             }
@@ -797,7 +988,7 @@ unsafe fn crsfFrameStatus(rxRuntimeState: &RxRuntimeState) -> u8 {
     return RX_FRAME_PENDING;
 }
 
-fn crsfReadRawRC(rxRuntimeState: &RxRuntimeState, chan: u8u) -> f32 {
+fn crsfReadRawRC(rxRuntimeState: &RxRuntimeState, chan: u8) -> f32 {
     // UNUSED(rxRuntimeState);
     unsafe {
         if channelScale == CRSF_RC_CHANNEL_SCALE_LEGACY {
@@ -810,12 +1001,12 @@ fn crsfReadRawRC(rxRuntimeState: &RxRuntimeState, chan: u8u) -> f32 {
              * scale factor = (2012-988) / (1811-172) = 0.62477120195241
              * offset = 988 - 172 * 0.62477120195241 = 880.53935326418548
              */
-            (channelScale * crsfChannelData[chan] as f32) + 881.
+            (channelScale * crsfChannelData[chan as usize] as f32) + 881.
         } else {
             /* conversion from RC value to PWM
              * for 0x17 Subset RC frame
              */
-            (channelScale * crsfChannelData[chan] as f32) + 988.
+            (channelScale * crsfChannelData[chan as usize] as f32) + 988.
         }
     }
 }

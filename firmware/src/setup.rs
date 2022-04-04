@@ -64,9 +64,9 @@ pub fn setup_pins() {
     // We use the same SCK and FS clocks for all 4 ICs.
 
     cfg_if! {
-        if #[cfg(feature = "anyleaf-mercury-h7")] {
+        if #[cfg(feature = "mercury-h7")] {
             // todo
-        } else if #[cfg(feature = "anyleaf-mercury-g4")] {
+        } else if #[cfg(feature = "mercury-g4")] {
             // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
             let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(1)); // Tim2 ch1
             let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(1)); // Tim2 ch2

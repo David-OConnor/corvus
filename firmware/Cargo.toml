@@ -34,8 +34,8 @@ usbd-serial = "0.1.1"
 
 # Use these features to specify GPIO mapping, and which peripherals to use.
 [features]
-anyleaf-mercury-g4 = ["stm32-hal2/g4rt", "stm32-hal2/g431", "stm32-hal2/usb", "stm32-usbd"]
-anyleaf-mercury-h7 = ["stm32-hal2/h7rt", "stm32-hal2/h743"]
+mercury-g4 = ["stm32-hal2/g4rt", "stm32-hal2/g431", "stm32-hal2/usb", "stm32-usbd"]
+mercury-h7 = ["stm32-hal2/h7rt", "stm32-hal2/h743"]
 
 
 # cargo build/run
