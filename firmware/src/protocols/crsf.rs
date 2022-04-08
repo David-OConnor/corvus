@@ -221,12 +221,13 @@ enum RssiSource {
 
 // extern rssiSource_e rssiSource;
 
-#[derive(Clone, Copy)]
+// todo: Consider removing this enum?
+#[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
 enum LinkQualitySource {
     NONE = 0,
     RX_PROTOCOL_CRSF,
-    RX_PROTOCOL_GHST,
+    // RX_PROTOCOL_GHST,
 }
 
 // extern linkQualitySource_e linkQualitySource;
@@ -1033,6 +1034,7 @@ fn crsfRxIsTelemetryBufEmpty() -> bool {
     unsafe { telemetryBufLen == 0 }
 }
 
+
 fn crsfRxInit(rxConfig: &RxConfig, rxRuntimeState: &RuntimeState) -> bool {
     for i in 0..CRSF_MAX_CHANNEL {
         unsafe {
@@ -1050,9 +1052,9 @@ fn crsfRxInit(rxConfig: &RxConfig, rxRuntimeState: &RuntimeState) -> bool {
     // todo: You probably need to process this using your HAL's UART functionality.
     // const serialPortConfig_t *portConfig = findSerialPortConfig(FUNCTION_RX_SERIAL);
 
-    if !portConfig {
-        return false;
-    }
+    // if !portConfig {
+    //     return false;
+    // }
 
     // serialPort = openSerialPort(portConfig.identifier,
     //                             FUNCTION_RX_SERIAL,
@@ -1067,12 +1069,13 @@ fn crsfRxInit(rxConfig: &RxConfig, rxRuntimeState: &RuntimeState) -> bool {
         rssiSource = RSSI_SOURCE_RX_PROTOCOL_CRSF;
     }
     // #ifdef USE_RX_LINK_QUALITY_INFO
-    if linkQualitySource == LQ_SOURCE_NONE {
-        linkQualitySource = LQ_SOURCE_RX_PROTOCOL_CRSF;
+    if linkQualitySource == LinkQualitySource::None {
+        linkQualitySource = LinkQualitySource::RX_PROTOCOL_CRSF,
     }
     // #endif
 
-    return serialPort != NULL;
+    // return serialPort != NULL;
+    false
 }
 
 // #if defined(USE_CRSF_V3)

@@ -101,9 +101,26 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin) {
 
     // Set accelerometer to ODR = 6.66kHz update rate, +-16G full scale range, first state digital filtering
     // todo: Currently set to output from first state digital filtering. Do we want this, or second?
+
+    let mut t = [Reg::Ctrl1Xl as u8, 0];
     cs.set_low();
+    spi.transfer(&mut t);
+    cs.set_high();
+
+    defmt::println!("TEST: {}", t);
+
+
+
+    cs.set_low();
+    // spi.write(&[Reg::Ctrl1Xl as u8, 0b1010_0100]).ok();
     spi.write(&[Reg::Ctrl1Xl as u8, 0b1010_0100]).ok();
     cs.set_high();
+
+    let mut t = [Reg::Ctrl1Xl as u8, 0];
+    cs.set_low();
+    spi.transfer(&mut t);
+    cs.set_high();
+    defmt::println!("TEST: {}", t);
 
     // Set gyro ODR to 6.66kHz update rate, 2000dps full scale range.
     cs.set_low();
@@ -147,6 +164,7 @@ pub fn read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> f32 {
 }
 
 // todo: Do we want to use FIFO over DMA?
+
 
 /// Read all data
 pub fn read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> ImuReadings {

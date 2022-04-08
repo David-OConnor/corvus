@@ -21,22 +21,50 @@ use stm32_hal2::{
     timer::{TimChannel, Timer},
 };
 
+use defmt::println;
+
+use cfg_if::cfg_if;
+
 use crate::Rotor;
 
+// The frequency our motor-driving PWM operates at, in Hz.
+// todo: Make this higher (eg 96kHz) after making sure the ESC
+// const PWM_FREQ: f32 = 12_000.;
+
+// Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
+// so we can set duty cycle appropriately for DSHOT.
+// These are set for a 200MHz timer frequency.
+// (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period.
+
+// todo: On H7, will we get more precision with 400mhz tim clock, vice 200? Is that possible?
+
+// Set up for DSHOT-600. (600k bits/second) So, timer frequency = 600kHz.
+// todo: (PSC = 0, AAR = 332 results in a 600.6kHz update freq; not 600kHz exactly. Is that ok?)
+// todo: Is this even what we want?
+
+cfg_if! {
+    if #[cfg(feature = "mercury-h7")] {
+        pub const DSHOT_PSC: u32 = 0;
+        pub const DSHOT_ARR: u32 = 332;
+    } else if #[cfg(feature = "mercury-g4")] {
+        // 170Mhz tim clock. Results in 600.707kHz.
+        pub const DSHOT_PSC: u16 = 0;
+        pub const DSHOT_ARR: u32 = 282;
+    }
+}
+
 // Duty cycle values (to be written to CCMRx), based on our ARR value. 0. = 0%. ARR = 100%.
-const DUTY_HIGH: u32 = crate::DSHOT_ARR * 3 / 4;
-const DUTY_LOW: u32 = crate::DSHOT_ARR * 3 / 8;
+const DUTY_HIGH: u32 = DSHOT_ARR * 3 / 4;
+const DUTY_LOW: u32 = DSHOT_ARR * 3 / 8;
 
 // DSHOT-600
-pub const TIM_FREQ: f32 = 600.;
+pub const DSHOT_FREQ: f32 = 600_000.;
 
 // DMA buffers for each rotor. 16-bit data, but using a 32-bit API. Note that
 // rotors 1/2 and 3/4 share a timer, so we can use the same DMA stream with them. Data for the 2
 // channels are interleaved.
 static mut PAYLOAD_R1_2: [u32; 32] = [0; 32];
-// static mut PAYLOAD_R2: [u32; 16] = [0; 16];
 static mut PAYLOAD_R3_4: [u32; 32] = [0; 32];
-// static mut PAYLOAD_R4: [u32; 16] = [0; 16];
 
 /// Possible DSHOT commands (ie, DSHOT values 0 - 47). Does not include power settings.
 #[derive(Copy, Clone)]
@@ -213,6 +241,11 @@ fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
 
     let payload = unsafe { &PAYLOAD_R1_2 };
 
+    // println!("payload: {}", payload);
+
+    // todo: TS.
+    let payload = &[DUTY_LOW, DUTY_LOW, DUTY_LOW, DUTY_LOW];
+
     unsafe {
         timer.write_dma_burst(
             payload,
@@ -246,7 +279,6 @@ fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     // };
     //
     let payload = unsafe { &PAYLOAD_R3_4 };
-    let base_addr_offset = Rotor::R3.base_addr_offset();
 
     unsafe {
         timer.write_dma_burst(
