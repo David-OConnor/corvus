@@ -228,8 +228,9 @@ pub fn set_power_b(
 }
 
 /// Send the stored payload for timer A. (2 channels).
-/// Make sure, in the timer's ISR, you disable the timer.
 fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
+    timer.disable(); // todo: Here, Dshot DMA TC ISR, or both?
+
     // let payload = &unsafe {
     //     match rotor {
     //         Rotor::R1 => PAYLOAD_R1_2,
@@ -263,12 +264,13 @@ fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
 
     // todo: Do we want this?
     // Reset and update Timer registers
-    // timer.regs.egr.write(|w| w.ug().set_bit());
+    timer.regs.egr.write(|w| w.ug().set_bit());
 }
 
 // todo: DRY again. Trait?
 /// Send the stored payload for timer B. (2 channels)
 fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
+    timer.disable(); // todo: Here, Dshot DMA TC ISR, or both?
     // let payload = &unsafe {
     //     match rotor {
     //         Rotor::R1 => PAYLOAD_R1_2,

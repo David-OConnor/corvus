@@ -12,11 +12,12 @@ use stm32_hal2::{
 };
 
 use cmsis_dsp_api as dsp_api;
+use cmsis_dsp_sys as dsp_sys;
 
 use crate::{
     flight_ctrls::{
         self, AltType, AutopilotStatus, CommandState, CtrlInputs, IirInstWrapper, InputMap,
-        InputMode, Params, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED,
+        InputMode, Params, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED, POWER_LUT,
     },
     UserCfg, DT_ATTITUDE,
 };
@@ -688,6 +689,7 @@ pub fn run_rate(
     params: &Params,
     input_mode: InputMode,
     autopilot_status: &AutopilotStatus,
+    cfg: &UserCfg,
     manual_inputs: &mut CtrlInputs,
     rates_commanded: &mut CtrlInputs,
     pid: &mut PidGroup,
@@ -703,11 +705,33 @@ pub fn run_rate(
 ) {
     match input_mode {
         InputMode::Acro => {
+             let power_interp_inst = dsp_sys::arm_linear_interp_instance_f32 {
+                nValues: 11,
+                x1: 0.,
+                xSpacing: 0.1,
+                pYData: [
+                    // Idle power.
+                    0.02, // Make sure this matches the above.
+                    POWER_LUT[0],
+                    POWER_LUT[1],
+                    POWER_LUT[2],
+                    POWER_LUT[3],
+                    POWER_LUT[4],
+                    POWER_LUT[5],
+                    POWER_LUT[6],
+                    POWER_LUT[7],
+                    POWER_LUT[8],
+                    POWER_LUT[9],
+                ].as_mut_ptr()
+            };
+
+
             *rates_commanded = CtrlInputs {
                 pitch: input_map.calc_pitch_rate(manual_inputs.pitch),
                 roll: input_map.calc_roll_rate(manual_inputs.roll),
                 yaw: input_map.calc_yaw_rate(manual_inputs.yaw),
-                thrust: manual_inputs.thrust,
+                thrust: flight_ctrls::power_from_throttle(manual_inputs.thrust, &power_interp_inst),
+                // thrust: flight_ctrls::power_from_throttle(manual_inputs.thrust, &cfg.power_interp_inst),
             };
 
             // todo: Come back to these!

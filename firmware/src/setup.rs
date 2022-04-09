@@ -2,6 +2,7 @@
 //! and timer and DMA assigments. Makes use of feature-gating as required.
 
 use cfg_if::cfg_if;
+use defmt::println;
 
 use crate::Rotor;
 
@@ -26,10 +27,16 @@ impl Rotor {
     /// Dma input channel. This should be in line with `tim_channel`.
     pub fn dma_input(&self) -> DmaInput {
         match self {
+            // todo: This might not matter.  The DMA write isn't associated with a channel. A St
+            // todo example shows using the appropriate channel, but I'm not sure if matters.
             Self::R1 => DmaInput::Tim2Up,
-            Self::R2 => DmaInput::Tim2Up,
-            Self::R3 => DmaInput::Tim3Up,
-            Self::R4 => DmaInput::Tim3Up,
+            // Self::R2 => DmaInput::Tim2Up,
+            // Self::R3 => DmaInput::Tim3Up,
+            // Self::R4 => DmaInput::Tim3Up,
+            // Self::R1 => DmaInput::Tim2Ch1,
+            Self::R2 => DmaInput::Tim2Ch2,
+            Self::R3 => DmaInput::Tim3Ch3,
+            Self::R4 => DmaInput::Tim3Ch4,
         }
     }
 
@@ -50,6 +57,7 @@ impl Rotor {
     /// RM register table, and dividing by 4.
     pub fn base_addr_offset(&self) -> u8 {
         match self.tim_channel() {
+            // TimChannel::C1 => 12, // CCR1 // todo TS
             TimChannel::C1 => 13, // CCR1
             TimChannel::C2 => 13, // CCR2 (starting with CCR1, burst len 2)
             TimChannel::C3 => 15, // CCR3
@@ -152,6 +160,7 @@ pub fn setup_dma_channels(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     // DSHOT, motors 1 and 2
     dma::mux(Rotor::R1.dma_channel(), Rotor::R1.dma_input(), mux);
 
+    // todo??
     // DSHOT, motor 2
     // dma::mux(
     //     Rotor::R2.dma_channel(),
@@ -159,8 +168,8 @@ pub fn setup_dma_channels(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     //    mux,
     // );
 
-    // DSHOT, motors 3 and 4
-    dma::mux(Rotor::R3.dma_channel(), Rotor::R3.dma_input(), mux);
+    // DSHOT, motors 3 and 4 // todo: PUt back!
+    // dma::mux(Rotor::R3.dma_channel(), Rotor::R3.dma_input(), mux);
 
     // DSHOT, motor 4
     // dma::mux(

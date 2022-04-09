@@ -14,7 +14,7 @@ use stm32_hal2::{
     timer::Timer,
 };
 
-use cmsis_dsp_sys as sys;
+use cmsis_dsp_sys as dsp_sys;
 
 use crate::{dshot, pid::PidState, CtrlCoeffGroup, Location, Rotor, UserCfg};
 
@@ -42,6 +42,17 @@ pub const YAW_ASSIST_MIN_SPEED: f32 = 0.5; // m/s
 // if coeff = 0.5, if accel is 1 m/s^2, yaw correction is 1/2 rad/s
 // angular velocity / accel: (radians/s) / (m/s^2) = radiants x s / m
 pub const YAW_ASSIST_COEFF: f32 = 0.1;
+
+// We use these LUTs to map thrust commanded to throttle position. Note that the starting values will
+// include an idle setting.
+// todo: Do we need to use these locally, to offset for idle setting?
+// const THRUST_LUT: [f32; 10] = [
+//     0.027, 0.075, 0.131, 0.225, 0.345, 0.473, 0.613, 0.751, 0.898, 1.0
+// ];
+
+pub const POWER_LUT: [f32; 10] = [
+    0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0
+];
 
 /// We use this buffer for DMA transfers of IMU readings. Note that reading order is different
 /// between different IMUs, due to their reg layout, and consecutive reg reads. In both cases, 6 readings,
@@ -170,7 +181,7 @@ pub struct CommandState {
 
 /// Used to satisfy RTIC resource Send requirements.
 pub struct IirInstWrapper {
-    pub inner: sys::arm_biquad_casd_df1_inst_f32,
+    pub inner: dsp_sys::arm_biquad_casd_df1_inst_f32,
 }
 unsafe impl Send for IirInstWrapper {}
 
@@ -601,6 +612,24 @@ pub fn enroute_speed_ver(dist: f32, max_v: f32, z_agl: f32) -> f32 {
         result *= -1.;
     }
     result
+}
+
+/// Calculate power level to send to the ESC, from throttle setting. This is set up in a way to map
+/// linearly between throttle setting and thrust, with an idle floor for power. Both values are on a scale of 0. to
+/// 1., but the map isn't linear.
+/// [This article](https://innov8tivedesigns.com/images/specs/Prop-Chart-Instructions-B.pdf) has
+/// some plots of relevant info. This fn is based on the "Propeller Thrust vs Throttle Position" chart.
+// todo: Fn, or LUT+interp? Maybe with CMSIS
+pub fn power_from_throttle(throttle: f32, interp_inst: &dsp_sys::arm_linear_interp_instance_f32) -> f32 {
+    // todo: We currently have fixed spacing in our LUT between throttle settings,
+    // todo, but we need to reverse that!
+
+
+
+    // todo: Can't find this fn? Why??
+    // dsp_sys::arm_linear_interp_f32(interp_inst, throttle)
+
+    throttle // todo 1:1 mapping, and ignoring idle power.
 }
 
 /// Calculate the landing vertical velocity (m/s), for a given height  (m) above the ground.
