@@ -19,6 +19,7 @@ use stm32_hal2::{
     dma::{ChannelCfg, Dma, DmaChannel},
     pac::{DMA1, TIM2, TIM3},
     timer::{TimChannel, Timer},
+    gpio,
 };
 
 use defmt::println;
@@ -49,22 +50,22 @@ cfg_if! {
     } else if #[cfg(feature = "mercury-g4")] {
         // 170Mhz tim clock. Results in 600.707kHz.
         pub const DSHOT_PSC: u16 = 0;
-        pub const DSHOT_ARR: u32 = 282;
+        pub const DSHOT_ARR: u16 = 282;
     }
 }
 
 // Duty cycle values (to be written to CCMRx), based on our ARR value. 0. = 0%. ARR = 100%.
-const DUTY_HIGH: u32 = DSHOT_ARR * 3 / 4;
-const DUTY_LOW: u32 = DSHOT_ARR * 3 / 8;
+const DUTY_HIGH: u16 = DSHOT_ARR * 3 / 4;
+const DUTY_LOW: u16 = DSHOT_ARR * 3 / 8;
 
 // DSHOT-600
 pub const DSHOT_FREQ: f32 = 600_000.;
 
-// DMA buffers for each rotor. 16-bit data, but using a 32-bit API. Note that
+// DMA buffers for each rotor. 16-bit data. Note that
 // rotors 1/2 and 3/4 share a timer, so we can use the same DMA stream with them. Data for the 2
 // channels are interleaved.
-static mut PAYLOAD_R1_2: [u32; 32] = [0; 32];
-static mut PAYLOAD_R3_4: [u32; 32] = [0; 32];
+static mut PAYLOAD_R1_2: [u16; 32] = [0; 32];
+static mut PAYLOAD_R3_4: [u16; 32] = [0; 32];
 
 /// Possible DSHOT commands (ie, DSHOT values 0 - 47). Does not include power settings.
 #[derive(Copy, Clone)]
@@ -227,29 +228,18 @@ pub fn set_power_b(
     send_payload_b(timer, dma)
 }
 
+static TEST_PAYLOAD: [u16; 4] = [DUTY_LOW, DUTY_LOW, DUTY_LOW, DUTY_LOW]; // todo temp
+
 /// Send the stored payload for timer A. (2 channels).
 fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
-    timer.disable(); // todo: Here, Dshot DMA TC ISR, or both?
-
-    // let payload = &unsafe {
-    //     match rotor {
-    //         Rotor::R1 => PAYLOAD_R1_2,
-    //         Rotor::R2 => PAYLOAD_R1_2,
-    //         Rotor::R3 => PAYLOAD_R3_4,
-    //         Rotor::R4 => PAYLOAD_R3_4,
-    //     }
-    // };
-
     let payload = unsafe { &PAYLOAD_R1_2 };
 
     // println!("payload: {}", payload);
 
-    // todo: TS.
-    let payload = &[DUTY_LOW, DUTY_LOW, DUTY_LOW, DUTY_LOW];
-
     unsafe {
         timer.write_dma_burst(
-            payload,
+            // payload,
+            &TEST_PAYLOAD,
             Rotor::R1.base_addr_offset(),
             2, // Burst len of 2, since we're updating 2 channels.
             Rotor::R1.dma_channel(),
@@ -260,39 +250,47 @@ fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
 
     // Note that timer enabling is handled by `write_dma_burst`.
 
-    // todo: Do we need to enable DMA here, or should it already be enabled?
-
-    // todo: Do we want this?
-    // Reset and update Timer registers
-    timer.regs.egr.write(|w| w.ug().set_bit());
+    // Reset and update Timer registers // todo: Do we want this?
+    // timer.regs.egr.write(|w| w.ug().set_bit());
 }
 
 // todo: DRY again. Trait?
 /// Send the stored payload for timer B. (2 channels)
 fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
-    timer.disable(); // todo: Here, Dshot DMA TC ISR, or both?
-    // let payload = &unsafe {
-    //     match rotor {
-    //         Rotor::R1 => PAYLOAD_R1_2,
-    //         Rotor::R2 => PAYLOAD_R1_2,
-    //         Rotor::R3 => PAYLOAD_R3_4,
-    //         Rotor::R4 => PAYLOAD_R3_4,
-    //     }
-    // };
-    //
     let payload = unsafe { &PAYLOAD_R3_4 };
 
     unsafe {
         timer.write_dma_burst(
             payload,
             Rotor::R3.base_addr_offset(),
-            2, // Burst len of 2, since we're updating 2 channels.
+            2,
             Rotor::R3.dma_channel(),
             Default::default(),
             dma,
         );
     }
+}
 
-    // Reset and update Timer registers
+/// An alternative approach to sending payloads, using GPIO DMA.
+pub fn send_payloads_bitbang(dma: &mut Dma<DMA1>) {
+
+    // let payload = unsafe { &PAYLOAD_R1_2 };
+
+    // todo test, using PA0 pin:
+    let payload = &[1<<0, 1<<16, 1<<0, 1<<16, 1<<0, 1<<16, 1<<0, 1<<16];
+
+    unsafe {
+        gpio::write_dma(
+            payload,
+            gpio::Port::A,
+            Rotor::R1.dma_channel(),
+            Default::default(),
+            dma,
+        );
+    }
+
+    // Note that timer enabling is handled by `write_dma_burst`.
+
+    // Reset and update Timer registers // todo: Do we want this?
     // timer.regs.egr.write(|w| w.ug().set_bit());
 }

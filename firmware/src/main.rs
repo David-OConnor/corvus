@@ -15,17 +15,21 @@ use cortex_m::{self, asm};
 use stm32_hal2::{
     self,
     adc::{Adc, AdcDevice},
-    clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllCfg, PllSrc},
-    dma::{Dma, DmaChannel, DmaInterrupt},
+    clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllSrc},
+    dma::{self, Dma, DmaChannel, DmaInterrupt, ChannelCfg},
+    dac, // todo temp
     flash::Flash,
     gpio::{Edge, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
     pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM2, TIM3},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
-    timer::{OutputCompare, TimChannel, Timer, TimerConfig, TimerInterrupt},
+    timer::{OutputCompare, TimChannel, Timer, TimerConfig, Alignment, TimerInterrupt, MasterModeSelection},
     usart::Usart,
 };
+
+#[cfg(feature = "mercury-h7")]
+use stm32_hal2::clocks::{PllCfg};
 
 use cmsis_dsp_sys as dsp_sys;
 
@@ -45,6 +49,9 @@ cfg_if! {
         static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
     }
 }
+
+// todo remove
+static TEMP_BUF: [u8; 4] = [0, 0, 0, 0];
 
 #[cfg(feature = "mercury-h7")]
 use crate::{
@@ -94,8 +101,8 @@ static mut IMU_READINGS: [u8; 6 * 2] = [0; 6 * 2];
 // Currently set to
 const IMU_UPDATE_RATE: f32 = 8_000.;
 
-// todo: Set update rate attitude to 1600 etc. Slower rate now since we're using this loop to TS.
-const UPDATE_RATE_ATTITUDE: f32 = 3.; // IMU rate / 5.
+// todo: Set update rate attitude back to 1600 etc. Slower rate now since we're using this loop to TS.
+const UPDATE_RATE_ATTITUDE: f32 = 2.; // IMU rate / 5.
 const UPDATE_RATE_VELOCITY: f32 = 400.; // IMU rate / 20.
 
 // How many inner loop ticks occur between mid and outer loop.
@@ -506,15 +513,11 @@ mod app {
         // (We don't need the debug workaround, since we don't use low power modes.)
         // debug_workaround();
 
-        cfg_if! {
-            if #[cfg(feature = "mercury-h7")] {
-                // Improves performance, at a cost of slightly increased power use.
-                cp.SCB.invalidate_icache();
-                cp.SCB.enable_icache();
-                cp.SCB.clean_invalidated_dcache();
-                cp.SCB.enable_dcache();
-            }
-        }
+        // Improves performance, at a cost of slightly increased power use.
+        cp.SCB.invalidate_icache();
+        cp.SCB.enable_icache();
+        // cp.SCB.clean_invalidate_dcache(); // todo?
+        // cp.SCB.enable_dcache(); // todo?
 
         // Set up pins with appropriate modes.
         setup::setup_pins();
@@ -635,6 +638,7 @@ mod app {
         let rotor_timer_cfg = TimerConfig {
             // We use ARPE since we change duty with the timer running.
             auto_reload_preload: true,
+            // alignment: Alignment::Center1, // todo temp
             ..Default::default()
         };
 
@@ -655,9 +659,12 @@ mod app {
         }
 
         rotor_timer_a.set_prescaler(dshot::DSHOT_PSC);
-        rotor_timer_a.set_auto_reload(dshot::DSHOT_ARR);
+        rotor_timer_a.set_auto_reload(dshot::DSHOT_ARR as u32);
         rotor_timer_b.set_prescaler(dshot::DSHOT_PSC);
-        rotor_timer_b.set_auto_reload(dshot::DSHOT_ARR);
+        rotor_timer_b.set_auto_reload(dshot::DSHOT_ARR as u32);
+
+        rotor_timer_a.enable_interrupt(TimerInterrupt::UpdateDma);
+        rotor_timer_b.enable_interrupt(TimerInterrupt::UpdateDma);
 
         // Arbitary duty cycle set, since we'll override it with DMA bursts.
         rotor_timer_a.enable_pwm_output(Rotor::R1.tim_channel(), OutputCompare::Pwm1, 0.5);
@@ -665,24 +672,21 @@ mod app {
         rotor_timer_b.enable_pwm_output(Rotor::R3.tim_channel(), OutputCompare::Pwm1, 0.);
         rotor_timer_b.enable_pwm_output(Rotor::R4.tim_channel(), OutputCompare::Pwm1, 0.);
 
-        // todo: Do we want this? the burst dma fn enables the update dma interrupt.
-        // rotor_timer_a.enable_interrupt(TimerInterrupt::Update);
-        // rotor_timer_b.enable_interrupt(TimerInterrupt::Update);
+        let mut dma = Dma::new(dp.DMA1);
+        #[cfg(feature = "mercury-g4")]
+        dma::enable_mux1();
+
+        setup::setup_dma(&mut dma, &mut dp.DMAMUX);
 
         let mut user_cfg = UserCfg::default();
 
-        let mut dma = Dma::new(dp.DMA1);
-
-        // We use Dshot transfer-complete interrupts to disable the timer.
-        dma.enable_interrupt(Rotor::R1.dma_channel(), DmaInterrupt::TransferComplete);
-        dma.enable_interrupt(Rotor::R3.dma_channel(), DmaInterrupt::TransferComplete);
-
-        dshot::setup_motor_dir(
-            user_cfg.motors_reversed,
-            &mut rotor_timer_a,
-            &mut rotor_timer_b,
-            &mut dma,
-        );
+        // todo: Put back.
+        // dshot::setup_motor_dir(
+        //     user_cfg.motors_reversed,
+        //     &mut rotor_timer_a,
+        //     &mut rotor_timer_b,
+        //     &mut dma,
+        // );
 
         // We use `dt_timer` to count the time between IMU updates, for use in the PID loop
         // integral, derivative, and filters. If set to 1Mhz, the CNT value is the number of
@@ -721,16 +725,7 @@ mod app {
         let mut elrs_reset = Pin::new(Port::A, 1, PinMode::Output);
         elrs_busy.enable_interrupt(Edge::Falling); // todo: Rising or falling?
 
-        setup::setup_dma_channels(&mut dma, &mut dp.DMAMUX);
-
         // todo: DMA for voltage ADC (?)
-
-        // TOF sensor
-        // dma::mux(DmaChannel::C2, dma::DmaInput::I2c1Tx, &mut dp.DMAMUX);
-        // dma::mux(DmaChannel::C3, dma::DmaInput::I2c1Rx, &mut dp.DMAMUX);
-        // Baro
-        // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx, &mut dp.DMAMUX);
-        // dma::mux(DmaChannel::C5, dma::DmaInput::I2c2Rx, &mut dp.DMAMUX);
 
         let mut flash = Flash::new(dp.FLASH); // todo temp mut to test
 
@@ -784,7 +779,7 @@ mod app {
         )
     }
 
-    #[idle(shared = [], local = [])]
+    #[idle()]
     fn idle(_cx: idle::Context) -> ! {
         loop {
             asm::nop();
@@ -808,7 +803,7 @@ mod app {
         });
     }
 
-    // todo: Remove rotor timers and dma from this ISR; we only use it for tresting DSHOT
+    // todo: Remove rotor timers, spi, and dma from this ISR; we only use it for tresting DSHOT
     #[task(
     binds = TIM1_BRK_TIM15,
     shared = [current_params, manual_inputs, input_map, current_pwr,
@@ -816,128 +811,158 @@ mod app {
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
     dma, rotor_timer_a, rotor_timer_b
     ],
-    local = [],
+    local=[spi1],
     priority = 2
     )]
+    // todo: Rremove SPI from local! Used for debugging DMA; needs to be in an iSR below;
     /// This runs periodically, on a ~1kHz timer. It's used to trigger the attitude and velocity PID loops, ie for
     /// sending commands to the attitude and rate PID loop based on things like autopilot, command-mode etc.
     fn update_isr(cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
 
+
         // todo: Dshot test
-        (cx.shared.rotor_timer_a, cx.shared.rotor_timer_b, cx.shared.dma).lock(|rotor_timer_a, rotor_timer_b, dma| {
-            println!("Testing dshot...");
+        (cx.shared.rotor_timer_a, cx.shared.rotor_timer_b, cx.shared.dma)
+            .lock(|rotor_timer_a, rotor_timer_b, dma| {
+                unsafe {
+                    println!("Testing dshot...");
 
-            unsafe {
-                println!("DMA ISR {}", dma.regs.isr.read().bits());
-            }
-            dshot::set_power_a(
-                Rotor::R1,
-                Rotor::R2,
-                0.8,
-                0.2,
-                rotor_timer_a,
-                dma,
-            );
+                    // println!("AHB1: {}", (*pac::RCC::ptr()).ahb1enr.read().bits());
 
-            dshot::set_power_b(
-                Rotor::R3,
-                Rotor::R4,
-                0.0,
-                1.,
-                rotor_timer_b,
-                dma,
-            );
-        });
-        return // todo temp for test
+                    // // todo: Testing SPI DMA
+                    // cx.local.spi1.write_dma(
+                    //     &TEMP_BUF,
+                    //     DmaChannel::C2,
+                    //     Default::default(),
+                    //     dma,
+                    // );
 
-            (
-                cx.shared.current_params,
-                cx.shared.manual_inputs,
-                cx.shared.input_map,
-                cx.shared.current_pwr,
-                cx.shared.velocities_commanded,
-                cx.shared.attitudes_commanded,
-                cx.shared.rates_commanded,
-                cx.shared.pid_velocity,
-                cx.shared.pid_attitude,
-                cx.shared.pid_deriv_filters,
-                cx.shared.power_used,
-                cx.shared.input_mode,
-                cx.shared.autopilot_status,
-                cx.shared.user_cfg,
-                cx.shared.command_state,
-                cx.shared.ctrl_coeffs,
-            )
-                .lock(
-                    |params,
-                     manual_inputs,
-                     input_map,
-                     current_pwr,
-                     velocities_commanded,
-                     attitudes_commanded,
-                     rates_commanded,
-                     pid_velocity,
-                     pid_attitude,
-                     filters,
-                     power_used,
-                     input_mode,
-                     autopilot_status,
-                     cfg,
-                     command_state,
-                     coeffs| {
-                        // todo: Support both UART telemetry from ESC, and analog current sense pin.
-                        // todo: Read from an ADC or something, from teh ESC.
-                        // let current_current = None;
-                        // if let Some(current) = current_current {
-                        // *power_used += current * DT;
+                    // todo: Another DMA TS technique
+                    // let mut dp = pac::Peripherals::steal();
+                    // let mut dac = dac::Dac::new(dp.DAC1, dac::DacBits::TwelveR, 3.3);
+                    //
+                    // dac.write_dma(
+                    //     &TEMP_BUF,
+                    //     dac::DacChannel::C1,
+                    //     DmaChannel::C2,
+                    //     ChannelCfg {
+                    //         ..Default::default()
+                    //     },
+                    //     dma,
+                    // );
 
-                        // }
-                        // else {
-                        // *power_used += current_pwr.total() * DT;
-                        // }
+                    // todo temp bitbabng test
+                    // dshot::send_payloads_bitbang(dma);
 
-                        match input_mode {
-                            InputMode::Acro => {
-                                return;
-                            }
-                            _ => {
-                                pid::run_attitude(
-                                    params,
-                                    manual_inputs,
-                                    input_map,
-                                    attitudes_commanded,
-                                    rates_commanded,
-                                    pid_attitude,
-                                    filters,
-                                    input_mode,
-                                    autopilot_status,
-                                    cfg,
-                                    command_state,
-                                    coeffs,
-                                );
+                    println!("DMA ISR {}", dma.regs.isr.read().bits());
+                    dshot::set_power_a(
+                        Rotor::R1,
+                        Rotor::R2,
+                        0.8,
+                        0.2,
+                        rotor_timer_a,
+                        dma,
+                    );
+                    //
+                    // dshot::set_power_b(
+                    //     Rotor::R3,
+                    //     Rotor::R4,
+                    //     0.0,
+                    //     1.,
+                    //     rotor_timer_b,
+                    //     dma,
+                    // );
+                }
+            });
+        return; // todo temp for test
 
-                                if input_mode == &InputMode::Command {
-                                    if LOOP_I.fetch_add(1, Ordering::Relaxed) % VELOCITY_ATTITUDE_UPDATE_RATIO == 0 {
-                                        pid::run_velocity(
-                                            params,
-                                            manual_inputs,
-                                            input_map,
-                                            velocities_commanded,
-                                            attitudes_commanded,
-                                            pid_velocity,
-                                            filters,
-                                            input_mode,
-                                            autopilot_status,
-                                            cfg,
-                                            command_state,
-                                            coeffs,
-                                        );
-                                    }
+        (
+            cx.shared.current_params,
+            cx.shared.manual_inputs,
+            cx.shared.input_map,
+            cx.shared.current_pwr,
+            cx.shared.velocities_commanded,
+            cx.shared.attitudes_commanded,
+            cx.shared.rates_commanded,
+            cx.shared.pid_velocity,
+            cx.shared.pid_attitude,
+            cx.shared.pid_deriv_filters,
+            cx.shared.power_used,
+            cx.shared.input_mode,
+            cx.shared.autopilot_status,
+            cx.shared.user_cfg,
+            cx.shared.command_state,
+            cx.shared.ctrl_coeffs,
+        )
+            .lock(
+                |params,
+                 manual_inputs,
+                 input_map,
+                 current_pwr,
+                 velocities_commanded,
+                 attitudes_commanded,
+                 rates_commanded,
+                 pid_velocity,
+                 pid_attitude,
+                 filters,
+                 power_used,
+                 input_mode,
+                 autopilot_status,
+                 cfg,
+                 command_state,
+                 coeffs| {
+                    // todo: Support both UART telemetry from ESC, and analog current sense pin.
+                    // todo: Read from an ADC or something, from teh ESC.
+                    // let current_current = None;
+                    // if let Some(current) = current_current {
+                    // *power_used += current * DT;
+
+                    // }
+                    // else {
+                    // *power_used += current_pwr.total() * DT;
+                    // }
+
+                    match input_mode {
+                        InputMode::Acro => {
+                            return;
+                        }
+                        _ => {
+                            pid::run_attitude(
+                                params,
+                                manual_inputs,
+                                input_map,
+                                attitudes_commanded,
+                                rates_commanded,
+                                pid_attitude,
+                                filters,
+                                input_mode,
+                                autopilot_status,
+                                cfg,
+                                command_state,
+                                coeffs,
+                            );
+
+                            if input_mode == &InputMode::Command {
+                                if LOOP_I.fetch_add(1, Ordering::Relaxed) % VELOCITY_ATTITUDE_UPDATE_RATIO == 0 {
+                                    pid::run_velocity(
+                                        params,
+                                        manual_inputs,
+                                        input_map,
+                                        velocities_commanded,
+                                        attitudes_commanded,
+                                        pid_velocity,
+                                        filters,
+                                        input_mode,
+                                        autopilot_status,
+                                        cfg,
+                                        command_state,
+                                        coeffs,
+                                    );
                                 }
                             }
                         }
-                    })
+                    }
+                })
     }
 
     /// Runs when new IMU data is recieved. This functions as our PID inner loop, and updates
@@ -945,7 +970,8 @@ mod app {
     /// update rotor power settings as soon as data is available.
     #[task(binds = EXTI15_10, shared = [
     cs_imu, dma, rotor_timer_a, rotor_timer_b, command_state
-    ], local = [spi1], priority = 4)]
+    ], local = [], priority = 4)]
+    // todo: Put spi back in local!!!
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
         unsafe {
             // Clear the interrupt flag.
@@ -967,8 +993,14 @@ mod app {
                     dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
                 }
 
-                imu::read_all_dma(cx.local.spi1, cs_imu, dma);
+                // imu::read_all_dma(cx.local.spi1, cs_imu, dma); // todo: Put back!!
             });
+    }
+
+    // todo SPI tx for testing DMA
+    #[task(binds = DMA1_CH1, priority = 7)]
+    fn test_isr(cx: test_isr::Context) {
+        println!("DMA CH1 Interrupt!");
     }
 
     #[task(binds = DMA1_CH2, shared = [dma, current_params, input_mode, manual_inputs, input_map, autopilot_status,
@@ -977,6 +1009,7 @@ mod app {
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
+        println!("DMA Ch2 transfer complete.");
         // Clear DMA interrupt this way due to RTIC conflict.
         unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit()) }
 
@@ -1089,38 +1122,39 @@ mod app {
 //     )
 // }
 
-    #[task(binds = TIM2, shared = [rotor_timer_a], priority = 3)]
-    /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
-    fn ts_a(mut cx: ts_a::Context) {
-        println!("Rotor 1 TO");
-
-        cx.shared.rotor_timer_a.lock(|timer| {
-            unsafe {
-                println!("Timer SR {}", timer.regs.sr.read().bits());
-            }
-
-            timer.clear_interrupt(TimerInterrupt::Update);
-        });
-    }
+    // #[task(binds = TIM2, shared = [rotor_timer_a], priority = 3)]
+    // /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
+    // fn ts_a(mut cx: ts_a::Context) {
+    //     println!("Rotor 1 TO");
+    //
+    //     cx.shared.rotor_timer_a.lock(|timer| {
+    //         unsafe {
+    //             println!("Timer SR {}", timer.regs.sr.read().bits());
+    //         }
+    //
+    //         timer.clear_interrupt(TimerInterrupt::Update);
+    //     });
+    // }
 
     #[task(binds = DMA1_CH3, shared = [rotor_timer_a], priority = 3)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_a(mut cx: dshot_isr_a::Context) {
-        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit()) }
         println!("DSHOT packet transfer complete");
+        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit()) }
+
         cx.shared.rotor_timer_a.lock(|timer| {
             timer.disable();
         });
     }
-
-    #[task(binds = DMA1_CH4, shared = [rotor_timer_b], priority = 3)]
-    /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
-    fn dshot_isr_b(mut cx: dshot_isr_b::Context) {
-        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit()) }
-        cx.shared.rotor_timer_b.lock(|timer| {
-            timer.disable();
-        });
-    }
+    //
+    // #[task(binds = DMA1_CH4, shared = [rotor_timer_b], priority = 3)]
+    // /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
+    // fn dshot_isr_b(mut cx: dshot_isr_b::Context) {
+    //     unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit()) }
+    //     cx.shared.rotor_timer_b.lock(|timer| {
+    //         timer.disable();
+    //     });
+    // }
 }
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message

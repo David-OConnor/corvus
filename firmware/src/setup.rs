@@ -7,7 +7,7 @@ use defmt::println;
 use crate::Rotor;
 
 use stm32_hal2::{
-    dma::{self, Dma, DmaChannel, DmaInput},
+    dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     pac::{DMA1, DMAMUX},
     timer::TimChannel,
@@ -29,11 +29,12 @@ impl Rotor {
         match self {
             // todo: This might not matter.  The DMA write isn't associated with a channel. A St
             // todo example shows using the appropriate channel, but I'm not sure if matters.
-            Self::R1 => DmaInput::Tim2Up,
+            // Self::R1 => DmaInput::Tim2Up,
             // Self::R2 => DmaInput::Tim2Up,
             // Self::R3 => DmaInput::Tim3Up,
             // Self::R4 => DmaInput::Tim3Up,
-            // Self::R1 => DmaInput::Tim2Ch1,
+            Self::R1 => DmaInput::Tim2Ch1,
+            // Self::R1 => DmaInput::Tim2Up,
             Self::R2 => DmaInput::Tim2Ch2,
             Self::R3 => DmaInput::Tim3Ch3,
             Self::R4 => DmaInput::Tim3Ch4,
@@ -77,6 +78,7 @@ pub fn setup_pins() {
         } else if #[cfg(feature = "mercury-g4")] {
             // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
             let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(1)); // Tim2 ch1
+            // let mut rotor1 = Pin::new(Port::A, 0, PinMode::Output); // Tim2 ch1 // todo: Testing DSHOT bitbang.
             let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(1)); // Tim2 ch2
             let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
             let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
@@ -150,31 +152,31 @@ pub fn setup_pins() {
 }
 
 /// Assign DMA channels to peripherals.
-pub fn setup_dma_channels(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
+pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     // IMU
     dma::mux(DmaChannel::C1, DmaInput::Spi1Tx, mux);
     dma::mux(DmaChannel::C2, DmaInput::Spi1Rx, mux);
+    // dma::mux(DmaChannel::C2, DmaInput::Dac1Ch1, mux); // todo temp TS DMA!
 
     // todo: Give you're using burst DMA here, one channel per timer, how does this work?
 
     // DSHOT, motors 1 and 2
     dma::mux(Rotor::R1.dma_channel(), Rotor::R1.dma_input(), mux);
 
-    // todo??
-    // DSHOT, motor 2
-    // dma::mux(
-    //     Rotor::R2.dma_channel(),
-    //     Rotor::R2.dma_input(),
-    //    mux,
-    // );
+    // DSHOT, motors 3 and 4
+    dma::mux(Rotor::R3.dma_channel(), Rotor::R3.dma_input(), mux);
 
-    // DSHOT, motors 3 and 4 // todo: PUt back!
-    // dma::mux(Rotor::R3.dma_channel(), Rotor::R3.dma_input(), mux);
+    // TOF sensor
+    // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx, &mut dp.DMAMUX);
+    // dma::mux(DmaChannel::C5, dma::DmaInput::I2c2Rx, &mut dp.DMAMUX);
 
-    // DSHOT, motor 4
-    // dma::mux(
-    //     Rotor::R4.dma_channel(),
-    //     Rotor::R4.dma_input(),
-    //    mux,
-    // );
+    // We use Spi transfer complete to know when our readings are ready - in its ISR,
+    // we trigger the attitude-rates PID loop.
+     // todo: Temp Tx (ch1) interrupt for TS.
+    dma.enable_interrupt(DmaChannel::C1, DmaInterrupt::TransferComplete);
+    dma.enable_interrupt(DmaChannel::C2, DmaInterrupt::TransferComplete);
+
+    // We use Dshot transfer-complete interrupts to disable the timer.
+    dma.enable_interrupt(Rotor::R1.dma_channel(), DmaInterrupt::TransferComplete);
+    dma.enable_interrupt(Rotor::R3.dma_channel(), DmaInterrupt::TransferComplete);
 }
