@@ -26,6 +26,7 @@ use stm32_hal2::{
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{OutputCompare, TimChannel, Timer, TimerConfig, Alignment, TimerInterrupt, MasterModeSelection},
     usart::Usart,
+    usb,
 };
 
 #[cfg(feature = "mercury-h7")]
@@ -668,15 +669,11 @@ mod app {
         rotor_timer_a.enable_interrupt(TimerInterrupt::UpdateDma);
         rotor_timer_b.enable_interrupt(TimerInterrupt::UpdateDma);
 
-        // Arbitary duty cycle set, since we'll override it with DMA bursts.
-        rotor_timer_a.enable_pwm_output(Rotor::R1.tim_channel(), OutputCompare::Pwm1, 0.5);
-        rotor_timer_a.enable_pwm_output(Rotor::R2.tim_channel(), OutputCompare::Pwm1, 0.5);
-        rotor_timer_b.enable_pwm_output(Rotor::R3.tim_channel(), OutputCompare::Pwm1, 0.5);
-        rotor_timer_b.enable_pwm_output(Rotor::R4.tim_channel(), OutputCompare::Pwm1, 0.5);
-
-        // todo: Temp enabling here. Remove this.
-        // rotor_timer_a.enable();
-        // rotor_timer_b.enable();
+        // Arbitrary duty cycle set, since we'll override it with DMA bursts.
+        rotor_timer_a.enable_pwm_output(Rotor::R1.tim_channel(), OutputCompare::Pwm1, 0.);
+        rotor_timer_a.enable_pwm_output(Rotor::R2.tim_channel(), OutputCompare::Pwm1, 0.);
+        rotor_timer_b.enable_pwm_output(Rotor::R3.tim_channel(), OutputCompare::Pwm1, 0.);
+        rotor_timer_b.enable_pwm_output(Rotor::R4.tim_channel(), OutputCompare::Pwm1, 0.);
 
         let mut dma = Dma::new(dp.DMA1);
         #[cfg(feature = "mercury-g4")]
@@ -831,17 +828,17 @@ mod app {
         (cx.shared.rotor_timer_a, cx.shared.rotor_timer_b, cx.shared.dma)
             .lock(|rotor_timer_a, rotor_timer_b, dma| {
                 unsafe {
-                    println!("DMA ISR {}", dma.regs.isr.read().bits());
+                    // println!("DMA ISR {}", dma.regs.isr.read().bits());
 
-                    // dshot::set_power_a(
-                    //     Rotor::R1,
-                    //     Rotor::R2,
-                    //     0.8,
-                    //     0.2,
-                    //     rotor_timer_a,
-                    //     dma,
-                    // );
-                    //
+                    dshot::set_power_a(
+                        Rotor::R1,
+                        Rotor::R2,
+                        0.8,
+                        0.2,
+                        rotor_timer_a,
+                        dma,
+                    );
+
                     dshot::set_power_b(
                         Rotor::R3,
                         Rotor::R4,

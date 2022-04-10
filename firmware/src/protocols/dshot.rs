@@ -228,24 +228,16 @@ pub fn set_power_b(
     send_payload_b(timer, dma)
 }
 
-static TEST_PAYLOAD: [u16; 4] = [DUTY_LOW, DUTY_LOW, DUTY_LOW, DUTY_LOW]; // todo temp
-static TEST_PAYLOAD2: [u16; 4] = [DUTY_LOW, DUTY_LOW, DUTY_LOW, DUTY_LOW]; // todo temp
-
 /// Send the stored payload for timer A. (2 channels).
 fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
     let payload = unsafe { &PAYLOAD_R1_2 };
-
     // println!("payload: {}", payload);
 
-    dma.stop(Rotor::R1.dma_channel()); // todo: Shouldn't be required?
-
-    // todo: TSing G4's ISR vs mux etc.
-
+    dma.stop(Rotor::R1.dma_channel()); // todo: Shouldn't be required
 
     unsafe {
         timer.write_dma_burst(
-            // payload,
-            &TEST_PAYLOAD,
+            payload,
             Rotor::R1.base_addr_offset(),
             2, // Burst len of 2, since we're updating 2 channels.
             Rotor::R1.dma_channel(),
@@ -255,22 +247,17 @@ fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
     }
 
     // Note that timer enabling is handled by `write_dma_burst`.
-
-    // Reset and update Timer registers // todo: Do we want this?
-    // timer.regs.egr.write(|w| w.ug().set_bit());
 }
 
 // todo: DRY again. Trait?
 /// Send the stored payload for timer B. (2 channels)
 fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     let payload = unsafe { &PAYLOAD_R3_4 };
-
-    dma.stop(Rotor::R3.dma_channel()); // todo: Shouldn't be required?
+    dma.stop(Rotor::R3.dma_channel()); // todo: Shouldn't be required
 
     unsafe {
         timer.write_dma_burst(
-            // payload,
-            &TEST_PAYLOAD2,
+            payload,
             Rotor::R3.base_addr_offset(),
             2,
             Rotor::R3.dma_channel(),
