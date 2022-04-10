@@ -24,7 +24,7 @@ use stm32_hal2::{
     pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM2, TIM3},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
-    timer::{OutputCompare, TimChannel, Timer, TimerConfig, Alignment, TimerInterrupt, MasterModeSelection},
+    timer::{self, OutputCompare, TimChannel, Timer, TimerConfig, Alignment, TimerInterrupt, MasterModeSelection},
     usart::Usart,
     usb,
 };
@@ -50,9 +50,6 @@ cfg_if! {
         static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
     }
 }
-
-// todo remove
-static TEMP_BUF: [u8; 4] = [0, 0, 0, 0];
 
 #[cfg(feature = "mercury-h7")]
 use crate::{
@@ -640,6 +637,7 @@ mod app {
             // We use ARPE since we change duty with the timer running.
             auto_reload_preload: true,
             // alignment: Alignment::Center1, // todo temp
+            // direction: timer::CountDir::Down, // todo TS
             ..Default::default()
         };
 
@@ -661,10 +659,10 @@ mod app {
             }
         }
 
-        rotor_timer_a.set_prescaler(dshot::DSHOT_PSC);
-        rotor_timer_a.set_auto_reload(dshot::DSHOT_ARR as u32);
-        rotor_timer_b.set_prescaler(dshot::DSHOT_PSC);
-        rotor_timer_b.set_auto_reload(dshot::DSHOT_ARR as u32);
+        rotor_timer_a.set_prescaler(dshot::DSHOT_PSC_600);
+        rotor_timer_a.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
+        rotor_timer_b.set_prescaler(dshot::DSHOT_PSC_600);
+        rotor_timer_b.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
 
         rotor_timer_a.enable_interrupt(TimerInterrupt::UpdateDma);
         rotor_timer_b.enable_interrupt(TimerInterrupt::UpdateDma);
@@ -674,6 +672,19 @@ mod app {
         rotor_timer_a.enable_pwm_output(Rotor::R2.tim_channel(), OutputCompare::Pwm1, 0.);
         rotor_timer_b.enable_pwm_output(Rotor::R3.tim_channel(), OutputCompare::Pwm1, 0.);
         rotor_timer_b.enable_pwm_output(Rotor::R4.tim_channel(), OutputCompare::Pwm1, 0.);
+
+        // rotor_timer_a.set_polarity(Rotor::R1.tim_channel(), timer::Polarity::ActiveHigh);
+        // rotor_timer_a.set_polarity(Rotor::R2.tim_channel(), timer::Polarity::ActiveHigh);
+        // rotor_timer_b.set_polarity(Rotor::R3.tim_channel(), timer::Polarity::ActiveHigh);
+        // rotor_timer_b.set_polarity(Rotor::R4.tim_channel(), timer::Polarity::ActiveHigh);
+        //
+        // // Set idle state to low for both rotor timers
+        // unsafe {
+        //     (*pac::TIM2::ptr()).cr2.modify(|_, w| w.ois1().set_bit());
+        //     (*pac::TIM2::ptr()).cr2.modify(|_, w| w.ois2().set_bit());
+        //     (*pac::TIM3::ptr()).cr2.modify(|_, w| w.ois3().set_bit());
+        //     (*pac::TIM3::ptr()).cr2.modify(|_, w| w.ois4().set_bit());
+        // }
 
         let mut dma = Dma::new(dp.DMA1);
         #[cfg(feature = "mercury-g4")]
@@ -1114,7 +1125,8 @@ mod app {
 
     // Note: This is actually Channel 3, but there's an issue with G4 streams being off
     // from their interrupt handler by 1.
-    #[task(binds = DMA1_CH3, shared = [rotor_timer_a], priority = 3)]
+    // These should be high priority, so they can shut off before the next 600kHz etc tick.
+    #[task(binds = DMA1_CH3, shared = [rotor_timer_a], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_a(mut cx: dshot_isr_a::Context) {
         println!("DSHOT Timer A packet transfer complete");
@@ -1126,11 +1138,18 @@ mod app {
     }
 
     // See note about about DMA channels being off by 1.
-    #[task(binds = DMA1_CH4, shared = [rotor_timer_b], priority = 3)]
+    #[task(binds = DMA1_CH4, shared = [rotor_timer_b], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_b(mut cx: dshot_isr_b::Context) {
         println!("DSHOT Timer B packet transfer complete");
         unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit()) }
+
+        unsafe {
+            (*pac::GPIOB::ptr()).moder.modify(|_, w| w.moder0().bits(0b01));
+            (*pac::GPIOB::ptr()).bsrr.write(|w| w.br0().set_bit());
+            (*pac::GPIOB::ptr()).moder.modify(|_, w| w.moder1().bits(0b01));
+            (*pac::GPIOB::ptr()).bsrr.write(|w| w.br1().set_bit());
+        }
 
         cx.shared.rotor_timer_b.lock(|timer| {
             timer.disable();
