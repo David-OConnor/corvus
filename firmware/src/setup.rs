@@ -27,17 +27,16 @@ impl Rotor {
     /// Dma input channel. This should be in line with `tim_channel`.
     pub fn dma_input(&self) -> DmaInput {
         match self {
-            // todo: This might not matter.  The DMA write isn't associated with a channel. A St
-            // todo example shows using the appropriate channel, but I'm not sure if matters.
-            // Self::R1 => DmaInput::Tim2Up,
-            // Self::R2 => DmaInput::Tim2Up,
-            // Self::R3 => DmaInput::Tim3Up,
-            // Self::R4 => DmaInput::Tim3Up,
-            Self::R1 => DmaInput::Tim2Ch1,
-            // Self::R1 => DmaInput::Tim2Up,
-            Self::R2 => DmaInput::Tim2Ch2,
-            Self::R3 => DmaInput::Tim3Ch3,
-            Self::R4 => DmaInput::Tim3Ch4,
+            // The DMA write isn't associated with a channel; using the Update even seems to work.
+            Self::R1 => DmaInput::Tim2Up,
+            Self::R2 => DmaInput::Tim2Up,
+            Self::R3 => DmaInput::Tim3Up,
+            Self::R4 => DmaInput::Tim3Up,
+
+            // Self::R1 => DmaInput::Tim2Ch1,
+            // Self::R2 => DmaInput::Tim2Ch2,
+            // Self::R3 => DmaInput::Tim3Ch3,
+            // Self::R4 => DmaInput::Tim3Ch4,
         }
     }
 
@@ -78,7 +77,6 @@ pub fn setup_pins() {
         } else if #[cfg(feature = "mercury-g4")] {
             // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
             let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(1)); // Tim2 ch1
-            // let mut rotor1 = Pin::new(Port::A, 0, PinMode::Output); // Tim2 ch1 // todo: Testing DSHOT bitbang.
             let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(1)); // Tim2 ch2
             let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
             let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
@@ -127,7 +125,9 @@ pub fn setup_pins() {
 
             // Used to trigger a PID update based on new IMU data.
             let mut imu_interrupt = Pin::new(Port::C, 4, PinMode::Input); // PA4 for IMU interrupt.
-            imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
+
+            // todo: Put back!
+            // imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
 
             // I2C1 for external sensors, via pads
             let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
@@ -178,5 +178,6 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
 
     // We use Dshot transfer-complete interrupts to disable the timer.
     dma.enable_interrupt(Rotor::R1.dma_channel(), DmaInterrupt::TransferComplete);
+    // dma.enable_interrupt(DmaChannel::C5, DmaInterrupt::TransferComplete);
     dma.enable_interrupt(Rotor::R3.dma_channel(), DmaInterrupt::TransferComplete);
 }

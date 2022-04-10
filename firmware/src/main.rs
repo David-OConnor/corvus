@@ -644,17 +644,19 @@ mod app {
 
         // We use multiple timers instead of a single one based on pin availability; a single
         // timer with 4 channels would be ideal.
+        // Frequency here can be arbitrary; we set manually using PSC and ARR below.
         cfg_if! {
             if #[cfg(feature = "mercury-h7")] {
                 let mut rotor_timer_a =
-                    Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg.clone(), &clock_cfg);
+                    Timer::new_tim2(dp.TIM2, 1., rotor_timer_cfg.clone(), &clock_cfg);
 
-                let mut rotor_timer_b = Timer::new_tim5(dp.TIM5, dshot::DSHOT_FREQ, rotor_timer_cfg, &clock_cfg);
+                let mut rotor_timer_b = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
             } else if #[cfg(feature = "mercury-g4")] {
+
                 let mut rotor_timer_a =
                     Timer::new_tim2(dp.TIM2, 1., rotor_timer_cfg.clone(), &clock_cfg);
 
-                let mut rotor_timer_b = Timer::new_tim3(dp.TIM3, dshot::DSHOT_FREQ, rotor_timer_cfg, &clock_cfg);
+                let mut rotor_timer_b = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
             }
         }
 
@@ -668,9 +670,13 @@ mod app {
 
         // Arbitary duty cycle set, since we'll override it with DMA bursts.
         rotor_timer_a.enable_pwm_output(Rotor::R1.tim_channel(), OutputCompare::Pwm1, 0.5);
-        rotor_timer_a.enable_pwm_output(Rotor::R2.tim_channel(), OutputCompare::Pwm1, 0.);
-        rotor_timer_b.enable_pwm_output(Rotor::R3.tim_channel(), OutputCompare::Pwm1, 0.);
-        rotor_timer_b.enable_pwm_output(Rotor::R4.tim_channel(), OutputCompare::Pwm1, 0.);
+        rotor_timer_a.enable_pwm_output(Rotor::R2.tim_channel(), OutputCompare::Pwm1, 0.5);
+        rotor_timer_b.enable_pwm_output(Rotor::R3.tim_channel(), OutputCompare::Pwm1, 0.5);
+        rotor_timer_b.enable_pwm_output(Rotor::R4.tim_channel(), OutputCompare::Pwm1, 0.5);
+
+        // todo: Temp enabling here. Remove this.
+        // rotor_timer_a.enable();
+        // rotor_timer_b.enable();
 
         let mut dma = Dma::new(dp.DMA1);
         #[cfg(feature = "mercury-g4")]
@@ -720,10 +726,12 @@ mod app {
         }
 
         // Used to update the input data from the ELRS radio
+        let mut elrs_dio = Pin::new(Port::C, 13, PinMode::Output); // todo: In or out?
         let mut elrs_cs = Pin::new(Port::C, 15, PinMode::Output);
         let mut elrs_busy = Pin::new(Port::C, 14, PinMode::Input);
-        let mut elrs_reset = Pin::new(Port::A, 1, PinMode::Output);
-        elrs_busy.enable_interrupt(Edge::Falling); // todo: Rising or falling?
+
+        // todo: But back A/R.
+        // elrs_busy.enable_interrupt(Edge::Falling); // todo: Rising or falling?
 
         // todo: DMA for voltage ADC (?)
 
@@ -811,10 +819,8 @@ mod app {
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
     dma, rotor_timer_a, rotor_timer_b
     ],
-    local=[spi1],
     priority = 2
     )]
-    // todo: Rremove SPI from local! Used for debugging DMA; needs to be in an iSR below;
     /// This runs periodically, on a ~1kHz timer. It's used to trigger the attitude and velocity PID loops, ie for
     /// sending commands to the attitude and rate PID loop based on things like autopilot, command-mode etc.
     fn update_isr(cx: update_isr::Context) {
@@ -825,53 +831,25 @@ mod app {
         (cx.shared.rotor_timer_a, cx.shared.rotor_timer_b, cx.shared.dma)
             .lock(|rotor_timer_a, rotor_timer_b, dma| {
                 unsafe {
-                    println!("Testing dshot...");
-
-                    // println!("AHB1: {}", (*pac::RCC::ptr()).ahb1enr.read().bits());
-
-                    // // todo: Testing SPI DMA
-                    // cx.local.spi1.write_dma(
-                    //     &TEMP_BUF,
-                    //     DmaChannel::C2,
-                    //     Default::default(),
-                    //     dma,
-                    // );
-
-                    // todo: Another DMA TS technique
-                    // let mut dp = pac::Peripherals::steal();
-                    // let mut dac = dac::Dac::new(dp.DAC1, dac::DacBits::TwelveR, 3.3);
-                    //
-                    // dac.write_dma(
-                    //     &TEMP_BUF,
-                    //     dac::DacChannel::C1,
-                    //     DmaChannel::C2,
-                    //     ChannelCfg {
-                    //         ..Default::default()
-                    //     },
-                    //     dma,
-                    // );
-
-                    // todo temp bitbabng test
-                    // dshot::send_payloads_bitbang(dma);
-
                     println!("DMA ISR {}", dma.regs.isr.read().bits());
-                    dshot::set_power_a(
-                        Rotor::R1,
-                        Rotor::R2,
-                        0.8,
-                        0.2,
-                        rotor_timer_a,
+
+                    // dshot::set_power_a(
+                    //     Rotor::R1,
+                    //     Rotor::R2,
+                    //     0.8,
+                    //     0.2,
+                    //     rotor_timer_a,
+                    //     dma,
+                    // );
+                    //
+                    dshot::set_power_b(
+                        Rotor::R3,
+                        Rotor::R4,
+                        0.1,
+                        0.3,
+                        rotor_timer_b,
                         dma,
                     );
-                    //
-                    // dshot::set_power_b(
-                    //     Rotor::R3,
-                    //     Rotor::R4,
-                    //     0.0,
-                    //     1.,
-                    //     rotor_timer_b,
-                    //     dma,
-                    // );
                 }
             });
         return; // todo temp for test
@@ -970,9 +948,10 @@ mod app {
     /// update rotor power settings as soon as data is available.
     #[task(binds = EXTI15_10, shared = [
     cs_imu, dma, rotor_timer_a, rotor_timer_b, command_state
-    ], local = [], priority = 4)]
-    // todo: Put spi back in local!!!
+    ], local = [spi1], priority = 4)]
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
+        println!("IMU DATA ISR");
+
         unsafe {
             // Clear the interrupt flag.
                 #[cfg(feature = "mercury-h7")]
@@ -993,7 +972,7 @@ mod app {
                     dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
                 }
 
-                // imu::read_all_dma(cx.local.spi1, cs_imu, dma); // todo: Put back!!
+                imu::read_all_dma(cx.local.spi1, cs_imu, dma);
             });
     }
 
@@ -1136,25 +1115,30 @@ mod app {
     //     });
     // }
 
+    // Note: This is actually Channel 3, but there's an issue with G4 streams being off
+    // from their interrupt handler by 1.
     #[task(binds = DMA1_CH3, shared = [rotor_timer_a], priority = 3)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_a(mut cx: dshot_isr_a::Context) {
-        println!("DSHOT packet transfer complete");
+        println!("DSHOT Timer A packet transfer complete");
         unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit()) }
 
         cx.shared.rotor_timer_a.lock(|timer| {
             timer.disable();
         });
     }
-    //
-    // #[task(binds = DMA1_CH4, shared = [rotor_timer_b], priority = 3)]
-    // /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
-    // fn dshot_isr_b(mut cx: dshot_isr_b::Context) {
-    //     unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit()) }
-    //     cx.shared.rotor_timer_b.lock(|timer| {
-    //         timer.disable();
-    //     });
-    // }
+
+    // See note about about DMA channels being off by 1.
+    #[task(binds = DMA1_CH4, shared = [rotor_timer_b], priority = 3)]
+    /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
+    fn dshot_isr_b(mut cx: dshot_isr_b::Context) {
+        println!("DSHOT Timer B packet transfer complete");
+        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit()) }
+
+        cx.shared.rotor_timer_b.lock(|timer| {
+            timer.disable();
+        });
+    }
 }
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message

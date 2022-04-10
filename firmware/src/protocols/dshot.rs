@@ -229,12 +229,18 @@ pub fn set_power_b(
 }
 
 static TEST_PAYLOAD: [u16; 4] = [DUTY_LOW, DUTY_LOW, DUTY_LOW, DUTY_LOW]; // todo temp
+static TEST_PAYLOAD2: [u16; 4] = [DUTY_LOW, DUTY_LOW, DUTY_LOW, DUTY_LOW]; // todo temp
 
 /// Send the stored payload for timer A. (2 channels).
 fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
     let payload = unsafe { &PAYLOAD_R1_2 };
 
     // println!("payload: {}", payload);
+
+    dma.stop(Rotor::R1.dma_channel()); // todo: Shouldn't be required?
+
+    // todo: TSing G4's ISR vs mux etc.
+
 
     unsafe {
         timer.write_dma_burst(
@@ -259,9 +265,12 @@ fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
 fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     let payload = unsafe { &PAYLOAD_R3_4 };
 
+    dma.stop(Rotor::R3.dma_channel()); // todo: Shouldn't be required?
+
     unsafe {
         timer.write_dma_burst(
-            payload,
+            // payload,
+            &TEST_PAYLOAD2,
             Rotor::R3.base_addr_offset(),
             2,
             Rotor::R3.dma_channel(),
@@ -272,7 +281,7 @@ fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
 }
 
 /// An alternative approach to sending payloads, using GPIO DMA.
-pub fn send_payloads_bitbang(dma: &mut Dma<DMA1>) {
+pub fn _send_payloads_bitbang(dma: &mut Dma<DMA1>) {
 
     // let payload = unsafe { &PAYLOAD_R1_2 };
 
