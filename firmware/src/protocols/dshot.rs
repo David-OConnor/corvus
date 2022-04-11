@@ -66,8 +66,9 @@ pub const DSHOT_FREQ: f32 = 600_000.;
 // DMA buffers for each rotor. 16-bit data. Note that
 // rotors 1/2 and 3/4 share a timer, so we can use the same DMA stream with them. Data for the 2
 // channels are interleaved.
-static mut PAYLOAD_R1_2: [u16; 32] = [0; 32];
-static mut PAYLOAD_R3_4: [u16; 32] = [0; 32];
+// Len 34, since last digits will be 0. Required to prevent extra pulses. (Not sure exactly why)
+static mut PAYLOAD_R1_2: [u16; 34] = [0; 34];
+static mut PAYLOAD_R3_4: [u16; 34] = [0; 34];
 
 /// Possible DSHOT commands (ie, DSHOT values 0 - 47). Does not include power settings.
 #[derive(Copy, Clone)]
@@ -197,6 +198,10 @@ pub fn setup_payload(rotor: Rotor, cmd: CmdType) {
         // we interleave values here. (Each timer and DMA stream is associated with 2 channels).
         payload[(15 - i) * 2 + offset] = val;
     }
+    
+    // 0-padd the end, or we observe extra pulses.
+    payload[32] = 0;
+    payload[33] = 0;
 }
 
 /// Set an individual rotor's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
@@ -236,6 +241,12 @@ fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
     // The previous transfer should already be complete, but just in case.
     dma.stop(Rotor::R1.dma_channel());
 
+    // Set back to alternate function.
+    unsafe {
+        (*pac::GPIOA::ptr()).moder.modify(|_, w| w.moder0().bits(0b10));
+        (*pac::GPIOA::ptr()).moder.modify(|_, w| w.moder1().bits(0b10));
+    }
+
     unsafe {
         timer.write_dma_burst(
             payload,
@@ -250,33 +261,13 @@ fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
     // Note that timer enabling is handled by `write_dma_burst`.
 }
 
-// todo temp
-static TEST_PAYLOAD: [u16; 34] = [ //332
-   30, 30,
-    60, 60,
-    90, 90,
-    105, 105,
-    120, 120,
-    135, 135,
-    150, 150,
-    165, 165,
-    180, 180,
-    195, 195,
-    210, 210,
-    225, 225,
-    240, 240,
-    255, 255,
-    270, 270,
-    300, 300,
-    0, 0,
-];
-
 // todo: DRY again. Trait?
 /// Send the stored payload for timer B. (2 channels)
 fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     let payload = unsafe { &PAYLOAD_R3_4 };
     dma.stop(Rotor::R3.dma_channel()); // todo: Shouldn't be required
 
+    // Set back to alternate function.
     unsafe {
         (*pac::GPIOB::ptr()).moder.modify(|_, w| w.moder0().bits(0b10));
         (*pac::GPIOB::ptr()).moder.modify(|_, w| w.moder1().bits(0b10));
@@ -284,8 +275,7 @@ fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
 
     unsafe {
         timer.write_dma_burst(
-            // payload,
-            &TEST_PAYLOAD,
+            payload,
             Rotor::R3.base_addr_offset(),
             2,
             Rotor::R3.dma_channel(),

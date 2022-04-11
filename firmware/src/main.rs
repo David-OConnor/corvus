@@ -1129,8 +1129,16 @@ mod app {
     #[task(binds = DMA1_CH3, shared = [rotor_timer_a], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_a(mut cx: dshot_isr_a::Context) {
-        println!("DSHOT Timer A packet transfer complete");
+        // println!("DSHOT Timer A packet transfer complete");
         unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit()) }
+
+        // Set to Output pin, low.
+        unsafe {
+            (*pac::GPIOA::ptr()).moder.modify(|_, w| w.moder0().bits(0b01));
+            (*pac::GPIOA::ptr()).bsrr.write(|w| w.br0().set_bit());
+            (*pac::GPIOA::ptr()).moder.modify(|_, w| w.moder1().bits(0b01));
+            (*pac::GPIOA::ptr()).bsrr.write(|w| w.br1().set_bit());
+        }
 
         cx.shared.rotor_timer_a.lock(|timer| {
             timer.disable();
@@ -1141,9 +1149,10 @@ mod app {
     #[task(binds = DMA1_CH4, shared = [rotor_timer_b], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_b(mut cx: dshot_isr_b::Context) {
-        println!("DSHOT Timer B packet transfer complete");
+        // println!("DSHOT Timer B packet transfer complete");
         unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit()) }
 
+        // Set to Output pin, low.
         unsafe {
             (*pac::GPIOB::ptr()).moder.modify(|_, w| w.moder0().bits(0b01));
             (*pac::GPIOB::ptr()).bsrr.write(|w| w.br0().set_bit());
