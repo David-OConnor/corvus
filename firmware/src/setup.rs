@@ -32,18 +32,11 @@ impl Rotor {
             Self::R2 => DmaInput::Tim2Up,
             Self::R3 => DmaInput::Tim3Up,
             Self::R4 => DmaInput::Tim3Up,
-
-            // Self::R1 => DmaInput::Tim2Ch1,
-            // Self::R2 => DmaInput::Tim2Ch2,
-            // Self::R3 => DmaInput::Tim3Ch3,
-            // Self::R4 => DmaInput::Tim3Ch4,
         }
     }
 
     /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
     pub fn dma_channel(&self) -> DmaChannel {
-        // Offset 16 for DMA base register of CCR1?
-        // 17 for CCR2, 18 CCR3, and 19 CCR4?
         match self {
             Self::R1 => DmaChannel::C3,
             Self::R2 => DmaChannel::C3,
@@ -57,7 +50,6 @@ impl Rotor {
     /// RM register table, and dividing by 4.
     pub fn base_addr_offset(&self) -> u8 {
         match self.tim_channel() {
-            // TimChannel::C1 => 12, // CCR1 // todo TS
             TimChannel::C1 => 13, // CCR1
             TimChannel::C2 => 13, // CCR2 (starting with CCR1, burst len 2)
             TimChannel::C3 => 15, // CCR3

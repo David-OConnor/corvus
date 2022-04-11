@@ -66,14 +66,16 @@ pub const DSHOT_FREQ: f32 = 600_000.;
 // DMA buffers for each rotor. 16-bit data. Note that
 // rotors 1/2 and 3/4 share a timer, so we can use the same DMA stream with them. Data for the 2
 // channels are interleaved.
-// Len 34, since last digits will be 0. Required to prevent extra pulses. (Not sure exactly why)
-static mut PAYLOAD_R1_2: [u16; 34] = [0; 34];
-static mut PAYLOAD_R3_4: [u16; 34] = [0; 34];
+// Len 36, since last 2 entries will be 0. Required to prevent extra pulses. (Not sure exactly why)
+static mut PAYLOAD_R1_2: [u16; 36] = [0; 36];
+static mut PAYLOAD_R3_4: [u16; 36] = [0; 36];
 
 /// Possible DSHOT commands (ie, DSHOT values 0 - 47). Does not include power settings.
+/// [Special commands section](https://brushlesswhoop.com/dshot-and-bidirectional-dshot/)
 #[derive(Copy, Clone)]
 #[repr(u16)]
 pub enum Command {
+    /// todo: Motor Stop is perhaps not yet implemented.
     MotorStop = 0,
     Beacon1 = 1,
     Beacon2 = 2,
@@ -99,7 +101,27 @@ pub enum Command {
     Led3Off = 29,              // BLHeli32 only
     AudioStreamModeOnOff = 30, // KISS audio Stream mode on/Off
     SilendModeOnOff = 31,      // KISS silent Mode on/Off
-    Max = 47,
+    /// Disables commands 42 to 47
+    TelemetryEnable = 32,
+    /// Enables commands 42 to 47
+    TelemetryDisable = 33,
+    /// Need 6x. Enables commands 42 to 47 and sends erpm if normal Dshot frame
+    ContinuousErpmTelemetry = 34,
+    /// Enables commands 42 to 47 and sends erpm period if normal Dshot frame
+    ContinuousErpmPeriodTelemetry = 35,
+    /// 1°C per LSB
+    TemperatureTelemetry = 42,
+    /// 10mV per LSB, 40.95V max
+    VoltageTelemetry = 43,
+    /// 100mA per LSB, 409.5A max
+    CurrentTelemetry = 44,
+    /// 10mAh per LSB, 40.95Ah max
+    ConsumptionTelemetry = 45,
+    /// 100erpm per LSB, 409500erpm max
+    ErpmTelemetry = 46,
+    /// 16us per LSB, 65520us max TBD
+    ErpmPeriodTelemetry = 47,
+    // Max = 47, // todo: From Betaflight, but not consistent with the Brushlesswhoop article
 }
 
 pub enum CmdType {
@@ -111,16 +133,17 @@ pub enum CmdType {
 // todo run into trouble.
 
 pub fn stop_all(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
-    setup_payload(Rotor::R1, CmdType::Command(Command::MotorStop));
-    setup_payload(Rotor::R2, CmdType::Command(Command::MotorStop));
-    setup_payload(Rotor::R3, CmdType::Command(Command::MotorStop));
-    setup_payload(Rotor::R4, CmdType::Command(Command::MotorStop));
+    /// todo: Motor stop may not work / may not be implemented, so consider changing to a 0 power signal.
+    // setup_payload(Rotor::R1, CmdType::Command(Command::MotorStop));
+    // setup_payload(Rotor::R2, CmdType::Command(Command::MotorStop));
+    // setup_payload(Rotor::R3, CmdType::Command(Command::MotorStop));
+    // setup_payload(Rotor::R4, CmdType::Command(Command::MotorStop));
+    //
+    // send_payload_a(timer_a, dma);
+    // send_payload_b(timer_b, dma);
 
-    // todo: Make sure you have the right motors here.
-    send_payload_a(timer_a, dma);
-    // send_payload_a(Rotor::R2, timer_a, dma);
-    send_payload_b(timer_b, dma);
-    // send_payload_b(Rotor::R4, timer_b, dma);
+    set_power_a(Rotor::R1, Rotor::R2, 0., 0., timer_a, dma);
+    set_power_b(Rotor::R3, Rotor::R4, 0., 0., timer_a, dma);
 }
 
 /// Set up the direction for each motor, in accordance with user config.
@@ -198,10 +221,9 @@ pub fn setup_payload(rotor: Rotor, cmd: CmdType) {
         // we interleave values here. (Each timer and DMA stream is associated with 2 channels).
         payload[(15 - i) * 2 + offset] = val;
     }
-    
-    // 0-padd the end, or we observe extra pulses.
-    payload[32] = 0;
-    payload[33] = 0;
+
+    // Note that the end stays 0-padded, since we init with 0s, and never change those values.
+
 }
 
 /// Set an individual rotor's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
@@ -265,9 +287,8 @@ fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
 /// Send the stored payload for timer B. (2 channels)
 fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     let payload = unsafe { &PAYLOAD_R3_4 };
-    dma.stop(Rotor::R3.dma_channel()); // todo: Shouldn't be required
+    dma.stop(Rotor::R3.dma_channel());
 
-    // Set back to alternate function.
     unsafe {
         (*pac::GPIOB::ptr()).moder.modify(|_, w| w.moder0().bits(0b10));
         (*pac::GPIOB::ptr()).moder.modify(|_, w| w.moder1().bits(0b10));

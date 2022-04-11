@@ -834,7 +834,6 @@ mod app {
     fn update_isr(cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
 
-
         // todo: Dshot test
         (cx.shared.rotor_timer_a, cx.shared.rotor_timer_b, cx.shared.dma)
             .lock(|rotor_timer_a, rotor_timer_b, dma| {
@@ -853,7 +852,7 @@ mod app {
                     dshot::set_power_b(
                         Rotor::R3,
                         Rotor::R4,
-                        0.1,
+                        1.,
                         0.3,
                         rotor_timer_b,
                         dma,
@@ -1129,8 +1128,11 @@ mod app {
     #[task(binds = DMA1_CH3, shared = [rotor_timer_a], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_a(mut cx: dshot_isr_a::Context) {
-        // println!("DSHOT Timer A packet transfer complete");
         unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit()) }
+
+        cx.shared.rotor_timer_a.lock(|timer| {
+            timer.disable();
+        });
 
         // Set to Output pin, low.
         unsafe {
@@ -1139,18 +1141,17 @@ mod app {
             (*pac::GPIOA::ptr()).moder.modify(|_, w| w.moder1().bits(0b01));
             (*pac::GPIOA::ptr()).bsrr.write(|w| w.br1().set_bit());
         }
-
-        cx.shared.rotor_timer_a.lock(|timer| {
-            timer.disable();
-        });
     }
 
     // See note about about DMA channels being off by 1.
     #[task(binds = DMA1_CH4, shared = [rotor_timer_b], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_b(mut cx: dshot_isr_b::Context) {
-        // println!("DSHOT Timer B packet transfer complete");
         unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit()) }
+
+        cx.shared.rotor_timer_b.lock(|timer| {
+            timer.disable();
+        });
 
         // Set to Output pin, low.
         unsafe {
@@ -1159,10 +1160,6 @@ mod app {
             (*pac::GPIOB::ptr()).moder.modify(|_, w| w.moder1().bits(0b01));
             (*pac::GPIOB::ptr()).bsrr.write(|w| w.br1().set_bit());
         }
-
-        cx.shared.rotor_timer_b.lock(|timer| {
-            timer.disable();
-        });
     }
 }
 
