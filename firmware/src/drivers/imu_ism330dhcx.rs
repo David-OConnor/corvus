@@ -5,7 +5,8 @@
 //! Note that both this and the DPS310 barometer read temperature.
 //!
 //!
-// todo: ICM-42688 instead? Compare features and availability
+
+// todo: Consider hardware notch filter.
 
 use stm32_hal2::{
     dma::{Dma, DmaChannel},
@@ -16,7 +17,11 @@ use stm32_hal2::{
 
 use crate::sensor_fusion::ImuReadings;
 
+const GRYO_FULLSCALE: f32 = 34.90659; // 2,000 degrees/sec
+const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
+
 /// See Datasheet, Table 19.
+#[derive(Clone, Copy)]
 #[repr(u8)]
 enum Reg {
     FuncCfgAccess = 0x01,
@@ -76,19 +81,35 @@ enum Reg {
     FifoDataOutZH = 0x7E,
 }
 
+// todo: Copy `read_reg` method from icm426xx` too, if required.
+impl Reg {
+    /// Get the read address, which has the MSB = 1. Use the `u8` repr for writes.
+    pub fn read_addr(&self) -> u8 {
+        0x80 | (*self as u8)
+    }
+}
+
 // todo: Read via DMA at a very high rate, then apply a lowpass filter?
 
 // https://github.com/pms67/Attitude-Estimation
 
 /// Utility function to read a single byte.
-fn read_one(reg: u8, spi: &mut Spi<SPI1>, cs: &mut Pin) -> u8 {
-    let mut buf = [reg, 0];
+fn read_one(reg: Reg, spi: &mut Spi<SPI1>, cs: &mut Pin) -> u8 {
+    let mut buf = [reg.read_addr(), 0];
+    // let mut buf = [reg as u8, 0];
 
     cs.set_low();
     spi.transfer(&mut buf).ok();
     cs.set_high();
 
     buf[0]
+}
+
+/// Utility function to write a single byte.
+fn write_one(reg: Reg, word: u8, spi: &mut Spi<SPI1>, cs: &mut Pin) {
+    cs.set_low();
+    spi.write(&[reg as u8, word]).ok();
+    cs.set_high();
 }
 
 /// Configure the device.
@@ -102,47 +123,35 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin) {
     // Set accelerometer to ODR = 6.66kHz update rate, +-16G full scale range, first state digital filtering
     // todo: Currently set to output from first state digital filtering. Do we want this, or second?
 
-    let mut t = [Reg::Ctrl1Xl as u8, 0];
-    cs.set_low();
-    spi.transfer(&mut t);
-    cs.set_high();
+    let mut t = read_one(Reg::WhoAmI, spi, cs);
+
+    defmt::println!("Who am I: {}", t);
+
+    let mut t = read_one(Reg::WhoAmI, spi, cs);
 
     defmt::println!("TEST: {}", t);
 
+    write_one(Reg::Ctrl1Xl, 0b1010_0100, spi, cs);
 
-
-    cs.set_low();
-    // spi.write(&[Reg::Ctrl1Xl as u8, 0b1010_0100]).ok();
-    spi.write(&[Reg::Ctrl1Xl as u8, 0b1010_0100]).ok();
-    cs.set_high();
-
-    let mut t = [Reg::Ctrl1Xl as u8, 0];
-    cs.set_low();
-    spi.transfer(&mut t);
-    cs.set_high();
+    let mut t = read_one(Reg::Ctrl1Xl, spi, cs);
     defmt::println!("TEST: {}", t);
 
-    // Set gyro ODR to 6.66kHz update rate, 2000dps full scale range.
-    cs.set_low();
-    spi.write(&[Reg::Ctrl2G as u8, 0b1010_1100]).ok();
-    cs.set_high();
+    // Set gyro ODR to 6.66kHz update rate, 2000dps full scale range
+    write_one(Reg::Ctrl2G, 0b1010_1100, spi, cs);
 
     // Disable I2C interface. Enable Gyro LPF1.
-    cs.set_low();
-    spi.write(&[Reg::Ctrl4C as u8, 0b0000_0110]).ok();
-    cs.set_high();
+    write_one(Reg::Ctrl4C, 0b0000_0110, spi, cs);
 
-    // Enable high performance mode on Gryo.
-    cs.set_low();
-    spi.write(&[Reg::Ctrl7G as u8, 0b1000_0000]).ok();
-    cs.set_high();
+    // Enable high performance mode on the accelerometer
+    write_one(Reg::Ctrl6C, 0b1000_0000, spi, cs);
+
+    // Enable high performance mode on the gyro
+    write_one(Reg::Ctrl7G, 0b1000_0000, spi, cs);
 
     // Enable data ready on INT1 pin.
     // todo: What do we want? Both accel and gyro? DEN? What is DEN? Will both gryo and accel
     // todo together cause problems?
-    cs.set_low();
-    spi.write(&[Reg::Int1Ctrl as u8, 0b0000_0011]).ok();
-    cs.set_high();
+    write_one(Reg::Int1Ctrl, 0b0000_0011, spi, cs);
 
     // todo: Finish this; check what other settings are avail.
 }
@@ -153,8 +162,8 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin) {
 
 /// Read temperature.
 pub fn read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> f32 {
-    let upper_byte = read_one(Reg::OutTempH as u8, spi, cs);
-    let lower_byte = read_one(Reg::OutTempL as u8, spi, cs);
+    let upper_byte = read_one(Reg::OutTempH, spi, cs);
+    let lower_byte = read_one(Reg::OutTempL, spi, cs);
 
     // todo: What's the conversion? This comment and code is for the ICM chip.
     // Temperature in Degrees Centigrade = (TEMP_DATA / 132.48) + 25
@@ -163,32 +172,39 @@ pub fn read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> f32 {
     temp_data as f32 / 132.48 + 25.
 }
 
-// todo: Do we want to use FIFO over DMA?
+/// Output: m/s^2
+fn interpret_accel(accel: i16) -> f32 {
+    (accel as f32 / i16::MAX as f32) * ACCEL_FULLSCALE
+}
 
+/// Output: rad/s
+fn interpret_gyro(accel: i16) -> f32 {
+    (accel as f32 / i16::MAX as f32) * ACCEL_FULLSCALE
+}
 
 /// Read all data
 pub fn read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> ImuReadings {
-    let accel_x_upper = read_one(Reg::OutxHA as u8, spi, cs);
-    let accel_x_lower = read_one(Reg::OutxLA as u8, spi, cs);
-    let accel_y_upper = read_one(Reg::OutyHA as u8, spi, cs);
-    let accel_y_lower = read_one(Reg::OutyLA as u8, spi, cs);
-    let accel_z_upper = read_one(Reg::OutzHA as u8, spi, cs);
-    let accel_z_lower = read_one(Reg::OutzLA as u8, spi, cs);
+    let accel_x_upper = read_one(Reg::OutxHA, spi, cs);
+    let accel_x_lower = read_one(Reg::OutxLA, spi, cs);
+    let accel_y_upper = read_one(Reg::OutyHA, spi, cs);
+    let accel_y_lower = read_one(Reg::OutyLA, spi, cs);
+    let accel_z_upper = read_one(Reg::OutzHA, spi, cs);
+    let accel_z_lower = read_one(Reg::OutzLA, spi, cs);
 
-    let gyro_x_upper = read_one(Reg::OutxHG as u8, spi, cs);
-    let gyro_x_lower = read_one(Reg::OutxLG as u8, spi, cs);
-    let gyro_y_upper = read_one(Reg::OutyHG as u8, spi, cs);
-    let gyro_y_lower = read_one(Reg::OutyLG as u8, spi, cs);
-    let gyro_z_upper = read_one(Reg::OutzHG as u8, spi, cs);
-    let gyro_z_lower = read_one(Reg::OutzLG as u8, spi, cs);
+    let gyro_x_upper = read_one(Reg::OutxHG, spi, cs);
+    let gyro_x_lower = read_one(Reg::OutxLG, spi, cs);
+    let gyro_y_upper = read_one(Reg::OutyHG, spi, cs);
+    let gyro_y_lower = read_one(Reg::OutyLG, spi, cs);
+    let gyro_z_upper = read_one(Reg::OutzHG, spi, cs);
+    let gyro_z_lower = read_one(Reg::OutzLG, spi, cs);
 
-    let a_x = u16::from_be_bytes([accel_x_upper, accel_x_lower]) as f32;
-    let a_y = u16::from_be_bytes([accel_y_upper, accel_y_lower]) as f32;
-    let a_z = u16::from_be_bytes([accel_z_upper, accel_z_lower]) as f32;
+    let a_x = interpret_accel(i16::from_be_bytes([accel_x_upper, accel_x_lower]));
+    let a_y = interpret_accel(i16::from_be_bytes([accel_y_upper, accel_y_lower]));
+    let a_z = interpret_accel(i16::from_be_bytes([accel_z_upper, accel_z_lower]));
 
-    let v_roll = u16::from_be_bytes([gyro_x_upper, gyro_x_lower]) as f32;
-    let v_pitch = u16::from_be_bytes([gyro_y_upper, gyro_y_lower]) as f32;
-    let v_yaw = u16::from_be_bytes([gyro_z_upper, gyro_z_lower]) as f32;
+    let v_roll = interpret_gyro(i16::from_be_bytes([gyro_x_upper, gyro_x_lower]));
+    let v_pitch = interpret_gyro(i16::from_be_bytes([gyro_y_upper, gyro_y_lower]));
+    let v_yaw = interpret_gyro(i16::from_be_bytes([gyro_z_upper, gyro_z_lower]));
 
     // todo: How do we map these to radians per second and m/s^2?
 

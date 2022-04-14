@@ -17,24 +17,26 @@ use cmsis_dsp_sys as dsp_sys;
 use crate::{
     flight_ctrls::{
         self, AltType, AutopilotStatus, CommandState, CtrlInputs, IirInstWrapper, InputMap,
-        InputMode, Params, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED, POWER_LUT,
+        InputMode, Params, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED,
     },
     UserCfg, DT_ATTITUDE,
 };
+
+// todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
 // todo: What should these be?
 const INTEGRATOR_CLAMP_MIN: f32 = -10.;
 const INTEGRATOR_CLAMP_MAX: f32 = 10.;
 
-static mut FILTER_STATE_MID_X: [f32; 4] = [0.; 4];
-static mut FILTER_STATE_MID_Y: [f32; 4] = [0.; 4];
-static mut FILTER_STATE_MID_YAW: [f32; 4] = [0.; 4];
-static mut FILTER_STATE_MID_THRUST: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_ROLL_ATTITUDE: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_PITCH_ATTITUDE: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_YAW_ATTITUDE: [f32; 4] = [0.; 4];
 
-static mut FILTER_STATE_INNER_X: [f32; 4] = [0.; 4];
-static mut FILTER_STATE_INNER_Y: [f32; 4] = [0.; 4];
-static mut FILTER_STATE_INNER_YAW: [f32; 4] = [0.; 4];
-static mut FILTER_STATE_INNER_THRUST: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_ROLL_RATE: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_PITCH_RATE: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_YAW_RATE: [f32; 4] = [0.; 4];
+
+static mut FILTER_STATE_THRUST: [f32; 4] = [0.; 4];
 
 /// Cutoff frequency for our PID lowpass frequency, in Hz
 #[derive(Clone, Copy)]
@@ -63,7 +65,6 @@ pub struct CtrlCoeffsPR {
     k_i_velocity: f32,
     // k_d_velocity: f32,
     // Note that we don't use the D component for our velocity PID.
-
     pid_deriv_lowpass_cutoff_rate: LowpassCutoff,
     pid_deriv_lowpass_cutoff_attitude: LowpassCutoff,
 }
@@ -85,7 +86,6 @@ impl Default for CtrlCoeffsPR {
             k_p_velocity: 0.1,
             k_i_velocity: 0.,
             // k_d_velocity: 0.,
-
             pid_deriv_lowpass_cutoff_rate: LowpassCutoff::H1k,
             pid_deriv_lowpass_cutoff_attitude: LowpassCutoff::H1k,
         }
@@ -205,17 +205,18 @@ impl PidState {
     }
 }
 
-/// Store lowpass IIR filter instances, for use with the deriv terms of our PID loop.
+/// Store lowpass IIR filter instances, for use with the deriv terms of our PID loop. Note that we don't
+/// need this for our horizontal velocity PIDs.
 pub struct PidDerivFilters {
-    pub mid_x: IirInstWrapper,
-    pub mid_y: IirInstWrapper,
-    pub mid_yaw: IirInstWrapper,
-    pub mid_thrust: IirInstWrapper,
+    pub roll_attitude: IirInstWrapper,
+    pub pitch_attitude: IirInstWrapper,
+    pub yaw_attitude: IirInstWrapper,
 
-    pub inner_x: IirInstWrapper,
-    pub inner_y: IirInstWrapper,
-    pub inner_yaw: IirInstWrapper,
-    pub inner_thrust: IirInstWrapper,
+    pub roll_rate: IirInstWrapper,
+    pub pitch_rate: IirInstWrapper,
+    pub yaw_rate: IirInstWrapper,
+
+    pub thrust: IirInstWrapper, // todo - do we need this?
 }
 
 impl PidDerivFilters {
@@ -238,29 +239,27 @@ impl PidDerivFilters {
         ];
 
         let mut result = Self {
-            mid_x: IirInstWrapper {
+            roll_attitude: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-            mid_y: IirInstWrapper {
+            pitch_attitude: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-            mid_yaw: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            mid_thrust: IirInstWrapper {
+            yaw_attitude: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
 
-            inner_x: IirInstWrapper {
+            roll_rate: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-            inner_y: IirInstWrapper {
+            pitch_rate: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-            inner_yaw: IirInstWrapper {
+            yaw_rate: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-            inner_thrust: IirInstWrapper {
+
+            thrust: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
         };
@@ -268,45 +267,41 @@ impl PidDerivFilters {
         unsafe {
             // todo: Re-initialize fn?
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.mid_x.inner,
+                &mut result.roll_attitude.inner,
                 &coeffs,
-                &mut FILTER_STATE_INNER_X,
+                &mut FILTER_STATE_ROLL_ATTITUDE,
             );
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.mid_y.inner,
+                &mut result.pitch_attitude.inner,
                 &coeffs,
-                &mut FILTER_STATE_INNER_Y,
+                &mut FILTER_STATE_PITCH_ATTITUDE,
             );
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.mid_yaw.inner,
+                &mut result.yaw_attitude.inner,
                 &coeffs,
-                &mut FILTER_STATE_INNER_YAW,
-            );
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.mid_thrust.inner,
-                &coeffs,
-                &mut FILTER_STATE_INNER_THRUST,
+                &mut FILTER_STATE_YAW_ATTITUDE,
             );
 
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.inner_x.inner,
+                &mut result.roll_rate.inner,
                 &coeffs,
-                &mut FILTER_STATE_INNER_X,
+                &mut FILTER_STATE_ROLL_RATE,
             );
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.inner_y.inner,
+                &mut result.pitch_rate.inner,
                 &coeffs,
-                &mut FILTER_STATE_INNER_Y,
+                &mut FILTER_STATE_PITCH_RATE,
             );
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.inner_yaw.inner,
+                &mut result.yaw_rate.inner,
                 &coeffs,
-                &mut FILTER_STATE_INNER_YAW,
+                &mut FILTER_STATE_YAW_RATE,
             );
+
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.inner_thrust.inner,
+                &mut result.thrust.inner,
                 &coeffs,
-                &mut FILTER_STATE_INNER_THRUST,
+                &mut FILTER_STATE_THRUST,
             );
         }
 
@@ -321,7 +316,6 @@ fn calc_pid_error(
     set_pt: f32,
     measurement: f32,
     prev_pid: &PidState,
-    // coeffs: CtrlCoeffsGroup,
     k_p: f32,
     k_i: f32,
     k_d: f32,
@@ -378,7 +372,6 @@ pub fn run_velocity(
     commands: &mut CommandState,
     coeffs: &CtrlCoeffGroup,
 ) {
-
     // todo: GO over this whole function; it's not ready! And the autopilot modes for all 3 PID fns.
     if let Some(alt_msl_commanded) = autopilot_status.recover {
         let dist_v = alt_msl_commanded - params.s_z_msl;
@@ -483,7 +476,7 @@ pub fn run_velocity(
         coeffs.pitch.k_p_velocity,
         coeffs.pitch.k_p_velocity,
         0., // first-order + delay system
-        &mut filters.mid_y,
+        &mut filters.pitch_attitude,
         DT_ATTITUDE,
     );
 
@@ -495,7 +488,7 @@ pub fn run_velocity(
         coeffs.roll.k_p_velocity,
         coeffs.roll.k_p_velocity,
         0.,
-        &mut filters.mid_x,
+        &mut filters.roll_attitude,
         DT_ATTITUDE,
     );
 
@@ -507,7 +500,7 @@ pub fn run_velocity(
         0., // todo
         0., // todo
         0.,
-        &mut filters.mid_thrust,
+        &mut filters.yaw_attitude,
         DT_ATTITUDE,
     );
 
@@ -519,7 +512,7 @@ pub fn run_velocity(
         0., // todo
         0., // todo
         0.,
-        &mut filters.mid_thrust,
+        &mut filters.thrust,
         DT_ATTITUDE,
     );
 
@@ -550,7 +543,6 @@ pub fn run_attitude(
     commands: &mut CommandState,
     coeffs: &CtrlCoeffGroup,
 ) {
-
     // todo: Come back to these autopilot modes.
     // Initiate a recovery, regardless of control mode.
     // todo: Set commanded alt to current alt.
@@ -629,7 +621,7 @@ pub fn run_attitude(
         coeffs.pitch.k_p_attitude,
         coeffs.pitch.k_i_attitude,
         coeffs.pitch.k_d_attitude,
-        &mut filters.mid_y,
+        &mut filters.pitch_attitude,
         DT_ATTITUDE,
     );
 
@@ -641,7 +633,7 @@ pub fn run_attitude(
         coeffs.roll.k_p_attitude,
         coeffs.roll.k_i_attitude,
         coeffs.roll.k_d_attitude,
-        &mut filters.mid_x,
+        &mut filters.roll_attitude,
         DT_ATTITUDE,
     );
 
@@ -654,7 +646,7 @@ pub fn run_attitude(
         coeffs.yaw.k_p_s,
         coeffs.yaw.k_i_s,
         coeffs.yaw.k_d_s,
-        &mut filters.mid_yaw,
+        &mut filters.yaw_attitude,
         DT_ATTITUDE,
     );
 
@@ -666,7 +658,7 @@ pub fn run_attitude(
         coeffs.thrust.k_p_s,
         coeffs.thrust.k_i_s,
         coeffs.thrust.k_d_s,
-        &mut filters.mid_thrust,
+        &mut filters.thrust,
         DT_ATTITUDE,
     );
 
@@ -705,7 +697,7 @@ pub fn run_rate(
 ) {
     match input_mode {
         InputMode::Acro => {
-             let power_interp_inst = dsp_sys::arm_linear_interp_instance_f32 {
+            let power_interp_inst = dsp_sys::arm_linear_interp_instance_f32 {
                 nValues: 11,
                 x1: 0.,
                 xSpacing: 0.1,
@@ -722,24 +714,18 @@ pub fn run_rate(
                     POWER_LUT[7],
                     POWER_LUT[8],
                     POWER_LUT[9],
-                ].as_mut_ptr()
+                ]
+                .as_mut_ptr(),
             };
-
 
             *rates_commanded = CtrlInputs {
                 pitch: input_map.calc_pitch_rate(manual_inputs.pitch),
                 roll: input_map.calc_roll_rate(manual_inputs.roll),
                 yaw: input_map.calc_yaw_rate(manual_inputs.yaw),
                 thrust: flight_ctrls::power_from_throttle(manual_inputs.thrust, &power_interp_inst),
-                // thrust: flight_ctrls::power_from_throttle(manual_inputs.thrust, &cfg.power_interp_inst),
             };
 
-            // todo: Come back to these!
             if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
-                // todo: In this mode, consider having the left stick being in the middle ~50% of the range mean
-                // todo hold alt, and the upper and lower 25% meaning increase set point and decrease set
-                // todo point respectively.
-                // Set a vertical velocity for the inner loop to maintain, based on distance
                 let dist = match alt_type {
                     AltType::Msl => alt_commanded - params.s_z_msl,
                     AltType::Agl => alt_commanded - params.s_z_agl,
@@ -785,7 +771,7 @@ pub fn run_rate(
         coeffs.pitch.k_p_rate,
         coeffs.pitch.k_i_rate,
         coeffs.pitch.k_d_rate,
-        &mut filters.inner_y,
+        &mut filters.pitch_rate,
         dt,
     );
 
@@ -796,7 +782,7 @@ pub fn run_rate(
         coeffs.roll.k_p_rate,
         coeffs.roll.k_i_rate,
         coeffs.roll.k_d_rate,
-        &mut filters.inner_x,
+        &mut filters.roll_rate,
         dt,
     );
 
@@ -807,7 +793,7 @@ pub fn run_rate(
         coeffs.yaw.k_p_v,
         coeffs.yaw.k_i_v,
         coeffs.yaw.k_d_v,
-        &mut filters.inner_yaw,
+        &mut filters.yaw_rate,
         dt,
     );
 
@@ -817,9 +803,27 @@ pub fn run_rate(
     let roll = input_map.calc_roll_rate_pwr(pid.roll.out());
     let yaw = input_map.calc_yaw_rate_pwr(pid.yaw.out());
 
-    // todo temp, at least for Command mode.
+    // todo: Work on this.
     let throttle = match input_mode {
-        InputMode::Acro => rates_commanded.thrust,
+        InputMode::Acro => {
+            if let Some((_, _)) = autopilot_status.alt_hold {
+                pid.thrust = calc_pid_error(
+                    input_map.calc_thrust(rates_commanded.thrust),
+                    params.v_z,
+                    &pid.thrust,
+                    coeffs.thrust.k_p_v,
+                    coeffs.thrust.k_i_v,
+                    coeffs.thrust.k_d_v,
+                    &mut filters.thrust,
+                    dt,
+                );
+
+                // input_map.calc_thrust_pwr(pid.thrust.out());
+                pid.thrust.out()
+            } else {
+                manual_inputs.thrust
+            }
+        }
         InputMode::Attitude => manual_inputs.thrust,
         InputMode::Command => rates_commanded.thrust,
     };

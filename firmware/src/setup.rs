@@ -92,6 +92,8 @@ pub fn setup_pins() {
             let _miso1 = Pin::new(Port::A, 6, PinMode::Alt(5));
             let _mosi1 = Pin::new(Port::A, 7, PinMode::Alt(5));
 
+            // todo: Output speed on SPI pins?
+
             // SPI2 for the LoRa chip
             let _sck2 = Pin::new(Port::B, 13, PinMode::Alt(5));
             let _miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
@@ -164,7 +166,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
 
     // We use Spi transfer complete to know when our readings are ready - in its ISR,
     // we trigger the attitude-rates PID loop.
-     // todo: Temp Tx (ch1) interrupt for TS.
+    // todo: Temp Tx (ch1) interrupt for TS.
     dma.enable_interrupt(DmaChannel::C1, DmaInterrupt::TransferComplete);
     dma.enable_interrupt(DmaChannel::C2, DmaInterrupt::TransferComplete);
 

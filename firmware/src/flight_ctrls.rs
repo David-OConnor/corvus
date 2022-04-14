@@ -50,9 +50,7 @@ pub const YAW_ASSIST_COEFF: f32 = 0.1;
 //     0.027, 0.075, 0.131, 0.225, 0.345, 0.473, 0.613, 0.751, 0.898, 1.0
 // ];
 
-pub const POWER_LUT: [f32; 10] = [
-    0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0
-];
+pub const POWER_LUT: [f32; 10] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
 
 /// We use this buffer for DMA transfers of IMU readings. Note that reading order is different
 /// between different IMUs, due to their reg layout, and consecutive reg reads. In both cases, 6 readings,
@@ -117,11 +115,9 @@ impl InputMap {
         map_linear(input, self.yaw_rate, YAW_PWR_RNG)
     }
 
-    // /// Note that for some uses, eg in acro mode, we apply power directly, and don't use a PID for it,
-    // /// so we don't need this or its reverse.
-    // pub fn calc_thrust(&self, input: f32) -> f32 {
-    //     map_linear(input, THRUST_IN_RNG, self.power_level)
-    // }
+    pub fn calc_thrust(&self, input: f32) -> f32 {
+        map_linear(input, THRUST_IN_RNG, self.power_level)
+    }
 
     /// eg for attitude mode.
     pub fn calc_pitch_angle(&self, input: f32) -> f32 {
@@ -614,17 +610,26 @@ pub fn enroute_speed_ver(dist: f32, max_v: f32, z_agl: f32) -> f32 {
     result
 }
 
+// todo:
+// /// Maybe we do map to acceleration at low speeds or power levels, but then go straight V pid?
+// fn enroute_accel(desired_v, current_v) -> Option<f32> {
+//}
+
 /// Calculate power level to send to the ESC, from throttle setting. This is set up in a way to map
 /// linearly between throttle setting and thrust, with an idle floor for power. Both values are on a scale of 0. to
 /// 1., but the map isn't linear.
 /// [This article](https://innov8tivedesigns.com/images/specs/Prop-Chart-Instructions-B.pdf) has
 /// some plots of relevant info. This fn is based on the "Propeller Thrust vs Throttle Position" chart.
 // todo: Fn, or LUT+interp? Maybe with CMSIS
-pub fn power_from_throttle(throttle: f32, interp_inst: &dsp_sys::arm_linear_interp_instance_f32) -> f32 {
+pub fn power_from_throttle(
+    throttle: f32,
+    interp_inst: &dsp_sys::arm_linear_interp_instance_f32,
+) -> f32 {
     // todo: We currently have fixed spacing in our LUT between throttle settings,
     // todo, but we need to reverse that!
 
-
+    // todo: Is the setting we pass to ESC raw power, or is it RPM???
+    // todo if RPM, you need to change this.
 
     // todo: Can't find this fn? Why??
     // dsp_sys::arm_linear_interp_f32(interp_inst, throttle)

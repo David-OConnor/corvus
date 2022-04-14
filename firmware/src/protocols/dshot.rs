@@ -1,5 +1,4 @@
 //! This module contains code for the DSHOT digital protocol, using to control motor speed.
-//! [Implementation in C++ we use code from](https://github.com/korken89/crect_dshot_stm32/blob/master/tim_dma.hpp)
 //!
 //! [Some information on the protocol](https://brushlesswhoop.com/dshot-and-bidirectional-dshot/):
 //! Every digital protocol has a structure, also called a frame. It defines which information is at
@@ -17,11 +16,17 @@
 
 use stm32_hal2::{
     dma::{ChannelCfg, Dma, DmaChannel},
+    gpio, pac,
     pac::{DMA1, TIM2, TIM3},
-    timer::{TimChannel, Timer},
-    gpio,
-    pac,
+    timer::{CountDir, OutputCompare, Polarity, TimChannel, Timer, TimerInterrupt},
 };
+
+// todo: Bidirectional: Set timers to active low, set GPIO idle to high, and perhaps set down counting
+// todo if required. Then figure out input capture, and fix in HAL.
+
+// todo (Probalby in another module) - RPM filtering, once you have bidirectional DSHOT working.
+// Article: https://brushlesswhoop.com/betaflight-rpm-filter/
+// todo: Basically, you set up a notch filter at rotor RPM. (I think; QC this)
 
 use defmt::println;
 
@@ -29,21 +34,10 @@ use cfg_if::cfg_if;
 
 use crate::Rotor;
 
-// todo: Bidirectional!
-
-// The frequency our motor-driving PWM operates at, in Hz.
-// todo: Make this higher (eg 96kHz) after making sure the ESC
-// const PWM_FREQ: f32 = 12_000.;
-
 // Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
 // so we can set duty cycle appropriately for DSHOT.
 // These are set for a 200MHz timer frequency.
 // (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period.
-
-// todo: On H7, will we get more precision with 400mhz tim clock, vice 200? Is that possible?
-
-// Set up for DSHOT-600. (600k bits/second) So, timer frequency = 600kHz.
-// todo: (PSC = 0, AAR = 332 results in a 600.6kHz update freq; not 600kHz exactly. Is that ok?)
 
 cfg_if! {
     if #[cfg(feature = "mercury-h7")] {
@@ -59,9 +53,6 @@ cfg_if! {
 // Duty cycle values (to be written to CCMRx), based on our ARR value. 0. = 0%. ARR = 100%.
 const DUTY_HIGH: u16 = DSHOT_ARR_600 * 3 / 4;
 const DUTY_LOW: u16 = DSHOT_ARR_600 * 3 / 8;
-
-// DSHOT-600
-pub const DSHOT_FREQ: f32 = 600_000.;
 
 // DMA buffers for each rotor. 16-bit data. Note that
 // rotors 1/2 and 3/4 share a timer, so we can use the same DMA stream with them. Data for the 2
@@ -129,6 +120,22 @@ pub enum CmdType {
     Power(f32),
 }
 
+pub fn setup_timers(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
+    timer_a.set_prescaler(DSHOT_PSC_600);
+    timer_a.set_auto_reload(DSHOT_ARR_600 as u32);
+    timer_b.set_prescaler(DSHOT_PSC_600);
+    timer_b.set_auto_reload(DSHOT_ARR_600 as u32);
+
+    timer_a.enable_interrupt(TimerInterrupt::UpdateDma);
+    timer_b.enable_interrupt(TimerInterrupt::UpdateDma);
+
+    // Arbitrary duty cycle set, since we'll override it with DMA bursts.
+    timer_a.enable_pwm_output(Rotor::R1.tim_channel(), OutputCompare::Pwm1, 0.);
+    timer_a.enable_pwm_output(Rotor::R2.tim_channel(), OutputCompare::Pwm1, 0.);
+    timer_b.enable_pwm_output(Rotor::R3.tim_channel(), OutputCompare::Pwm1, 0.);
+    timer_b.enable_pwm_output(Rotor::R4.tim_channel(), OutputCompare::Pwm1, 0.);
+}
+
 // todo: Do we need compiler fences between payload seup, and starting the DMA writes? Consider adding if you
 // todo run into trouble.
 
@@ -141,9 +148,8 @@ pub fn stop_all(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>, dma: &mut 
     //
     // send_payload_a(timer_a, dma);
     // send_payload_b(timer_b, dma);
-
     set_power_a(Rotor::R1, Rotor::R2, 0., 0., timer_a, dma);
-    set_power_b(Rotor::R3, Rotor::R4, 0., 0., timer_a, dma);
+    set_power_b(Rotor::R3, Rotor::R4, 0., 0., timer_b, dma);
 }
 
 /// Set up the direction for each motor, in accordance with user config.
@@ -223,7 +229,6 @@ pub fn setup_payload(rotor: Rotor, cmd: CmdType) {
     }
 
     // Note that the end stays 0-padded, since we init with 0s, and never change those values.
-
 }
 
 /// Set an individual rotor's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
@@ -265,8 +270,12 @@ fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
 
     // Set back to alternate function.
     unsafe {
-        (*pac::GPIOA::ptr()).moder.modify(|_, w| w.moder0().bits(0b10));
-        (*pac::GPIOA::ptr()).moder.modify(|_, w| w.moder1().bits(0b10));
+        (*pac::GPIOA::ptr())
+            .moder
+            .modify(|_, w| w.moder0().bits(0b10));
+        (*pac::GPIOA::ptr())
+            .moder
+            .modify(|_, w| w.moder1().bits(0b10));
     }
 
     unsafe {
@@ -290,8 +299,12 @@ fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     dma.stop(Rotor::R3.dma_channel());
 
     unsafe {
-        (*pac::GPIOB::ptr()).moder.modify(|_, w| w.moder0().bits(0b10));
-        (*pac::GPIOB::ptr()).moder.modify(|_, w| w.moder1().bits(0b10));
+        (*pac::GPIOB::ptr())
+            .moder
+            .modify(|_, w| w.moder0().bits(0b10));
+        (*pac::GPIOB::ptr())
+            .moder
+            .modify(|_, w| w.moder1().bits(0b10));
     }
 
     unsafe {
@@ -304,4 +317,41 @@ fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
             dma,
         );
     }
+}
+
+/// Configure the PWM to be active low, used for bidirectional DSHOT
+pub fn enable_bidirectional(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
+    // Todo: Experiment with this.
+    timer_a.set_polarity(Rotor::R1.tim_channel(), Polarity::ActiveHigh);
+    timer_a.set_polarity(Rotor::R2.tim_channel(), Polarity::ActiveHigh);
+    timer_b.set_polarity(Rotor::R3.tim_channel(), Polarity::ActiveHigh);
+    timer_b.set_polarity(Rotor::R4.tim_channel(), Polarity::ActiveHigh);
+
+    timer_a.cfg.direction = CountDir::Down;
+    timer_b.cfg.direction = CountDir::Down;
+
+    timer_a.set_dir();
+    timer_b.set_dir();
+
+    // // Set idle state to low for both rotor timers
+    // unsafe {
+    //     (*pac::TIM2::ptr()).cr2.modify(|_, w| w.ois1().set_bit());
+    //     (*pac::TIM2::ptr()).cr2.modify(|_, w| w.ois2().set_bit());
+    //     (*pac::TIM3::ptr()).cr2.modify(|_, w| w.ois3().set_bit());
+    //     (*pac::TIM3::ptr()).cr2.modify(|_, w| w.ois4().set_bit());
+    // }
+}
+
+/// Configure the PWM to be active high, used for unidirectional DSHOT
+pub fn disable_bidirectional(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
+    timer_a.set_polarity(Rotor::R1.tim_channel(), Polarity::ActiveLow);
+    timer_a.set_polarity(Rotor::R2.tim_channel(), Polarity::ActiveLow);
+    timer_b.set_polarity(Rotor::R3.tim_channel(), Polarity::ActiveLow);
+    timer_b.set_polarity(Rotor::R4.tim_channel(), Polarity::ActiveLow);
+
+    timer_a.cfg.direction = CountDir::Up;
+    timer_b.cfg.direction = CountDir::Up;
+
+    timer_a.set_dir();
+    timer_b.set_dir();
 }

@@ -16,21 +16,24 @@ use stm32_hal2::{
     self,
     adc::{Adc, AdcDevice},
     clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllSrc},
-    dma::{self, Dma, DmaChannel, DmaInterrupt, ChannelCfg},
     dac, // todo temp
+    dma::{self, ChannelCfg, Dma, DmaChannel, DmaInterrupt},
     flash::Flash,
     gpio::{Edge, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
     pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM2, TIM3},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
-    timer::{self, OutputCompare, TimChannel, Timer, TimerConfig, Alignment, TimerInterrupt, MasterModeSelection},
+    timer::{
+        self, Alignment, MasterModeSelection, OutputCompare, TimChannel, Timer, TimerConfig,
+        TimerInterrupt,
+    },
     usart::Usart,
     usb,
 };
 
 #[cfg(feature = "mercury-h7")]
-use stm32_hal2::clocks::{PllCfg};
+use stm32_hal2::clocks::PllCfg;
 
 use cmsis_dsp_sys as dsp_sys;
 
@@ -75,15 +78,16 @@ mod setup;
 // if #[cfg(feature = "mercury-h7")] {
 use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
-// use drivers::imu_icm42605 as imu;
-use drivers::imu_ism330dhcx as imu;
+use drivers::imu_icm426xx as imu;
+// use drivers::imu_ism330dhcx as imu;
 use drivers::tof_vl53l1 as tof;
 
 // use protocols::{dshot, elrs};
 use protocols::dshot;
 
 use flight_ctrls::{
-    ArmStatus, AutopilotStatus, CommandState, CtrlInputs, InputMap, InputMode, Params, RotorPower, POWER_LUT,
+    ArmStatus, AutopilotStatus, CommandState, CtrlInputs, InputMap, InputMode, Params, RotorPower,
+    POWER_LUT,
 };
 
 use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
@@ -93,7 +97,6 @@ const DT_TIM_FREQ: u32 = 200_000_000;
 
 // 6 readings; 2 bytes each.
 static mut IMU_READINGS: [u8; 6 * 2] = [0; 6 * 2];
-
 
 // The rate our main program updates, in Hz.
 // Currently set to
@@ -256,7 +259,7 @@ impl Default for UserCfg {
             max_angle: TAU * 0.22,
             max_velocity: 30., // todo: raise?
             // Note: Idle power now handled in `power_interp_inst`
-            idle_pwr: 0.02,      // scale of 0 to 1.
+            idle_pwr: 0.02, // scale of 0 to 1.
             // todo: Find apt value for these
             pitch_input_range: (0., 1.),
             roll_input_range: (0., 1.),
@@ -476,11 +479,13 @@ mod app {
         let mut dp = pac::Peripherals::take().unwrap();
 
         unsafe {
-            (*pac::RCC::ptr()).ahb2enr.modify(|_, w| w.gpioaen().set_bit());
+            (*pac::RCC::ptr())
+                .ahb2enr
+                .modify(|_, w| w.gpioaen().set_bit());
         }
 
         #[cfg(feature = "mercury-h7")]
-            SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
+        SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
 
         // Set up clocks
         let clock_cfg = Clocks {
@@ -525,45 +530,50 @@ mod app {
         // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
         // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
         #[cfg(feature = "mercury-g4")]
-            // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
-            let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
+        // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
+        // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
+        let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
+        let imu_baud_div = BaudRate::Div64; // todo: Lower clock speed to TS IMU not working.
         #[cfg(feature = "mercury-h7")]
-            // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
-            let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
+        // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
+        let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
 
         let imu_spi_cfg = SpiConfig {
-            mode: SpiMode::mode3(), // todo: Is this required?
+            // Per ICM42688 and ISM330 DSs, we need either mode 2 or mode 3, but I'm not sure which.
+            // todo: Leaning mode 2.
+            mode: SpiMode::mode3(),
             ..Default::default()
         };
 
         let mut spi1 = Spi::new(dp.SPI1, imu_spi_cfg, imu_baud_div);
 
         #[cfg(feature = "mercury-h7")]
-            let mut cs_imu = Pin::new(Port::E, 11, PinMode::Output);
+        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
         #[cfg(feature = "mercury-g4")]
-            let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+
+        let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
+        delay.delay_ms(100);
 
         println!("Pre IMU setup");
-        imu::setup(&mut spi1, &mut cs_imu);
+        imu::setup(&mut spi1, &mut cs_imu, &mut delay);
         println!("IMU setup complete");
 
         // todo: Testing IMU
-        let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
 
-        // loop {
-        //     let readings = imu::read_all(&mut spi1, &mut cs_imu);
-        //     println!(
-        //         "Ax: {}, Ay: {}, Az: {}, pitch: {}, roll: {}, yaw: {}",
-        //         readings.a_x,
-        //         readings.a_y,
-        //         readings.a_z,
-        //         readings.v_pitch,
-        //         readings.v_roll,
-        //         readings.v_yaw
-        //     );
-        //     delay.delay_ms(500);
-        // }
-
+        loop {
+            let readings = imu::read_all(&mut spi1, &mut cs_imu);
+            println!(
+                "Ax: {}, Ay: {}, Az: {}, pitch: {}, roll: {}, yaw: {}",
+                readings.a_x,
+                readings.a_y,
+                readings.a_z,
+                readings.v_pitch,
+                readings.v_roll,
+                readings.v_yaw
+            );
+            delay.delay_ms(500);
+        }
 
         // todo IMU  test complete.
 
@@ -629,8 +639,12 @@ mod app {
 
         // Set rate to UPDATE_RATE_ATTITUDE; the slower velocity-update timer will run once
         // every few of these updates.
-        let mut update_timer =
-            Timer::new_tim15(dp.TIM15, UPDATE_RATE_ATTITUDE, Default::default(), &clock_cfg);
+        let mut update_timer = Timer::new_tim15(
+            dp.TIM15,
+            UPDATE_RATE_ATTITUDE,
+            Default::default(),
+            &clock_cfg,
+        );
         update_timer.enable_interrupt(TimerInterrupt::Update);
 
         let rotor_timer_cfg = TimerConfig {
@@ -659,32 +673,7 @@ mod app {
             }
         }
 
-        rotor_timer_a.set_prescaler(dshot::DSHOT_PSC_600);
-        rotor_timer_a.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
-        rotor_timer_b.set_prescaler(dshot::DSHOT_PSC_600);
-        rotor_timer_b.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
-
-        rotor_timer_a.enable_interrupt(TimerInterrupt::UpdateDma);
-        rotor_timer_b.enable_interrupt(TimerInterrupt::UpdateDma);
-
-        // Arbitrary duty cycle set, since we'll override it with DMA bursts.
-        rotor_timer_a.enable_pwm_output(Rotor::R1.tim_channel(), OutputCompare::Pwm1, 0.);
-        rotor_timer_a.enable_pwm_output(Rotor::R2.tim_channel(), OutputCompare::Pwm1, 0.);
-        rotor_timer_b.enable_pwm_output(Rotor::R3.tim_channel(), OutputCompare::Pwm1, 0.);
-        rotor_timer_b.enable_pwm_output(Rotor::R4.tim_channel(), OutputCompare::Pwm1, 0.);
-
-        // rotor_timer_a.set_polarity(Rotor::R1.tim_channel(), timer::Polarity::ActiveHigh);
-        // rotor_timer_a.set_polarity(Rotor::R2.tim_channel(), timer::Polarity::ActiveHigh);
-        // rotor_timer_b.set_polarity(Rotor::R3.tim_channel(), timer::Polarity::ActiveHigh);
-        // rotor_timer_b.set_polarity(Rotor::R4.tim_channel(), timer::Polarity::ActiveHigh);
-        //
-        // // Set idle state to low for both rotor timers
-        // unsafe {
-        //     (*pac::TIM2::ptr()).cr2.modify(|_, w| w.ois1().set_bit());
-        //     (*pac::TIM2::ptr()).cr2.modify(|_, w| w.ois2().set_bit());
-        //     (*pac::TIM3::ptr()).cr2.modify(|_, w| w.ois3().set_bit());
-        //     (*pac::TIM3::ptr()).cr2.modify(|_, w| w.ois4().set_bit());
-        // }
+        dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
 
         let mut dma = Dma::new(dp.DMA1);
         #[cfg(feature = "mercury-g4")]
@@ -694,13 +683,12 @@ mod app {
 
         let mut user_cfg = UserCfg::default();
 
-        // todo: Put back.
-        // dshot::setup_motor_dir(
-        //     user_cfg.motors_reversed,
-        //     &mut rotor_timer_a,
-        //     &mut rotor_timer_b,
-        //     &mut dma,
-        // );
+        dshot::setup_motor_dir(
+            user_cfg.motors_reversed,
+            &mut rotor_timer_a,
+            &mut rotor_timer_b,
+            &mut dma,
+        );
 
         // We use `dt_timer` to count the time between IMU updates, for use in the PID loop
         // integral, derivative, and filters. If set to 1Mhz, the CNT value is the number of
@@ -835,28 +823,18 @@ mod app {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
 
         // todo: Dshot test
-        (cx.shared.rotor_timer_a, cx.shared.rotor_timer_b, cx.shared.dma)
+        (
+            cx.shared.rotor_timer_a,
+            cx.shared.rotor_timer_b,
+            cx.shared.dma,
+        )
             .lock(|rotor_timer_a, rotor_timer_b, dma| {
                 unsafe {
                     // println!("DMA ISR {}", dma.regs.isr.read().bits());
 
-                    dshot::set_power_a(
-                        Rotor::R1,
-                        Rotor::R2,
-                        0.8,
-                        0.2,
-                        rotor_timer_a,
-                        dma,
-                    );
+                    dshot::set_power_a(Rotor::R1, Rotor::R2, 0.8, 0.2, rotor_timer_a, dma);
 
-                    dshot::set_power_b(
-                        Rotor::R3,
-                        Rotor::R4,
-                        1.,
-                        0.3,
-                        rotor_timer_b,
-                        dma,
-                    );
+                    dshot::set_power_b(Rotor::R3, Rotor::R4, 1., 0.3, rotor_timer_b, dma);
                 }
             });
         return; // todo temp for test
@@ -928,7 +906,10 @@ mod app {
                             );
 
                             if input_mode == &InputMode::Command {
-                                if LOOP_I.fetch_add(1, Ordering::Relaxed) % VELOCITY_ATTITUDE_UPDATE_RATIO == 0 {
+                                if LOOP_I.fetch_add(1, Ordering::Relaxed)
+                                    % VELOCITY_ATTITUDE_UPDATE_RATIO
+                                    == 0
+                                {
                                     pid::run_velocity(
                                         params,
                                         manual_inputs,
@@ -947,7 +928,8 @@ mod app {
                             }
                         }
                     }
-                })
+                },
+            )
     }
 
     /// Runs when new IMU data is recieved. This functions as our PID inner loop, and updates
@@ -961,9 +943,9 @@ mod app {
 
         unsafe {
             // Clear the interrupt flag.
-                #[cfg(feature = "mercury-h7")]
+            #[cfg(feature = "mercury-h7")]
             (*pac::EXTI::ptr()).c1pr1.modify(|_, w| w.pr15().set_bit());
-                #[cfg(feature = "mercury-g4")]
+            #[cfg(feature = "mercury-g4")]
             (*pac::EXTI::ptr()).pr1.modify(|_, w| w.pif15().set_bit());
         }
 
@@ -1083,30 +1065,30 @@ mod app {
         })
     }
 
-// todo: Put this USB ISR back in once you've sorted your RTIC resource for usb_dev and usb_serial.
-// #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params], local = [], priority = 3)]
-// /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
-// /// application.
-// fn usb_isr(mut cx: usb_isr::Context) {
-//     (cx.shared.usb_dev, cx.shared.usb_serial, cx.shared.params).lock(
-//         |usb_dev, usb_serial, params| {
-//             if !usb_dev.poll(&mut [usb_serial]) {
-//                 return;
-//             }
-//
-//             let mut buf = [0u8; 8];
-//             match usb_serial.read(&mut buf) {
-//                 // todo: match all start bits and end bits. Running into an error using the naive approach.
-//                 Ok(count) => {
-//                     usb_serial.write(&[1, 2, 3]).ok();
-//                 }
-//                 Err(_) => {
-//                     //...
-//                 }
-//             }
-//         },
-//     )
-// }
+    // todo: Put this USB ISR back in once you've sorted your RTIC resource for usb_dev and usb_serial.
+    // #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params], local = [], priority = 3)]
+    // /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
+    // /// application.
+    // fn usb_isr(mut cx: usb_isr::Context) {
+    //     (cx.shared.usb_dev, cx.shared.usb_serial, cx.shared.params).lock(
+    //         |usb_dev, usb_serial, params| {
+    //             if !usb_dev.poll(&mut [usb_serial]) {
+    //                 return;
+    //             }
+    //
+    //             let mut buf = [0u8; 8];
+    //             match usb_serial.read(&mut buf) {
+    //                 // todo: match all start bits and end bits. Running into an error using the naive approach.
+    //                 Ok(count) => {
+    //                     usb_serial.write(&[1, 2, 3]).ok();
+    //                 }
+    //                 Err(_) => {
+    //                     //...
+    //                 }
+    //             }
+    //         },
+    //     )
+    // }
 
     // #[task(binds = TIM2, shared = [rotor_timer_a], priority = 3)]
     // /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
@@ -1136,9 +1118,13 @@ mod app {
 
         // Set to Output pin, low.
         unsafe {
-            (*pac::GPIOA::ptr()).moder.modify(|_, w| w.moder0().bits(0b01));
+            (*pac::GPIOA::ptr())
+                .moder
+                .modify(|_, w| w.moder0().bits(0b01));
             (*pac::GPIOA::ptr()).bsrr.write(|w| w.br0().set_bit());
-            (*pac::GPIOA::ptr()).moder.modify(|_, w| w.moder1().bits(0b01));
+            (*pac::GPIOA::ptr())
+                .moder
+                .modify(|_, w| w.moder1().bits(0b01));
             (*pac::GPIOA::ptr()).bsrr.write(|w| w.br1().set_bit());
         }
     }
@@ -1155,9 +1141,13 @@ mod app {
 
         // Set to Output pin, low.
         unsafe {
-            (*pac::GPIOB::ptr()).moder.modify(|_, w| w.moder0().bits(0b01));
+            (*pac::GPIOB::ptr())
+                .moder
+                .modify(|_, w| w.moder0().bits(0b01));
             (*pac::GPIOB::ptr()).bsrr.write(|w| w.br0().set_bit());
-            (*pac::GPIOB::ptr()).moder.modify(|_, w| w.moder1().bits(0b01));
+            (*pac::GPIOB::ptr())
+                .moder
+                .modify(|_, w| w.moder1().bits(0b01));
             (*pac::GPIOB::ptr()).bsrr.write(|w| w.br1().set_bit());
         }
     }
