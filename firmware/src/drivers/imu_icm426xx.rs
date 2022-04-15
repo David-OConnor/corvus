@@ -24,7 +24,7 @@ const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
 
 // todo: Use WHOAMI etc to determine if we have this, or the ST IMU
 
-// todo: Do we want FIFO for retrieving all readings at once?
+// todo: Calibration
 
 /// See Datasheet, Section 13.1 (Note: This doesn't include all regs)
 #[derive(Clone, Copy)]
@@ -52,6 +52,7 @@ enum Reg {
     GyroDataZ1 = 0x29,
     GyroDataZ0 = 0x2a,
 
+    IntStatus = 0x2d,
     PwrMgmt0 = 0x4E,
     GyroConfig0 = 0x4F,
     AccelConfig0 = 0x50,
@@ -87,7 +88,8 @@ fn read_one(reg: Reg, spi: &mut Spi<SPI1>, cs: &mut Pin) -> u8 {
     spi.transfer(&mut buf).ok();
     cs.set_high();
 
-    buf[0]
+    // buf[0]
+    buf[1]
 }
 
 /// Utility function to write a single byte.
@@ -101,26 +103,21 @@ fn write_one(reg: Reg, word: u8, spi: &mut Spi<SPI1>, cs: &mut Pin) {
 pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) {
     // Leave default of SPI mode 0 and 3.
 
-    let t = read_one(Reg::PwrMgmt0, spi, cs);
-    defmt::println!("Pwr before: {}", t);
-
     // Enable gyros and accelerometers in low noise mode.
     write_one(Reg::PwrMgmt0, 0b0000_1111, spi, cs);
 
-    let t = read_one(Reg::PwrMgmt0, spi, cs);
-    defmt::println!("Pwr after: {}", t);
-
     // Set gyros and accelerometers to 8kHz update rate, 2000 DPS gyro full scale range,
     // and +-16g accelerometer full scale range.
-    write_one(Reg::GyroConfig0, 0b0000_1111, spi, cs);
-
+    write_one(Reg::GyroConfig0, 0b0000_0011, spi, cs);
     // "When transitioning from OFF to any of the other modes, do not issue any
     // register writes for 200µs." (Gyro and accel)
     delay.delay_us(200);
 
-    write_one(Reg::AccelConfig0, 0b0000_1111, spi, cs);
-
+    write_one(Reg::AccelConfig0, 0b0000_0011, spi, cs);
     delay.delay_us(200);
+
+    // (Leave default interrupt settings of active low, push pull, pulsed.)
+    // write_one(Reg::IntConfig, 0b0000_0000, spi, cs);
 
     // Enable UI data ready interrupt routed to INT1
     write_one(Reg::IntSource0, 0b0000_1000, spi, cs);
@@ -141,12 +138,12 @@ pub fn read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> f32 {
 }
 
 /// Output: m/s^2
-fn interpret_accel(accel: i16) -> f32 {
+pub fn interpret_accel(accel: i16) -> f32 {
     (accel as f32 / i16::MAX as f32) * ACCEL_FULLSCALE
 }
 
 /// Output: rad/s
-fn interpret_gyro(accel: i16) -> f32 {
+pub fn interpret_gyro(accel: i16) -> f32 {
     (accel as f32 / i16::MAX as f32) * ACCEL_FULLSCALE
 }
 
@@ -170,8 +167,8 @@ pub fn read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> ImuReadings {
     let a_y = interpret_accel(i16::from_be_bytes([accel_y_upper, accel_y_lower]));
     let a_z = interpret_accel(i16::from_be_bytes([accel_z_upper, accel_z_lower]));
 
-    let v_roll = interpret_gyro(i16::from_be_bytes([gyro_x_upper, gyro_x_lower]));
-    let v_pitch = interpret_gyro(i16::from_be_bytes([gyro_y_upper, gyro_y_lower]));
+    let v_pitch = interpret_gyro(i16::from_be_bytes([gyro_x_upper, gyro_x_lower]));
+    let v_roll = interpret_gyro(i16::from_be_bytes([gyro_y_upper, gyro_y_lower]));
     let v_yaw = interpret_gyro(i16::from_be_bytes([gyro_z_upper, gyro_z_lower]));
 
     // todo: How do we map these to radians per second and m/s^2?
@@ -189,43 +186,42 @@ pub fn read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> ImuReadings {
 pub fn read_all_dma(spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
     // todo: Is this right? What should it be?
     let buf = [
-        Reg::AccelDataX1 as u8,
-        Reg::AccelDataX0 as u8,
-        Reg::AccelDataY1 as u8,
-        Reg::AccelDataY0 as u8,
-        Reg::AccelDataZ1 as u8,
-        Reg::AccelDataZ0 as u8,
-        Reg::GyroDataX1 as u8,
-        Reg::GyroDataX0 as u8,
-        Reg::GyroDataY1 as u8,
-        Reg::GyroDataY0 as u8,
-        Reg::GyroDataZ1 as u8,
-        Reg::GyroDataZ0 as u8,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-    ]; // todo
+        Reg::AccelDataX1.read_addr(),
+        Reg::AccelDataX0.read_addr(),
+        Reg::AccelDataY1.read_addr(),
+        Reg::AccelDataY0.read_addr(),
+        Reg::AccelDataZ1.read_addr(),
+        Reg::AccelDataZ0.read_addr(),
+        Reg::GyroDataX1.read_addr(),
+        Reg::GyroDataX0.read_addr(),
+        Reg::GyroDataY1.read_addr(),
+        Reg::GyroDataY0.read_addr(),
+        Reg::GyroDataZ1.read_addr(),
+        Reg::GyroDataZ0.read_addr(),
+    ];
 
     cs.set_low();
     // imu::read_all(spi, cx.local.imu_cs));
 
-    unsafe {
-        spi.write_dma(&buf, DmaChannel::C1, Default::default(), dma);
-    }
+    // unsafe {
+    //     spi.write_dma(&buf, DmaChannel::C1, Default::default(), dma);
+    // }
 
+    // (The read command is in the Tx DMA xfer-complete ISR.)
     unsafe {
-        spi.read_dma(
+        // spi.read_dma(
+        //     &mut crate::IMU_READINGS,
+        //     DmaChannel::C2,
+        //     Default::default(),
+        //     dma,
+        // );
+
+        spi.transfer_dma(
+            &buf,
             &mut crate::IMU_READINGS,
+            DmaChannel::C1,
             DmaChannel::C2,
+            Default::default(),
             Default::default(),
             dma,
         );

@@ -78,7 +78,8 @@ mod setup;
 // if #[cfg(feature = "mercury-h7")] {
 use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
-use drivers::imu_icm426xx as imu;
+// pub use, so we can use this rename in `sensor_fusion` to interpret the DMA buf.
+pub use drivers::imu_icm426xx as imu;
 // use drivers::imu_ism330dhcx as imu;
 use drivers::tof_vl53l1 as tof;
 
@@ -97,6 +98,7 @@ const DT_TIM_FREQ: u32 = 200_000_000;
 
 // 6 readings; 2 bytes each.
 static mut IMU_READINGS: [u8; 6 * 2] = [0; 6 * 2];
+// static mut IMU_READINGS: [u8; 4] = [0; 4];
 
 // The rate our main program updates, in Hz.
 // Currently set to
@@ -446,6 +448,7 @@ mod app {
         manual_inputs: CtrlInputs,
         current_pwr: RotorPower,
         dma: Dma<DMA1>,
+        spi1: Spi<SPI1>,
         spi2: Spi<SPI2>,
         cs_imu: Pin,
         i2c1: I2c<I2C1>,
@@ -467,7 +470,6 @@ mod app {
 
     #[local]
     struct Local {
-        spi1: Spi<SPI1>,
         spi3: Spi<SPI3>,
     }
 
@@ -530,17 +532,16 @@ mod app {
         // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
         // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
         #[cfg(feature = "mercury-g4")]
+        // todo: Switch to higher speed.
         // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
         // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
         let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
-        let imu_baud_div = BaudRate::Div64; // todo: Lower clock speed to TS IMU not working.
         #[cfg(feature = "mercury-h7")]
         // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
         let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
 
         let imu_spi_cfg = SpiConfig {
-            // Per ICM42688 and ISM330 DSs, we need either mode 2 or mode 3, but I'm not sure which.
-            // todo: Leaning mode 2.
+            // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
             mode: SpiMode::mode3(),
             ..Default::default()
         };
@@ -558,24 +559,6 @@ mod app {
         println!("Pre IMU setup");
         imu::setup(&mut spi1, &mut cs_imu, &mut delay);
         println!("IMU setup complete");
-
-        // todo: Testing IMU
-
-        loop {
-            let readings = imu::read_all(&mut spi1, &mut cs_imu);
-            println!(
-                "Ax: {}, Ay: {}, Az: {}, pitch: {}, roll: {}, yaw: {}",
-                readings.a_x,
-                readings.a_y,
-                readings.a_z,
-                readings.v_pitch,
-                readings.v_roll,
-                readings.v_yaw
-            );
-            delay.delay_ms(500);
-        }
-
-        // todo IMU  test complete.
 
         // We use SPI2 for the LoRa ELRS chip.  // todo: Find max speed and supported modes.
         let spi2 = Spi::new(dp.SPI2, Default::default(), BaudRate::Div32);
@@ -762,6 +745,7 @@ mod app {
                 manual_inputs: Default::default(),
                 current_pwr: Default::default(),
                 dma,
+                spi1,
                 spi2,
                 cs_imu,
                 i2c1,
@@ -778,7 +762,7 @@ mod app {
                 base_point,
                 command_state: Default::default(),
             },
-            Local { spi1, spi3 },
+            Local { spi3 },
             init::Monotonics(),
         )
     }
@@ -822,21 +806,52 @@ mod app {
     fn update_isr(cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
 
-        // todo: Dshot test
         (
+            cx.shared.command_state,
             cx.shared.rotor_timer_a,
             cx.shared.rotor_timer_b,
             cx.shared.dma,
         )
-            .lock(|rotor_timer_a, rotor_timer_b, dma| {
-                unsafe {
-                    // println!("DMA ISR {}", dma.regs.isr.read().bits());
-
-                    dshot::set_power_a(Rotor::R1, Rotor::R2, 0.8, 0.2, rotor_timer_a, dma);
-
-                    dshot::set_power_b(Rotor::R3, Rotor::R4, 1., 0.3, rotor_timer_b, dma);
+            .lock(|state, rotor_timer_a, rotor_timer_b, dma| {
+                if state.armed != ArmStatus::Armed {
+                    dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
                 }
             });
+
+        println!("Update ISR");
+        // todo: Testing IMU
+
+        // loop {
+        //     let readings = imu::read_all(&mut spi1, &mut cs_imu);
+        //     println!(
+        //         "Ax: {}, Ay: {}, Az: {}, pitch: {}, roll: {}, yaw: {}",
+        //         readings.a_x,
+        //         readings.a_y,
+        //         readings.a_z,
+        //         readings.v_pitch,
+        //         readings.v_roll,
+        //         readings.v_yaw
+        //     );
+        // }
+        return;
+
+        // todo IMU  test complete.
+
+        // todo: Dshot test
+        // (
+        //     cx.shared.rotor_timer_a,
+        //     cx.shared.rotor_timer_b,
+        //     cx.shared.dma,
+        // )
+        //     .lock(|rotor_timer_a, rotor_timer_b, dma| {
+        //         unsafe {
+        //             // println!("DMA ISR {}", dma.regs.isr.read().bits());
+        //
+        //             dshot::set_power_a(Rotor::R1, Rotor::R2, 0.8, 0.2, rotor_timer_a, dma);
+        //
+        //             dshot::set_power_b(Rotor::R3, Rotor::R4, 1., 0.3, rotor_timer_b, dma);
+        //         }
+        //     });
         return; // todo temp for test
 
         (
@@ -935,57 +950,49 @@ mod app {
     /// Runs when new IMU data is recieved. This functions as our PID inner loop, and updates
     /// pitch and roll. We use this ISR with an interrupt from the IMU, since we wish to
     /// update rotor power settings as soon as data is available.
-    #[task(binds = EXTI15_10, shared = [
-    cs_imu, dma, rotor_timer_a, rotor_timer_b, command_state
-    ], local = [spi1], priority = 4)]
-    fn imu_data_isr(mut cx: imu_data_isr::Context) {
-        println!("IMU DATA ISR");
+    #[task(binds = EXTI4, shared = [cs_imu, dma, spi1], priority = 4)]
+    fn imu_data_isr(cx: imu_data_isr::Context) {
+        // println!("IMU DATA ISR");
 
         unsafe {
             // Clear the interrupt flag.
             #[cfg(feature = "mercury-h7")]
-            (*pac::EXTI::ptr()).c1pr1.modify(|_, w| w.pr15().set_bit());
+            (*pac::EXTI::ptr()).c1pr1.modify(|_, w| w.pr4().set_bit());
             #[cfg(feature = "mercury-g4")]
-            (*pac::EXTI::ptr()).pr1.modify(|_, w| w.pif15().set_bit());
+            (*pac::EXTI::ptr()).pr1.modify(|_, w| w.pif4().set_bit());
         }
 
-        (
-            cx.shared.command_state,
-            cx.shared.rotor_timer_a,
-            cx.shared.rotor_timer_b,
-            cx.shared.dma,
-            cx.shared.cs_imu,
-        )
-            .lock(|state, rotor_timer_a, rotor_timer_b, dma, cs_imu| {
-                if state.armed != ArmStatus::Armed {
-                    dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
-                }
-
-                imu::read_all_dma(cx.local.spi1, cs_imu, dma);
-            });
+        (cx.shared.dma, cx.shared.cs_imu, cx.shared.spi1).lock(|dma, cs_imu, spi| {
+            imu::read_all_dma(spi, cs_imu, dma);
+        });
     }
 
-    // todo SPI tx for testing DMA
-    #[task(binds = DMA1_CH1, priority = 7)]
-    fn test_isr(cx: test_isr::Context) {
-        println!("DMA CH1 Interrupt!");
-    }
-
-    #[task(binds = DMA1_CH2, shared = [dma, current_params, input_mode, manual_inputs, input_map, autopilot_status,
+    #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, input_mode, manual_inputs, input_map, autopilot_status,
     rates_commanded, pid_rate, pid_deriv_filters, current_pwr, ctrl_coeffs, command_state, cs_imu, user_cfg,
-    rotor_timer_a, rotor_timer_b], local = [], priority = 5)]
+    rotor_timer_a, rotor_timer_b], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
-        println!("DMA Ch2 transfer complete.");
         // Clear DMA interrupt this way due to RTIC conflict.
         unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit()) }
+
+        // Note that these steps are mandatory, per STM32 RM.
+        // (cx.shared.spi1, cx.shared.dma).lock(|spi, dma| {
+        //     dma.stop(DmaChannel::C1); // spi.stop_dma only can stop a single channel atm.
+        //     spi.stop_dma(DmaChannel::C2, dma);
+        // });
+
+        println!("IMU DMA buf: {:?}", unsafe { &IMU_READINGS });
 
         cx.shared.cs_imu.lock(|cs| {
             cs.set_high();
         });
 
         let imu_data = sensor_fusion::ImuReadings::from_buffer(unsafe { &IMU_READINGS });
+        println!(
+            "IMU Data: roll {}, pitch: {}, yaw{}",
+            imu_data.v_roll, imu_data.v_pitch, imu_data.v_yaw
+        );
 
         // todo: In this inner, ~8kHz update whwere we call sensor fusion? Or should we (perhaps with)
         // todo a lowpass filter applied, just set the angular rates here, and perform fusion/
@@ -1016,6 +1023,7 @@ mod app {
             cx.shared.ctrl_coeffs,
             cx.shared.user_cfg,
             cx.shared.input_map,
+            cx.shared.spi1,
         )
             .lock(
                 |params,
@@ -1031,7 +1039,12 @@ mod app {
                  dma,
                  coeffs,
                  cfg,
-                 input_map| {
+                 input_map,
+                 spi1| {
+                    // todo: Ideally do this higher in the FN, but can only lock once per ISR
+                    dma.stop(DmaChannel::C1); // spi.stop_dma only can stop a single channel atm.
+                    spi1.stop_dma(DmaChannel::C2, dma);
+
                     *params = sensor_data_fused;
 
                     pid::run_rate(

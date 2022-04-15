@@ -118,10 +118,11 @@ pub fn setup_pins() {
             let _uart4_rx = Pin::new(Port::C, 11, PinMode::Alt(7));
 
             // Used to trigger a PID update based on new IMU data.
+            // We assume here the interrupt config uses default settings active low, push pull, pulsed.
             let mut imu_interrupt = Pin::new(Port::C, 4, PinMode::Input); // PA4 for IMU interrupt.
-
-            // todo: Put back!
-            // imu_interrupt.enable_interrupt(Edge::Falling); // todo: Rising or falling? Configurable on IMU I think.
+            imu_interrupt.output_type(OutputType::OpenDrain);
+            imu_interrupt.pull(Pull::Up);
+            imu_interrupt.enable_interrupt(Edge::Falling);
 
             // I2C1 for external sensors, via pads
             let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
@@ -166,8 +167,6 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
 
     // We use Spi transfer complete to know when our readings are ready - in its ISR,
     // we trigger the attitude-rates PID loop.
-    // todo: Temp Tx (ch1) interrupt for TS.
-    dma.enable_interrupt(DmaChannel::C1, DmaInterrupt::TransferComplete);
     dma.enable_interrupt(DmaChannel::C2, DmaInterrupt::TransferComplete);
 
     // We use Dshot transfer-complete interrupts to disable the timer.

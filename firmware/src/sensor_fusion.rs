@@ -25,7 +25,7 @@ use core::f32::consts::PI;
 
 use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sin_f32 as sin};
 
-use crate::flight_ctrls::Params;
+use crate::{flight_ctrls::Params, imu};
 
 // C file with impl of EKF for quaternion rotation:
 // https://github.com/pms67/EKF-Quaternion-Attitude-Estimation/blob/master/EKF.h
@@ -66,13 +66,29 @@ impl ImuReadings {
         // todo: What is the algo? Check DS and/or Betaflight
 
         // todo: Note: this mapping may be different for diff IMUs, eg if they use a different reading register ordering.
+        // todo: Currently hard-set for ICM426xx.
+
+        //     AccelDataX1 = 0x1F,
+        //     AccelDataX0 = 0x20,
+        //     AccelDataY1 = 0x21,
+        //     AccelDataY0 = 0x22,
+        //     AccelDataZ1 = 0x23,
+        //     AccelDataZ0 = 0x24,
+        //
+        //     GyroDataX1 = 0x25,
+        //     GyroDataX0 = 0x26,
+        //     GyroDataY1 = 0x27,
+        //     GyroDataY0 = 0x28,
+        //     GyroDataZ1 = 0x29,
+        //     GyroDataZ0 = 0x2a,
+
         Self {
-            a_x: 0.,
-            a_y: 0.,
-            a_z: 0.,
-            v_pitch: 0.,
-            v_roll: 0.,
-            v_yaw: 0.,
+            a_x: imu::interpret_accel(i16::from_be_bytes([buf[0], buf[1]])),
+            a_y: imu::interpret_accel(i16::from_be_bytes([buf[2], buf[3]])),
+            a_z: imu::interpret_accel(i16::from_be_bytes([buf[4], buf[5]])),
+            v_pitch: imu::interpret_gyro(i16::from_be_bytes([buf[6], buf[7]])),
+            v_roll: imu::interpret_gyro(i16::from_be_bytes([buf[8], buf[9]])),
+            v_yaw: imu::interpret_gyro(i16::from_be_bytes([buf[10], buf[11]])),
         }
     }
 }

@@ -102,7 +102,8 @@ fn read_one(reg: Reg, spi: &mut Spi<SPI1>, cs: &mut Pin) -> u8 {
     spi.transfer(&mut buf).ok();
     cs.set_high();
 
-    buf[0]
+    // buf[0]
+    buf[1]
 }
 
 /// Utility function to write a single byte.
@@ -123,18 +124,7 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin) {
     // Set accelerometer to ODR = 6.66kHz update rate, +-16G full scale range, first state digital filtering
     // todo: Currently set to output from first state digital filtering. Do we want this, or second?
 
-    let mut t = read_one(Reg::WhoAmI, spi, cs);
-
-    defmt::println!("Who am I: {}", t);
-
-    let mut t = read_one(Reg::WhoAmI, spi, cs);
-
-    defmt::println!("TEST: {}", t);
-
     write_one(Reg::Ctrl1Xl, 0b1010_0100, spi, cs);
-
-    let mut t = read_one(Reg::Ctrl1Xl, spi, cs);
-    defmt::println!("TEST: {}", t);
 
     // Set gyro ODR to 6.66kHz update rate, 2000dps full scale range
     write_one(Reg::Ctrl2G, 0b1010_1100, spi, cs);
@@ -167,7 +157,6 @@ pub fn read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> f32 {
 
     // todo: What's the conversion? This comment and code is for the ICM chip.
     // Temperature in Degrees Centigrade = (TEMP_DATA / 132.48) + 25
-    // todo: Also temp exists from FIFO in 8 bits?
     let temp_data = ((upper_byte as u16) << 8) | (lower_byte as u16);
     temp_data as f32 / 132.48 + 25.
 }
@@ -202,8 +191,8 @@ pub fn read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> ImuReadings {
     let a_y = interpret_accel(i16::from_be_bytes([accel_y_upper, accel_y_lower]));
     let a_z = interpret_accel(i16::from_be_bytes([accel_z_upper, accel_z_lower]));
 
-    let v_roll = interpret_gyro(i16::from_be_bytes([gyro_x_upper, gyro_x_lower]));
-    let v_pitch = interpret_gyro(i16::from_be_bytes([gyro_y_upper, gyro_y_lower]));
+    let v_pitch = interpret_gyro(i16::from_be_bytes([gyro_x_upper, gyro_x_lower]));
+    let v_roll = interpret_gyro(i16::from_be_bytes([gyro_y_upper, gyro_y_lower]));
     let v_yaw = interpret_gyro(i16::from_be_bytes([gyro_z_upper, gyro_z_lower]));
 
     // todo: How do we map these to radians per second and m/s^2?
