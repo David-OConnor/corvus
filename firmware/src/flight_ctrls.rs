@@ -176,6 +176,7 @@ pub struct CommandState {
 }
 
 /// Used to satisfy RTIC resource Send requirements.
+/// todo: Move to a `util.rs`?
 pub struct IirInstWrapper {
     pub inner: dsp_sys::arm_biquad_casd_df1_inst_f32,
 }

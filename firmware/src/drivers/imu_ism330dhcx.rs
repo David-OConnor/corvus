@@ -15,7 +15,7 @@ use stm32_hal2::{
     spi::Spi,
 };
 
-use crate::sensor_fusion::ImuReadings;
+use crate::sensor_fusion::{ImuReadings, IMU_READINGS};
 
 const GRYO_FULLSCALE: f32 = 34.90659; // 2,000 degrees/sec
 const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
@@ -23,7 +23,7 @@ const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
 /// See Datasheet, Table 19.
 #[derive(Clone, Copy)]
 #[repr(u8)]
-enum Reg {
+pub enum Reg {
     FuncCfgAccess = 0x01,
     PinCtrl = 0x02,
     FifoCtrl1 = 0x07,
@@ -96,13 +96,11 @@ impl Reg {
 /// Utility function to read a single byte.
 fn read_one(reg: Reg, spi: &mut Spi<SPI1>, cs: &mut Pin) -> u8 {
     let mut buf = [reg.read_addr(), 0];
-    // let mut buf = [reg as u8, 0];
 
     cs.set_low();
     spi.transfer(&mut buf).ok();
     cs.set_high();
 
-    // buf[0]
     buf[1]
 }
 
@@ -151,7 +149,7 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin) {
 // todo: Combine read_temp and read_all with ICM driver?, but pass different reg values
 
 /// Read temperature.
-pub fn read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> f32 {
+pub fn _read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> f32 {
     let upper_byte = read_one(Reg::OutTempH, spi, cs);
     let lower_byte = read_one(Reg::OutTempL, spi, cs);
 
@@ -205,53 +203,4 @@ pub fn read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> ImuReadings {
         v_roll,
         v_yaw,
     }
-}
-
-pub fn read_all_dma(spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
-    // todo: Is this right? What should it be?
-    // let buf = [
-    //     Reg::OutxHG as u8,
-    //     Reg::OutyLG as u8,
-    //     Reg::OutyHG as u8,
-    //     Reg::OutzLG as u8,
-    //     Reg::OutzHG as u8,
-    //     Reg::OutxLA as u8,
-    //     Reg::OutxHA as u8,
-    //     Reg::OutyLA as u8,
-    //     Reg::OutyHA as u8,
-    //     Reg::OutzLA as u8,
-    //     Reg::OutzHA as u8,
-    //     0,
-    //     0,
-    //     0,
-    //     0,
-    //     0,
-    //     0,
-    //     0,
-    //     0,
-    //     0,
-    //     0,
-    //     0,
-    //     0,
-    // ];
-
-    let buf = [Reg::OutxHG as u8, 0, 0, 0];
-
-    cs.set_low();
-
-    unsafe {
-        spi.write_dma(&buf, DmaChannel::C1, Default::default(), dma);
-    }
-
-    // todo - to TS, swap order?
-    unsafe {
-        spi.read_dma(
-            &mut crate::IMU_READINGS,
-            DmaChannel::C2,
-            Default::default(),
-            dma,
-        );
-    }
-
-    // todo: Do we need to enable SPI here, or can we leave it enabled the whole time?
 }

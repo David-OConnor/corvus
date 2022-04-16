@@ -221,20 +221,19 @@ pub struct PidDerivFilters {
 
 impl PidDerivFilters {
     pub fn new() -> Self {
-        // todo: Instead of initing empty here, maybe we use the proper constructor?
-        // todo: Maybe you can use this cleaner approach for Headphones too?
-
         // todo: Put useful params here.
-        // filter_ = signal.iirfilter(1, 60, btype="lowpass", ftype="bessel", output="sos", fs=32_000)
+        // filter_ = signal.iirfilter(1, 100, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
         // coeffs = []
         // for row in filter_:
         //     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
 
+        // todo: Diff coeffs for diff diff parts, as required.
+
         let coeffs = [
-            0.00585605892206321,
-            0.00585605892206321,
+            0.037804754170896473,
+            0.037804754170896473,
             0.0,
-            0.9882878821558736,
+            0.9243904916582071,
             -0.0,
         ];
 

@@ -69,7 +69,9 @@ pub fn setup_pins() {
         } else if #[cfg(feature = "mercury-g4")] {
             // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
             let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(1)); // Tim2 ch1
-            let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(1)); // Tim2 ch2
+            // todo: TS no signs of life from PA1
+            // let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(1)); // Tim2 ch2
+            let mut rotor2 = Pin::new(Port::A, 1, PinMode::Output); // Tim2 ch2
             let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
             let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
 
@@ -77,6 +79,9 @@ pub fn setup_pins() {
             rotor2.output_speed(OutputSpeed::High);
             rotor3.output_speed(OutputSpeed::High);
             rotor4.output_speed(OutputSpeed::High);
+
+            // todo: Leave these TS steps in inuntil you get signs of life from PA1.
+            rotor2.set_high();
 
             let _buzzer = Pin::new(Port::A, 10, PinMode::Alt(6)); // Tim1 ch3
 
@@ -88,11 +93,14 @@ pub fn setup_pins() {
             let current_sense_adc_ = Pin::new(Port::B, 2, PinMode::Analog);  // ADC2, channel 12
 
             // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
-            let _sck1 = Pin::new(Port::A, 5, PinMode::Alt(5));
-            let _miso1 = Pin::new(Port::A, 6, PinMode::Alt(5));
-            let _mosi1 = Pin::new(Port::A, 7, PinMode::Alt(5));
+            let mut sck1 = Pin::new(Port::A, 5, PinMode::Alt(5));
+            let mut miso1 = Pin::new(Port::A, 6, PinMode::Alt(5));
+            let mut mosi1 = Pin::new(Port::A, 7, PinMode::Alt(5));
 
             // todo: Output speed on SPI pins?
+            sck1.output_speed(OutputSpeed::High);
+            miso1.output_speed(OutputSpeed::High);
+            mosi1.output_speed(OutputSpeed::High);
 
             // SPI2 for the LoRa chip
             let _sck2 = Pin::new(Port::B, 13, PinMode::Alt(5));

@@ -15,7 +15,7 @@ use stm32_hal2::{
 
 use cortex_m::delay::Delay;
 
-use crate::sensor_fusion::ImuReadings;
+use crate::sensor_fusion::{ImuReadings, IMU_READINGS};
 
 const GRYO_FULLSCALE: f32 = 34.90659; // 2,000 degrees/sec
 const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
@@ -29,7 +29,7 @@ const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
 /// See Datasheet, Section 13.1 (Note: This doesn't include all regs)
 #[derive(Clone, Copy)]
 #[repr(u8)]
-enum Reg {
+pub enum Reg {
     DeviceConfig = 0x11,
     DriveConfig = 0x13,
     IntConfig = 0x14,
@@ -82,13 +82,11 @@ impl Reg {
 /// Utility function to read a single byte.
 fn read_one(reg: Reg, spi: &mut Spi<SPI1>, cs: &mut Pin) -> u8 {
     let mut buf = [reg.read_addr(), 0];
-    // let mut buf = [reg as u8, 0];
 
     cs.set_low();
     spi.transfer(&mut buf).ok();
     cs.set_high();
 
-    // buf[0]
     buf[1]
 }
 
@@ -117,7 +115,6 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) {
     delay.delay_us(200);
 
     // (Leave default interrupt settings of active low, push pull, pulsed.)
-    // write_one(Reg::IntConfig, 0b0000_0000, spi, cs);
 
     // Enable UI data ready interrupt routed to INT1
     write_one(Reg::IntSource0, 0b0000_1000, spi, cs);
@@ -128,7 +125,7 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) {
 // todo: Low power fn
 
 /// Read temperature.
-pub fn read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> f32 {
+pub fn _read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> f32 {
     let upper_byte = read_one(Reg::TempData1, spi, cs);
     let lower_byte = read_one(Reg::TempData0, spi, cs);
 
@@ -181,51 +178,4 @@ pub fn read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> ImuReadings {
         v_roll,
         v_yaw,
     }
-}
-
-pub fn read_all_dma(spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
-    // todo: Is this right? What should it be?
-    let buf = [
-        Reg::AccelDataX1.read_addr(),
-        Reg::AccelDataX0.read_addr(),
-        Reg::AccelDataY1.read_addr(),
-        Reg::AccelDataY0.read_addr(),
-        Reg::AccelDataZ1.read_addr(),
-        Reg::AccelDataZ0.read_addr(),
-        Reg::GyroDataX1.read_addr(),
-        Reg::GyroDataX0.read_addr(),
-        Reg::GyroDataY1.read_addr(),
-        Reg::GyroDataY0.read_addr(),
-        Reg::GyroDataZ1.read_addr(),
-        Reg::GyroDataZ0.read_addr(),
-    ];
-
-    cs.set_low();
-    // imu::read_all(spi, cx.local.imu_cs));
-
-    // unsafe {
-    //     spi.write_dma(&buf, DmaChannel::C1, Default::default(), dma);
-    // }
-
-    // (The read command is in the Tx DMA xfer-complete ISR.)
-    unsafe {
-        // spi.read_dma(
-        //     &mut crate::IMU_READINGS,
-        //     DmaChannel::C2,
-        //     Default::default(),
-        //     dma,
-        // );
-
-        spi.transfer_dma(
-            &buf,
-            &mut crate::IMU_READINGS,
-            DmaChannel::C1,
-            DmaChannel::C2,
-            Default::default(),
-            Default::default(),
-            dma,
-        );
-    }
-
-    // todo: Do we need to enable SPI here, or can we leave it enabled the whole time?
 }

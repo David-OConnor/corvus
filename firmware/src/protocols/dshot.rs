@@ -265,6 +265,7 @@ pub fn set_power_b(
 /// Send the stored payload for timer A. (2 channels).
 fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
     let payload = unsafe { &PAYLOAD_R1_2 };
+
     // The previous transfer should already be complete, but just in case.
     dma.stop(Rotor::R1.dma_channel());
 
@@ -321,7 +322,6 @@ fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
 
 /// Configure the PWM to be active low, used for bidirectional DSHOT
 pub fn enable_bidirectional(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
-    // Todo: Experiment with this.
     timer_a.set_polarity(Rotor::R1.tim_channel(), Polarity::ActiveHigh);
     timer_a.set_polarity(Rotor::R2.tim_channel(), Polarity::ActiveHigh);
     timer_b.set_polarity(Rotor::R3.tim_channel(), Polarity::ActiveHigh);
@@ -332,14 +332,6 @@ pub fn enable_bidirectional(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>
 
     timer_a.set_dir();
     timer_b.set_dir();
-
-    // // Set idle state to low for both rotor timers
-    // unsafe {
-    //     (*pac::TIM2::ptr()).cr2.modify(|_, w| w.ois1().set_bit());
-    //     (*pac::TIM2::ptr()).cr2.modify(|_, w| w.ois2().set_bit());
-    //     (*pac::TIM3::ptr()).cr2.modify(|_, w| w.ois3().set_bit());
-    //     (*pac::TIM3::ptr()).cr2.modify(|_, w| w.ois4().set_bit());
-    // }
 }
 
 /// Configure the PWM to be active high, used for unidirectional DSHOT
