@@ -66,8 +66,8 @@ use stm32_hal2::dma::DmaInput;
 
 mod control_interface;
 mod drivers;
+mod filter_imu;
 mod flight_ctrls;
-mod imu_filters;
 mod osd;
 mod pid;
 mod pid_tuning;
@@ -92,7 +92,7 @@ use flight_ctrls::{
     POWER_LUT,
 };
 
-use imu_filters::ImuFilters;
+use filter_imu::ImuFilters;
 use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
 
 // Our DT timer speed, in Hz.
@@ -803,7 +803,7 @@ mod app {
             // if LOOP_I.fetch_add(1,Ordering::Acquire) % 100 == 0 {
 
             println!(
-                "IMU Data: Ax {}, Ay: {}, Az{}",
+                "IMU Data: Ax {}, Ay: {}, Az: {}",
                 params.a_x, params.a_y, params.a_z
             );
 
@@ -813,23 +813,6 @@ mod app {
             );
             // }
         });
-
-        // todo: Testing IMU
-
-        // loop {
-        //     let readings = imu::read_all(&mut spi1, &mut cs_imu);
-        //     println!(
-        //         "Ax: {}, Ay: {}, Az: {}, pitch: {}, roll: {}, yaw: {}",
-        //         readings.a_x,
-        //         readings.a_y,
-        //         readings.a_z,
-        //         readings.v_pitch,
-        //         readings.v_roll,
-        //         readings.v_yaw
-        //     );
-        // }
-
-        // todo IMU  test complete.
 
         // todo: Dshot test
         // (
@@ -949,7 +932,7 @@ mod app {
         gpio::clear_exti_interrupt(4);
 
         (cx.shared.dma, cx.shared.cs_imu, cx.shared.spi1).lock(|dma, cs_imu, spi| {
-            sensor_fusion::read_imu_dma(imu::Reg::AccelDataX1.read_addr(), spi, cs_imu, dma);
+            sensor_fusion::read_imu_dma(imu::READINGS_START_ADDR, spi, cs_imu, dma);
         });
     }
 
@@ -966,36 +949,24 @@ mod app {
             cs.set_high();
         });
 
-        let imu_data =
+        let mut imu_data =
             sensor_fusion::ImuReadings::from_buffer(unsafe { &sensor_fusion::IMU_READINGS });
 
-        // todo: In this inner, ~8kHz update whwere we call sensor fusion? Or should we (perhaps with)
-        // todo a lowpass filter applied, just set the angular rates here, and perform fusion/
-        // todo attitude platform etc only in the `update` isr?
+        cx.shared
+            .imu_filters
+            .lock(|imu_filters| {
+                imu_filters.apply(&mut imu_data);
+            });
+
         let mut sensor_data_fused = sensor_fusion::estimate_attitude(&imu_data);
 
-        // todo: Temp replacing back in imu data while we sort out the fusion.
+        sensor_data_fused.v_pitch = imu_data.v_pitch;
+        sensor_data_fused.v_roll = imu_data.v_roll;
+        sensor_data_fused.v_yaw = imu_data.v_yaw;
 
-        cx.shared.imu_filters.lock(|imu_filters| {
-            // todo: Make a fun for this in `imu_filters`.
-            //     let mut a_x = [0.];
-            //     unsafe {
-            //         dsp_api::biquad_cascade_df1_f32(
-            //             imu_filters.accel_x.inner,
-            //             &[imu_data.a_x],
-            //             &mut a_x,
-            //             1,
-            //         );
-            //     }
-
-            sensor_data_fused.v_pitch = imu_data.v_pitch;
-            sensor_data_fused.v_roll = imu_data.v_roll;
-            sensor_data_fused.v_yaw = imu_data.v_yaw;
-
-            sensor_data_fused.a_x = imu_data.a_x;
-            sensor_data_fused.a_y = imu_data.a_y;
-            sensor_data_fused.a_z = imu_data.a_z;
-        });
+        sensor_data_fused.a_x = imu_data.a_x;
+        sensor_data_fused.a_y = imu_data.a_y;
+        sensor_data_fused.a_z = imu_data.a_z;
 
         (
             cx.shared.current_params,

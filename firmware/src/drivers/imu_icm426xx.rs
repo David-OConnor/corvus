@@ -75,6 +75,9 @@ impl Reg {
     }
 }
 
+// We use this to determine which reg to start DMA reads
+pub const READINGS_START_ADDR: u8 = 0x80 | 0x1F; // (AccelDataX1)
+
 // todo: Read via DMA at a very high rate, then apply a lowpass filter?
 
 // https://github.com/pms67/Attitude-Estimation

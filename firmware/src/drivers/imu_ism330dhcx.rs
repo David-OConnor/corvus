@@ -88,6 +88,8 @@ impl Reg {
         0x80 | (*self as u8)
     }
 }
+// We use this to determine which reg to start DMA reads
+pub const READINGS_START_ADDR: u8 = 0x80 | 0x22; // (OutxLG)
 
 // todo: Read via DMA at a very high rate, then apply a lowpass filter?
 
