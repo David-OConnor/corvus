@@ -2,6 +2,8 @@
 //! as a sub-module for `flight_ctrls`.
 //!
 //! See the OneNote document for notes on how we handle the more complicated / cascaded control modes.
+//!
+//! [Some info on the PID terms, focused on BF](https://gist.github.com/exocode/90339d7f946ad5f83dd1cf29bf5df0dc)
 
 use core::f32::consts::TAU;
 
@@ -37,6 +39,20 @@ static mut FILTER_STATE_PITCH_RATE: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_YAW_RATE: [f32; 4] = [0.; 4];
 
 static mut FILTER_STATE_THRUST: [f32; 4] = [0.; 4];
+
+// filter_ = signal.iirfilter(1, 100, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
+// coeffs = []
+// for row in filter_:
+//     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
+
+// todo: Diff coeffs for diff diff parts, as required.
+static COEFFS_D: [f32; 5] = [
+    0.037804754170896473,
+    0.037804754170896473,
+    0.0,
+    0.9243904916582071,
+    -0.0,
+];
 
 /// Cutoff frequency for our PID lowpass frequency, in Hz
 #[derive(Clone, Copy)]
@@ -221,22 +237,6 @@ pub struct PidDerivFilters {
 
 impl PidDerivFilters {
     pub fn new() -> Self {
-        // todo: Put useful params here.
-        // filter_ = signal.iirfilter(1, 100, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
-        // coeffs = []
-        // for row in filter_:
-        //     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
-
-        // todo: Diff coeffs for diff diff parts, as required.
-
-        let coeffs = [
-            0.037804754170896473,
-            0.037804754170896473,
-            0.0,
-            0.9243904916582071,
-            -0.0,
-        ];
-
         let mut result = Self {
             roll_attitude: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
@@ -267,39 +267,39 @@ impl PidDerivFilters {
             // todo: Re-initialize fn?
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.roll_attitude.inner,
-                &coeffs,
+                &COEFFS_D,
                 &mut FILTER_STATE_ROLL_ATTITUDE,
             );
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.pitch_attitude.inner,
-                &coeffs,
+                &COEFFS_D,
                 &mut FILTER_STATE_PITCH_ATTITUDE,
             );
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.yaw_attitude.inner,
-                &coeffs,
+                &COEFFS_D,
                 &mut FILTER_STATE_YAW_ATTITUDE,
             );
 
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.roll_rate.inner,
-                &coeffs,
+                &COEFFS_D,
                 &mut FILTER_STATE_ROLL_RATE,
             );
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.pitch_rate.inner,
-                &coeffs,
+                &COEFFS_D,
                 &mut FILTER_STATE_PITCH_RATE,
             );
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.yaw_rate.inner,
-                &coeffs,
+                &COEFFS_D,
                 &mut FILTER_STATE_YAW_RATE,
             );
 
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.thrust.inner,
-                &coeffs,
+                &COEFFS_D,
                 &mut FILTER_STATE_THRUST,
             );
         }

@@ -13,6 +13,7 @@ mod pfd;
 mod rx_main;
 // todo: So many missing things from OTA like CRSF values I can't find the origin of.
 // mod ota;
+mod stubborn;
 mod sx1280_regs;
 
 use crate::flight_ctrls::CtrlInputs;

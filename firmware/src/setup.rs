@@ -60,9 +60,6 @@ impl Rotor {
 
 /// Set up the pins that have structs that don't need to be accessed after.
 pub fn setup_pins() {
-    // SAI pins to accept input from the 4 PDM ICs, using SAI1, and 4, both blocks.
-    // We use the same SCK and FS clocks for all 4 ICs.
-
     cfg_if! {
         if #[cfg(feature = "mercury-h7")] {
             // todo
@@ -127,7 +124,7 @@ pub fn setup_pins() {
 
             // Used to trigger a PID update based on new IMU data.
             // We assume here the interrupt config uses default settings active low, push pull, pulsed.
-            let mut imu_interrupt = Pin::new(Port::C, 4, PinMode::Input); // PA4 for IMU interrupt.
+            let mut imu_interrupt = Pin::new(Port::C, 4, PinMode::Input);
             imu_interrupt.output_type(OutputType::OpenDrain);
             imu_interrupt.pull(Pull::Up);
             imu_interrupt.enable_interrupt(Edge::Falling);

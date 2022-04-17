@@ -3,22 +3,28 @@
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
 
-//! Adapted from the official ELRS example here: https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/rx_main.cpp
+//! Adapted from the official ELRS example here:
+//! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/rx_main.cpp
 
 use defmt::println;
 
-use super::fhss;
+use super::{
+    fhss, pfd, stubborn,
+};
 
 ///LUA///
 const LUA_MAX_PARAMS: u32 = 32;
 ////
 
 //// CONSTANTS ////
+// todo: Confirm these types.
 const SEND_LINK_STATS_TO_FC_INTERVAL: u8 = 100;
 const DIVERSITY_ANTENNA_INTERVAL: i32 = 5;
 const DIVERSITY_ANTENNA_RSSI_TRIGGER: i32 = 5;
 const PACKET_TO_TOCK_SLACK: u8 = 200; // Desired buffer time between Packet ISR and Tock ISR
                                       ///////////////////
+
+
 
 // device_affinity_t ui_devices[] = {
 // #ifdef HAS_LED
@@ -39,11 +45,11 @@ const PACKET_TO_TOCK_SLACK: u8 = 200; // Desired buffer time between Packet ISR 
 // #endif
 // };
 
+// todo: Do we want this since we only have 1 antenna port?
 static mut antenna: u8 = 0; // which antenna is currently in use
 
-// hwTimer hwTimer;
 // POWERMGNT POWERMGNT;
-static mut PFDloop: PFD = pfd::PFD {
+static mut PFDloop: pfd::PFD = pfd::PFD {
     intEventTime: 0,
     extEventTime: 0,
     result: 0,
@@ -52,23 +58,24 @@ static mut PFDloop: PFD = pfd::PFD {
 };
 // GENERIC_CRC14 ota_crc(ELRS_CRC14_POLY);
 // ELRS_EEPROM eeprom;
-static mut config: RxConfig = RxConfig {};
+// static mut config: RxConfig = RxConfig {};
 // Telemetry telemetry;
 
+// todo: What is GPIO_PIN_PWM_OUTPUTS?
 // #if defined(GPIO_PIN_PWM_OUTPUTS)
-static mut SERVO_PINS: [u8; 69] = GPIO_PIN_PWM_OUTPUTS;
-static mut SERVO_COUNT: usize = 69; // = ARRAY_SIZE(SERVO_PINS);
-                                    // static mut Servo *Servos[SERVO_COUNT];
-static mut newChannelsAvailable: bool = false;
+// static mut SERVO_PINS: [u8; 69] = GPIO_PIN_PWM_OUTPUTS;
+// static mut SERVO_COUNT: usize = 69; // = ARRAY_SIZE(SERVO_PINS);
+//                                     // static mut Servo *Servos[SERVO_COUNT];
+// static mut newChannelsAvailable: bool = false;
 // #endif
 
-// StubbornSender TelemetrySender(ELRS_TELEMETRY_MAX_PACKAGES);
+static mut TelemetrySender: stubborn::StubbornSender = ELRS_TELEMETRY_MAX_PACKAGES;
 static mut telemetryBurstCount: u8 = 0;
 static mut telemetryBurstMax: u8 = 0;
 // Maximum ms between LINK_STATISTICS packets for determining burst max
 static mut TELEM_MIN_LINK_INTERVAL: u16 = 512;
 
-// StubbornReceiver MspReceiver(ELRS_MSP_MAX_PACKAGES);
+static mut MspReceiver: stubborn::StubbornReciever = ELRS_MSP_MAX_PACKAGES;
 const MspData: [u8; ELRS_MSP_BUFFER] = [0; ELRS_MSP_BUFFER];
 
 static mut NextTelemetryType: u8 = ELRS_TELEMETRY_TYPE_LINK;

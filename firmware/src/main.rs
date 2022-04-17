@@ -1,6 +1,5 @@
 #![no_main]
 #![no_std]
-// #![allow(non_ascii_idents)] // todo: May no longer be required
 #![allow(mixed_script_confusables)] // eg variable names that include greek letters.
 
 use core::{
@@ -10,14 +9,13 @@ use core::{
 
 use cfg_if::cfg_if;
 
-use cortex_m::{self, asm};
+use cortex_m::{self, asm, delay::Delay};
 
 use stm32_hal2::{
     self,
     adc::{Adc, AdcDevice},
     clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllSrc},
-    dac, // todo temp
-    dma::{self, ChannelCfg, Dma, DmaChannel, DmaInterrupt},
+    dma::{self, ChannelCfg, Dma, DmaChannel, DmaInput, DmaInterrupt},
     flash::Flash,
     gpio::{self, Edge, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
@@ -62,7 +60,6 @@ use crate::{
 
 use defmt_rtt as _; // global logger
 use panic_probe as _;
-use stm32_hal2::dma::DmaInput;
 
 mod control_interface;
 mod drivers;
@@ -420,13 +417,9 @@ fn init_sensors(
     // todo: Use Rel0 location type if unable to get fix.
 }
 
-// todo temp!
-use cortex_m::delay::Delay;
-
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
     use super::*;
-    use usb_device::endpoint::EndpointType::Interrupt;
 
     // todo: Move vars from here to `local` as required.
     #[shared]
@@ -456,6 +449,7 @@ mod app {
         update_timer: Timer<TIM15>,
         rotor_timer_a: Timer<TIM2>,
         rotor_timer_b: Timer<TIM3>,
+        elrs_timer: Timer<TIM4>,
         // todo: Figure out how to store usb_dev and usb_serial as resources. Getting errors atm.
         // usb_dev: UsbDevice<UsbBusType>,
         // usb_serial: SerialPort<UsbBusType>,
@@ -479,12 +473,6 @@ mod app {
         let mut cp = cx.core;
         // Set up microcontroller peripherals
         let mut dp = pac::Peripherals::take().unwrap();
-
-        unsafe {
-            (*pac::RCC::ptr())
-                .ahb2enr
-                .modify(|_, w| w.gpioaen().set_bit());
-        }
 
         #[cfg(feature = "h7")]
         SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
@@ -552,7 +540,6 @@ mod app {
         let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
         let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
-        delay.delay_ms(100);
 
         imu::setup(&mut spi1, &mut cs_imu, &mut delay);
 
@@ -652,6 +639,9 @@ mod app {
             }
         }
 
+        // todo: Set this up appropriately.
+        let elrs_timer = timer::new_tim4(dp.TIM4, 1., rotor_timer_cfg.clone(), &clock_cfg);
+
         dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
 
         let mut dma = Dma::new(dp.DMA1);
@@ -750,6 +740,7 @@ mod app {
                 update_timer,
                 rotor_timer_a,
                 rotor_timer_b,
+                elrs_timer,
                 // todo: Put these back. If you have to, use mutex<refcell.
                 // usb_dev,
                 // usb_serial,
@@ -924,9 +915,7 @@ mod app {
             )
     }
 
-    /// Runs when new IMU data is recieved. This functions as our PID inner loop, and updates
-    /// pitch and roll. We use this ISR with an interrupt from the IMU, since we wish to
-    /// update rotor power settings as soon as data is available.
+    /// Runs when new IMU data is ready. Trigger a DMA read.
     #[task(binds = EXTI4, shared = [cs_imu, dma, spi1], priority = 4)]
     fn imu_data_isr(cx: imu_data_isr::Context) {
         gpio::clear_exti_interrupt(4);
@@ -952,11 +941,9 @@ mod app {
         let mut imu_data =
             sensor_fusion::ImuReadings::from_buffer(unsafe { &sensor_fusion::IMU_READINGS });
 
-        cx.shared
-            .imu_filters
-            .lock(|imu_filters| {
-                imu_filters.apply(&mut imu_data);
-            });
+        cx.shared.imu_filters.lock(|imu_filters| {
+            imu_filters.apply(&mut imu_data);
+        });
 
         let mut sensor_data_fused = sensor_fusion::estimate_attitude(&imu_data);
 
@@ -1028,16 +1015,6 @@ mod app {
                     );
                 },
             );
-    }
-
-    #[task(binds = EXTI3, shared = [user_cfg, manual_inputs], local = [spi3], priority = 4)]
-    /// We use this ISR when receiving data from the radio, via ELRS
-    fn radio_data_isr(mut cx: radio_data_isr::Context) {
-        gpio::clear_exti_interrupt(3);
-        (cx.shared.user_cfg, cx.shared.manual_inputs).lock(|cfg, manual_inputs| {
-            // *manual_inputs = elrs::get_inputs(cx.local.spi3);
-            *manual_inputs = CtrlInputs::get_manual_inputs(cfg); // todo: this?
-        })
     }
 
     // todo: Put this USB ISR back in once you've sorted your RTIC resource for usb_dev and usb_serial.
@@ -1113,6 +1090,24 @@ mod app {
         }
         gpio::set_low(Port::B, 0);
         gpio::set_low(Port::B, 1);
+    }
+
+    #[task(binds = TIM4, shared = [elrs_timer], priority = 4)]
+    /// ELRS timer.
+    fn elrs_timer_isr(cx: elrs_timer_isr) {
+        cx.shared.elrs_timer.lock(|timer| {
+            timer.clear_interrupt(TimerInterrupt::Update);
+        });
+    }
+
+    #[task(binds = EXTI3, shared = [user_cfg, manual_inputs], local = [spi3], priority = 4)]
+    /// We use this ISR when receiving data from the radio, via ELRS
+    fn radio_data_isr(mut cx: radio_data_isr::Context) {
+        gpio::clear_exti_interrupt(3);
+        (cx.shared.user_cfg, cx.shared.manual_inputs).lock(|cfg, manual_inputs| {
+            // *manual_inputs = elrs::get_inputs(cx.local.spi3);
+            *manual_inputs = CtrlInputs::get_manual_inputs(cfg); // todo: this?
+        })
     }
 }
 

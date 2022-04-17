@@ -17,7 +17,7 @@ use stm32_hal2::{
 
 use crate::sensor_fusion::{ImuReadings, IMU_READINGS};
 
-const GRYO_FULLSCALE: f32 = 34.90659; // 2,000 degrees/sec
+const GYRO_FULLSCALE: f32 = 34.90659; // 2,000 degrees/sec
 const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
 
 /// See Datasheet, Table 19.
@@ -162,13 +162,13 @@ pub fn _read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> f32 {
 }
 
 /// Output: m/s^2
-fn interpret_accel(accel: i16) -> f32 {
-    (accel as f32 / i16::MAX as f32) * ACCEL_FULLSCALE
+pub fn interpret_accel(val: i16) -> f32 {
+    (val as f32 / i16::MAX as f32) * ACCEL_FULLSCALE
 }
 
 /// Output: rad/s
-fn interpret_gyro(accel: i16) -> f32 {
-    (accel as f32 / i16::MAX as f32) * ACCEL_FULLSCALE
+pub fn interpret_gyro(val: i16) -> f32 {
+    (val as f32 / i16::MAX as f32) * GYRO_FULLSCALE
 }
 
 /// Read all data

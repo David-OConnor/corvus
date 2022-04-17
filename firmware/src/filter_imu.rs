@@ -17,7 +17,30 @@ static mut FILTER_STATE_GYRO_PITCH: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_GYRO_ROLL: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_GYRO_YAW: [f32; 4] = [0.; 4];
 
-// todo: Do you need anti-aliasing?
+// todo: What cutoffs to use? I think you're in the ballpark, but maybe a little higher.
+// filter_ = signal.iirfilter(1, 40, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
+// coeffs = []
+// for row in filter_:
+//     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
+
+static COEFFS_LP_ACCEL: [f32; 5] = [
+    0.015466291403103363,
+    0.015466291403103363,
+    0.0,
+    0.9690674171937933,
+    -0.0,
+];
+
+// filter_ = signal.iirfilter(1, 400, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
+static COEFFS_LP_GYRO: [f32; 5] = [
+    0.015466291403103363,
+    0.015466291403103363,
+    0.0,
+    0.9690674171937933,
+    -0.0,
+];
+
+// todo: Calibration for IMU: Hardware, software, or both?
 
 /// Store lowpass IIR filter instances, for use with lowpass and notch filters for IMU readings.
 pub struct ImuFilters {
@@ -37,29 +60,6 @@ pub struct ImuFilters {
 
 impl ImuFilters {
     pub fn new() -> Self {
-        // todo: What cutoffs to use?
-        // filter_ = signal.iirfilter(1, 400, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
-        // coeffs = []
-        // for row in filter_:
-        //     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
-
-        let coeffs_accel = [
-            0.13672873599731955,
-            0.13672873599731955,
-            0.0,
-            0.726542528005361,
-            -0.0,
-        ];
-
-        // filter_ = signal.iirfilter(1, 400, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
-        let coeffs_gyro = [
-            0.13672873599731955,
-            0.13672873599731955,
-            0.0,
-            0.726542528005361,
-            -0.0,
-        ];
-
         let mut result = Self {
             accel_x: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
@@ -86,33 +86,33 @@ impl ImuFilters {
             // todo: Re-initialize fn?
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.accel_x.inner,
-                &coeffs_accel,
+                &COEFFS_LP_ACCEL,
                 &mut FILTER_STATE_ACCEL_X,
             );
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.accel_y.inner,
-                &coeffs_accel,
+                &COEFFS_LP_ACCEL,
                 &mut FILTER_STATE_ACCEL_Y,
             );
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.accel_z.inner,
-                &coeffs_accel,
+                &COEFFS_LP_ACCEL,
                 &mut FILTER_STATE_ACCEL_Z,
             );
 
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.gyro_pitch.inner,
-                &coeffs_gyro,
+                &COEFFS_LP_GYRO,
                 &mut FILTER_STATE_GYRO_PITCH,
             );
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.gyro_roll.inner,
-                &coeffs_gyro,
+                &COEFFS_LP_GYRO,
                 &mut FILTER_STATE_GYRO_ROLL,
             );
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.gyro_yaw.inner,
-                &coeffs_gyro,
+                &COEFFS_LP_GYRO,
                 &mut FILTER_STATE_GYRO_YAW,
             );
         }

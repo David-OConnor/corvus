@@ -51,7 +51,8 @@ use crate::{flight_ctrls::Params, imu};
 
 const G: f32 = 9.8; // m/s
 
-// 6 readings; 2 bytes each. 0-padded on the left, since that's where we pass the register
+// IMU readings buffer. 3 accelerometer, and 3 gyro measurements; 2 bytes each. 0-padded on the left,
+// since that's where we pass the register
 // in the write buffer.
 pub static mut IMU_READINGS: [u8; 13] = [0; 13];
 
@@ -90,8 +91,11 @@ impl ImuReadings {
     }
 }
 
+/// Read all 3 measurements, by commanding a DMA transfer. The transfer is closed, and readings
+/// are processed in the Transfer Complete ISR.
 pub fn read_imu_dma(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
-    // First byte is the first data reg, per this IMU's
+    // First byte is the first data reg, per this IMU's. Remaining bytes are empty, while
+    // the MISO line transmits readings.
     let write_buf = [starting_addr, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
     cs.set_low();

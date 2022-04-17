@@ -6,18 +6,13 @@
 //!
 //! 24 MHz max SPI frequency
 
-use stm32_hal2::{
-    dma::{Dma, DmaChannel},
-    gpio::Pin,
-    pac::{DMA1, SPI1},
-    spi::Spi,
-};
+use stm32_hal2::{gpio::Pin, pac::SPI1, spi::Spi};
 
 use cortex_m::delay::Delay;
 
 use crate::sensor_fusion::{ImuReadings, IMU_READINGS};
 
-const GRYO_FULLSCALE: f32 = 34.90659; // 2,000 degrees/sec
+const GYRO_FULLSCALE: f32 = 34.90659; // 2,000 degrees/sec
 const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
 
 // todo: Consider hardware notch filter.
@@ -78,8 +73,6 @@ impl Reg {
 // We use this to determine which reg to start DMA reads
 pub const READINGS_START_ADDR: u8 = 0x80 | 0x1F; // (AccelDataX1)
 
-// todo: Read via DMA at a very high rate, then apply a lowpass filter?
-
 // https://github.com/pms67/Attitude-Estimation
 
 /// Utility function to read a single byte.
@@ -119,7 +112,7 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) {
 
     // (Leave default interrupt settings of active low, push pull, pulsed.)
 
-    // Enable UI data ready interrupt routed to INT1
+    // Enable UI data ready interrupt routed to the INT1 pin.
     write_one(Reg::IntSource0, 0b0000_1000, spi, cs);
 
     // todo: Set filters?
@@ -138,13 +131,13 @@ pub fn _read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> f32 {
 }
 
 /// Output: m/s^2
-pub fn interpret_accel(accel: i16) -> f32 {
-    (accel as f32 / i16::MAX as f32) * ACCEL_FULLSCALE
+pub fn interpret_accel(val: i16) -> f32 {
+    (val as f32 / i16::MAX as f32) * ACCEL_FULLSCALE
 }
 
 /// Output: rad/s
-pub fn interpret_gyro(accel: i16) -> f32 {
-    (accel as f32 / i16::MAX as f32) * ACCEL_FULLSCALE
+pub fn interpret_gyro(val: i16) -> f32 {
+    (val as f32 / i16::MAX as f32) * GYRO_FULLSCALE
 }
 
 /// Read all data
