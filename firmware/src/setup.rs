@@ -100,15 +100,19 @@ pub fn setup_pins() {
             mosi1.output_speed(OutputSpeed::High);
 
             // SPI2 for the LoRa chip
-            let _sck2 = Pin::new(Port::B, 13, PinMode::Alt(5));
-            let _miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
-            let _mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
+            let mut sck2 = Pin::new(Port::B, 13, PinMode::Alt(5));
+            let mut miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
+            let mut mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
+
+            // todo: Output speed on SPI pins?
+            sck2.output_speed(OutputSpeed::High);
+            miso2.output_speed(OutputSpeed::High);
+            mosi2.output_speed(OutputSpeed::High);
 
             // SPI3 for flash
             let _sck3 = Pin::new(Port::B, 3, PinMode::Alt(6));
             let _miso3 = Pin::new(Port::B, 4, PinMode::Alt(6));
             let _mosi3 = Pin::new(Port::B, 5, PinMode::Alt(6));
-
 
             // We use UARTs for misc external devices, including ESC telemetry,
             // and VTX OSD.
@@ -128,6 +132,13 @@ pub fn setup_pins() {
             imu_interrupt.output_type(OutputType::OpenDrain);
             imu_interrupt.pull(Pull::Up);
             imu_interrupt.enable_interrupt(Edge::Falling);
+
+            // Used to trigger a a control-data-received update based on new ELRS data.
+            let mut elrs_busy = Pin::new(Port::C, 14, PinMode::Input);
+            // todo: Look up how you configure this pin!
+            elrs_busy.output_type(OutputType::OpenDrain);
+            elrs_busy.pull(Pull::Up);
+            elrs_busy.enable_interrupt(Edge::Falling);
 
             // I2C1 for external sensors, via pads
             let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
@@ -166,6 +177,10 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     // DSHOT, motors 3 and 4
     dma::mux(Rotor::R3.dma_channel(), Rotor::R3.dma_input(), mux);
 
+    // LoRa (ELRS)
+    dma::mux(DmaChannel::C5, DmaInput::Spi2Tx, mux);
+    dma::mux(DmaChannel::C6, DmaInput::Spi2Rx, mux);
+
     // TOF sensor
     // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx, &mut dp.DMAMUX);
     // dma::mux(DmaChannel::C5, dma::DmaInput::I2c2Rx, &mut dp.DMAMUX);
@@ -178,4 +193,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     dma.enable_interrupt(Rotor::R1.dma_channel(), DmaInterrupt::TransferComplete);
     // dma.enable_interrupt(DmaChannel::C5, DmaInterrupt::TransferComplete);
     dma.enable_interrupt(Rotor::R3.dma_channel(), DmaInterrupt::TransferComplete);
+
+    // Process ELRS control data
+    dma.enable_interrupt(DmaChannel::C6, DmaInterrupt::TransferComplete);
 }

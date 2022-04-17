@@ -6,31 +6,31 @@
 //! Implements `stubborn_sender` and `stubborn_receiver`.c and .h.
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/StubbornSender/stubborn_sender.cpp
 
-
 // The number of times to resend the same package index before going to RESYNC
 const SSENDER_MAX_MISSED_PACKETS: usize = 20; // todo: #define; unknown type.
 
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
-enum SenderState {
+pub enum SenderState {
     SENDER_IDLE = 0,
     SENDING,
     WAIT_UNTIL_NEXT_CONFIRM,
     RESYNC,
     RESYNC_THEN_SEND, // perform a RESYNC then go to SENDING
+}
 
-struct StubbornSender {
-    data: [u8; 69],
-    length: u8,
-    bytesPerCall: u8,
-    currentOffset: usize,
-    currentPackage: u8,
-    waitUntilTelemetryConfirm: bool,
-    resetState: bool,
-    waitCount: u16,
-    maxWaitCount: u16,
-    maxPackageIndex: u8,
-    senderState: SenderState,
+pub struct StubbornSender {
+    pub data: [u8; 69],
+    pub length: u8,
+    pub bytesPerCall: u8,
+    pub currentOffset: usize,
+    pub currentPackage: u8,
+    pub waitUntilTelemetryConfirm: bool,
+    pub resetState: bool,
+    pub waitCount: u16,
+    pub maxWaitCount: u16,
+    pub maxPackageIndex: u8,
+    pub senderState: SenderState,
 }
 
 impl StubbornSender {
@@ -56,13 +56,16 @@ impl StubbornSender {
     /***
      * Queues a message to send, will abort the current message if one is currently being transmitted
      ***/
-    fn SetDataToTransmit(&mut self, lengthToTransmit: u8, dataToTransmit: [u8; 69], bytesPerCall: u8)
-    {
-        if lengthToTransmit / bytesPerCall >= maxPackageIndex
-        {
+    pub fn SetDataToTransmit(
+        &mut self,
+        lengthToTransmit: u8,
+        dataToTransmit: [u8; 69],
+        bytesPerCall: u8,
+    ) {
+        if lengthToTransmit / bytesPerCall >= maxPackageIndex {
             return;
         }
-    
+
         self.length = lengthToTransmit;
         self.data = dataToTransmit;
         self.currentOffset = 0;
@@ -75,13 +78,12 @@ impl StubbornSender {
             SenderState::RESYNC_THEN_SEND
         };
     }
-    
-    fn IsActive(&self) -> bool {
+
+    pub fn IsActive(&self) -> bool {
         self.senderState != SenderState::SENDER_IDLE
     }
-    
-    fn GetCurrentPayload(&mut self, packageIndex: &mut u8, count: &mut u8, currentData: &mut [u8])
-    {
+
+    pub fn GetCurrentPayload(&mut self, packageIndex: &mut u8, count: &mut u8, currentData: &mut [u8]) {
         match self.senderState {
             SenderState::RESYNC | SenderState::RESYNC_THEN_SEND => {
                 *packageIndex = maxPackageIndex;
@@ -91,7 +93,7 @@ impl StubbornSender {
                 }
             }
             SenderState::SENDING => {
-                    for d in currentData {
+                for d in currentData {
                     *d = d + self.currentOffset;
                 }
                 *packageIndex = self.currentPackage;
@@ -114,10 +116,10 @@ impl StubbornSender {
             }
         }
     }
-    
-    fn ConfirmCurrentPayload(&mut self, telemetryConfirmValue: bool){
+
+    pub fn ConfirmCurrentPayload(&mut self, telemetryConfirmValue: bool) {
         let mut nextSenderState = self.senderState;
-    
+
         match self.senderState {
             SenderState::SENDING => {
                 if telemetryConfirmValue != waitUntilTelemetryConfirm {
@@ -138,7 +140,9 @@ impl StubbornSender {
                 }
             }
 
-            SenderState::RESYNC | SenderState::RESYNC_THEN_SEND | SenderState::WAIT_UNTIL_NEXT_CONFIRM => {
+            SenderState::RESYNC
+            | SenderState::RESYNC_THEN_SEND
+            | SenderState::WAIT_UNTIL_NEXT_CONFIRM => {
                 if telemetryConfirmValue == waitUntilTelemetryConfirm {
                     nextSenderState = if self.senderState == SenderState::RESYNC_THEN_SEND {
                         SenderState::SENDING
@@ -156,19 +160,18 @@ impl StubbornSender {
                     }
                 }
             }
-            SenderState::SENDER_IDLE => ()
+            SenderState::SENDER_IDLE => (),
         }
 
         self.senderState = nextSenderState;
     }
-    
+
     /*
      * Called when the telemetry ratio or air rate changes, calculate
      * the new threshold for how many times the telemetryConfirmValue
      * can be wrong in a row before giving up and going to RESYNC
      */
-    fn UpdateTelemetryRate(&mut self, airRate: u16, tlmRatio: u8, tlmBurst: u8)
-    {
+    pub fn UpdateTelemetryRate(&mut self, airRate: u16, tlmRatio: u8, tlmBurst: u8) {
         // consipicuously unused airRate parameter, the wait count is strictly based on number
         // of packets, not time between the telemetry packets, or a wall clock timeout
         // (void)airRate;
@@ -178,16 +181,15 @@ impl StubbornSender {
     }
 }
 
-
-struct StubbornReceiver {
-    data: [u8; 69],
-    finishedData: bool,
-    length: u8,
-    bytesPerCall: u8,
-    currentOffset: usize,
-    currentPackage: u8,
-    telemetryConfirm: bool,
-    maxPackageIndex: u8,
+pub struct StubbornReceiver {
+    pub data: [u8; 69],
+    pub finishedData: bool,
+    pub length: u8,
+    pub bytesPerCall: u8,
+    pub currentOffset: usize,
+    pub currentPackage: u8,
+    pub telemetryConfirm: bool,
+    pub maxPackageIndex: u8,
 }
 
 impl StubbornReceiver {
@@ -196,6 +198,7 @@ impl StubbornReceiver {
             // todo: Probably don't want to store data here, or leave it as an upper bound.
             // todo, ie and pass a ref to apt fns.
             data: [0; 69],
+            finishedData: false,
             bytesPerCall: 1,
             currentOffset: 0,
             currentPackage: 0,
@@ -205,11 +208,11 @@ impl StubbornReceiver {
         }
     }
 
-    fn GetCurrentConfirm(&self) -> bool{
-       self.telemetryConfirm
+    pub fn GetCurrentConfirm(&self) -> bool {
+        self.telemetryConfirm
     }
 
-    fn SetDataToReceive(&mut self, maxLength: u8, dataToReceive: [u8; 69], bytesPerCall: u8) {
+    pub fn SetDataToReceive(&mut self, maxLength: u8, dataToReceive: [u8; 69], bytesPerCall: u8) {
         self.length = maxLength;
         self.data = dataToReceive;
         self.currentPackage = 1;
@@ -218,7 +221,7 @@ impl StubbornReceiver {
         self.bytesPerCall = bytesPerCall;
     }
 
-    fn ReceiveData(&mut self, packageIndex: u8, receiveData: &[u8]) {
+    pub fn ReceiveData(&mut self, packageIndex: u8, receiveData: &[u8]) {
         if packageIndex == 0 && self.currentPackage > 1 {
             self.finishedData = true;
             self.telemetryConfirm = !self.telemetryConfirm;
@@ -251,11 +254,11 @@ impl StubbornReceiver {
         return;
     }
 
-    fn HasFinishedData(&self) -> bool {
+    pub fn HasFinishedData(&self) -> bool {
         self.finishedData
     }
 
-    fn Unlock(&mut self) {
+    pub fn Unlock(&mut self) {
         if finishedData {
             self.currentPackage = 1;
             self.currentOffset = 0;

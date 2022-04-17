@@ -6,10 +6,17 @@
 //! Adapted from the official ELRS example here:
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/rx_main.cpp
 
+// todo: Re MSP:
+// "it's not needed for the basic link but it's needed some advanced tlm and 2way communication"
+
 use defmt::println;
 
 use super::{
-    fhss, pfd, stubborn,
+    crsf::{self, CRSF},
+    common::{self, RATE_DEFAULT},
+    fhss, lqcalc, pfd,
+    stubborn::{self, StubbornReceiver, StubbornSender},
+    lowpassfilter::LPF,
 };
 
 ///LUA///
@@ -23,8 +30,6 @@ const DIVERSITY_ANTENNA_INTERVAL: i32 = 5;
 const DIVERSITY_ANTENNA_RSSI_TRIGGER: i32 = 5;
 const PACKET_TO_TOCK_SLACK: u8 = 200; // Desired buffer time between Packet ISR and Tock ISR
                                       ///////////////////
-
-
 
 // device_affinity_t ui_devices[] = {
 // #ifdef HAS_LED
@@ -69,27 +74,98 @@ static mut PFDloop: pfd::PFD = pfd::PFD {
 // static mut newChannelsAvailable: bool = false;
 // #endif
 
-static mut TelemetrySender: stubborn::StubbornSender = ELRS_TELEMETRY_MAX_PACKAGES;
+// todo: You might need to impl the MSP module
+// https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/MSP/msp.cpp
+
+// Note; Can't use contructors in `static mut`.
+static mut TelemetrySender: StubbornSender = StubbornSender {
+    // todo: Probably don't want to store data here, or leave it as an upper bound.
+    // todo, ie and pass a ref to apt fns.
+    data: [0; 69],
+    length: 0,
+    bytesPerCall: 1,
+    currentOffset: 0,
+    currentPackage: 0,
+    waitUntilTelemetryConfirm: true,
+    resetState: true,
+    waitCount: 0,
+    // 80 corresponds to UpdateTelemetryRate(ANY, 2, 1), which is what the TX uses in boost mode
+    maxWaitCount: 80,
+    maxPackageIndex: ELRS_TELEMETRY_MAX_PACKAGES,
+    senderState: stubborn::SenderState::SENDER_IDLE,
+};
+
 static mut telemetryBurstCount: u8 = 0;
 static mut telemetryBurstMax: u8 = 0;
 // Maximum ms between LINK_STATISTICS packets for determining burst max
 static mut TELEM_MIN_LINK_INTERVAL: u16 = 512;
 
-static mut MspReceiver: stubborn::StubbornReciever = ELRS_MSP_MAX_PACKAGES;
+static mut MspReceiver: StubbornReceiver = StubbornReceiver {
+    // todo: Probably don't want to store data here, or leave it as an upper bound.
+    // todo, ie and pass a ref to apt fns.
+    data: [0; 69],
+    finishedData: false,
+    bytesPerCall: 1,
+    currentOffset: 0,
+    currentPackage: 0,
+    length: 0,
+    telemetryConfirm: false,
+    maxPackageIndex: ELRS_MSP_MAX_PACKAGES,
+};
+
 const MspData: [u8; ELRS_MSP_BUFFER] = [0; ELRS_MSP_BUFFER];
 
 static mut NextTelemetryType: u8 = ELRS_TELEMETRY_TYPE_LINK;
 static mut telemBurstValid: bool = false;
 /// Filters ////////////////
-// LPF LPF_Offset(2);
-// LPF LPF_OffsetDx(4);
+// todo: Replace these with CMSIS-DSP IIR lowpass
+static mut LPF_Offset: LPF = LPF {
+    SmoothDataINT: 0,
+    SmoothDataFP: 0,
+    Beta: 2,
+    FP_Shift: 5,
+    NeedReset: true,
+};
+static mut LPF_Dx: LPF = LPF {
+    SmoothDataINT: 0,
+    SmoothDataFP: 0,
+    Beta: 4,
+    FP_Shift: 5,
+    NeedReset: true,
+};
 
-// LPF LPF_UplinkRSSI(5);
-// LPF LPF_UplinkRSSI0(5);  // track rssi per antenna
-// LPF LPF_UplinkRSSI1(5);
+static mut LPF_UplinkRSSI: LPF = LPF {
+    SmoothDataINT: 0,
+    SmoothDataFP: 0,
+    Beta: 5,
+    FP_Shift: 5,
+    NeedReset: true,
+};
+static mut LPF_UplinkRSSI0: LPF = LPF {
+    SmoothDataINT: 0,
+    SmoothDataFP: 0,
+    Beta: 5,
+    FP_Shift: 5,
+    NeedReset: true,
+};
+static mut LPF_UplinkRSSI1: LPF = LPF {
+    SmoothDataINT: 0,
+    SmoothDataFP: 0,
+    Beta: 5,
+    FP_Shift: 5,
+    NeedReset: true,
+};
+
 
 /// LQ Calculation //////////
-// LQCALC<100> LQCalc;
+static mut LQCalc: lqcalc::LQCALC = lqcalc::LQCALC {
+    LQ: 0,
+    index: 0, // current position in LQArray
+    count: 1,
+    LQmask: (1 << 0),
+    LQArray: [0; (100 + 31) / 32], // `100` here is `<N>` in original
+};
+
 static mut uplinkLQ: u8 = 0;
 
 static mut scanIndex: u8 = RATE_DEFAULT;
@@ -139,8 +215,6 @@ static mut debug4: i8 = 0;
 
 static mut InBindingMode: bool = false;
 
-// ICAC
-// HE_RAM_ATTR
 fn IsArmed() -> bool {
     return CRSF_to_BIT(crsf.GetChannelOutput(AUX1));
 }
@@ -161,57 +235,43 @@ fn minLqForChaos() -> u8 {
 }
 
 unsafe fn getRFlinkInfo() {
-    let mut rssiDBM0: i32 = LPF_UplinkRSSI0.SmoothDataINT;
-    let mut rssiDBM1: i32 = LPF_UplinkRSSI1.SmoothDataINT;
-    match antenna {
-        0 => {
-            rssiDBM0 = LPF_UplinkRSSI0.update(Radio.LastPacketRSSI);
-        }
-        1 => {
-            rssiDBM1 = LPF_UplinkRSSI1.update(Radio.LastPacketRSSI);
-        }
-        _ => (),
+    let mut rssiDBM: i32 = Radio.LastPacketRSSI;
+    if antenna == 0 {
+        // #if !defined(DEBUG_RCVR_LINKSTATS)
+        rssiDBM = LPF_UplinkRSSI0.update(rssiDBM);
+        // #endif
+        if rssiDBM > 0 { rssiDBM = 0; }
+        // BetaFlight/iNav expect positive values for -dBm (e.g. -80dBm -> sent as 80)
+        crsf.LinkStatistics.uplink_RSSI_1 = -rssiDBM;
+    } else {
+        // #if !defined(DEBUG_RCVR_LINKSTATS)
+        rssiDBM = LPF_UplinkRSSI1.update(rssiDBM);
+        // #endif
+        if rssiDBM > 0 { rssiDBM = 0; }
+        // BetaFlight/iNav expect positive values for -dBm (e.g. -80dBm -> sent as 80)
+        // May be overwritten below if DEBUG_BF_LINK_STATS is set
+        crsf.LinkStatistics.uplink_RSSI_2 = -rssiDBM;
     }
 
-    let rssiDBM: i32 = if antenna == 0 { rssiDBM0 } else { rssiDBM1 };
-    crsf.PackedRCdataOut.ch15 = UINT10_to_CRSF(map(
-        constrain(
-            rssiDBM,
-            ExpressLRS_currAirRate_RFperfParams.RXsensitivity,
-            -50,
-        ),
-        ExpressLRS_currAirRate_RFperfParams.RXsensitivity,
-        -50,
-        0,
-        1023,
-    ));
+    crsf.PackedRCdataOut.ch15 = UINT10_to_CRSF(map(constrain(rssiDBM, ExpressLRS_currAirRate_RFperfParams.RXsensitivity, -50),
+                                                   ExpressLRS_currAirRate_RFperfParams.RXsensitivity, -50, 0, 1023));
     crsf.PackedRCdataOut.ch14 = UINT10_to_CRSF(fmap(uplinkLQ, 0, 100, 0, 1023));
 
-    if rssiDBM0 > 0 {
-        rssiDBM0 = 0;
-    }
-    if rssiDBM1 > 0 {
-        rssiDBM1 = 0;
-    }
-
-    // BetaFlight/iNav expect positive values for -dBm (e.g. -80dBm -> sent as 80)
-    crsf.LinkStatistics.uplink_RSSI_1 = -rssiDBM0;
     crsf.LinkStatistics.active_antenna = antenna;
     crsf.LinkStatistics.uplink_SNR = Radio.LastPacketSNR;
-    //crsf.LinkStatistics.uplink_Link_quality = uplinkLQ; // handled in Tick
-    crsf.LinkStatistics.rf_Mode = ExpressLRS_currAirRate_Modparams.enum_rate;
-    //println!(crsf.LinkStatistics.uplink_RSSI_1);
-    if DEBUG_BF_LINK_STATS {
-        crsf.LinkStatistics.downlink_RSSI = debug1;
-        crsf.LinkStatistics.downlink_Link_quality = debug2;
-        crsf.LinkStatistics.downlink_SNR = debug3;
-        crsf.LinkStatistics.uplink_RSSI_2 = debug4;
-    } else {
-        crsf.LinkStatistics.downlink_RSSI = 0;
-        crsf.LinkStatistics.downlink_Link_quality = 0;
-        crsf.LinkStatistics.downlink_SNR = 0;
-        crsf.LinkStatistics.uplink_RSSI_2 = -rssiDBM1;
-    }
+
+    crsf.LinkStatistics.rf_Mode = ExpressLRS_currAirRate_Modparams -> enum_rate;
+
+    // #if defined(DEBUG_BF_LINK_STATS)
+    // crsf.LinkStatistics.downlink_RSSI = debug1;
+    // crsf.LinkStatistics.downlink_Link_quality = debug2;
+    // crsf.LinkStatistics.downlink_SNR = debug3;
+    // crsf.LinkStatistics.uplink_RSSI_2 = debug4;
+    // #endif
+
+    // #if defined(DEBUG_RCVR_LINKSTATS)
+    // debugRcvrLinkstatsFhssIdx = FHSSsequence[FHSSptr];
+    // #endif
 }
 
 fn SetRFLinkRate(index: u8) // Set speed of RF link
@@ -669,14 +729,14 @@ fn MspReceiveComplete() {
     MspReceiver.Unlock();
 }
 
-fn ProcessRfPacket_MSP() {
+unsafe fn ProcessRfPacket_MSP() {
     // Always examine MSP packets for bind information if in bind mode
     // [1] is the package index, first packet of the MSP
     if unsafe { InBindingMode }
         && Radio.RXdataBuffer[1] == 1
         && Radio.RXdataBuffer[2] == MSP_ELRS_BIND
     {
-        OnELRSBindMSP(&Radio.RXdataBuffer[2] as u8);
+        OnELRSBindMSP(&(Radio.RXdataBuffer[2] as u8));
         return;
     }
 
@@ -726,7 +786,7 @@ fn ProcessRfPacket_SYNC(now: u32) -> bool {
     let TLMrateIn: TlmRatio = (expresslrs_tlm_ratio_e)(
         (Radio.RXdataBuffer[3] >> SYNC_PACKET_TLM_OFFSET) & SYNC_PACKET_TLM_MASK,
     );
-    if (ExpressLRS_currAirRate_Modparams.TLMinterval != TLMrateIn) {
+    if ExpressLRS_currAirRate_Modparams.TLMinterval != TLMrateIn {
         println!("New TLMrate: %d", TLMrateIn);
         ExpressLRS_currAirRate_Modparams.TLMinterval = TLMrateIn;
         unsafe {
@@ -759,9 +819,9 @@ fn ProcessRfPacket_SYNC(now: u32) -> bool {
 unsafe fn ProcessRFPacket(status: SX12xxDriverCommon::rx_status) {
     if status != SX12xxDriverCommon::SX12XX_RX_OK {
         defmt::println!("HW CRC error");
-        if DEBUG_RX_SCOREBOARD {
-            lastPacketCrcError = true;
-        }
+        // if DEBUG_RX_SCOREBOARD {
+        //     lastPacketCrcError = true;
+        // }
         return;
     }
     let beginProcessing = micros();
@@ -1123,12 +1183,12 @@ fn loop_() {
     }
 
     if (connectionState != disconnected)
-        && (ExpressLRS_currAirRate_Modparams.index != nextAirRateIndex)
+        && (ExpressLRS_currAirRate_Modparams.index != unsafe { nextAirRateIndex })
     {
         // forced change
         println!(
             "Req air rate change %u->%u",
-            ExpressLRS_currAirRate_Modparams.index, nextAirRateIndex
+            ExpressLRS_currAirRate_Modparams.index, unsafe { nextAirRateIndex }
         );
         LostConnection();
         unsafe {
@@ -1169,7 +1229,7 @@ fn loop_() {
     if connectionState == tentative
         && OffsetDx.abs() <= 10
         && Offset < 100
-        && LQCalc.getLQRaw() > minLqForChaos()
+        && unsafe { LQCalc.getLQRaw() } > minLqForChaos()
     //detects when we are connected
     {
         GotConnection(now);
@@ -1178,8 +1238,8 @@ fn loop_() {
     unsafe { checkSendLinkStatsToFc(now) };
 
     if (RXtimerState == tim_tentative)
-        && ((now - GotConnectionMillis) > ConsiderConnGoodMillis)
-        && (abs(OffsetDx) <= 5)
+        && (now - GotConnectionMillis) > ConsiderConnGoodMillis
+        && OffsetDx.abs() <= 5
     {
         RXtimerState = tim_locked;
         println!("Timer locked");
@@ -1187,12 +1247,14 @@ fn loop_() {
 
     let nextPayload: u8 = 0;
     let nextPlayloadSize: u8 = 0;
-    if !TelemetrySender.IsActive() && telemetry.GetNextPayload(&nextPlayloadSize, &nextPayload) {
-        TelemetrySender.SetDataToTransmit(
-            nextPlayloadSize,
-            nextPayload,
-            ELRS_TELEMETRY_BYTES_PER_CALL,
-        );
+    unsafe {
+        if !TelemetrySender.IsActive() && telemetry.GetNextPayload(&nextPlayloadSize, &nextPayload) {
+            TelemetrySender.SetDataToTransmit(
+                nextPlayloadSize,
+                nextPayload,
+                ELRS_TELEMETRY_BYTES_PER_CALL,
+            );
+        }
     }
     unsafe { updateTelemetryBurst() };
     updateBindingMode();

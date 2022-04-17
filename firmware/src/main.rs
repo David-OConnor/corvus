@@ -443,8 +443,10 @@ mod app {
         spi1: Spi<SPI1>,
         spi2: Spi<SPI2>,
         cs_imu: Pin,
+        cs_elrs: Pin,
         i2c1: I2c<I2C1>,
         i2c2: I2c<I2C2>,
+        flash_onboard: Flash,
         // rtc: Rtc,
         update_timer: Timer<TIM15>,
         rotor_timer_a: Timer<TIM2>,
@@ -652,23 +654,12 @@ mod app {
 
         let mut user_cfg = UserCfg::default();
 
-        // dshot::setup_motor_dir( // todo temp. put back.
-        //     user_cfg.motors_reversed,
-        //     &mut rotor_timer_a,
-        //     &mut rotor_timer_b,
-        //     &mut dma,
-        // );
-
-        // We use `dt_timer` to count the time between IMU updates, for use in the PID loop
-        // integral, derivative, and filters. If set to 1Mhz, the CNT value is the number of
-        // µs elapsed.
-
-        // let mut dt_timer = Timer::new_tim15(dp.TIM3, 1_., Default::default(), &clock_cfg);
-        // We expect the IMU to update every 8kHz. Set 1kHz as the freq here, which is low,
-        // by a good margin. Not too low, as to keep resolution high.
-        // We use manual PSC and ARR, as to maximize resolution through a high ARR.
-        // dt_timer.set_prescaler(DT_PSC);
-        // dt_timer.set_auto_reload(DT_ARR);
+        dshot::setup_motor_dir(
+            user_cfg.motors_reversed,
+            &mut rotor_timer_a,
+            &mut rotor_timer_b,
+            &mut dma,
+        );
 
         cfg_if! {
             if #[cfg(feature = "g4")] {
@@ -692,15 +683,11 @@ mod app {
 
         // Used to update the input data from the ELRS radio
         let mut elrs_dio = Pin::new(Port::C, 13, PinMode::Output); // todo: In or out?
-        let mut elrs_cs = Pin::new(Port::C, 15, PinMode::Output);
-        let mut elrs_busy = Pin::new(Port::C, 14, PinMode::Input);
-
-        // todo: But back A/R.
-        // elrs_busy.enable_interrupt(Edge::Falling); // todo: Rising or falling?
+        let mut cs_elrs = Pin::new(Port::C, 15, PinMode::Output);
 
         // todo: DMA for voltage ADC (?)
 
-        let mut flash = Flash::new(dp.FLASH); // todo temp mut to test
+        let flash_onboard = Flash::new(dp.FLASH);
 
         let mut params = Default::default();
 
@@ -734,6 +721,7 @@ mod app {
                 spi1,
                 spi2,
                 cs_imu,
+                cs_elrs,
                 i2c1,
                 i2c2,
                 // rtc,
@@ -744,6 +732,7 @@ mod app {
                 // todo: Put these back. If you have to, use mutex<refcell.
                 // usb_dev,
                 // usb_serial,
+                flash_onboard,
                 power_used: 0.,
                 pid_deriv_filters: PidDerivFilters::new(),
                 imu_filters: ImuFilters::new(),
@@ -1100,15 +1089,29 @@ mod app {
         });
     }
 
-    #[task(binds = EXTI3, shared = [user_cfg, manual_inputs], local = [spi3], priority = 4)]
+    #[task(binds = EXTI15_19, shared = [user_cfg, manual_inputs], local = [spi3], priority = 4)]
     /// We use this ISR when receiving data from the radio, via ELRS
     fn radio_data_isr(mut cx: radio_data_isr::Context) {
-        gpio::clear_exti_interrupt(3);
+        gpio::clear_exti_interrupt(14);
         (cx.shared.user_cfg, cx.shared.manual_inputs).lock(|cfg, manual_inputs| {
             // *manual_inputs = elrs::get_inputs(cx.local.spi3);
             *manual_inputs = CtrlInputs::get_manual_inputs(cfg); // todo: this?
         })
     }
+
+     #[task(binds = DMA1_CH6, shared = [dma, spi2, cs_elrs], priority = 3)]
+    /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
+    /// we receive IMU data; it triggers the inner PID loop.
+    fn elrs_rx_isr(mut cx: elrs_rx_isr::Context) {
+         // Clear DMA interrupt this way due to RTIC conflict.
+         unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit()) }
+
+         (cx.shard.spi2, cx.shared.cs_imu, cx.shared.dma).lock(|spi, cs, dma| {
+             cs.set_high();
+             dma.stop(DmaChannel::C1); // spi.stop_dma only can stop a single channel atm.
+             spi.stop_dma(DmaChannel::C2, dma);
+         });
+     }
 }
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message

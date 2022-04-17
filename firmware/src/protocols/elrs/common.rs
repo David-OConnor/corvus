@@ -205,7 +205,7 @@ impl ModSettings {
 
 // #ifndef UNIT_TEST
 const RATE_MAX: u8 = 6; // 2xFLRC + 4xLoRa
-const RATE_DEFAULT: u8 = 0; // Default to FLRC 1000Hz
+pub const RATE_DEFAULT: u8 = 0; // Default to FLRC 1000Hz
 const RATE_BINDING: u8 = 5; // 50Hz bind mode
 
 const SYNC_PACKET_SWITCH_OFFSET: u8 = 0; // Switch encoding mode
