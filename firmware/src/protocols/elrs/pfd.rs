@@ -12,26 +12,26 @@ pub struct PFD {
 impl PFD {
     #[inline(always)]
     /// reference (external osc)
-    fn extEvent(&mut self, time: u32) {
+    pub fn extEvent(&mut self, time: u32) {
         self.extEventTime = time;
         self.gotExtEvent = true;
     }
 
     #[inline(always)]
     /// internal osc event
-    fn intEvent(&mut self, time: u32) {
+    pub fn intEvent(&mut self, time: u32) {
         self.intEventTime = time;
         self.gotIntEvent = true;
     }
 
     #[inline(always)]
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.gotExtEvent = false;
         self.gotIntEvent = false;
     }
 
     #[inline(always)]
-    fn calcResult(&mut self) {
+    pub fn calcResult(&mut self) {
         self.result = if gotExtEvent && gotIntEvent {
             (extEventTime - intEventTime) as i32
         } else {

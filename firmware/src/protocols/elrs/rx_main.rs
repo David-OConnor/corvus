@@ -9,11 +9,25 @@
 // todo: Re MSP:
 // "it's not needed for the basic link but it's needed some advanced tlm and 2way communication"
 
+use stm32_hal2::{
+    timer::Timer,
+    pac::Tim4,
+};
+
 use defmt::println;
 
 use super::{
     crsf::{self, CRSF},
-    common::{self, RATE_DEFAULT},
+    common::{
+        self, RATE_DEFAULT, connectionState, connectionHasModelMatch, ConnectionState,
+        SYNC_PACKET_RATE_OFFSET,
+        SYNC_PACKET_RATE_MASK,
+        SYNC_PACKET_SWITCH_MASK,
+        SYNC_PACKET_SWITCH_OFFSET,
+        SYNC_PACKET_TLM_OFFSET,
+        SYNC_PACKET_TLM_MASK,
+        *,
+    },
     fhss, lqcalc, pfd,
     stubborn::{self, StubbornReceiver, StubbornSender},
     lowpassfilter::LPF,
@@ -274,7 +288,7 @@ unsafe fn getRFlinkInfo() {
     // #endif
 }
 
-fn SetRFLinkRate(index: u8) // Set speed of RF link
+fn SetRFLinkRate(index: u8, hwTimer: &mut Timer<TIM4>) // Set speed of RF link
 {
     let ModParams: ModSettings = get_elrs_airRateConfig(index);
     let RFperf: RfPrefParams = get_elrs_RFperfParams(index);
@@ -317,7 +331,7 @@ unsafe fn HandleFHSS() -> bool {
         || alreadyFHSS == true
         || InBindingMode
         || modresultFHSS != 0
-        || connectionState == disconnected
+        || connectionState == ConnectionState::disconnected
     {
         return false;
     }
@@ -339,11 +353,11 @@ unsafe fn HandleFHSS() -> bool {
 unsafe fn HandleSendTelemetryResponse() -> bool {
     let mut data: [u8; 69] = [0; 69];
     let mut maxLength: u8 = 0;
-    let mut packageIndex = 0;
+    let mut packageIndex: u8 = 0;
     let modresult =
         (NonceRX + 1) % TLMratioEnumToValue(ExpressLRS_currAirRate_Modparams.TLMinterval);
 
-    if connectionState == disconnected
+    if connectionState == ConnectionState::disconnected
         || ExpressLRS_currAirRate_Modparams.TLMinterval == TLM_RATIO_NO_TLM
         || alreadyTLMresp == true
         || modresult != 0
@@ -424,8 +438,8 @@ fn HandleFreqCorr(value: bool) {
     }
 }
 
-fn updatePhaseLock() {
-    if connectionState != disconnected {
+unsafe fn updatePhaseLock(hwTimer: &mut Timer<TIM4>) {
+    if connectionState != ConnectionState::disconnected {
         PFDloop.calcResult();
         PFDloop.reset();
         RawOffset = PFDloop.getResult();
@@ -444,7 +458,7 @@ fn updatePhaseLock() {
             }
         }
 
-        if connectionState != connected {
+        if connectionState != ConnectionState::connected {
             hwTimer.phaseShift(RawOffset >> 1);
         } else {
             hwTimer.phaseShift(Offset >> 2);
@@ -464,10 +478,10 @@ fn updatePhaseLock() {
     );
 }
 
-unsafe fn HWtimerCallbackTick()
+unsafe fn HWtimerCallbackTick(hwTimer: &mut Timer<TIM4>)
 // this is 180 out of phase with the other callback, occurs mid-packet reception
 {
-    updatePhaseLock();
+    updatePhaseLock(hwTimer);
     NonceRX += 1;
 
     // if (!alreadyTLMresp && !alreadyFHSS && !LQCalc.currentIsSet()) // packet timeout AND didn't DIDN'T just hop or send TLM
@@ -550,7 +564,7 @@ unsafe fn updateDiversity() {
             } else if antennaLQDropTrigger >= DIVERSITY_ANTENNA_INTERVAL {
                 // We switched antenna on the previous packet, so we now have relatively fresh rssi info for both antennas.
                 // We can compare the rssi values and see if we made things better or worse when we switched
-                if (rssi < otherRSSI) {
+                if rssi < otherRSSI {
                     // things got worse when we switched, so change back.
                     switchAntenna();
                     antennaLQDropTrigger = 1;
@@ -593,14 +607,14 @@ unsafe fn HWtimerCallbackTock() {
     }
 }
 
-fn LostConnection() {
-    defmt::println!("lost conn fc={} fo={}", FreqCorrection, hwTimer.FreqOffset);
+unsafe fn LostConnection(hwTimer: &mut Timer<TIM4>) {
+    // defmt::println!("lost conn fc={} fo={}", FreqCorrection, hwTimer.FreqOffset);
 
     unsafe {
         RFmodeCycleMultiplier = 1;
     }
-    connectionState = disconnected; //set lost connection
-    RXtimerState = tim_disconnected;
+    connectionState = ConnectionState::disconnected; //set lost connection
+    RXtimerState = RXtimerState::tim_disconnected;
     hwTimer.resetFreqOffset();
     FreqCorrection = 0;
     Offset = 0;
@@ -620,16 +634,16 @@ fn LostConnection() {
     if unsafe { !InBindingMode } {
         while micros() - PFDloop.getIntEventTime() > 250 {} // time it just after the tock()
         hwTimer.stop();
-        SetRFLinkRate(nextAirRateIndex); // also sets to initialFreq
+        SetRFLinkRate(hwTimer, nextAirRateIndex); // also sets to initialFreq
         Radio.RXnb();
     }
 }
 
-fn TentativeConnection(now: u32) {
+unsafe fn TentativeConnection(now: u32) {
     PFDloop.reset();
-    connectionState = tentative;
+    connectionState = ConnectionState::tentative;
     connectionHasModelMatch = false;
-    RXtimerState = tim_disconnected;
+    RXtimerState = RXtimerState::tim_disconnected;
     println!("tentative conn");
     FreqCorrection = 0;
     Offset = 0;
@@ -641,8 +655,8 @@ fn TentativeConnection(now: u32) {
     // the timer ISR will fire immediately and preempt any other code
 }
 
-fn GotConnection(now: u32) {
-    if (connectionState == connected) {
+unsafe fn GotConnection(now: u32) {
+    if connectionState == ConnectionState::connected {
         return; // Already connected
     }
 
@@ -650,17 +664,17 @@ fn GotConnection(now: u32) {
         unsafe { LockRFmode = true };
     }
 
-    connectionState = connected; //we got a packet, therefore no lost connection
-    RXtimerState = tim_tentative;
+    connectionState = ConnectionState::connected; //we got a packet, therefore no lost connection
+    RXtimerState = RXtimerState::tim_tentative;
     unsafe { GotConnectionMillis = now };
 
     println!("got conn");
 }
 
-fn ProcessRfPacket_RC() {
+unsafe fn ProcessRfPacket_RC() {
     // Must be fully connected to process RC packets, prevents processing RC
     // during sync, where packets can be received before connection
-    if connectionState != connected {
+    if connectionState != ConnectionState::connected {
         return;
     }
 
@@ -742,7 +756,7 @@ unsafe fn ProcessRfPacket_MSP() {
 
     // Must be fully connected to process MSP, prevents processing MSP
     // during sync, where packets can be received before connection
-    if connectionState != connected {
+    if connectionState != ConnectionState::connected {
         return;
     }
 
@@ -758,7 +772,7 @@ unsafe fn ProcessRfPacket_MSP() {
     }
 }
 
-fn ProcessRfPacket_SYNC(now: u32) -> bool {
+unsafe fn ProcessRfPacket_SYNC(now: u32) -> bool {
     // Verify the first two of three bytes of the binding ID, which should always match
     if Radio.RXdataBuffer[4] != UID[3] || Radio.RXdataBuffer[5] != UID[4] {
         return false;
@@ -772,23 +786,20 @@ fn ProcessRfPacket_SYNC(now: u32) -> bool {
     }
 
     unsafe { LastSyncPacket = now }
-    if DEBUG_RX_SCOREBOARD {
-        println!("s");
-    }
 
     // Will change the packet air rate in loop() if this changes
-    nextAirRateIndex = (Radio.RXdataBuffer[3] >> SYNC_PACKET_RATE_OFFSET) & SYNC_PACKET_RATE_MASK;
+    unsafe { nextAirRateIndex = (Radio.RXdataBuffer[3] >> SYNC_PACKET_RATE_OFFSET) & SYNC_PACKET_RATE_MASK; }
     // Update switch mode encoding immediately
     OtaSetSwitchMode((OtaSwitchMode_e)(
         (Radio.RXdataBuffer[3] >> SYNC_PACKET_SWITCH_OFFSET) & SYNC_PACKET_SWITCH_MASK,
     ));
     // Update TLM ratio
-    let TLMrateIn: TlmRatio = (expresslrs_tlm_ratio_e)(
+    let TLMrateIn: TlmRatio = (
         (Radio.RXdataBuffer[3] >> SYNC_PACKET_TLM_OFFSET) & SYNC_PACKET_TLM_MASK,
     );
-    if ExpressLRS_currAirRate_Modparams.TLMinterval != TLMrateIn {
+    if CurrAirRateModParams.TLMinterval != TLMrateIn {
         println!("New TLMrate: %d", TLMrateIn);
-        ExpressLRS_currAirRate_Modparams.TLMinterval = TLMrateIn;
+        CurrAirRateModParams.TLMinterval = TLMrateIn;
         unsafe {
             telemBurstValid = false;
         }
@@ -799,7 +810,7 @@ fn ProcessRfPacket_SYNC(now: u32) -> bool {
     let modelMatched: bool = Radio.RXdataBuffer[6] == (UID[5] ^ modelXor);
     DBGVLN("MM %u=%u %d", Radio.RXdataBuffer[6], UID[5], modelMatched);
 
-    if connectionState == disconnected
+    if connectionState == ConnectionState::disconnected
         || unsafe { NonceRX } != Radio.RXdataBuffer[2]
         || FHSSgetCurrIndex() != Radio.RXdataBuffer[1]
         || connectionHasModelMatch != modelMatched
@@ -816,7 +827,7 @@ fn ProcessRfPacket_SYNC(now: u32) -> bool {
     return false;
 }
 
-unsafe fn ProcessRFPacket(status: SX12xxDriverCommon::rx_status) {
+unsafe fn ProcessRFPacket(status: SX12xxDriverCommon::rx_status, hwTimer: &mut Timer<TIM4>) {
     if status != SX12xxDriverCommon::SX12XX_RX_OK {
         defmt::println!("HW CRC error");
         // if DEBUG_RX_SCOREBOARD {
@@ -939,16 +950,16 @@ fn setupBindingFromConfig() {
     if MY_UID {
         // Check the byte that indicates if RX has been bound
         if config.GetIsBound() {
-            println!("RX has been bound previously, reading the UID from eeprom...");
+            // println!("RX has been bound previously, reading the UID from eeprom...");
             let storedUID: [u8; 69] = config.GetUID();
             for i in 0..UID_LEN {
                 {
                     UID[i] = storedUID[i];
                 }
-                println!(
-                    "UID = %d, %d, %d, %d, %d, %d",
-                    UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]
-                );
+                // println!(
+                //     "UID = %d, %d, %d, %d, %d, %d",
+                //     UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]
+                // );
                 CRCInitializer = (UID[4] << 8) | UID[5];
             }
         }
@@ -962,7 +973,7 @@ fn setupRadio() {
     POWERMGNT.init();
     if !init_success {
         println!("Failed to detect RF chipset!!!");
-        connectionState = radioFailed;
+        unsafe { connectionState = ConnectionState::radioFailed; }
         return;
     }
 
@@ -1003,13 +1014,13 @@ unsafe fn updateTelemetryBurst() {
     //println!("TLMburst: %d", telemetryBurstMax);
 
     // Notify the sender to adjust its expected throughput
-    TelemetrySender.UpdateTelemetryRate(hz, ratiodiv, telemetryBurstMax);
+    TelemetrySender.UpdateTelemetryRate(hz as u16, ratiodiv as u8, telemetryBurstMax);
 }
 
 /// If not connected will rotate through the RF modes looking for sync
 /// and blink LED
 unsafe fn cycleRfMode(now: u32) {
-    if connectionState == connected || connectionState == wifiUpdate || InBindingMode {
+    if connectionState == ConnectionState::connected || connectionState == ConnectionState::wifiUpdate || InBindingMode {
         return;
     }
 
@@ -1064,7 +1075,7 @@ unsafe fn servosUpdate(now: u32) {
                     }
                 } /* for each servo */
             } /* if newChannelsAvailable */
-        } else if elapsed > 1000 && connectionState == connected {
+        } else if elapsed > 1000 && connectionState == ConnectionState::connected {
             // No update for 1s, go to failsafe
             for i in 0..SERVO_COUNT {
                 {
@@ -1111,11 +1122,11 @@ unsafe fn servosUpdate(now: u32) {
 
 unsafe fn checkSendLinkStatsToFc(now: u32) {
     if now - SendLinkStatstoFCintervalLastSent > SEND_LINK_STATS_TO_FC_INTERVAL as u32 {
-        if connectionState == disconnected {
+        if connectionState == ConnectionState::disconnected {
             getRFlinkInfo();
         }
 
-        if (connectionState != disconnected && connectionHasModelMatch)
+        if (connectionState != ConnectionState::disconnected && ConnectionState::connectionHasModelMatch)
             || SendLinkStatstoFCForcedSends != 0
         {
             crsf.sendLinkStatisticsToFC();
@@ -1127,7 +1138,7 @@ unsafe fn checkSendLinkStatsToFc(now: u32) {
     }
 }
 
-fn setup() {
+fn setup(hwTimer: &mut Timer<TIM4>) {
     setupTarget();
 
     // Init EEPROM and load config, checking powerup count
@@ -1146,14 +1157,17 @@ fn setup() {
 
     setupRadio();
 
-    if connectionState != radioFailed {
+    if unsafe { connectionState } != ConnectionState::radioFailed {
         // RFnoiseFloor = MeasureNoiseFloor(); //TODO move MeasureNoiseFloor to driver libs
         // println!("RF noise floor: %d dBm", RFnoiseFloor);
 
         hwTimer.callbackTock = &HWtimerCallbackTock;
         hwTimer.callbackTick = &HWtimerCallbackTick;
 
-        MspReceiver.SetDataToReceive(ELRS_MSP_BUFFER, MspData, ELRS_MSP_BYTES_PER_CALL);
+        unsafe {
+            MspReceiver.SetDataToReceive(ELRS_MSP_BUFFER, MspData, ELRS_MSP_BYTES_PER_CALL);
+        }
+
         Radio.RXnb();
         crsf.Begin();
         hwTimer.init();
@@ -1162,7 +1176,7 @@ fn setup() {
     devicesStart();
 }
 
-fn loop_() {
+unsafe fn loop_(hwTimer: &mut Timer<TIM4>) {
     now: u32 = millis();
     HandleUARTin();
     if hwTimer.running == false {
@@ -1178,11 +1192,11 @@ fn loop_() {
         devicesTriggerEvent();
     }
 
-    if connectionState > MODE_STATES {
+    if connectionState > ConnectionState::MODE_STATES {
         return;
     }
 
-    if (connectionState != disconnected)
+    if (connectionState != ConnectionState::disconnected)
         && (ExpressLRS_currAirRate_Modparams.index != unsafe { nextAirRateIndex })
     {
         // forced change
@@ -1190,7 +1204,7 @@ fn loop_() {
             "Req air rate change %u->%u",
             ExpressLRS_currAirRate_Modparams.index, unsafe { nextAirRateIndex }
         );
-        LostConnection();
+        LostConnection(hwTimer);
         unsafe {
             LastSyncPacket = now; // reset this variable to stop rf mode switching and add extra time
             RFmodeLastCycled = now; // reset this variable to stop rf mode switching and add extra time
@@ -1199,11 +1213,11 @@ fn loop_() {
         }
     }
 
-    if connectionState == tentative
+    if connectionState == ConnectionState::tentative
         && (now - unsafe { LastSyncPacket } > ExpressLRS_currAirRate_RFperfParams.RxLockTimeoutMs)
     {
         println!("Bad sync, aborting");
-        LostConnection();
+        LostConnection(HwTimer);
 
         unsafe {
             RFmodeLastCycled = now;
@@ -1217,8 +1231,8 @@ fn loop_() {
     }
 
     let localLastValidPacket: u32 = unsafe { LastValidPacket }; // Required to prevent race condition due to LastValidPacket getting updated from ISR
-    if connectionState == disconnectPending
-        || (connectionState == connected
+    if connectionState == ConnectionState::disconnectPending
+        || (connectionState == ConnectionState::connected
             && (ExpressLRS_currAirRate_RFperfParams.DisconnectTimeoutMs as i32)
                 < ((now - localLastValidPacket) as i32))
     // check if we lost conn.
@@ -1226,7 +1240,7 @@ fn loop_() {
         LostConnection();
     }
 
-    if connectionState == tentative
+    if connectionState == ConnectionState::tentative
         && OffsetDx.abs() <= 10
         && Offset < 100
         && unsafe { LQCalc.getLQRaw() } > minLqForChaos()
@@ -1260,8 +1274,8 @@ fn loop_() {
     updateBindingMode();
 }
 
-fn EnterBindingMode() {
-    if (connectionState == connected) || unsafe { InBindingMode } {
+unsafe fn EnterBindingMode() {
+    if (connectionState == ConnectionState::connected) || unsafe { InBindingMode } {
         // Don't enter binding if:
         // - we're already connected
         // - we're already binding
@@ -1294,7 +1308,7 @@ fn EnterBindingMode() {
     devicesTriggerEvent();
 }
 
-fn ExitBindingMode() {
+unsafe fn ExitBindingMode(hwTimer: &mut Timer<TIM4>) {
     if !unsafe { InBindingMode } {
         // Not in binding mode
         println!("Cannot exit binding mode, not in binding mode!");
@@ -1303,7 +1317,7 @@ fn ExitBindingMode() {
 
     // Prevent any new packets from coming in
     Radio.SetTxIdleMode();
-    LostConnection();
+    LostConnection(hwTimer);
     // Write the values to eeprom
     config.Commit();
 
@@ -1321,7 +1335,7 @@ fn ExitBindingMode() {
     devicesTriggerEvent();
 }
 
-fn OnELRSBindMSP(packet: &[u8]) {
+unsafe fn OnELRSBindMSP(packet: &[u8]) {
     for i in 1..=4 {
         UID[i + 1] = packet[i];
     }
@@ -1347,5 +1361,5 @@ fn UpdateModelMatch(model: u8) {
     config.Commit();
     // This will be called from ProcessRFPacket(), schedule a disconnect
     // in the main loop once the ISR has exited
-    connectionState = disconnectPending;
+    unsafe { connectionState = ConnectionState::disconnectPending; }
 }

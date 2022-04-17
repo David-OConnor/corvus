@@ -15,7 +15,7 @@ use super::sx1280_regs::{
 
 #[derive(Copy, Clone)]
 #[repr(u8)]
-enum TlmRatio {
+pub enum TlmRatio {
     NO_TLM = 0,
     _1_128 = 1,
     _1_64 = 2,
@@ -42,8 +42,8 @@ impl TlmRatio {
     }
 }
 
-#[derive(Copy, Clone)]
-enum ConnectionState {
+#[derive(Copy, Clone, PartialEq)]
+pub enum ConnectionState {
     connected,
     tentative,
     disconnected,
@@ -68,7 +68,7 @@ enum TxTlmRcvPhase {
 
 #[derive(Copy, Clone)]
 #[repr(u8)]
-enum RXtimerState {
+pub enum RXtimerState {
     tim_disconnected = 0,
     tim_tentative = 1,
     tim_locked = 2,
@@ -76,7 +76,7 @@ enum RXtimerState {
 
 #[derive(Copy, Clone)]
 #[repr(u8)]
-enum TlmHeader {
+pub enum TlmHeader {
     RF_DOWNLINK_INFO = 0,
     RF_UPLINK_INFO = 1,
     RF_AIRMODE_PARAMETERS = 2,
@@ -84,7 +84,7 @@ enum TlmHeader {
 
 #[derive(Copy, Clone)]
 #[repr(u8)]
-enum RfRates {
+pub enum RfRates {
     LORA_4HZ = 0,
     LORA_25HZ,
     LORA_50HZ,
@@ -160,17 +160,17 @@ impl PrefParams {
 /// Note: Some of these draw from one of two enums (FLRC, LoRa), so we store as their u8-reprs.
 #[derive(Clone)]
 struct ModSettings {
-    index: u8,
-    radio_type: RadioType,
-    rf_rate: RfRates, // Max value of 4 since only 2 bits have been assigned in the sync package.
-    bw: u8,
-    sf: u8,
-    cr: u8,
-    interval: u32,         // interval in us seconds that corresponds to that frequency
-    TLMinterval: TlmRatio, // every X packets is a response TLM packet, should be a power of 2
-    FHSShopInterval: u8, // every X packets we hop to a new frequency. Max value of 16 since only 4 bits have been assigned in the sync package.
-    PreambleLen: u8,
-    PayloadLength: u8, // Number of OTA bytes to be sent.
+    pub index: u8,
+    pub radio_type: RadioType,
+    pub rf_rate: RfRates, // Max value of 4 since only 2 bits have been assigned in the sync package.
+    pub bw: u8,
+    pub sf: u8,
+    pub cr: u8,
+    pub interval: u32,         // interval in us seconds that corresponds to that frequency
+    pub TLMinterval: TlmRatio, // every X packets is a response TLM packet, should be a power of 2
+    pub FHSShopInterval: u8, // every X packets we hop to a new frequency. Max value of 16 since only 4 bits have been assigned in the sync package.
+    pub PreambleLen: u8,
+    pub PayloadLength: u8, // Number of OTA bytes to be sent.
 }
 
 impl ModSettings {
@@ -204,16 +204,16 @@ impl ModSettings {
 }
 
 // #ifndef UNIT_TEST
-const RATE_MAX: u8 = 6; // 2xFLRC + 4xLoRa
+pub const RATE_MAX: u8 = 6; // 2xFLRC + 4xLoRa
 pub const RATE_DEFAULT: u8 = 0; // Default to FLRC 1000Hz
-const RATE_BINDING: u8 = 5; // 50Hz bind mode
+pub const RATE_BINDING: u8 = 5; // 50Hz bind mode
 
-const SYNC_PACKET_SWITCH_OFFSET: u8 = 0; // Switch encoding mode
-const SYNC_PACKET_TLM_OFFSET: u8 = 2; // Telemetry ratio
-const SYNC_PACKET_RATE_OFFSET: u8 = 5; // Rate index
-const SYNC_PACKET_SWITCH_MASK: u8 = 0b11;
-const SYNC_PACKET_TLM_MASK: u8 = 0b111;
-const SYNC_PACKET_RATE_MASK: u8 = 0b111;
+pub const SYNC_PACKET_SWITCH_OFFSET: u8 = 0; // Switch encoding mode
+pub const SYNC_PACKET_TLM_OFFSET: u8 = 2; // Telemetry ratio
+pub const SYNC_PACKET_RATE_OFFSET: u8 = 5; // Rate index
+pub const SYNC_PACKET_SWITCH_MASK: u8 = 0b11;
+pub const SYNC_PACKET_TLM_MASK: u8 = 0b111;
+pub const SYNC_PACKET_RATE_MASK: u8 = 0b111;
 // #endif // UNIT_TEST
 
 const AUX1: u8 = 4;
@@ -360,11 +360,16 @@ fn enumRatetoIndex(rate: u8) -> u8 {
     }
 }
 
-// expresslrs_mod_settings_s *ExpressLRS_currAirRate_Modparams;
-// expresslrs_rf_pref_params_s *ExpressLRS_currAirRate_RFperfParams;
+pub static mut CurrAirRateModParams: ModSettings = ModSettings {
 
-static mut connectionState: ConnectionState = ConnectionState::disconnected;
-static mut connectionHasModelMatch: bool = false;
+};
+
+pub static mut CurrAirRateRfPerfParams: PrefParams = PrefParams {
+
+};
+
+pub static mut connectionState: ConnectionState = ConnectionState::disconnected;
+pub static mut connectionHasModelMatch: bool = false;
 
 // todo: Fix this binding ID.
 static mut BindingUID: [u8; 6] = [0, 1, 2, 3, 4, 5]; // Special binding UID values
@@ -378,7 +383,7 @@ static mut BindingUID: [u8; 6] = [0, 1, 2, 3, 4, 5]; // Special binding UID valu
                                                      //             (uint8_t)HAL_GetUIDw2(), (uint8_t)(HAL_GetUIDw2() >> 8)};
                                                      // }
 
-static mut UID: [u8; 6] = [0; 6];
+pub static mut UID: [u8; 6] = [0; 6];
 
 static mut MasterUID: [u8; 6] = unsafe { [UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]] }; // Special binding UID values
 
