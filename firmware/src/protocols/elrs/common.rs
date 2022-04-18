@@ -10,7 +10,7 @@
 
 use super::sx1280_regs::{
     FlrcBandwidths, FlrcCodingRates, FlrcGaussianFilter, LoRaBandwidths, LoRaCodingRates,
-    LoraSpreadingFactors,
+    LoRaSpreadingFactors,
 };
 
 #[derive(Copy, Clone)]
@@ -59,14 +59,14 @@ pub enum ConnectionState {
 }
 
 ///On the TX, tracks what to do when the Tock timer fires
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 enum TxTlmRcvPhase {
     ttrpTransmitting,   // Transmitting RC channels as normal
     ttrpPreReceiveGap, // Has switched to Receive mode for telemetry, but in the gap between TX done and Tock
     ttrpExpectingTelem, // Still in Receive mode, Tock has fired, receiving telem as far as we know
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum RXtimerState {
     tim_disconnected = 0,
@@ -74,7 +74,7 @@ pub enum RXtimerState {
     tim_locked = 2,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum TlmHeader {
     RF_DOWNLINK_INFO = 0,
@@ -82,7 +82,7 @@ pub enum TlmHeader {
     RF_AIRMODE_PARAMETERS = 2,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum RfRates {
     LORA_4HZ = 0,
@@ -267,7 +267,7 @@ const AirRateConfig: [ModSettings; RATE_MAX as usize] = [
         RadioType::SX128x_LORA,
         RfRates::LORA_500HZ,
         LoRaBandwidths::BW_0800 as u8,
-        LoraSpreadingFactors::SF5 as u8,
+        LoRaSpreadingFactors::SF5 as u8,
         LoRaCodingRates::CR_4_6 as u8,
         2000,
         TlmRatio::_1_128,
@@ -280,7 +280,7 @@ const AirRateConfig: [ModSettings; RATE_MAX as usize] = [
         RadioType::SX128x_LORA,
         RfRates::LORA_250HZ,
         LoRaBandwidths::BW_0800 as u8,
-        LoraSpreadingFactors::SF6 as u8,
+        LoRaSpreadingFactors::SF6 as u8,
         LoRaCodingRates::CR_4_7 as u8,
         4000,
         TlmRatio::_1_64,
@@ -293,7 +293,7 @@ const AirRateConfig: [ModSettings; RATE_MAX as usize] = [
         RadioType::SX128x_LORA,
         RfRates::LORA_150HZ,
         LoRaBandwidths::BW_0800 as u8,
-        LoraSpreadingFactors::SF7 as u8,
+        LoRaSpreadingFactors::SF7 as u8,
         LoRaCodingRates::CR_4_7 as u8,
         6666,
         TlmRatio::_1_32,
@@ -306,7 +306,7 @@ const AirRateConfig: [ModSettings; RATE_MAX as usize] = [
         RadioType::SX128x_LORA,
         RfRates::LORA_50HZ,
         LoRaBandwidths::BW_0800 as u8,
-        LoraSpreadingFactors::SF9 as u8,
+        LoRaSpreadingFactors::SF9 as u8,
         LoRaCodingRates::CR_4_6 as u8,
         20000,
         TlmRatio::NO_TLM,

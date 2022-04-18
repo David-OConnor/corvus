@@ -9,6 +9,8 @@
 // todo: Re MSP:
 // "it's not needed for the basic link but it's needed some advanced tlm and 2way communication"
 
+use cortex_m::delay::Delay;
+
 use stm32_hal2::{
     timer::Timer,
     pac::Tim4,
@@ -28,6 +30,7 @@ use super::{
         SYNC_PACKET_TLM_MASK,
         *,
     },
+    ota::*,
     fhss, lqcalc, pfd,
     stubborn::{self, StubbornReceiver, StubbornSender},
     lowpassfilter::LPF,
@@ -77,7 +80,7 @@ static mut PFDloop: pfd::PFD = pfd::PFD {
 };
 // GENERIC_CRC14 ota_crc(ELRS_CRC14_POLY);
 // ELRS_EEPROM eeprom;
-// static mut config: RxConfig = RxConfig {};
+static mut config: RxConfig = RxConfig {};
 // Telemetry telemetry;
 
 // todo: What is GPIO_PIN_PWM_OUTPUTS?
@@ -288,11 +291,11 @@ unsafe fn getRFlinkInfo() {
     // #endif
 }
 
-fn SetRFLinkRate(index: u8, hwTimer: &mut Timer<TIM4>) // Set speed of RF link
+unsafe fn SetRFLinkRate(index: u8, hwTimer: &mut Timer<TIM4>) // Set speed of RF link
 {
     let ModParams: ModSettings = get_elrs_airRateConfig(index);
     let RFperf: RfPrefParams = get_elrs_RFperfParams(index);
-    let invertIQ: bool = UID[5] & 0x01;
+    let invertIQ: bool = (UID[5] & 0x01) != 0;
 
     hwTimer.updateInterval(ModParams.interval);
     Radio.Config(
@@ -316,8 +319,8 @@ fn SetRFLinkRate(index: u8, hwTimer: &mut Timer<TIM4>) // Set speed of RF link
                 / (10 * 1000);
     }
 
-    ExpressLRS_currAirRate_Modparams = ModParams;
-    ExpressLRS_currAirRate_RFperfParams = RFperf;
+    CurrAirRateModParams = ModParams;
+    CurrAirRateRfPerfParams = RFperf;
     nextAirRateIndex = index; // presumably we just handled this
     unsafe {
         telemBurstValid = false;
@@ -398,7 +401,7 @@ unsafe fn HandleSendTelemetryResponse() -> bool {
             NextTelemetryType = ELRS_TELEMETRY_TYPE_LINK;
         }
 
-        TelemetrySender.GetCurrentPayload(&packageIndex, &maxLength, &data);
+        TelemetrySender.GetCurrentPayload(&mut packageIndex, &mut maxLength, &data);
         Radio.TXdataBuffer[1] = (packageIndex << ELRS_TELEMETRY_SHIFT) + ELRS_TELEMETRY_TYPE_DATA;
         Radio.TXdataBuffer[2] = if maxLength > 0 { data } else { 0 };
         Radio.TXdataBuffer[3] = if maxLength >= 1 { data + 1 } else { 0 };
@@ -446,7 +449,7 @@ unsafe fn updatePhaseLock(hwTimer: &mut Timer<TIM4>) {
         Offset = LPF_Offset.update(RawOffset);
         OffsetDx = LPF_OffsetDx.update(RawOffset - prevRawOffset);
 
-        if RXtimerState == tim_locked && LQCalc.currentIsSet() {
+        if RXtimerState == RXtimerState::tim_locked && LQCalc.currentIsSet() {
             if unsafe { NonceRX % 8 == 0 }
             //limit rate of freq offset adjustment slightly
             {
@@ -634,7 +637,7 @@ unsafe fn LostConnection(hwTimer: &mut Timer<TIM4>) {
     if unsafe { !InBindingMode } {
         while micros() - PFDloop.getIntEventTime() > 250 {} // time it just after the tock()
         hwTimer.stop();
-        SetRFLinkRate(hwTimer, nextAirRateIndex); // also sets to initialFreq
+        SetRFLinkRate(nextAirRateIndex, hwTimer); // also sets to initialFreq
         Radio.RXnb();
     }
 }
@@ -702,7 +705,7 @@ unsafe fn ProcessRfPacket_RC() {
  * Process the assembled MSP packet in MspData[]
  **/
 
-fn MspReceiveComplete() {
+unsafe fn MspReceiveComplete(crsf: &mut CRSF) {
     if MspData[7] == MSP_SET_RX_CONFIG && MspData[8] == MSP_ELRS_MODEL_ID {
         UpdateModelMatch(MspData[9]);
     } else if MspData[0] == MSP_ELRS_SET_RX_WIFI_MODE {
@@ -729,8 +732,8 @@ fn MspReceiveComplete() {
                 crsf.sendMSPFrameToFC(MspData);
             }
 
-            if (receivedHeader.dest_addr == CRSF_ADDRESS_BROADCAST
-                || receivedHeader.dest_addr == CRSF_ADDRESS_CRSF_RECEIVER)
+            if receivedHeader.dest_addr == CRSF_ADDRESS_BROADCAST
+                || receivedHeader.dest_addr == CRSF_ADDRESS_CRSF_RECEIVER
             {
                 crsf.ParameterUpdateData[0] = MspData[CRSF_TELEMETRY_TYPE_INDEX];
                 crsf.ParameterUpdateData[1] = MspData[CRSF_TELEMETRY_FIELD_ID_INDEX];
@@ -743,7 +746,7 @@ fn MspReceiveComplete() {
     MspReceiver.Unlock();
 }
 
-unsafe fn ProcessRfPacket_MSP() {
+unsafe fn ProcessRfPacket_MSP(crsf: &mut CRSF) {
     // Always examine MSP packets for bind information if in bind mode
     // [1] is the package index, first packet of the MSP
     if unsafe { InBindingMode }
@@ -768,7 +771,7 @@ unsafe fn ProcessRfPacket_MSP() {
         }
     }
     if MspReceiver.HasFinishedData() {
-        MspReceiveComplete();
+        MspReceiveComplete(crsf);
     }
 }
 
@@ -790,9 +793,9 @@ unsafe fn ProcessRfPacket_SYNC(now: u32) -> bool {
     // Will change the packet air rate in loop() if this changes
     unsafe { nextAirRateIndex = (Radio.RXdataBuffer[3] >> SYNC_PACKET_RATE_OFFSET) & SYNC_PACKET_RATE_MASK; }
     // Update switch mode encoding immediately
-    OtaSetSwitchMode((OtaSwitchMode_e)(
+    OtaSetSwitchMode(
         (Radio.RXdataBuffer[3] >> SYNC_PACKET_SWITCH_OFFSET) & SYNC_PACKET_SWITCH_MASK,
-    ));
+    );
     // Update TLM ratio
     let TLMrateIn: TlmRatio = (
         (Radio.RXdataBuffer[3] >> SYNC_PACKET_TLM_OFFSET) & SYNC_PACKET_TLM_MASK,
@@ -841,7 +844,7 @@ unsafe fn ProcessRFPacket(status: SX12xxDriverCommon::rx_status, hwTimer: &mut T
 
     // For smHybrid the CRC only has the packet type in byte 0
     // For smHybridWide the FHSS slot is added to the CRC in byte 0 on RC_DATA_PACKETs
-    if type_ != RC_DATA_PACKET || OtaSwitchModeCurrent != smHybridWide {
+    if type_ != PacketHeaderType::RC_DATA_PACKET as u8 || OtaSwitchModeCurrent != OtaSwitchMode::smHybridWide {
         Radio.RXdataBuffer[0] = type_;
     } else {
         let NonceFHSSresult: u8 = NonceRX % ExpressLRS_currAirRate_Modparams.FHSShopInterval;
@@ -913,7 +916,7 @@ fn TXdoneISR() {
     Radio.RXnb();
 }
 
-fn setupConfigAndPocCheck() {
+fn setupConfigAndPocCheck(delay: &mut Delay) {
     eeprom.Begin();
     config.SetStorageProvider(&eeprom); // Pass pointer to the Config class for access to storage
     config.Load();
@@ -928,7 +931,7 @@ fn setupConfigAndPocCheck() {
     // If we haven't reached our binding mode power cycles
     // and we've been powered on for 2s, reset the power on counter
     if config.GetPowerOnCounter() < 3 {
-        delay(2000);
+        delay.delay_ms(2_000); //
         config.SetPowerOnCounter(0);
         config.Commit();
     }
@@ -944,7 +947,7 @@ fn setupTarget() {
     setupTargetCommon();
 }
 
-fn setupBindingFromConfig() {
+unsafe fn setupBindingFromConfig() {
     // Use the user defined binding phase if set,
     // otherwise use the bind flag and UID in eeprom for UID
     if MY_UID {

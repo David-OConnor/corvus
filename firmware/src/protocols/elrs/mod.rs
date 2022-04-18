@@ -14,11 +14,12 @@ mod msp;
 mod pfd;
 mod lowpassfilter;
 mod rx_main;
-// todo: So many missing things from OTA like CRSF values I can't find the origin of.
-// mod ota;
+mod ota;
 mod stubborn;
 mod sx1280_regs;
 mod crsf;
+mod sx1280;
+mod sx1280_hal;
 
 use crate::flight_ctrls::CtrlInputs;
 

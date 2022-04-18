@@ -30,10 +30,10 @@ pub struct CRSF {
     // static HardwareSerial Port;
     // static Stream *PortSecondary; // A second UART used to mirror telemetry out on the TX, not read from
 
-    ChannelDataIn: [u16; 16],
+    pub ChannelDataIn: [u16; 16],
 
     /////Variables/////
-    ParameterUpdateData: [u8; 3],
+    pub ParameterUpdateData: [u8; 3],
 
     // #ifdef CRSF_TX_MODULE
 
@@ -42,59 +42,59 @@ pub struct CRSF {
     // static void (*RCdataCallback)();
 
     // The model ID as received from the Transmitter
-    modelId: u8,
-    ForwardDevicePings: bool, // true if device pings should be forwarded OTA
-    elrsLUAmode: bool,
+    pub modelId: u8,
+    pub ForwardDevicePings: bool, // true if device pings should be forwarded OTA
+    pub elrsLUAmode: bool,
 
     /// UART Handling ///
-    GoodPktsCountResult: u32, // need to latch the results
-    BadPktsCountResult: u32, // need to latch the results
+    pub GoodPktsCountResult: u32, // need to latch the results
+    pub BadPktsCountResult: u32, // need to latch the results
     // #endif
 
     // #ifdef CRSF_RX_MODULE
-    PackedRCdataOut: Channels,            // RC data in packed format for output.
+    pub PackedRCdataOut: Channels,            // RC data in packed format for output.
     // static uint16_t GetChannelOutput(uint8_t ch);
     // #endif
 
-    LinkStatistics: PayloadLinkStatistics, // Link Statisitics Stored as Struct
+    pub LinkStatistics: PayloadLinkStatistics, // Link Statisitics Stored as Struct
 
     // #ifdef CRSF_TX_MODULE
 
     ///// Variables for OpenTX Syncing //////////////////////////
 
 
-    OpenTXsyncLastSent: u32,
+    pub OpenTXsyncLastSent: u32,
 
     // #endif
 
     /////////////////////////////////////////////////////////////
-    CRSFstate: bool,
-    _dev: Stream,
+    pub CRSFstate: bool,
+    pub _dev: Stream,
 
-    inBuffer: InBuffer,
+    pub inBuffer: InBuffer,
 
 // #if CRSF_TX_MODULE
     /// OpenTX mixer sync ///
-    RequestedRCpacketInterval: u32,
-    RCdataLastRecv: u32,
-    OpenTXsyncOffset: i32,
-    OpenTXsyncOffsetSafeMargin: u32,
-    OpentxSyncActive: bool,
-    CRSFoutBuffer: [u8; CRSF_MAX_PACKET_LEN],
+    pub RequestedRCpacketInterval: u32,
+    pub RCdataLastRecv: u32,
+    pub OpenTXsyncOffset: i32,
+    pub OpenTXsyncOffsetSafeMargin: u32,
+    pub OpentxSyncActive: bool,
+    pub CRSFoutBuffer: [u8; CRSF_MAX_PACKET_LEN],
 
     /// UART Handling ///
-    SerialInPacketLen: u8,                  // length of the CRSF packet as measured
-    SerialInPacketPtr: u8,                   // index where we are reading/writing
-    CRSFframeActive: bool,  //since we get a copy of the serial data use this flag to know when to ignore it
-    GoodPktsCount: u32,
-    BadPktsCount: u32,
-    UARTwdtLastChecked: u32,
-    maxPacketBytes: u8,
-    maxPeriodBytes: u8,
-    TxToHandsetBauds: [u32; 6],
-    UARTcurrentBaudIdx: usize,
-    MspData: [u8; ELRS_MSP_BUFFER],
-    MspDataLength: u8,
+    pub SerialInPacketLen: u8,                  // length of the CRSF packet as measured
+    pub SerialInPacketPtr: u8,                   // index where we are reading/writing
+    pub CRSFframeActive: bool,  //since we get a copy of the serial data use this flag to know when to ignore it
+    pub GoodPktsCount: u32,
+    pub BadPktsCount: u32,
+    pub UARTwdtLastChecked: u32,
+    pub maxPacketBytes: u8,
+    pub maxPeriodBytes: u8,
+    pub TxToHandsetBauds: [u32; 6],
+    pub UARTcurrentBaudIdx: usize,
+    pub MspData: [u8; ELRS_MSP_BUFFER],
+    pub MspDataLength: u8,
 // #endif
 
 }

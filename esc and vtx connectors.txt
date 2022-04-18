@@ -1,4 +1,5 @@
 All of these are from perpspective of port on top, PCB towards you, wires away, left to right.
+These are all from *the FC's perspective*. For example, on Diatone, the ESC has GND on the left!
 
 ESC
 T-motor: Gnd, Gnd, Bat, 10v out, 4, 3, 2, 1, CRT, Tx

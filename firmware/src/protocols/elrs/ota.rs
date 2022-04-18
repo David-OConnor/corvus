@@ -29,9 +29,13 @@
  * be sent over the radio link.
  */
 
-#[derive(Clone, Copy)]
+use super::{
+    crsf::CRSF,
+};
+
+#[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
-enum PacketHeaderType {
+pub enum PacketHeaderType {
     /// standard channel data packet
     RC_DATA_PACKET = 0b00,
     /// MSP data packet
@@ -45,8 +49,8 @@ enum PacketHeaderType {
 // Mask used to XOR the ModelId into the SYNC packet for ModelMatch
 const MODELMATCH_MASK: u8 = 0x3f;
 
-#[derive(Clone, Copy)]
-enum OtaSwitchMode {
+#[derive(Clone, Copy, PartialEq)]
+pub enum OtaSwitchMode {
     sm1Bit,
     smHybrid,
     smHybridWide,
@@ -90,7 +94,7 @@ fn HybridWideNonceToSwitchIndex(nonce: u8) -> u8 {
  * Output: crsf->PackedRCdataOut
  * Returns: TelemetryStatus bit
  */
-fn UnpackChannelDataHybridSwitch8(
+pub fn UnpackChannelDataHybridSwitch8(
     Buffer: &mut [u8],
     crsf: &mut CRSF,
     nonce: u8,
@@ -109,37 +113,35 @@ fn UnpackChannelDataHybridSwitch8(
     // to leave the low bit open for switch 7 (sent as 0b11x)
     // where x is the high bit of switch 7
     let switchIndex: u8 = (switchByte & 0b111000) >> 3;
-    // todo: Where does SWITCH...CRSF come from??
-    // let switchValue: u16 = SWITCH3b_to_CRSF(switchByte & 0b111);
-    //
-    // todo put back once able
-    // match switchIndex {
-    //     0 => {
-    //         crsf.PackedRCdataOut.ch5 = switchValue;
-    //     }
-    //     1 => {
-    //         crsf.PackedRCdataOut.ch6 = switchValue;
-    //     }
-    //     2 => {
-    //         crsf.PackedRCdataOut.ch7 = switchValue;
-    //     }
-    //     3 => {
-    //         crsf.PackedRCdataOut.ch8 = switchValue;
-    //     }
-    //     4 => {
-    //         crsf.PackedRCdataOut.ch9 = switchValue;
-    //     }
-    //     5 => {
-    //         crsf.PackedRCdataOut.ch10 = switchValue;
-    //     }
-    //     6 => (), // Because AUX1 (index 0) is the low latency switch, the low bit
-    //     7 => {
-    //         // of the switchIndex can be used as data, and arrives as index "6"
-    //         // todo: Where does N_TO_CRSF come from?
-    //         // crsf.PackedRCdataOut.ch11 = N_to_CRSF(switchByte & 0b1111, 15);
-    //     }
-    //     _ => (),
-    // }
+    let switchValue: u16 = SWITCH3b_to_CRSF(switchByte & 0b111);
+
+    match switchIndex {
+        0 => {
+            crsf.PackedRCdataOut.ch5 = switchValue;
+        }
+        1 => {
+            crsf.PackedRCdataOut.ch6 = switchValue;
+        }
+        2 => {
+            crsf.PackedRCdataOut.ch7 = switchValue;
+        }
+        3 => {
+            crsf.PackedRCdataOut.ch8 = switchValue;
+        }
+        4 => {
+            crsf.PackedRCdataOut.ch9 = switchValue;
+        }
+        5 => {
+            crsf.PackedRCdataOut.ch10 = switchValue;
+        }
+        6 => (), // Because AUX1 (index 0) is the low latency switch, the low bit
+        7 => {
+            // of the switchIndex can be used as data, and arrives as index "6"
+            // todo: Where does N_TO_CRSF come from?
+            // crsf.PackedRCdataOut.ch11 = N_to_CRSF(switchByte & 0b1111, 15);
+        }
+        _ => (),
+    }
 
     // TelemetryStatus bit
     return switchByte & (1 << 7) != 0;
@@ -157,7 +159,7 @@ fn UnpackChannelDataHybridSwitch8(
  * Output: crsf.PackedRCdataOut, crsf.LinkStatistics.uplink_TX_Power
  * Returns: TelemetryStatus bit
  */
-fn UnpackChannelDataHybridWide(
+pub fn UnpackChannelDataHybridWide(
     Buffer: &mut [u8],
     // crsf: &mut [CRSF], // todo: Where does CRSF come from?
     nonce: u8,
@@ -222,9 +224,9 @@ fn UnpackChannelDataHybridWide(
     return TelemetryStatus;
 }
 
-static mut OtaSwitchModeCurrent: OtaSwitchMode = OtaSwitchMode::sm1Bit;
+pub static mut OtaSwitchModeCurrent: OtaSwitchMode = OtaSwitchMode::sm1Bit;
 
-fn OtaSetSwitchMode(switchMode: OtaSwitchMode) {
+pub fn OtaSetSwitchMode(switchMode: OtaSwitchMode) {
     match switchMode {
         OtaSwitchMode::smHybridWide => {
             // todo: Where do these come from??
