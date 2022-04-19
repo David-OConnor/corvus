@@ -19,14 +19,14 @@ use stm32_hal2::{
     flash::Flash,
     gpio::{self, Edge, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM2, TIM3},
+    pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, USART3, TIM15, TIM2, TIM3},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{
         self, Alignment, MasterModeSelection, OutputCompare, TimChannel, Timer, TimerConfig,
         TimerInterrupt,
     },
-    usart::Usart,
+    usart::{Usart, UsartInterrupt},
     usb,
 };
 
@@ -82,7 +82,7 @@ pub use drivers::imu_icm426xx as imu;
 use drivers::tof_vl53l1 as tof;
 
 // use protocols::{dshot, elrs};
-use protocols::dshot;
+use protocols::{crsf, dshot};
 
 use flight_ctrls::{
     ArmStatus, AutopilotStatus, CommandState, CtrlInputs, InputMap, InputMode, Params, RotorPower,
@@ -446,6 +446,7 @@ mod app {
         cs_elrs: Pin,
         i2c1: I2c<I2C1>,
         i2c2: I2c<I2C2>,
+        uart3: Usart<USART3>, // for ELRS over CRSF.
         flash_onboard: Flash,
         // rtc: Rtc,
         update_timer: Timer<TIM15>,
@@ -596,8 +597,9 @@ mod app {
         // todo note: We'd like to move to ELRS long term, but use this for now.
         // The STM32-HAL default UART config includes stop bits = 1, parity disabled, and 8-bit words,
         // which is what we want.
-        let uart1 = Usart::new(dp.USART1, 420_000, Default::default(), &clock_cfg);
-        // let uart2 = Usart::new(dp.USART1, 9_600., Default::default(), &clock_cfg);
+        let mut uart3 = Usart::new(dp.USART3, 420_000, Default::default(), &clock_cfg);
+        // Idle interrupt, in conjunction with circular DMA, to indicate we're received a message.
+        uart3.enable_interrupt(UsartInterrupt::Idle);
 
         // We use the RTC to assist with power use measurement.
         let rtc = Rtc::new(dp.RTC, Default::default());
@@ -724,6 +726,7 @@ mod app {
                 cs_elrs,
                 i2c1,
                 i2c2,
+                uart3,
                 // rtc,
                 update_timer,
                 rotor_timer_a,
@@ -1111,6 +1114,18 @@ mod app {
              dma.stop(DmaChannel::C1); // spi.stop_dma only can stop a single channel atm.
              spi.stop_dma(DmaChannel::C2, dma);
          });
+    }
+
+     #[task(binds = USART3, shared = [dma, uart3], priority = 3)]
+    /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
+    /// we receive IMU data; it triggers the inner PID loop.
+    fn crsf_isr(mut cx: crsf_isr::Context) {
+            cx.shared.uart3.lock(|uart| {
+               uart.clear_interrupt(UsartInterrupt::Idle);
+            });
+         println!("CRSF Interrupt");
+         // todo: DMA? Or not.
+
      }
 }
 

@@ -280,10 +280,10 @@ unsafe fn getRFlinkInfo() {
     crsf.LinkStatistics.rf_Mode = ExpressLRS_currAirRate_Modparams -> enum_rate;
 
     // #if defined(DEBUG_BF_LINK_STATS)
-    // crsf.LinkStatistics.downlink_RSSI = debug1;
-    // crsf.LinkStatistics.downlink_Link_quality = debug2;
-    // crsf.LinkStatistics.downlink_SNR = debug3;
-    // crsf.LinkStatistics.uplink_RSSI_2 = debug4;
+    // crsf_bf.LinkStatistics.downlink_RSSI = debug1;
+    // crsf_bf.LinkStatistics.downlink_Link_quality = debug2;
+    // crsf_bf.LinkStatistics.downlink_SNR = debug3;
+    // crsf_bf.LinkStatistics.uplink_RSSI_2 = debug4;
     // #endif
 
     // #if defined(DEBUG_RCVR_LINKSTATS)

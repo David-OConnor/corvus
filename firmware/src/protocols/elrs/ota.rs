@@ -75,12 +75,12 @@ fn HybridWideNonceToSwitchIndex(nonce: u8) -> u8 {
 // };
 
 // todo: Put back once you figure out where CRSF comes from.
-// fn UnpackChannelDataHybridCommon(Buffer: &mut [u8], crsf: &mut CRSF) {
+// fn UnpackChannelDataHybridCommon(Buffer: &mut [u8], crsf_bf: &mut CRSF) {
 //     // The analog channels
-//     crsf.PackedRCdataOut.ch0 = (Buffer[1] << 3) | ((Buffer[5] & 0b11000000) >> 5);
-//     crsf.PackedRCdataOut.ch1 = (Buffer[2] << 3) | ((Buffer[5] & 0b00110000) >> 3);
-//     crsf.PackedRCdataOut.ch2 = (Buffer[3] << 3) | ((Buffer[5] & 0b00001100) >> 1);
-//     crsf.PackedRCdataOut.ch3 = (Buffer[4] << 3) | ((Buffer[5] & 0b00000011) << 1);
+//     crsf_bf.PackedRCdataOut.ch0 = (Buffer[1] << 3) | ((Buffer[5] & 0b11000000) >> 5);
+//     crsf_bf.PackedRCdataOut.ch1 = (Buffer[2] << 3) | ((Buffer[5] & 0b00110000) >> 3);
+//     crsf_bf.PackedRCdataOut.ch2 = (Buffer[3] << 3) | ((Buffer[5] & 0b00001100) >> 1);
+//     crsf_bf.PackedRCdataOut.ch3 = (Buffer[4] << 3) | ((Buffer[5] & 0b00000011) << 1);
 // }
 
 /**
@@ -91,7 +91,7 @@ fn HybridWideNonceToSwitchIndex(nonce: u8) -> u8 {
  * 3 bits for the round-robin switch index and 2 bits for the value
  *
  * Input: Buffer
- * Output: crsf->PackedRCdataOut
+ * Output: crsf_bf->PackedRCdataOut
  * Returns: TelemetryStatus bit
  */
 pub fn UnpackChannelDataHybridSwitch8(
@@ -107,7 +107,7 @@ pub fn UnpackChannelDataHybridSwitch8(
 
     // The low latency switch
     // todo where from?
-    // crsf.PackedRCdataOut.ch4 = BIT_to_CRSF((switchByte & 0b01000000) >> 6);
+    // crsf_bf.PackedRCdataOut.ch4 = BIT_to_CRSF((switchByte & 0b01000000) >> 6);
 
     // The round-robin switch, switchIndex is actually index-1
     // to leave the low bit open for switch 7 (sent as 0b11x)
@@ -138,7 +138,7 @@ pub fn UnpackChannelDataHybridSwitch8(
         7 => {
             // of the switchIndex can be used as data, and arrives as index "6"
             // todo: Where does N_TO_CRSF come from?
-            // crsf.PackedRCdataOut.ch11 = N_to_CRSF(switchByte & 0b1111, 15);
+            // crsf_bf.PackedRCdataOut.ch11 = N_to_CRSF(switchByte & 0b1111, 15);
         }
         _ => (),
     }
@@ -156,12 +156,12 @@ pub fn UnpackChannelDataHybridSwitch8(
  * 1 bit for the TelemetryStatus, which may be in every packet or just idx 7
  * depending on TelemetryRatio
  *
- * Output: crsf.PackedRCdataOut, crsf.LinkStatistics.uplink_TX_Power
+ * Output: crsf_bf.PackedRCdataOut, crsf_bf.LinkStatistics.uplink_TX_Power
  * Returns: TelemetryStatus bit
  */
 pub fn UnpackChannelDataHybridWide(
     Buffer: &mut [u8],
-    // crsf: &mut [CRSF], // todo: Where does CRSF come from?
+    // crsf_bf: &mut [CRSF], // todo: Where does CRSF come from?
     nonce: u8,
     tlmDenom: u8,
 ) -> bool {
@@ -171,7 +171,7 @@ pub fn UnpackChannelDataHybridWide(
 
     // The low latency switch (AUX1)
     // todo: Where does BIT_TO_CRSF come from?
-    // crsf.PackedRCdataOut.ch4 = BIT_to_CRSF((switchByte & 0b10000000) >> 7);
+    // crsf_bf.PackedRCdataOut.ch4 = BIT_to_CRSF((switchByte & 0b10000000) >> 7);
 
     // The round-robin switch, 6-7 bits with the switch index implied by the nonce
     let switchIndex: u8 = HybridWideNonceToSwitchIndex(nonce);
@@ -181,7 +181,7 @@ pub fn UnpackChannelDataHybridWide(
     }
     if switchIndex == 7 {
         // todo: Put back once you figure out where CRSF comes from
-        // crsf.LinkStatistics.uplink_TX_Power = switchByte & 0b111111;
+        // crsf_bf.LinkStatistics.uplink_TX_Power = switchByte & 0b111111;
     } else {
         let mut bins: u8 = 0;
         let mut switchValue: u16 = 0;
@@ -197,25 +197,25 @@ pub fn UnpackChannelDataHybridWide(
         // switchValue = N_to_CRSF(switchValue, bins);
         // match switchIndex {
         //     0 => {
-        //         crsf.PackedRCdataOut.ch5 = switchValue;
+        //         crsf_bf.PackedRCdataOut.ch5 = switchValue;
         //     }
         //     1 => {
-        //         crsf.PackedRCdataOut.ch6 = switchValue;
+        //         crsf_bf.PackedRCdataOut.ch6 = switchValue;
         //     }
         //     2 => {
-        //         crsf.PackedRCdataOut.ch7 = switchValue;
+        //         crsf_bf.PackedRCdataOut.ch7 = switchValue;
         //     }
         //     3 => {
-        //         crsf.PackedRCdataOut.ch8 = switchValue;
+        //         crsf_bf.PackedRCdataOut.ch8 = switchValue;
         //     }
         //     4 => {
-        //         crsf.PackedRCdataOut.ch9 = switchValue;
+        //         crsf_bf.PackedRCdataOut.ch9 = switchValue;
         //     }
         //     5 => {
-        //         crsf.PackedRCdataOut.ch10 = switchValue;
+        //         crsf_bf.PackedRCdataOut.ch10 = switchValue;
         //     }
         //     6 => {
-        //         crsf.PackedRCdataOut.ch11 = switchValue;
+        //         crsf_bf.PackedRCdataOut.ch11 = switchValue;
         //     }
         //     _ => (),
         // }

@@ -9,4 +9,4 @@ pub mod imu_ism330dhcx;
 mod camera_gimbal;
 pub mod tof_vl53l1;
 
-// pub mod crsf;  CRSF Deprecated in favor of ELRS
+// pub mod crsf_bf;  CRSF Deprecated in favor of ELRS
