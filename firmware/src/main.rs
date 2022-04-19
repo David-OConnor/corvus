@@ -26,7 +26,7 @@ use stm32_hal2::{
         self, Alignment, MasterModeSelection, OutputCompare, TimChannel, Timer, TimerConfig,
         TimerInterrupt,
     },
-    usart::{Usart, UsartInterrupt},
+    usart::Usart,
     usb,
 };
 
@@ -598,8 +598,7 @@ mod app {
         // The STM32-HAL default UART config includes stop bits = 1, parity disabled, and 8-bit words,
         // which is what we want.
         let mut uart3 = Usart::new(dp.USART3, 420_000, Default::default(), &clock_cfg);
-        // Idle interrupt, in conjunction with circular DMA, to indicate we're received a message.
-        uart3.enable_interrupt(UsartInterrupt::Idle);
+        crsf::setup(&mut uart3,DmaChannel::C7,&mut dma); // Keep this channel in sync with `setup.rs`.
 
         // We use the RTC to assist with power use measurement.
         let rtc = Rtc::new(dp.RTC, Default::default());
@@ -1120,9 +1119,9 @@ mod app {
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     fn crsf_isr(mut cx: crsf_isr::Context) {
-            cx.shared.uart3.lock(|uart| {
-               uart.clear_interrupt(UsartInterrupt::Idle);
-            });
+        cx.shared.uart3.lock(|uart| {
+            crsf::handle_packet(uart);
+        });
          println!("CRSF Interrupt");
          // todo: DMA? Or not.
 

@@ -181,6 +181,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     dma::mux(DmaChannel::C5, DmaInput::Spi2Tx, mux);
     dma::mux(DmaChannel::C6, DmaInput::Spi2Rx, mux);
 
+    // CRSF (ELRS backup)
+    dma::mux(DmaChannel::C7, DmaInput::Usart3Rx, mux);
+
     // TOF sensor
     // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx, &mut dp.DMAMUX);
     // dma::mux(DmaChannel::C5, dma::DmaInput::I2c2Rx, &mut dp.DMAMUX);
