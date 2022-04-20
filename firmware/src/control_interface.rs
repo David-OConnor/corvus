@@ -25,7 +25,8 @@
 /// Represents data from all ELRS channels, including what channel it is, and the data passed.
 /// [ELRS FAQ](https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support)
 /// Assumes "Wide hybrid mode", as described in the FAQ.
-struct ChannelData {
+#[derive(Default)]
+pub struct ElrsChannelData {
     /// Channels 1-4 are 10-bit channels.
     pub channel_1: u16,
     pub channel_2: u16,
@@ -41,6 +42,5 @@ struct ChannelData {
     pub aux_6: u8,
     pub aux_7: u8,
     pub aux_8: u8,
-
     // todo: telemetry, signal quality etc
 }

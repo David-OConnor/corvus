@@ -2,7 +2,6 @@
 //! and timer and DMA assigments. Makes use of feature-gating as required.
 
 use cfg_if::cfg_if;
-use defmt::println;
 
 use crate::Rotor;
 

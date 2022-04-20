@@ -5,10 +5,7 @@
 //!
 //! Note that both this and the ICM-42605 IMU read temperature.
 
-use stm32_hal2::{
-    i2c::I2c,
-    pac::{self, I2C2},
-};
+use stm32_hal2::{i2c::I2c, pac::I2C2};
 
 // The sensor's address is 0x77 (if SDO pin is left floating or pulled-up to VDDIO) or 0x76 (if the SDO pin is
 // pulled-down to GND).

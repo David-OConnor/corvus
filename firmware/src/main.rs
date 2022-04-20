@@ -15,25 +15,20 @@ use stm32_hal2::{
     self,
     adc::{Adc, AdcDevice},
     clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllSrc},
-    dma::{self, ChannelCfg, Dma, DmaChannel, DmaInput, DmaInterrupt},
+    dma::{self, Dma, DmaChannel},
     flash::Flash,
-    gpio::{self, Edge, Pin, PinMode, Port},
+    gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, USART3, TIM15, TIM2, TIM3},
+    pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM2, TIM3, TIM4, USART3},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
-    timer::{
-        self, Alignment, MasterModeSelection, OutputCompare, TimChannel, Timer, TimerConfig,
-        TimerInterrupt,
-    },
+    timer::{self, Timer, TimerConfig, TimerInterrupt},
     usart::Usart,
     usb,
 };
 
 #[cfg(feature = "h7")]
 use stm32_hal2::clocks::PllCfg;
-
-use cmsis_dsp_sys as dsp_sys;
 
 use defmt::println;
 
@@ -419,6 +414,7 @@ fn init_sensors(
 
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
+    use usb_device::prelude::UsbDeviceState::Default;
     use super::*;
 
     // todo: Move vars from here to `local` as required.
@@ -520,6 +516,12 @@ mod app {
         // Set up pins with appropriate modes.
         setup::setup_pins();
 
+        let mut dma = Dma::new(dp.DMA1);
+        #[cfg(feature = "g4")]
+        dma::enable_mux1();
+
+        setup::setup_dma(&mut dma, &mut dp.DMAMUX);
+
         // We use SPI1 for the IMU
         // SPI input clock is 400MHz for H7, and 172Mhz for G4. 400MHz / 32 = 12.5 MHz. 170Mhz / 8 = 21.25Mhz.
         // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
@@ -602,7 +604,7 @@ mod app {
         // The STM32-HAL default UART config includes stop bits = 1, parity disabled, and 8-bit words,
         // which is what we want.
         let mut uart3 = Usart::new(dp.USART3, 420_000, Default::default(), &clock_cfg);
-        crsf::setup(&mut uart3,DmaChannel::C7,&mut dma); // Keep this channel in sync with `setup.rs`.
+        crsf::setup(&mut uart3, DmaChannel::C7, &mut dma); // Keep this channel in sync with `setup.rs`.
 
         // We use the RTC to assist with power use measurement.
         let rtc = Rtc::new(dp.RTC, Default::default());
@@ -623,8 +625,6 @@ mod app {
         let rotor_timer_cfg = TimerConfig {
             // We use ARPE since we change duty with the timer running.
             auto_reload_preload: true,
-            // alignment: Alignment::Center1, // todo temp
-            // direction: timer::CountDir::Down, // todo TS
             ..Default::default()
         };
 
@@ -647,15 +647,9 @@ mod app {
         }
 
         // todo: Set this up appropriately.
-        let elrs_timer = timer::new_tim4(dp.TIM4, 1., rotor_timer_cfg.clone(), &clock_cfg);
+        let elrs_timer = Timer::new_tim4(dp.TIM4, 1., Default::default(), &clock_cfg);
 
         dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
-
-        let mut dma = Dma::new(dp.DMA1);
-        #[cfg(feature = "g4")]
-        dma::enable_mux1();
-
-        setup::setup_dma(&mut dma, &mut dp.DMAMUX);
 
         let mut user_cfg = UserCfg::default();
 
@@ -1089,13 +1083,13 @@ mod app {
 
     #[task(binds = TIM4, shared = [elrs_timer], priority = 4)]
     /// ELRS timer.
-    fn elrs_timer_isr(cx: elrs_timer_isr) {
+    fn elrs_timer_isr(cx: elrs_timer_isr::Context) {
         cx.shared.elrs_timer.lock(|timer| {
             timer.clear_interrupt(TimerInterrupt::Update);
         });
     }
 
-    #[task(binds = EXTI15_19, shared = [user_cfg, manual_inputs], local = [spi3], priority = 4)]
+    #[task(binds = EXTI15_10, shared = [user_cfg, manual_inputs], local = [spi3], priority = 4)]
     /// We use this ISR when receiving data from the radio, via ELRS
     fn radio_data_isr(mut cx: radio_data_isr::Context) {
         gpio::clear_exti_interrupt(14);
@@ -1105,31 +1099,30 @@ mod app {
         })
     }
 
-     #[task(binds = DMA1_CH6, shared = [dma, spi2, cs_elrs], priority = 3)]
+    #[task(binds = DMA1_CH6, shared = [dma, spi2, cs_elrs], priority = 3)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     fn elrs_rx_isr(mut cx: elrs_rx_isr::Context) {
-         // Clear DMA interrupt this way due to RTIC conflict.
-         unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit()) }
+        // Clear DMA interrupt this way due to RTIC conflict.
+        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit()) }
 
-         (cx.shard.spi2, cx.shared.cs_imu, cx.shared.dma).lock(|spi, cs, dma| {
-             cs.set_high();
-             dma.stop(DmaChannel::C1); // spi.stop_dma only can stop a single channel atm.
-             spi.stop_dma(DmaChannel::C2, dma);
-         });
+        (cx.shared.spi2, cx.shared.cs_elrs, cx.shared.dma).lock(|spi, cs, dma| {
+            cs.set_high();
+            dma.stop(DmaChannel::C1); // spi.stop_dma only can stop a single channel atm.
+            spi.stop_dma(DmaChannel::C2, dma);
+        });
     }
 
-     #[task(binds = USART3, shared = [dma, uart3], priority = 3)]
+    #[task(binds = USART3, shared = [dma, uart3], priority = 3)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     fn crsf_isr(mut cx: crsf_isr::Context) {
-         (cx.shared.uart3, cx.shared.dma).lock(|uart, dma| {
+        (cx.shared.uart3, cx.shared.dma).lock(|uart, dma| {
             crsf::handle_packet(uart, dma, DmaChannel::C7, DmaChannel::C8);
         });
-         println!("CRSF Interrupt");
-         // todo: DMA? Or not.
-
-     }
+        println!("CRSF Interrupt");
+        // todo: DMA? Or not.
+    }
 }
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message

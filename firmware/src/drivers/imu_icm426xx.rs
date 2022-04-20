@@ -10,7 +10,7 @@ use stm32_hal2::{gpio::Pin, pac::SPI1, spi::Spi};
 
 use cortex_m::delay::Delay;
 
-use crate::sensor_fusion::{ImuReadings, IMU_READINGS};
+use crate::sensor_fusion::ImuReadings;
 
 const GYRO_FULLSCALE: f32 = 34.90659; // 2,000 degrees/sec
 const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G

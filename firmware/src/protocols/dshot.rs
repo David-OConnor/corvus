@@ -15,10 +15,10 @@
 //! main crate; ie set a 600kHz countdown for DSHOT-600.
 
 use stm32_hal2::{
-    dma::{ChannelCfg, Dma, DmaChannel},
-    gpio, pac,
+    dma::Dma,
+    pac,
     pac::{DMA1, TIM2, TIM3},
-    timer::{CountDir, OutputCompare, Polarity, TimChannel, Timer, TimerInterrupt},
+    timer::{CountDir, OutputCompare, Polarity, Timer, TimerInterrupt},
 };
 
 // todo: Bidirectional: Set timers to active low, set GPIO idle to high, and perhaps set down counting
@@ -27,8 +27,6 @@ use stm32_hal2::{
 // todo (Probalby in another module) - RPM filtering, once you have bidirectional DSHOT working.
 // Article: https://brushlesswhoop.com/betaflight-rpm-filter/
 // todo: Basically, you set up a notch filter at rotor RPM. (I think; QC this)
-
-use defmt::println;
 
 use cfg_if::cfg_if;
 
@@ -139,8 +137,9 @@ pub fn setup_timers(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
 // todo: Do we need compiler fences between payload seup, and starting the DMA writes? Consider adding if you
 // todo run into trouble.
 
+/// Stop all motors, by setting their power to 0.
 pub fn stop_all(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
-    /// todo: Motor stop may not work / may not be implemented, so consider changing to a 0 power signal.
+    // todo: Motor stop may not work / may not be implemented, so consider changing to a 0 power signal.
     // setup_payload(Rotor::R1, CmdType::Command(Command::MotorStop));
     // setup_payload(Rotor::R2, CmdType::Command(Command::MotorStop));
     // setup_payload(Rotor::R3, CmdType::Command(Command::MotorStop));

@@ -1676,7 +1676,7 @@
     (at 147.75 94.5 90)
     (descr "Resistor SMD 0402 (1005 Metric), square (rectangular) end terminal, IPC_7351 nominal, (Body size source: IPC-SM-782 page 72, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator")
     (tags "resistor")
-    (property "LCSC" "C25076")
+    (property "LCSC" "C25741")
     (property "Sheetfile" "quadcopter.kicad_sch")
     (property "Sheetname" "")
     (path "/b11c4015-625f-4f88-96c9-7525d3686b6a")
@@ -1685,7 +1685,7 @@
       (effects (font (size 1 1) (thickness 0.15)))
       (tstamp cef57f78-8ee2-4b5b-971d-07808e19b54b)
     )
-    (fp_text value "100" (at 0 1.17 90) (layer "F.Fab")
+    (fp_text value "1k" (at 0 1.17 90) (layer "F.Fab")
       (effects (font (size 1 1) (thickness 0.15)))
       (tstamp 6149a6ee-c1e6-4a9a-bed1-8bd3494a818c)
     )
@@ -2552,7 +2552,7 @@
     (property "Sheetname" "")
     (path "/cc86727f-894e-486d-8510-2b64f6ee41b6")
     (attr smd)
-    (fp_text reference "Re" (at 0 -1.17) (layer "F.SilkS") hide
+    (fp_text reference "R16" (at 0 -1.17) (layer "F.SilkS") hide
       (effects (font (size 1 1) (thickness 0.15)))
       (tstamp f3891b9a-ff7f-4ed8-9de7-da50e7290f0f)
     )
