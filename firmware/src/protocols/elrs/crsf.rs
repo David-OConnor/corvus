@@ -288,13 +288,12 @@ fn enableOpentxSync()
     OpentxSyncActive = true;
 }
 
-void ICACHE_RAM_ATTR CRSF::sendSyncPacketToTX() // in values in us.
-{
-    uint32_t now = millis();
-    if (CRSF::CRSFstate && (now - OpenTXsyncLastSent) >= OpenTXsyncPacketInterval)
-    {
-        uint32_t packetRate = CRSF::RequestedRCpacketInterval * 10; //convert from us to right format
-        int32_t offset = CRSF::OpenTXsyncOffset * 10 - CRSF::OpenTXsyncOffsetSafeMargin; // + 400us offset that that opentx always has some headroom
+fn sendSyncPacketToTX(&self) {
+     // in values in us.
+    let mut now: u32 = millis();
+    if self.CRSFstate && (now - OpenTXsyncLastSent) >= OpenTXsyncPacketInterval {
+        let packetRate: u32 = self.RequestedRCpacketInterval * 10; //convert from us to right format
+        let offset: i32 = self.OpenTXsyncOffset * 10 - self.OpenTXsyncOffsetSafeMargin; // + 400us offset that that opentx always has some headroom
 
         struct otxSyncData {
             uint8_t extendedType; // CRSF_FRAMETYPE_OPENTX_SYNC
@@ -302,12 +301,12 @@ void ICACHE_RAM_ATTR CRSF::sendSyncPacketToTX() // in values in us.
             uint32_t offset; // Big-Endian
         } PACKED;
 
-        uint8_t buffer[sizeof(otxSyncData)];
+        let mut buffer: [u8; sizeof(otxSyncData)] = [0; sizeof(otxSyncData)];
         struct otxSyncData * const sync = (struct otxSyncData * const)buffer;
 
-        sync->extendedType = CRSF_FRAMETYPE_OPENTX_SYNC;
-        sync->rate = htobe32(packetRate);
-        sync->offset = htobe32(offset);
+        sync.extendedType = CRSF_FRAMETYPE_OPENTX_SYNC;
+        sync.rate = htobe32(packetRate);
+        sync.offset = htobe32(offset);
 
         packetQueueExtended(CRSF_FRAMETYPE_RADIO_ID, buffer, sizeof(buffer));
 

@@ -481,6 +481,8 @@ mod app {
         SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
 
         // Set up clocks
+
+        // todo: Range 1 boost mode on G4!!
         let clock_cfg = Clocks {
             // Config for 480Mhz full speed:
             #[cfg(feature = "h7")]
@@ -496,6 +498,8 @@ mod app {
             },
             hsi48_on: true,
             clk48_src: Clk48Src::Hsi48,
+            #[cfg(feature = "g4")]
+            boost_mode: true, // Required for speeds > 150Mhz.
             ..Default::default()
         };
 
@@ -1119,8 +1123,8 @@ mod app {
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     fn crsf_isr(mut cx: crsf_isr::Context) {
-        cx.shared.uart3.lock(|uart| {
-            crsf::handle_packet(uart);
+         (cx.shared.uart3, cx.shared.dma).lock(|uart, dma| {
+            crsf::handle_packet(uart, dma, DmaChannel::C7, DmaChannel::C8);
         });
          println!("CRSF Interrupt");
          // todo: DMA? Or not.

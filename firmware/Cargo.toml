@@ -31,6 +31,9 @@ cfg-if = "1.0.0"  # if/else blocks for feature-gating based on flight controller
 usb-device = "0.2.8"
 usbd-serial = "0.1.1"
 
+# To convert integers to enums.
+num_enum = "0.5.7"
+
 # Use these features to specify GPIO mapping, and which peripherals to use.
 [features]
 # We use `mercury-xx` features for board-specific things like pin layout. We use
