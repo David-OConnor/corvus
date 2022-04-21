@@ -62,14 +62,12 @@ mod flight_ctrls;
 mod osd;
 mod pid;
 mod pid_tuning;
+mod ppks;
 mod protocols;
 mod sensor_fusion;
 mod setup;
-mod ppks;
 mod util;
 
-// cfg_if! {
-// if #[cfg(feature = "mercury-h7")] {
 use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
 // pub use, so we can use this rename in `sensor_fusion` to interpret the DMA buf.
@@ -77,7 +75,6 @@ pub use drivers::imu_icm426xx as imu;
 // use drivers::imu_ism330dhcx as imu;
 use drivers::tof_vl53l1 as tof;
 
-// use protocols::{dshot, elrs};
 use protocols::{crsf, dshot};
 
 use flight_ctrls::{
@@ -167,10 +164,6 @@ const DEBUG_PARAMS: bool = true;
 ///
 /// todo: Movable camera that moves with head motion.
 /// - Ir cam to find or avoid people
-
-
-
-
 
 /// User-configurable settings. These get saved to and loaded from internal flash.
 pub struct UserCfg {
@@ -266,7 +259,6 @@ impl Default for StateVolatile {
     }
 }
 
-
 #[derive(Clone, Copy)]
 /// Role in a swarm of drones
 pub enum SwarmRole {
@@ -333,7 +325,6 @@ fn init_sensors(
 
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
-    use usb_device::prelude::UsbDeviceState::Default;
     use super::*;
 
     // todo: Move vars from here to `local` as required.
@@ -1007,7 +998,7 @@ mod app {
 
     #[task(binds = TIM4, shared = [elrs_timer], priority = 4)]
     /// ELRS timer.
-    fn elrs_timer_isr(cx: elrs_timer_isr::Context) {
+    fn elrs_timer_isr(mut cx: elrs_timer_isr::Context) {
         cx.shared.elrs_timer.lock(|timer| {
             timer.clear_interrupt(TimerInterrupt::Update);
         });

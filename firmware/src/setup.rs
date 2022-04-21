@@ -182,6 +182,8 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
 
     // CRSF (ELRS backup)
     dma::mux(DmaChannel::C7, DmaInput::Usart3Rx, mux);
+    // Note: If we run out of DMA channels, consider removing the CRSF transmit channel;
+    // we only have it set up to respond to pings, and that's probably unecessary.
     dma::mux(DmaChannel::C8, DmaInput::Usart3Tx, mux);
 
     // TOF sensor

@@ -16,7 +16,7 @@ use stm32_hal2::{
 
 use cmsis_dsp_sys as dsp_sys;
 
-use crate::{dshot, util, pid::PidState, CtrlCoeffGroup, Location, UserCfg};
+use crate::{dshot, pid::PidState, util, util::map_linear, CtrlCoeffGroup, Location, UserCfg};
 
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
@@ -57,7 +57,6 @@ pub const POWER_LUT: [f32; 10] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1
 /// each with 2 bytes each.
 static mut IMU_BUF: [u8; 12] = [0; 12];
 
-
 /// Represents a complete quadcopter. Used for setting control parameters.
 struct AircraftProperties {
     mass: f32,               // grams
@@ -84,15 +83,6 @@ pub enum Rotor {
     R2,
     R3,
     R4,
-}
-
-/// Utility function to linearly map an input value to an output
-fn map_linear(val: f32, range_in: (f32, f32), range_out: (f32, f32)) -> f32 {
-    // todo: You may be able to optimize calls to this by having the ranges pre-store
-    // todo the total range vals.
-    let portion = (val - range_in.0) / (range_in.1 - range_in.0);
-
-    portion * (range_out.1 - range_out.0) + range_out.0
 }
 
 /// Maps control inputs (range 0. to 1. or -1. to 1.) to velocities, rotational velocities etc
@@ -509,11 +499,7 @@ impl RotorPower {
 /// a desired amount of acceleration, with a given current velocity.
 /// todo: Assume level flight?
 /// // todo: come back to this later.
-fn estimate_rotor_angle(
-    a_desired: f32,
-    v_current: f32,
-    ac_properties: &AircraftProperties,
-) -> f32 {
+fn estimate_rotor_angle(a_desired: f32, v_current: f32, ac_properties: &AircraftProperties) -> f32 {
     let drag = ac_properties.drag_coeff * v_current; // todo
     1. / ac_properties.thrust_coeff; // todo
     0. // todo

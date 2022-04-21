@@ -6,6 +6,7 @@
 //! [WIP clean driver in C](https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c)
 //! https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.h
 //! https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Serial3.c#L160
+//! https://github.com/chris1seto/PX4-Autopilot/tree/pr-rc_crsf_standalone_driver/src/drivers/rc/crsf_rc
 //!
 //! [Addtional standaone ref](https://github.com/CapnBry/CRServoF/tree/master/lib/CrsfSerial)
 //! From BF:
@@ -35,16 +36,22 @@ use stm32_hal2::{
     usart::{Usart, UsartInterrupt},
 };
 
-use crate::control_interface::ElrsChannelData;
+use crate::{control_interface::ElrsChannelData, util};
 
 const CRC_POLY: u8 = 0xd;
 const HEADER: u8 = 0xc8;
-const CHANNEL_VAL_MIN: u16 = 172;
-const CHANNEL_VAL_MAX: u16 = 1811;
-const CHANNEL_VAL_SPAN: u16 = CHANNEL_VAL_MAX - CHANNEL_VAL_MIN;
 
-const MAX_RX_BUF_SIZE: usize = 64; // todo
-const MAX_TX_BUF_SIZE: usize = 22; // todo
+// todo: I'm tracking diff min and max ELRS values.
+// todo: u16 or u32
+const CHANNEL_VAL_MIN: u32 = 172;
+const CHANNEL_VAL_MAX: u32 = 1811;
+const CHANNEL_VAL_SPAN: u32 = CHANNEL_VAL_MAX - CHANNEL_VAL_MIN;
+
+const CONTROL_VAL_MIN: f32 = -1.;
+const CONTROL_VAL_MAX: f32 = 1.;
+
+// Used both both TX and RX buffers. Includes payload, and other data words.
+const MAX_BUF_SIZE: usize = 64;
 
 const PAYLOAD_SIZE_GPS: usize = 15;
 const PAYLOAD_SIZE_BATTERY: usize = 8;
@@ -52,10 +59,12 @@ const PAYLOAD_SIZE_LINK_STATS: usize = 10;
 const PAYLOAD_SIZE_RC_CHANNELS: usize = 22;
 const PAYLOAD_SIZE_ATTITUDE: usize = 6;
 
-static mut RX_BUFFER: [u8; MAX_RX_BUF_SIZE] = [0; MAX_RX_BUF_SIZE];
+const CRSF_CHANNEL_COUNT: usize = 16;
+
+static mut RX_BUFFER: [u8; MAX_BUF_SIZE] = [0; MAX_BUF_SIZE];
 
 // todo: Consider storing static (non-mut) TX packets, depending on variety of responses.
-static mut TX_BUFFER: [u8; MAX_TX_BUF_SIZE] = [0; MAX_TX_BUF_SIZE];
+static mut TX_BUFFER: [u8; MAX_BUF_SIZE] = [0; MAX_BUF_SIZE];
 
 // todo: Maybe put in a struct etc? It's constant, but we use a function call to populate it.
 static mut CRC_LUT: [u8; 256] = [0; 256];
@@ -114,17 +123,35 @@ enum FrameType {
     MspResp = 0x7b,
     MspWrite = 0x7c,
 }
+
+#[derive(Default)]
+/// https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support
 struct LinkStats {
+    /// Timestamp these stats were recorded. (TBD format; processed locally; not part of packet from tx).
     timestamp: u32,
+    /// Uplink - received signal strength antenna 1 (RSSI). RSSI dBm as reported by the RX. Values
+    /// vary depending on mode, antenna quality, output power and distance. Ranges from -128 to 0.
     uplink_rssi_1: u8,
+    /// Uplink - received signal strength antenna 2 (RSSI).  	Second antenna RSSI, used in diversity mode
+    /// (Same range as rssi_1)
     uplink_rssi_2: u8,
+    /// Uplink - link quality (valid packets). The number of successful packets out of the last
+    /// 100 from TX → RX
     uplink_link_quality: u8,
+    /// Uplink - signal-to-noise ratio. SNR reported by the RX. Value varies mostly by radio chip
+    /// and gets lower with distance (once the agc hits its limit)
     uplink_snr: i8,
+    /// Active antenna for diversity RX (0 - 1)
     active_antenna: u8,
     rf_mode: u8,
+    /// Uplink - transmitting power. (mW?) 50mW reported as 0, as CRSF/OpenTX do not have this option
     uplink_tx_power: u8,
+    /// Downlink - received signal strength (RSSI). RSSI dBm of telemetry packets received by TX.
     downlink_rssi: u8,
+    /// Downlink - link quality (valid packets). An LQ indicator of telemetry packets received RX → TX
+    /// (0 - 100)
     downlink_link_quality: u8,
+    /// Downlink - signal-to-noise ratio. 	SNR reported by the TX for telemetry packets
     downlink_snr: i8,
 }
 
@@ -156,7 +183,7 @@ struct Packet {
     pub frame_type: FrameType,
     pub extended_dest: Option<DestAddr>,
     pub extended_src: Option<DestAddr>,
-    pub payload: [u8; MAX_RX_BUF_SIZE], // todo: Could be TX or RX.
+    pub payload: [u8; MAX_BUF_SIZE], // todo: Could be TX or RX.
     pub crc: u8,
 }
 
@@ -179,7 +206,7 @@ impl Packet {
             Err(_) => return Err(DecodeError {}),
         };
 
-        let mut payload = [0; MAX_RX_BUF_SIZE];
+        let mut payload = [0; MAX_BUF_SIZE];
 
         // todo: Extended src/dest
 
@@ -203,7 +230,7 @@ impl Packet {
     }
 
     /// Fill a buffer from this payload. Used to respond to ping requests from the transmitter.
-    pub fn to_buf(&self, buf: &mut [u8; MAX_TX_BUF_SIZE]) {
+    pub fn to_buf(&self, buf: &mut [u8; MAX_BUF_SIZE]) {
         buf[0] = self.dest_addr as u8;
         buf[1] = self.len as u8;
         buf[2] = self.frame_type as u8;
@@ -225,10 +252,75 @@ impl Packet {
     }
 
     /// Interpret a CRSF packet as ELRS channel data.
+    /// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c#L148
     pub fn to_channel_data(&self) -> Result<ElrsChannelData, DecodeError> {
         let mut result = ElrsChannelData::default();
 
-        // todo: Fill this in.
+        let mut data = [0; MAX_BUF_SIZE];
+        for i in 0..MAX_BUF_SIZE {
+            data[i] = self.payload[i] as u32;
+        }
+
+        let mut raw_channels = [0_u32; CRSF_CHANNEL_COUNT];
+
+        // Decode channel data
+        raw_channels[0] = (data[0] | data[1] << 8) & 0x07FF;
+        raw_channels[1] = (data[1] >> 3 | data[2] << 5) & 0x07FF;
+        raw_channels[2] = (data[2] >> 6 | data[3] << 2 | data[4] << 10) & 0x07FF;
+        raw_channels[3] = (data[4] >> 1 | data[5] << 7) & 0x07FF;
+        raw_channels[4] = (data[5] >> 4 | data[6] << 4) & 0x07FF;
+        raw_channels[5] = (data[6] >> 7 | data[7] << 1 | data[8] << 9) & 0x07FF;
+        raw_channels[6] = (data[8] >> 2 | data[9] << 6) & 0x07FF;
+        raw_channels[7] = (data[9] >> 5 | data[10] << 3) & 0x07FF;
+        raw_channels[8] = (data[11] | data[12] << 8) & 0x07FF;
+        raw_channels[9] = (data[12] >> 3 | data[13] << 5) & 0x07FF;
+        raw_channels[10] = (data[13] >> 6 | data[14] << 2 | data[15] << 10) & 0x07FF;
+        raw_channels[11] = (data[15] >> 1 | data[16] << 7) & 0x07FF;
+        raw_channels[12] = (data[16] >> 4 | data[17] << 4) & 0x07FF;
+        raw_channels[13] = (data[17] >> 7 | data[18] << 1 | data[19] << 9) & 0x07FF;
+        raw_channels[14] = (data[19] >> 2 | data[20] << 6) & 0x07FF;
+        raw_channels[15] = (data[20] >> 5 | data[21] << 3) & 0x07FF;
+
+        // crsf_status.channel_data.timestamp = Ticks_Now();
+
+        // Clamp, and map CRSF data to a scale between -1. and 1.
+        // todo: ELRS uses 10-bit channel 1-4 data, 2-pos arm (aux1), and 64-bit or 128-bit aux2-8.
+        // todo: How do we map the above to that? And ultimately, we want channel 1-4 on a 0. to 1.,
+        // or -1. to +1. scale.
+        for i in 0..CRSF_CHANNEL_COUNT {
+            if raw_channels[i] < CHANNEL_VAL_MIN {
+                raw_channels[i] = CHANNEL_VAL_MIN
+            } else if raw_channels[i] > CHANNEL_VAL_MAX {
+                raw_channels[i] = CHANNEL_VAL_MAX
+            }
+
+            // todo: Figure out if you're using floats or integers here.
+            // raw_channels[i] = util::map_linear(
+            //     raw_channels[i] as f32, (CHANNEL_VAL_MIN as f32, CHANNEL_VAL_MAX as f32), (CONTROL_VAL_MIN, CONTROL_VAL_MAX)
+            // );
+        }
+
+        Ok(result)
+    }
+
+    /// Interpret a CRSF packet as link statistics
+    /// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c#L179
+    pub fn to_link_stats(&self) -> Result<LinkStats, DecodeError> {
+        let mut result = LinkStats::default();
+
+        let data = self.payload;
+
+        // result.timestamp = Ticks_Now(); // todo
+        result.uplink_rssi_1 = data[0];
+        result.uplink_rssi_2 = data[1];
+        result.uplink_link_quality = data[2];
+        result.uplink_snr = data[3] as i8;
+        result.active_antenna = data[4];
+        result.rf_mode = data[5];
+        result.uplink_tx_power = data[6];
+        result.downlink_rssi = data[7];
+        result.downlink_link_quality = data[8];
+        result.downlink_snr = data[9] as i8;
 
         Ok(result)
     }
@@ -256,17 +348,19 @@ pub fn handle_packet(
         }
     };
 
+    // Only handle packets addressed to a flight controller.
     match packet.dest_addr {
         DestAddr::FlightController => (),
         // Improper destination address from the sender.
         _ => return,
     }
 
+    // Processing channel data, and link statistics packets. Respond to ping packets.
     match packet.frame_type {
         FrameType::DevicePing => {
             // Send a reply.
             // todo: Consider hard coding this as a dedicated buffer instead of calculating each time.
-            let mut payload = [0; MAX_RX_BUF_SIZE];
+            let mut payload = [0; MAX_BUF_SIZE];
             payload[0..22].clone_from_slice(&[
                 // Display name - "Anyleaf", null-terminated
                 0x41, 0x6e, 0x79, 0x6c, 0x65, 0x61, 0x66, 00, 0x45, 0x4c, 0x52,
@@ -293,17 +387,12 @@ pub fn handle_packet(
                 uart.write_dma(&TX_BUFFER, tx_chan, Default::default(), dma);
             }
         }
-        FrameType::RcChannelsPacked => {}
-        FrameType::LinkStatistics => {}
-        // FrameType::ParameterRead => {
-        //
-        // }
-        // FrameType::ParameterSettingsEntry => {
-        //
-        // }
-        // FrameType::ParameterWrite => {
-        //
-        // }
+        FrameType::RcChannelsPacked => {
+            let channel_data = packet.to_channel_data();
+        }
+        FrameType::LinkStatistics => {
+            let link_stats = packet.to_link_stats();
+        }
         _ => (),
     }
 

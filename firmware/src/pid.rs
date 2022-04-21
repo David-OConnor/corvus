@@ -18,8 +18,8 @@ use cmsis_dsp_sys as dsp_sys;
 
 use crate::{
     flight_ctrls::{
-        self, AltType, AutopilotStatus, CommandState, CtrlInputs, InputMap,
-        InputMode, Params, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED,
+        self, AltType, AutopilotStatus, CommandState, CtrlInputs, InputMap, InputMode, Params,
+        POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED,
     },
     util::IirInstWrapper,
     UserCfg, DT_ATTITUDE,
