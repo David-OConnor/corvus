@@ -1,4 +1,4 @@
-//!  CRSF support, for receiving radio control signals from ELRS receivers. Only handles communication
+//! CRSF support, for receiving radio control signals from ELRS receivers. Only handles communication
 //! over serial; the modules handle over-the-air procedures. See also the `elrs` module, for use
 //! with the LoRa chip directly, over SPI.
 //!
@@ -36,16 +36,16 @@ use stm32_hal2::{
     usart::{Usart, UsartInterrupt},
 };
 
-use crate::{control_interface::ElrsChannelData, util};
+use crate::{control_interface::ChannelData, util};
 
 const CRC_POLY: u8 = 0xd;
 const HEADER: u8 = 0xc8;
 
-// todo: I'm tracking diff min and max ELRS values.
-// todo: u16 or u32
-const CHANNEL_VAL_MIN: u32 = 172;
-const CHANNEL_VAL_MAX: u32 = 1811;
-const CHANNEL_VAL_SPAN: u32 = CHANNEL_VAL_MAX - CHANNEL_VAL_MIN;
+const CHANNEL_VAL_MIN: u16 = 172;
+const CHANNEL_VAL_MAX: u16 = 1_811;
+const CHANNEL_VAL_MIN_F32: f32 = 172.;
+const CHANNEL_VAL_MAX_F32: f32 = 1_811.;
+// const CHANNEL_VAL_SPAN: u16 = CHANNEL_VAL_MAX - CHANNEL_VAL_MIN;
 
 const CONTROL_VAL_MIN: f32 = -1.;
 const CONTROL_VAL_MAX: f32 = 1.;
@@ -159,6 +159,13 @@ struct LinkStats {
     downlink_snr: i8,
 }
 
+/// Used to pass packet data to the main program, returned by the handler triggered in the UART-idle
+/// interrupt.
+pub enum PacketData {
+    ChannelData(ChannelData),
+    LinkStats(LinkStats),
+}
+
 /// Configure the Idle interrupt, and start the circular DMA transfer. Run this once, on initial
 /// firmware setup.
 pub fn setup(uart: &mut Usart<USART3>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
@@ -189,6 +196,22 @@ struct Packet {
     pub extended_src: Option<DestAddr>,
     pub payload: [u8; MAX_BUF_SIZE], // todo: Could be TX or RX.
     pub crc: u8,
+}
+
+/// Map a raw CRSF channel value to a useful value.
+fn channel_to_val(mut chan_val: u16) -> f32 {
+    if chan_val < CHANNEL_VAL_MIN {
+        chan_val = CHANNEL_VAL_MIN
+    } else if chan_val > CHANNEL_VAL_MAX {
+        chan_val = CHANNEL_VAL_MAX
+    }
+
+    // todo: Map one of the channels to 0. to 1. instead of -1. to 1. ?
+    util::map_linear(
+        chan_val as f32,
+        (CHANNEL_VAL_MIN_F32, CHANNEL_VAL_MAX_F32),
+        (CONTROL_VAL_MIN, CONTROL_VAL_MAX),
+    )
 }
 
 impl Packet {
@@ -257,15 +280,18 @@ impl Packet {
 
     /// Interpret a CRSF packet as ELRS channel data.
     /// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c#L148
-    pub fn to_channel_data(&self) -> Result<ElrsChannelData, DecodeError> {
-        let mut result = ElrsChannelData::default();
+    pub fn to_channel_data(&self) -> Result<ChannelData, DecodeError> {
+        let mut result = ChannelData::default();
 
         let mut data = [0; MAX_BUF_SIZE];
         for i in 0..MAX_BUF_SIZE {
-            data[i] = self.payload[i] as u32;
+            data[i] = self.payload[i] as u16;
         }
 
-        let mut raw_channels = [0_u32; CRSF_CHANNEL_COUNT];
+        // todo: Use this to figure out how the channels are split.
+        println!("Payload: {:?}", self.payload);
+
+        let mut raw_channels = [0_u16; CRSF_CHANNEL_COUNT];
 
         // Decode channel data
         raw_channels[0] = (data[0] | data[1] << 8) & 0x07FF;
@@ -287,22 +313,20 @@ impl Packet {
 
         // crsf_status.channel_data.timestamp = Ticks_Now();
 
-        // Clamp, and map CRSF data to a scale between -1. and 1.
-        // todo: ELRS uses 10-bit channel 1-4 data, 2-pos arm (aux1), and 64-bit or 128-bit aux2-8.
-        // todo: How do we map the above to that? And ultimately, we want channel 1-4 on a 0. to 1.,
-        // or -1. to +1. scale.
-        for i in 0..CRSF_CHANNEL_COUNT {
-            if raw_channels[i] < CHANNEL_VAL_MIN {
-                raw_channels[i] = CHANNEL_VAL_MIN
-            } else if raw_channels[i] > CHANNEL_VAL_MAX {
-                raw_channels[i] = CHANNEL_VAL_MAX
-            }
+        println!("aux1 raw: {:?}", raw_channels[4]);
 
-            // todo: Figure out if you're using floats or integers here.
-            // raw_channels[i] = util::map_linear(
-            //     raw_channels[i] as f32, (CHANNEL_VAL_MIN as f32, CHANNEL_VAL_MAX as f32), (CONTROL_VAL_MIN, CONTROL_VAL_MAX)
-            // );
-        }
+        // Clamp, and map CRSF data to a scale between -1. and 1.  or 0. to +1.
+        result.channel_1 = channel_to_val(raw_channels[0]);
+        result.channel_2 = channel_to_val(raw_channels[1]);
+        result.channel_3 = channel_to_val(raw_channels[2]);
+        result.channel_4 = channel_to_val(raw_channels[3]);
+        // result.aux_1 = raw_channels[4]; // todo
+        result.aux_2 = raw_channels[5] as u8;
+
+        println!(
+            "Result ch1: {:?}\n{:?}\n{:?}\n{:?}\n{:?}\n",
+            result.channel_1, result.channel_2, result.channel_3, result.channel_4, result.aux_2
+        );
 
         Ok(result)
     }
@@ -336,7 +360,7 @@ pub fn handle_packet(
     dma: &mut Dma<DMA1>,
     rx_chan: DmaChannel,
     tx_chan: DmaChannel,
-) {
+) -> Option<PacketData> {
     uart.clear_interrupt(UsartInterrupt::Idle);
     dma.stop(rx_chan);
 
@@ -348,7 +372,7 @@ pub fn handle_packet(
         Ok(p) => p,
         Err(_) => {
             println!("Error decoding packet address or frame type; skipping");
-            return;
+            return None;
         }
     };
 
@@ -356,8 +380,12 @@ pub fn handle_packet(
     match packet.dest_addr {
         DestAddr::FlightController => (),
         // Improper destination address from the sender.
-        _ => return,
+        _ => {
+            return None;
+        }
     }
+
+    let mut result = None;
 
     // Processing channel data, and link statistics packets. Respond to ping packets.
     match packet.frame_type {
@@ -392,10 +420,21 @@ pub fn handle_packet(
             }
         }
         FrameType::RcChannelsPacked => {
-            let channel_data = packet.to_channel_data();
+            let channel_data = match packet.to_channel_data() {
+                Ok(v) => v,
+                Err(_) => {
+                    return None;
+                }
+            };
+            result = Some(PacketData::ChannelData(channel_data));
         }
         FrameType::LinkStatistics => {
-            let link_stats = packet.to_link_stats();
+            let link_stats = match packet.to_link_stats() {
+                Ok(v) => v,
+                Err(_) => {
+                    return None;
+                }
+            };
         }
         _ => (),
     }
@@ -404,6 +443,8 @@ pub fn handle_packet(
     unsafe {
         uart.read_dma(&mut RX_BUFFER, rx_chan, Default::default(), dma);
     }
+
+    result
 }
 
 /// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c
