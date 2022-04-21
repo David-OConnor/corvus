@@ -3,7 +3,7 @@
 
 use cfg_if::cfg_if;
 
-use crate::Rotor;
+use crate::flight_ctrls::Rotor;
 
 use stm32_hal2::{
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt},

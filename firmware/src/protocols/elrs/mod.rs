@@ -21,6 +21,9 @@ mod crsf;
 mod sx1280;
 mod sx1280_hal;
 
+// todo: QC every time you translated a ++. (Search for +=1, followed by using that index). You need
+// todo to more it after the access!
+
 use crate::flight_ctrls::CtrlInputs;
 
 use stm32_hal2::{pac::SPI3, spi::Spi};

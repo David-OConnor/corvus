@@ -22,9 +22,8 @@ use stm32_hal2::{
     pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM2, TIM3, TIM4, USART3},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
-    timer::{self, Timer, TimerConfig, TimerInterrupt},
+    timer::{Timer, TimerConfig, TimerInterrupt},
     usart::Usart,
-    usb,
 };
 
 #[cfg(feature = "h7")]
@@ -66,6 +65,8 @@ mod pid_tuning;
 mod protocols;
 mod sensor_fusion;
 mod setup;
+mod ppks;
+mod util;
 
 // cfg_if! {
 // if #[cfg(feature = "mercury-h7")] {
@@ -86,6 +87,8 @@ use flight_ctrls::{
 
 use filter_imu::ImuFilters;
 use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
+
+use ppks::{Location, LocationType};
 
 // Our DT timer speed, in Hz.
 const DT_TIM_FREQ: u32 = 200_000_000;
@@ -164,52 +167,12 @@ const DEBUG_PARAMS: bool = true;
 ///
 /// todo: Movable camera that moves with head motion.
 /// - Ir cam to find or avoid people
-/// ///
-/// 3 level loop? S, v, angle?? Or just 2? (position cmds in outer loop)
 
-/// Utility fn to make up for `core::cmp::max` requiring f32 to impl `Ord`, which it doesn't.
-/// todo: Move elsewhere?
-fn max(a: f32, b: f32) -> f32 {
-    if a > b {
-        a
-    } else {
-        b
-    }
-}
 
-fn abs(x: f32) -> f32 {
-    f32::from_bits(x.to_bits() & 0x7FFF_FFFF)
-}
 
-pub enum LocationType {
-    /// Lattitude and longitude. Available after a GPS fix
-    LatLon,
-    /// Start at 0, and count in meters away from it.
-    Rel0,
-}
 
-impl Default for LocationType {
-    fn default() -> Self {
-        Self::Rel0
-    }
-}
 
-/// If type is LatLon, `x` and `y` are in degrees. If Rel0, in meters. `z` is in m MSL.
-#[derive(Default)]
-pub struct Location {
-    pub type_: LocationType,
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Location {
-    pub fn new(type_: LocationType, x: f32, y: f32, z: f32) -> Self {
-        Self { type_, x, y, z }
-    }
-}
-
-/// User-configurable settings
+/// User-configurable settings. These get saved to and loaded from internal flash.
 pub struct UserCfg {
     /// Set a ceiling the aircraft won't exceed. Defaults to 400' (Legal limit in US for drones).
     /// In meters.
@@ -229,10 +192,7 @@ pub struct UserCfg {
     mapping_obstacles: bool,
     max_speed_hor: f32,
     max_speed_ver: f32,
-    /// The GPS module is connected
-    gps_attached: bool,
-    /// The time-of-flight sensor module is connected
-    tof_attached: bool,
+
     /// It's common to arbitrarily wire motors to the ESC. Reverse each from its
     /// default direction, as required.
     motors_reversed: (bool, bool, bool, bool),
@@ -241,6 +201,14 @@ pub struct UserCfg {
     // todo: We want to store this inst, but RTIC doesn't like it not being sync. Maybe static mut.
     // todo. For now, lives in the acro PID fn lol.
     // power_interp_inst: dsp_sys::arm_linear_interp_instance_f32,
+}
+
+/// State that doesn't get saved to flash.
+pub struct StateVolatile {
+    /// The GPS module is connected. Detected on init.
+    gps_attached: bool,
+    /// The time-of-flight sensor module is connected. Detected on init.
+    tof_attached: bool,
 }
 
 impl Default for UserCfg {
@@ -260,8 +228,6 @@ impl Default for UserCfg {
             mapping_obstacles: false,
             max_speed_hor: 20.,
             max_speed_ver: 20.,
-            gps_attached: false,
-            tof_attached: false,
             motors_reversed: (false, false, false, false),
             baro_cal: Default::default(),
             // Make sure to update this interp table if you change idle power.
@@ -291,62 +257,15 @@ impl Default for UserCfg {
     }
 }
 
-/// A quaternion. Used for attitude state
-struct Quaternion {
-    i: f32,
-    j: f32,
-    k: f32,
-    l: f32,
-}
-
-// impl Sub for Quaternion {
-//     type Output = Self;
-//
-//     fn sub(self, other: Self) -> Self::Output {
-//         Self {
-//             x: self.x - other.x,
-//             y: self.y - other.y,
-//             z: self.z - other.z,
-//         }
-//     }
-// }
-
-impl Quaternion {
-    pub fn new(i: f32, j: f32, k: f32, l: f32) -> Self {
-        Self { i, j, k, l }
+impl Default for StateVolatile {
+    fn default() -> Self {
+        Self {
+            gps_attached: false,
+            tof_attached: false,
+        }
     }
 }
 
-/// A generalized quaternion
-struct RotorMath {}
-
-/// Represents a complete quadcopter. Used for setting control parameters.
-struct AircraftProperties {
-    mass: f32,               // grams
-    arm_len: f32,            // meters
-    drag_coeff: f32,         // unitless
-    thrust_coeff: f32,       // N/m^2
-    moment_of_intertia: f32, // kg x m^2
-    rotor_inertia: f32,      // kg x m^2
-}
-
-impl AircraftProperties {
-    /// Calculate the power level required, applied to each rotor, to maintain level flight
-    /// at a given MSL altitude. (Alt is in meters)
-    pub fn level_pwr(&self, alt: f32) -> f32 {
-        return 0.1; // todo
-    }
-}
-
-/// Specify the rotor. Includdes methods that get information regarding timer and DMA, per
-/// specific board setups.
-#[derive(Clone, Copy)]
-pub enum Rotor {
-    R1,
-    R2,
-    R3,
-    R4,
-}
 
 #[derive(Clone, Copy)]
 /// Role in a swarm of drones
@@ -422,6 +341,7 @@ mod app {
     struct Shared {
         // profile: FlightProfile,
         user_cfg: UserCfg,
+        state_volatile: StateVolatile,
         input_map: InputMap,
         input_mode: InputMode,
         autopilot_status: AutopilotStatus,
@@ -653,6 +573,9 @@ mod app {
 
         let mut user_cfg = UserCfg::default();
 
+        // todo: ID connected sensors etc by checking their device ID etc.
+        let mut state_volatile = StateVolatile::default();
+
         dshot::setup_motor_dir(
             user_cfg.motors_reversed,
             &mut rotor_timer_a,
@@ -703,6 +626,7 @@ mod app {
             // todo: Make these local as able.
             Shared {
                 user_cfg,
+                state_volatile,
                 input_map: Default::default(),
                 input_mode: InputMode::Attitude,
                 autopilot_status: Default::default(),

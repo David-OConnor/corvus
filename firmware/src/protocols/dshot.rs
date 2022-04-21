@@ -30,7 +30,7 @@ use stm32_hal2::{
 
 use cfg_if::cfg_if;
 
-use crate::Rotor;
+use crate::flight_ctrls::Rotor;
 
 // Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
 // so we can set duty cycle appropriately for DSHOT.

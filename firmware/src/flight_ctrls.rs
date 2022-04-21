@@ -16,7 +16,7 @@ use stm32_hal2::{
 
 use cmsis_dsp_sys as dsp_sys;
 
-use crate::{dshot, pid::PidState, CtrlCoeffGroup, Location, Rotor, UserCfg};
+use crate::{dshot, util, pid::PidState, CtrlCoeffGroup, Location, UserCfg};
 
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
@@ -56,6 +56,35 @@ pub const POWER_LUT: [f32; 10] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1
 /// between different IMUs, due to their reg layout, and consecutive reg reads. In both cases, 6 readings,
 /// each with 2 bytes each.
 static mut IMU_BUF: [u8; 12] = [0; 12];
+
+
+/// Represents a complete quadcopter. Used for setting control parameters.
+struct AircraftProperties {
+    mass: f32,               // grams
+    arm_len: f32,            // meters
+    drag_coeff: f32,         // unitless
+    thrust_coeff: f32,       // N/m^2
+    moment_of_intertia: f32, // kg x m^2
+    rotor_inertia: f32,      // kg x m^2
+}
+
+impl AircraftProperties {
+    /// Calculate the power level required, applied to each rotor, to maintain level flight
+    /// at a given MSL altitude. (Alt is in meters)
+    pub fn level_pwr(&self, alt: f32) -> f32 {
+        return 0.1; // todo
+    }
+}
+
+/// Specify the rotor. Includdes methods that get information regarding timer and DMA, per
+/// specific board setups.
+#[derive(Clone, Copy)]
+pub enum Rotor {
+    R1,
+    R2,
+    R3,
+    R4,
+}
 
 /// Utility function to linearly map an input value to an output
 fn map_linear(val: f32, range_in: (f32, f32), range_out: (f32, f32)) -> f32 {
@@ -174,13 +203,6 @@ pub struct CommandState {
     pub alt: f32, // m MSL
     pub loiter_set: bool,
 }
-
-/// Used to satisfy RTIC resource Send requirements.
-/// todo: Move to a `util.rs`?
-pub struct IirInstWrapper {
-    pub inner: dsp_sys::arm_biquad_casd_df1_inst_f32,
-}
-unsafe impl Send for IirInstWrapper {}
 
 #[derive(Clone, Copy)]
 pub enum AltType {
@@ -490,7 +512,7 @@ impl RotorPower {
 fn estimate_rotor_angle(
     a_desired: f32,
     v_current: f32,
-    ac_properties: &crate::AircraftProperties,
+    ac_properties: &AircraftProperties,
 ) -> f32 {
     let drag = ac_properties.drag_coeff * v_current; // todo
     1. / ac_properties.thrust_coeff; // todo
@@ -574,7 +596,7 @@ pub fn enroute_speed_hor(dist: f32, max_v: f32) -> f32 {
     if dist > 20. {
         max_v
     } else if dist > 10. {
-        crate::max(2., max_v)
+        util::max(2., max_v)
     } else {
         // Get close, then the PID loop will handle the final settling.
         0.5
@@ -587,19 +609,19 @@ pub fn enroute_speed_ver(dist: f32, max_v: f32, z_agl: f32) -> f32 {
     // todo: fill this out. LUT?
 
     if z_agl < 7. {
-        let mut result = crate::max(3., max_v);
+        let mut result = util::max(3., max_v);
 
         if dist < 0. {
             result *= -1.;
         }
     }
 
-    let dist_abs = crate::abs(dist);
+    let dist_abs = util::abs(dist);
 
     let mut result = if dist_abs > 20. {
         max_v
     } else if dist_abs > 10. {
-        crate::max(2., max_v)
+        util::max(2., max_v)
     } else {
         // Get close, then the PID loop will handle the final settling.
         0.5
@@ -645,7 +667,7 @@ pub fn landing_speed(height: f32, max_v: f32) -> f32 {
     if height > 2. {
         return 0.5;
     }
-    crate::max(height / 4., max_v)
+    util::max(height / 4., max_v)
 }
 
 /// Calculate the takeoff vertical velocity (m/s), for a given height (m) above the ground.
@@ -655,7 +677,7 @@ pub fn takeoff_speed(height: f32, max_v: f32) -> f32 {
     if height > 2. {
         return 0.;
     }
-    crate::max(height / 4. + 0.01, max_v)
+    util::max(height / 4. + 0.01, max_v)
 }
 
 pub struct UnsuitableParams {}

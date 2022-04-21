@@ -6,8 +6,10 @@
 use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as dsp_sys;
 
-use crate::flight_ctrls::IirInstWrapper;
-use crate::sensor_fusion::ImuReadings;
+use crate::{
+    util::IirInstWrapper,
+    sensor_fusion::ImuReadings,
+};
 
 static mut FILTER_STATE_ACCEL_X: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_ACCEL_Y: [f32; 4] = [0.; 4];

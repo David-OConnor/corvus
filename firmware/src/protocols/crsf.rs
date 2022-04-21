@@ -189,6 +189,8 @@ impl Packet {
 
         let crc = buf[start_i + 3 + payload_len];
 
+        // todo: QC CRC here?
+
         Ok(Packet {
             dest_addr,
             len,
@@ -328,11 +330,10 @@ fn calc_crc(lut: &[u8; 256], data: &[u8], mut size: u8) -> u8 {
     let mut crc = 0;
     let mut i = 0;
 
-    // todo: Is this right?
     while size > 0 {
         size -= 1;
-        i += 1;
         crc = lut[(crc ^ data[i]) as usize];
+        i += 1;
     }
     crc
 }
