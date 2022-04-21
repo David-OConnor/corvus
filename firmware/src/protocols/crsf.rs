@@ -105,14 +105,18 @@ enum FrameType {
     // todo: Description of each of these?
     Gps = 0x02,
     BatterySensor = 0x08,
+    /// Link data and telemtry, eg RSSI.
     LinkStatistics = 0x14,
     OpentxSync = 0x10,
     RadioId = 0x3a,
+    /// Control channel data, for each of 16 channels.
     RcChannelsPacked = 0x16,
     Attitude = 0x1e,
     FlightMode = 0x21,
     // Extended Header Frames, range: 0x28 to 0x96
+    /// A request for device metadata
     DevicePing = 0x28,
+    /// Device metadata, in response to a ping
     DeviceInfo = 0x29,
     ParameterSettingsEntry = 0x2b,
     ParameterRead = 0x2c,
