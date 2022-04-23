@@ -234,7 +234,7 @@ impl Quaternion {
     }
 
     pub fn magnitude(&self) -> f32 {
-        (self.x.powi(2) + self.y.powi(2) + self.z.powi(2)).sqrt()
+        (self.w.powi(2) + self.x.powi(2) + self.y.powi(2) + self.z.powi(2)).sqrt()
     }
 
     /// Returns the normalised quaternion

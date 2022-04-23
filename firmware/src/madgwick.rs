@@ -10,8 +10,8 @@
 //! derived and optimised gradient-descent algorithm to compute the direction of the gyroscope
 //! measurement error as a quaternion derivative.
 //!
+//! This library is a translation of the original algorithm below:
 //! [Original algorithm, by Seb Madgwick, in C](https://github.com/xioTechnologies/Fusion)
-//! [Translated into python[(https://github.com/Mayitzin/ahrs/blob/master/ahrs/filters/madgwick.py)
 //!
 //! https://github.com/chris1seto/OzarkRiver/tree/4channel/FlightComputerFirmware/Src/Madgwick
 //! https://github.com/bjohnsonfl/Madgwick_Filter
@@ -40,7 +40,7 @@ struct Settings {
     pub gain: f32,
     pub accel_rejection: f32,
     pub magnetic_rejection: f32,
-    pub rejection_timeout: u32, // todo type?
+    pub rejection_timeout: u32,
 }
 
 /// AHRS algorithm structure.  Structure members are used internally and
@@ -55,10 +55,10 @@ struct Ahrs {
     pub half_accelerometer_feedfwd: Vec3,
     pub half_magnetometer_feedback: Vec3,
     pub accelerometer_ignored: bool,
-    pub accel_rejection_timer: u32, // todo type?
+    pub accel_rejection_timer: u32,
     pub accel_rejection_timeout: bool,
     pub magnetometer_ignored: bool,
-    pub mag_rejection_timer: u32, // todo type?
+    pub mag_rejection_timer: u32,
     pub mag_rejection_timeout: bool,
 }
 
@@ -608,8 +608,6 @@ const TIMEOUT: u32 = 5;
 // Threshold in radians per second.
 const THRESHOLD: f32 = 0.05236;
 
-// FusionCompass.c
-
 /// Calculates the heading relative to magnetic north.
 /// accelerometer Accelerometer measurement in any calibrated units.
 /// magnetometer Magnetometer measurement in any calibrated units.
@@ -622,5 +620,5 @@ fn compass_calc_heading(accelerometer: Vec3, magnetometer: Vec3) -> f32 {
     let magnetic_north = magnetic_west.cross(accelerometer).to_normalized();
 
     // Calculate angular heading relative to magnetic north
-    (magnetic_west.x).atan2(magnetic_north.x)
+    magnetic_west.x.atan2(magnetic_north.x)
 }
