@@ -6,6 +6,7 @@
 use core::ops::{Add, Sub, Mul};
 
 /// 3D vector.
+#[derive(Clone, Copy)]
 pub struct Vec3 {
     pub x: f32,
     pub y: f32,
@@ -77,6 +78,15 @@ impl Vec3 {
             z: self.x * rhs.y - self.y * rhs.x,
         }
     }
+
+    /// Calculates the Hadamard product (element-wise multiplication).
+    fn hadamard_product(self, rhs: Self) -> Self {
+        Self {
+            x: self.x * rhs.x,
+            y: self.y * rhs.y,
+            z: self.z * rhs.z,
+        }
+    }
 }
 
 pub struct Quaternion {
@@ -101,7 +111,7 @@ impl Add<Self> for Quaternion{
 
 impl Mul<Self> for Quaternion {
     type Output = Self;
-    
+
     fn mul(self, rhs: Self) -> Self::Output {
         Self {
             w: self.w * rhs.w - self.x * rhs.x - self.y * rhs.y - self.z * rhs.z,
@@ -134,8 +144,8 @@ impl Quaternion {
     pub fn new_identity() -> Self {
         Self { w: 1., x: 0., y: 0., z: 0. }
     }
-    
-    
+
+
     /// Converts a quaternion to Euler angles, in radians.
     pub fn to_euler(&self) -> EulerAngle {
         let qwqw_minus_half = self.w * self.w - 0.5; // calculate common terms to avoid repeated operations
@@ -147,8 +157,8 @@ impl Quaternion {
         }
     }
 
-     /// Converts a quaternion to a rotation matrix
-     #[rustfmt::skip]
+    /// Converts a quaternion to a rotation matrix
+    #[rustfmt::skip]
     pub fn to_matrix(&self) -> Mat3 {
         let qwqw = Q.w * Q.w; // calculate common terms to avoid repeated operations
         let qwqx = Q.w * Q.x;
@@ -158,19 +168,19 @@ impl Quaternion {
         let qxqz = Q.x * Q.z;
         let qyqz = Q.y * Q.z;
 
-         Mat3 {
-             data: [
-                 2.0 * (qwqw - 0.5 + Q.x * Q.x),
-                 2.0 * (qxqy + qwqz),
-                 2.0 * (qxqz - qwqy),
-                 2.0 * (qxqy - qwqz),
-                 2.0 * (qwqw - 0.5 + Q.y * Q.y),
-                 2.0 * (qyqz + qwqx),
-                 2.0 * (qxqz + qwqy),
-                 2.0 * (qyqz - qwqx),
-                 2.0 * (qwqw - 0.5 + Q.z * Q.z),
-             ]
-         }
+        Mat3 {
+            data: [
+                2.0 * (qwqw - 0.5 + Q.x * Q.x),
+                2.0 * (qxqy + qwqz),
+                2.0 * (qxqz - qwqy),
+                2.0 * (qxqy - qwqz),
+                2.0 * (qwqw - 0.5 + Q.y * Q.y),
+                2.0 * (qyqz + qwqx),
+                2.0 * (qxqz + qwqy),
+                2.0 * (qyqz - qwqx),
+                2.0 * (qwqw - 0.5 + Q.z * Q.z),
+            ]
+        }
     }
 
 
@@ -196,7 +206,7 @@ impl Mul<Vec3> for Mat3 {
 
 impl Mat3 {
     #[rustfmt::skip]
-    pub fn identity() -> Self {
+    pub fn new_identity() -> Self {
         Self {
             data: [
                 1., 0., 0.,
@@ -238,26 +248,12 @@ fn FastInverseSqrt(x: f32) -> f32 {
 }
 
 /**
- * @brief Calculates the Hadamard product (element-wise multiplication).
- * @param vectorA Vector A.
- * @param vectorB Vector B.
- * @return Hadamard product.
- */
-static inline FusionVector FusionVectorHadamardProduct(const FusionVector vectorA, const FusionVector vectorB) {
-    FusionVector result;
-    result.axis.x = vectorA.axis.x * vectorB.axis.x;
-    result.axis.y = vectorA.axis.y * vectorB.axis.y;
-    result.axis.z = vectorA.axis.z * vectorB.axis.z;
-    return result;
-}
-
-/**
  * @brief Returns the vector magnitude squared.
  * @param vector Vector.
  * @return Vector magnitude squared.
  */
 static inline float FusionVectorMagnitudeSquared(const FusionVector vector) {
-    return FusionVectorSum(FusionVectorHadamardProduct(vector, vector));
+return FusionVectorSum(FusionVectorHadamardProduct(vector, vector));
 }
 
 /**
@@ -266,7 +262,7 @@ static inline float FusionVectorMagnitudeSquared(const FusionVector vector) {
  * @return Vector magnitude.
  */
 static inline float FusionVectorMagnitude(const FusionVector vector) {
-    return sqrtf(FusionVectorMagnitudeSquared(vector));
+return sqrtf(FusionVectorMagnitudeSquared(vector));
 }
 
 /**
@@ -276,11 +272,11 @@ static inline float FusionVectorMagnitude(const FusionVector vector) {
  */
 static inline FusionVector FusionVectorNormalise(const FusionVector vector) {
 #ifdef FUSION_USE_NORMAL_SQRT
-    const float magnitudeReciprocal = 1.0 / sqrtf(FusionVectorMagnitudeSquared(vector));
+const float magnitudeReciprocal = 1.0 / sqrtf(FusionVectorMagnitudeSquared(vector));
 #else
-    const float magnitudeReciprocal = FusionFastInverseSqrt(FusionVectorMagnitudeSquared(vector));
+const float magnitudeReciprocal = FusionFastInverseSqrt(FusionVectorMagnitudeSquared(vector));
 #endif
-    return FusionVectorMultiplyScalar(vector, magnitudeReciprocal);
+return FusionVectorMultiplyScalar(vector, magnitudeReciprocal);
 }
 
 
@@ -290,12 +286,12 @@ static inline FusionVector FusionVectorNormalise(const FusionVector vector) {
  * @return Quaternion conjugate.
  */
 static inline FusionQuaternion FusionQuaternionConjugate(const FusionQuaternion quaternion) {
-    FusionQuaternion conjugate;
-    conjugate.element.w = quaternion.element.w;
-    conjugate.element.x = -1.0 * quaternion.element.x;
-    conjugate.element.y = -1.0 * quaternion.element.y;
-    conjugate.element.z = -1.0 * quaternion.element.z;
-    return conjugate;
+FusionQuaternion conjugate;
+conjugate.element.w = quaternion.element.w;
+conjugate.element.x = -1.0 * quaternion.element.x;
+conjugate.element.y = -1.0 * quaternion.element.y;
+conjugate.element.z = -1.0 * quaternion.element.z;
+return conjugate;
 }
 
 /**
@@ -306,16 +302,16 @@ static inline FusionQuaternion FusionQuaternionConjugate(const FusionQuaternion 
 static inline FusionQuaternion FusionQuaternionNormalise(const FusionQuaternion quaternion) {
 const Q quaternion.element
 #ifdef FUSION_USE_NORMAL_SQRT
-    const float magnitudeReciprocal = 1.0 / sqrtf(Q.w * Q.w + Q.x * Q.x + Q.y * Q.y + Q.z * Q.z);
+const float magnitudeReciprocal = 1.0 / sqrtf(Q.w * Q.w + Q.x * Q.x + Q.y * Q.y + Q.z * Q.z);
 #else
-    const float magnitudeReciprocal = FusionFastInverseSqrt(Q.w * Q.w + Q.x * Q.x + Q.y * Q.y + Q.z * Q.z);
+const float magnitudeReciprocal = FusionFastInverseSqrt(Q.w * Q.w + Q.x * Q.x + Q.y * Q.y + Q.z * Q.z);
 #endif
-    FusionQuaternion normalisedQuaternion;
-    normalisedQuaternion.element.w = Q.w * magnitudeReciprocal;
-    normalisedQuaternion.element.x = Q.x * magnitudeReciprocal;
-    normalisedQuaternion.element.y = Q.y * magnitudeReciprocal;
-    normalisedQuaternion.element.z = Q.z * magnitudeReciprocal;
-    return normalisedQuaternion;
+FusionQuaternion normalisedQuaternion;
+normalisedQuaternion.element.w = Q.w * magnitudeReciprocal;
+normalisedQuaternion.element.x = Q.x * magnitudeReciprocal;
+normalisedQuaternion.element.y = Q.y * magnitudeReciprocal;
+normalisedQuaternion.element.z = Q.z * magnitudeReciprocal;
+return normalisedQuaternion;
 #undef Q
 }
 
