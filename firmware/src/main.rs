@@ -59,6 +59,8 @@ mod control_interface;
 mod drivers;
 mod filter_imu;
 mod flight_ctrls;
+mod lin_alg;
+mod madgwick;
 mod osd;
 mod pid;
 mod pid_tuning;
@@ -67,8 +69,6 @@ mod protocols;
 mod sensor_fusion;
 mod setup;
 mod util;
-mod madgwick;
-mod lin_alg;
 
 use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;

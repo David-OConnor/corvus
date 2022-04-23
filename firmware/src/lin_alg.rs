@@ -3,7 +3,9 @@
 //! and 3d graphics math libs.
 //! Note: We could replace much of this with CMSIS-DSP.
 
-use core::ops::{Add, Sub, Mul};
+use core::ops::{Add, Mul, Sub};
+
+use num_traits::float::Float;
 
 /// 3D vector.
 #[derive(Clone, Copy)]
@@ -52,12 +54,20 @@ impl Mul<f32> for Vec3 {
 impl Vec3 {
     /// Vector of zeros.
     pub fn zero() -> Self {
-        Self { x: 0., y: 0., z: 0. }
+        Self {
+            x: 0.,
+            y: 0.,
+            z: 0.,
+        }
     }
 
     /// Vector of ones.
     pub fn one() -> Self {
-        Self { x: 1., y: 1., z: 1. }
+        Self {
+            x: 1.,
+            y: 1.,
+            z: 1.,
+        }
     }
 
     /// Returns true if the vector is zero.
@@ -80,15 +90,37 @@ impl Vec3 {
     }
 
     /// Calculates the Hadamard product (element-wise multiplication).
-    fn hadamard_product(self, rhs: Self) -> Self {
+    pub fn hadamard_product(self, rhs: Self) -> Self {
         Self {
             x: self.x * rhs.x,
             y: self.y * rhs.y,
             z: self.z * rhs.z,
         }
     }
+
+    /// Returns the vector magnitude squared
+    pub fn magnitude_squared(self) -> f32 {
+        self.hadamard_product(self).sum()
+    }
+
+    /// Returns the vector magnitude.
+    pub fn magnitude(&self) -> f32 {
+        self.magnitude_squared().sqrt()
+    }
+
+    /// Returns the normalised version of the vector
+    pub fn to_normalized(&self) -> Self {
+        let mag_recip = 1. / self.magnitude();
+        // const float magnitudeReciprocal = FusionFastInverseSselfrt(self.w * self.w + self.x * self.x + self.y * self.y + self.z * self.z);
+        Self {
+            x: self.x * mag_recip,
+            y: self.y * mag_recip,
+            z: self.z * mag_recip,
+        }
+    }
 }
 
+#[derive(Clone, Copy)]
 pub struct Quaternion {
     pub w: f32,
     pub x: f32,
@@ -96,7 +128,7 @@ pub struct Quaternion {
     pub z: f32,
 }
 
-impl Add<Self> for Quaternion{
+impl Add<Self> for Quaternion {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -125,11 +157,11 @@ impl Mul<Self> for Quaternion {
 impl Mul<Vec3> for Quaternion {
     type Output = Self;
 
-    /// Returns the multiplication of a quaternion with a vector.  This is a
-    /// normal quaternion multiplication where the vector is treated a
-    /// quaternion with a W element value of zero.  The quaternion is post-
+    /// Returns the multiplication of a Quaternion with a vector.  This is a
+    /// normal Quaternion multiplication where the vector is treated a
+    /// Quaternion with a W element value of zero.  The Quaternion is post-
     /// multiplied by the vector.
-    fn mul(&self, rhs: Vec3) -> Self::Output {
+    fn mul(self, rhs: Vec3) -> Self::Output {
         Self {
             w: -self.x * rhs.x - self.y * rhs.y - self.z * rhs.z,
             x: self.w * rhs.x + self.y * rhs.z - self.z * rhs.y,
@@ -139,51 +171,84 @@ impl Mul<Vec3> for Quaternion {
     }
 }
 
-
 impl Quaternion {
     pub fn new_identity() -> Self {
-        Self { w: 1., x: 0., y: 0., z: 0. }
+        Self {
+            w: 1.,
+            x: 0.,
+            y: 0.,
+            z: 0.,
+        }
     }
 
-
-    /// Converts a quaternion to Euler angles, in radians.
+    /// Converts a Quaternion to Euler angles, in radians.
     pub fn to_euler(&self) -> EulerAngle {
         let qwqw_minus_half = self.w * self.w - 0.5; // calculate common terms to avoid repeated operations
 
         EulerAngle {
-            roll: atan2f(self.y * self.z - self.w * self.x, qwqw_minus_half + self.z * self.z),
+            roll: atan2f(
+                self.y * self.z - self.w * self.x,
+                qwqw_minus_half + self.z * self.z,
+            ),
             pitch: -1.0 * asinf(2.0 * (self.x * self.z + self.w * self.y)),
-            yaw: atan2f(self.x * self.y - self.w * self.z, qwqw_minus_half + self.x * self.x),
+            yaw: atan2f(
+                self.x * self.y - self.w * self.z,
+                qwqw_minus_half + self.x * self.x,
+            ),
         }
     }
 
-    /// Converts a quaternion to a rotation matrix
+    /// Converts a Quaternion to a rotation matrix
     #[rustfmt::skip]
     pub fn to_matrix(&self) -> Mat3 {
-        let qwqw = Q.w * Q.w; // calculate common terms to avoid repeated operations
-        let qwqx = Q.w * Q.x;
-        let qwqy = Q.w * Q.y;
-        let qwqz = Q.w * Q.z;
-        let qxqy = Q.x * Q.y;
-        let qxqz = Q.x * Q.z;
-        let qyqz = Q.y * Q.z;
+        let qwqw = self.w * self.w; // calculate common terms to avoid repeated operations
+        let qwqx = self.w * self.x;
+        let qwqy = self.w * self.y;
+        let qwqz = self.w * self.z;
+        let qxqy = self.x * self.y;
+        let qxqz = self.x * self.z;
+        let qyqz = self.y * self.z;
 
         Mat3 {
             data: [
-                2.0 * (qwqw - 0.5 + Q.x * Q.x),
+                2.0 * (qwqw - 0.5 + self.x * self.x),
                 2.0 * (qxqy + qwqz),
                 2.0 * (qxqz - qwqy),
                 2.0 * (qxqy - qwqz),
-                2.0 * (qwqw - 0.5 + Q.y * Q.y),
+                2.0 * (qwqw - 0.5 + self.y * self.y),
                 2.0 * (qyqz + qwqx),
                 2.0 * (qxqz + qwqy),
                 2.0 * (qyqz - qwqx),
-                2.0 * (qwqw - 0.5 + Q.z * Q.z),
+                2.0 * (qwqw - 0.5 + self.z * self.z),
             ]
         }
     }
 
+    /// Returns the Quaternion conjugate.
+    pub fn conjugate(&self) -> Self {
+        Self {
+            w: self.w,
+            x: -1.0 * self.x,
+            y: -1.0 * self.y,
+            z: -1.0 * self.z,
+        }
+    }
 
+    pub fn magnitude(&self) -> f32 {
+        (self.x.powi(2) + self.y.powi(2) + self.z.powi(2)).sqrt()
+    }
+
+    /// Returns the normalised quaternion
+    pub fn to_normalized(&self) -> Self {
+        let mag_recip = 1. / self.magnitude();
+
+        Self {
+            w: self.w * mag_recip,
+            x: self.x * mag_recip,
+            y: self.y * mag_recip,
+            z: self.z * mag_recip,
+        }
+    }
 }
 
 /// 3x3 matrix in row-major order.
@@ -227,94 +292,10 @@ pub struct EulerAngle {
 impl EulerAngle {
     /// Euler angles of zero.
     pub fn zero() -> Self {
-        Self { roll: 0., pitch: 0., yaw: 0. }
+        Self {
+            roll: 0.,
+            pitch: 0.,
+            yaw: 0.,
+        }
     }
 }
-
-
-/// Calculates the reciprocal of the square root.
-/// See https://pizer.wordpress.com/2008/10/12/fast-inverse-square-root/
-/// Returns reciprocal of the square root of x.
-fn FastInverseSqrt(x: f32) -> f32 {
-
-    typedef union {
-        float f;
-        int32_t i;
-    } Union32;
-
-    Union32 union32 = {.f = x};
-    union32.i = 0x5F1F1412 - (union32.i >> 1);
-    return union32.f * (1.69000231 - 0.714158168 * x * union32.f * union32.f);
-}
-
-/**
- * @brief Returns the vector magnitude squared.
- * @param vector Vector.
- * @return Vector magnitude squared.
- */
-static inline float FusionVectorMagnitudeSquared(const FusionVector vector) {
-return FusionVectorSum(FusionVectorHadamardProduct(vector, vector));
-}
-
-/**
- * @brief Returns the vector magnitude.
- * @param vector Vector.
- * @return Vector magnitude.
- */
-static inline float FusionVectorMagnitude(const FusionVector vector) {
-return sqrtf(FusionVectorMagnitudeSquared(vector));
-}
-
-/**
- * @brief Returns the normalised vector.
- * @param vector Vector.
- * @return Normalised vector.
- */
-static inline FusionVector FusionVectorNormalise(const FusionVector vector) {
-#ifdef FUSION_USE_NORMAL_SQRT
-const float magnitudeReciprocal = 1.0 / sqrtf(FusionVectorMagnitudeSquared(vector));
-#else
-const float magnitudeReciprocal = FusionFastInverseSqrt(FusionVectorMagnitudeSquared(vector));
-#endif
-return FusionVectorMultiplyScalar(vector, magnitudeReciprocal);
-}
-
-
-/**
- * @brief Returns the quaternion conjugate.
- * @param quaternion Quaternion.
- * @return Quaternion conjugate.
- */
-static inline FusionQuaternion FusionQuaternionConjugate(const FusionQuaternion quaternion) {
-FusionQuaternion conjugate;
-conjugate.element.w = quaternion.element.w;
-conjugate.element.x = -1.0 * quaternion.element.x;
-conjugate.element.y = -1.0 * quaternion.element.y;
-conjugate.element.z = -1.0 * quaternion.element.z;
-return conjugate;
-}
-
-/**
- * @brief Returns the normalised quaternion.
- * @param quaternion Quaternion.
- * @return Normalised quaternion.
- */
-static inline FusionQuaternion FusionQuaternionNormalise(const FusionQuaternion quaternion) {
-const Q quaternion.element
-#ifdef FUSION_USE_NORMAL_SQRT
-const float magnitudeReciprocal = 1.0 / sqrtf(Q.w * Q.w + Q.x * Q.x + Q.y * Q.y + Q.z * Q.z);
-#else
-const float magnitudeReciprocal = FusionFastInverseSqrt(Q.w * Q.w + Q.x * Q.x + Q.y * Q.y + Q.z * Q.z);
-#endif
-FusionQuaternion normalisedQuaternion;
-normalisedQuaternion.element.w = Q.w * magnitudeReciprocal;
-normalisedQuaternion.element.x = Q.x * magnitudeReciprocal;
-normalisedQuaternion.element.y = Q.y * magnitudeReciprocal;
-normalisedQuaternion.element.z = Q.z * magnitudeReciprocal;
-return normalisedQuaternion;
-#undef Q
-}
-
-//------------------------------------------------------------------------------
-// Inline functions - Matrix operations
-

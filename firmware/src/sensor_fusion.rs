@@ -21,8 +21,6 @@
 
 // todo: Try this : https://github.com/Mayitzin/ahrs/blob/master/ahrs/filters/ekf.py
 
-use core::f32::consts::PI;
-
 use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sin_f32 as sin};
 
 use stm32_hal2::{

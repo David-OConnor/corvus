@@ -25,7 +25,6 @@
 //! Note that there doesn't appear to be a published spec, so we piece together what we can from
 //! code and wisdom from those who've done this before.
 
-use core::convert::TryFrom;
 use num_enum::TryFromPrimitive; // Enum from integer
 
 use defmt::println;
