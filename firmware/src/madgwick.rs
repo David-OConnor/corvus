@@ -23,15 +23,19 @@ use core::f32::consts::TAU;
 
 use num_traits::float::Float; // abs etc
 
-use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sin_f32 as sin};
+use cmsis_dsp_sys::{arm_cos_f32, arm_sin_f32};
 
 use super::lin_alg::{EulerAngle, Mat3, Quaternion, Vec3};
 
-// FusionAhrs.h:
+fn cos(v: f32) -> f32 {
+    unsafe { arm_cos_f32(v) }
+}
 
-/**
- * @brief AHRS algorithm settings.
- */
+fn sin(v: f32) -> f32 {
+    unsafe { arm_sin_f32(v) }
+}
+
+/// AHRS algorithm settings.
 struct Settings {
     pub gain: f32,
     pub accel_rejection: f32,
@@ -83,12 +87,12 @@ impl Ahrs {
     fn set_settings(&mut self, settings: &Settings) {
         self.settings.gain = settings.gain;
         if settings.accel_rejection == 0.0 || settings.rejection_timeout == 0 {
-            self.settings.accel_rejection = FLT_MAX;
+            self.settings.accel_rejection = f32::MAX;
         } else {
             self.settings.accel_rejection = (0.5 * sin(settings.accel_rejection)).powi(2);
         }
         if (settings.magnetic_rejection == 0.0) || (settings.rejection_timeout == 0) {
-            self.settings.magnetic_rejection = FLT_MAX;
+            self.settings.magnetic_rejection = f32::MAX;
         } else {
             self.settings.magnetic_rejection = (0.5 * sin(settings.magnetic_rejection)).powi(2);
         }
@@ -246,10 +250,9 @@ impl Ahrs {
         dt: f32,
     ) {
         // Calculate roll
-        let roll = atan2f(
-            self.quaternion.y * self.quaternion.z + self.quaternion.w * self.quaternion.x,
-            self.quaternion.w * self.quaternion.w - 0.5 + self.quaternion.z * self.quaternion.z,
-        );
+        let roll =(
+            self.quaternion.y * self.quaternion.z + self.quaternion.w * self.quaternion.x
+        ).atan2(self.quaternion.w * self.quaternion.w - 0.5 + self.quaternion.z * self.quaternion.z);
 
         // Calculate magnetometer
         let sin_heading = sin(heading);
@@ -309,10 +312,10 @@ impl Ahrs {
         let rejection_timeout_interval = 1.0 / self.settings.rejection_timeout as f32;
 
         InternalStates {
-            accel_error: asin(2.0 * self.half_accelerometer_feedfwd.magnitude()),
+            accel_error: (2.0 * self.half_accelerometer_feedfwd.magnitude()).asin(),
             accelerometer_ignored: self.accelerometer_ignored,
             accel_rejection_timer: self.accel_rejection_timer as f32 * rejection_timeout_interval,
-            magnetic_error: asin(2.0 * self.half_magnetometer_feedback.magnitude()),
+            magnetic_error: (2.0 * self.half_magnetometer_feedback.magnitude()).asin(),
             magnetometer_ignored: self.magnetometer_ignored,
             magnetic_rejection_timer: self.mag_rejection_timer as f32 * rejection_timeout_interval,
         }
@@ -337,7 +340,7 @@ impl Ahrs {
     fn set_heading(&mut self, heading: f32) {
         let q = self.quaternion;
 
-        let inverse_heading = atan2f(q.x * q.y + q.w * q.z, q.w * q.w - 0.5 + q.x * q.x); // Euler angle of conjugate
+        let inverse_heading = (q.x * q.y + q.w * q.z).atan2(q.w * q.w - 0.5 + q.x * q.x); // Euler angle of conjugate
         let half_inv_hdg_minus_offset = 0.5 * (inverse_heading - heading);
         let inv_hdg_quat = Quaternion {
             w: cos(half_inv_hdg_minus_offset),
@@ -619,5 +622,5 @@ fn compass_calc_heading(accelerometer: Vec3, magnetometer: Vec3) -> f32 {
     let magnetic_north = magnetic_west.cross(accelerometer).to_normalized();
 
     // Calculate angular heading relative to magnetic north
-    atan2f(magnetic_west.x, magnetic_north.x)
+    (magnetic_west.x).atan2(magnetic_north.x)
 }
