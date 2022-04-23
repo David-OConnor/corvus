@@ -27,9 +27,9 @@ use crate::{
 
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
-// todo: What should these be?
-const INTEGRATOR_CLAMP_MIN: f32 = -10.;
-const INTEGRATOR_CLAMP_MAX: f32 = 10.;
+// todo: What should these be? Taken from an example.
+const INTEGRATOR_CLAMP_MIN: f32 = -250.;
+const INTEGRATOR_CLAMP_MAX: f32 = 250.;
 
 static mut FILTER_STATE_ROLL_ATTITUDE: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_PITCH_ATTITUDE: [f32; 4] = [0.; 4];
@@ -312,6 +312,7 @@ impl PidDerivFilters {
 /// Calculate the PID error given flight parameters, and a flight
 /// command.
 /// Example: https://github.com/pms67/PID/blob/master/PID.c
+/// Example 2: https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Pid.c
 fn calc_pid_error(
     set_pt: f32,
     measurement: f32,
@@ -327,20 +328,13 @@ fn calc_pid_error(
 
     let error = set_pt - measurement;
 
-    // todo: Determine if you want a deriv component at all; it's apparently not commonly used.
-
-    // todo: Minor optomization: Store the constant terms once, and recall instead of calcing
-    // todo them each time (eg the parts with DT, 2., tau.
     // https://www.youtube.com/watch?v=zOByx3Izf5U
     let error_p = k_p * error;
     let error_i = k_i * dt / 2. * (error + prev_pid.e) + prev_pid.i;
     // Derivative on measurement vice error, to avoid derivative kick.
     let error_d_prefilt = k_d * (measurement - prev_pid.measurement) / dt;
 
-    // todo: Avoid this DRY with a method on `filter`
-    // let mut error_d_v_pitch = [0.];
     let mut error_d = [0.];
-
     dsp_api::biquad_cascade_df1_f32(&mut filter.inner, &[error_d_prefilt], &mut error_d, 1);
 
     let mut error = PidState {
@@ -580,6 +574,9 @@ pub fn run_attitude(
     match input_mode {
         InputMode::Acro => {
             // (Acro mode has handled by the rates loop)
+
+            // todo: If all sticks (other than throttle) are centerd., command an attitude where that
+            // todo position was left off. (quaternion)
         }
 
         InputMode::Attitude => {
@@ -718,6 +715,7 @@ pub fn run_rate(
                 .as_mut_ptr(),
             };
 
+            // todo: Logic if all sticks neutral, to hold that attitude (quaternion)
             *rates_commanded = CtrlInputs {
                 pitch: input_map.calc_pitch_rate(manual_inputs.pitch),
                 roll: input_map.calc_roll_rate(manual_inputs.roll),

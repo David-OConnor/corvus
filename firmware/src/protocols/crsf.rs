@@ -194,7 +194,7 @@ struct Packet {
     pub frame_type: FrameType,
     pub extended_dest: Option<DestAddr>,
     pub extended_src: Option<DestAddr>,
-    pub payload: [u8; MAX_BUF_SIZE], // todo: Could be TX or RX.
+    pub payload: [u8; MAX_BUF_SIZE],
     pub crc: u8,
 }
 
@@ -243,7 +243,11 @@ impl Packet {
 
         let crc = buf[start_i + 3 + payload_len];
 
-        // todo: QC CRC here?
+        // todo: Is len what we want here, or whole packet? Whole payload?
+        if calc_crc(unsafe { &CRC_LUT }, &buf, len as u8) != crc {
+            println!("CRC failed on recieved packet");
+            return Err(DecodeError {});
+        };
 
         Ok(Packet {
             dest_addr,

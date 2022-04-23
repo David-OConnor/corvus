@@ -67,6 +67,8 @@ mod protocols;
 mod sensor_fusion;
 mod setup;
 mod util;
+mod madgwick;
+mod lin_alg;
 
 use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
