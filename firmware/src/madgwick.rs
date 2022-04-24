@@ -35,18 +35,47 @@ fn sin(v: f32) -> f32 {
     unsafe { arm_sin_f32(v) }
 }
 
+#[derive(Default)]
 /// AHRS algorithm settings.
-struct Settings {
+pub struct Settings {
     pub gain: f32,
     pub accel_rejection: f32,
     pub magnetic_rejection: f32,
     pub rejection_timeout: u32,
 }
 
+pub struct AhrsCalibration {
+        pub gyroscopeMisalignment: Mat3,
+        pub gyroscopeSensitivity: Vec3,
+        pub gyroscopeOffset: Vec3,
+        pub accelerometerMisalignment: Mat3,
+        pub accelerometerSensitivity: Vec3,
+        pub accelerometerOffset: Vec3,
+        pub softIronMatrix: Mat3,
+        pub hardIronOffset: Vec3,
+}
+
+impl Default for AhrsCalibration {
+    fn default() -> Self {
+        Self {
+            //     const FusionMatrix gyroscopeMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+            //     const FusionVector gyroscopeSensitivity = {1.0f, 1.0f, 1.0f};
+            //     const FusionVector gyroscopeOffset = {0.0f, 0.0f, 0.0f};
+            //     const FusionMatrix accelerometerMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+            //     const FusionVector accelerometerSensitivity = {1.0f, 1.0f, 1.0f};
+            //     const FusionVector accelerometerOffset = {0.0f, 0.0f, 0.0f};
+            //     const FusionMatrix softIronMatrix = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+            //     const FusionVector hardIronOffset = {0.0f, 0.0f, 0.0f};
+        }
+    }
+}
+
+#[derive(Default)]
 /// AHRS algorithm structure.  Structure members are used internally and
 /// must not be accessed by the application.
-struct Ahrs {
+pub struct Ahrs {
     pub settings: Settings,
+    /// The quaternion describing the sensor relative to the Earth.
     pub quaternion: Quaternion,
     pub accelerometer: Vec3,
     pub initialising: bool,
@@ -60,6 +89,8 @@ struct Ahrs {
     pub magnetometer_ignored: bool,
     pub mag_rejection_timer: u32,
     pub mag_rejection_timeout: bool,
+    pub offset: AhrsOffset,
+    pub calibration: AhrsCalibration,
 }
 
 impl Ahrs {
@@ -84,7 +115,7 @@ impl Ahrs {
     /// brief Sets the AHRS algorithm settings.
     /// param ahrs AHRS algorithm structure.
     /// aram settings Settings.
-    fn set_settings(&mut self, settings: &Settings) {
+    pub fn set_settings(&mut self, settings: &Settings) {
         self.settings.gain = settings.gain;
         if settings.accel_rejection == 0.0 || settings.rejection_timeout == 0 {
             self.settings.accel_rejection = f32::MAX;
@@ -103,13 +134,15 @@ impl Ahrs {
         self.ramped_gain_step = (INITIAL_GAIN - self.settings.gain) / INITIALISATION_PERIOD;
     }
 
+    // todo: Does accel need to be in G, or can we use m/s^2
+
     /// Updates the AHRS algorithm using the gyroscope, accelerometer, and
     /// magnetometer measurements.
-    ///Gyroscope measurement in radians per second
-    /// accelerometer Accelerometer measurement in g.
+    /// Gyroscope measurement in radians per second
+    /// accelerometer Accelerometer measurement in -g- m/s^2.
     /// magnetometer Magnetometer measurement in arbitrary units.
     /// dt in seconds.
-    fn update(&mut self, gyroscope: Vec3, accelerometer: Vec3, magnetometer: Vec3, dt: f32) {
+    pub fn update(&mut self, gyroscope: Vec3, accelerometer: Vec3, magnetometer: Vec3, dt: f32) {
         let q = self.quaternion;
 
         // Store accelerometer
@@ -219,13 +252,13 @@ impl Ahrs {
         self.quaternion = self.quaternion.to_normalized();
     }
 
-    ///  Updates the AHRS algorithm using the gyroscope and accelerometer
-    ///  measurements only.
+    /// Updates the AHRS algorithm using the gyroscope and accelerometer
+    /// measurements only.
     /// ahrs AHRS algorithm structure.
     /// gyroscope Gyroscope measurement in degrees per second.
     /// accelerometer Accelerometer measurement in g.
     /// deltaTime dt in seconds.
-    fn update_no_magnetometer(&mut self, gyroscope: Vec3, accelerometer: Vec3, dt: f32) {
+    pub fn update_no_magnetometer(&mut self, gyroscope: Vec3, accelerometer: Vec3, dt: f32) {
         // Update AHRS algorithm
         self.update(gyroscope, accelerometer, Vec3::zero(), dt);
 
@@ -242,7 +275,7 @@ impl Ahrs {
     /// accelerometer Accelerometer measurement in g.
     /// heading Heading measurement in degrees.
     /// dt in seconds.
-    fn update_external_heading(
+    pub fn update_external_heading(
         &mut self,
         gyroscope: Vec3,
         accelerometer: Vec3,
@@ -264,12 +297,6 @@ impl Ahrs {
 
         // Update AHRS algorithm
         self.update(gyroscope, accelerometer, magnetometer, dt);
-    }
-
-    /// Returns the quaternion describing the sensor relative to the Earth.
-    /// ahrs AHRS algorithm structure.
-    fn get_quaternion(&self) -> Quaternion {
-        self.quaternion.conjugate()
     }
 
     /// Returns the linear acceleration measurement equal to the accelerometer
@@ -551,6 +578,7 @@ fn axes_swap(sensor: Vec3, alignment: AxesAlignment) -> Vec3 {
 
 /// Gyroscope offset algorithm structure.  Structure members are used
 /// internally and must not be accessed by the application.
+#[derive(Default)]
 struct Offset {
     pub filter_coefficient: f32,
     pub timeout: u32,

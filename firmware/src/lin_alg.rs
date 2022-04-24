@@ -8,7 +8,7 @@ use core::ops::{Add, Mul, Sub};
 use num_traits::float::Float;
 
 /// 3D vector.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct Vec3 {
     pub x: f32,
     pub y: f32,
@@ -120,7 +120,7 @@ impl Vec3 {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct Quaternion {
     pub w: f32,
     pub x: f32,

@@ -30,7 +30,7 @@ use stm32_hal2::{
     spi::Spi,
 };
 
-use crate::{flight_ctrls::Params, imu};
+use crate::{flight_ctrls::Params, madgwick::{self, Ahrs}, imu, lin_alg::Vec3};
 
 // C file with impl of EKF for quaternion rotation:
 // https://github.com/pms67/EKF-Quaternion-Attitude-Estimation/blob/master/EKF.h
@@ -87,6 +87,62 @@ impl ImuReadings {
             v_yaw: imu::interpret_gyro(i16::from_be_bytes([buf[11], buf[12]])),
         }
     }
+}
+
+/// Setup the Attitude Heading Reference System; currently using Madgwick filter.
+/// [See official example here](https://github.com/xioTechnologies/Fusion/blob/main/Examples/Advanced/main.c)
+pub fn setup_ahrs() -> Ahrs {
+    let mut ahrs = Ahrs::default();
+
+    let mut offset = madgwick::Offset;
+    offset.initialize(crate::IMU_UPDATE_RATE as u32);
+    ahrs.offset = offset;
+
+    // todo: Consider storing this in AHRS struct! Probably in cal sub-struct
+    //     const FusionMatrix gyroscopeMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+    //     const FusionVector gyroscopeSensitivity = {1.0f, 1.0f, 1.0f};
+    //     const FusionVector gyroscopeOffset = {0.0f, 0.0f, 0.0f};
+    //     const FusionMatrix accelerometerMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+    //     const FusionVector accelerometerSensitivity = {1.0f, 1.0f, 1.0f};
+    //     const FusionVector accelerometerOffset = {0.0f, 0.0f, 0.0f};
+    //     const FusionMatrix softIronMatrix = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+    //     const FusionVector hardIronOffset = {0.0f, 0.0f, 0.0f};
+
+    // todo: These are from the Madgwick example. What should they be?
+    let ahrs_settings = madgwick::Settings {
+        gain: 0.5,
+        accel_rejection: 10.,
+        magnetic_rejection: 20.,
+        rejection_timeout: 5. * IMU_UPDATE_RATE,
+    };
+
+    ahrs.set_settings(&ahrs_settings);
+
+    ahrs
+}
+
+/// Update and get the attitude from the AHRS.
+pub fn update_get_attitude(ahrs: &Ahrs, offset: &ahrs::Offset, params: &Params) {
+    let gryo = lin_alg::Vec3 { x: params.v_roll, y: params.v_pitch, z: params.v_yaw };
+    let accel = lin_alg::Vec3 { x: params.a_x, y: params.a_y, z: params.a_z };
+
+    // Apply calibration
+    gyroscope = FusionCalibrationInertial(gyroscope, gyroscopeMisalignment, gyroscopeSensitivity, gyroscopeOffset);
+    accelerometer = FusionCalibrationInertial(accelerometer, accelerometerMisalignment, accelerometerSensitivity, accelerometerOffset);
+    magnetometer = FusionCalibrationMagnetic(magnetometer, softIronMatrix, hardIronOffset);
+
+    // Update gyroscope offset correction algorithm
+    let gyroscope = offset.update(gyroscope);
+
+    // todo: Can we use the hard-set 8kHz IMU-spec DT, or do we need to measure?
+    ahrs.update_no_magnetometer(gyro, accel, DT_IMU);
+
+    let att_euler = ahrs.quaternion.to_euler();
+    let att_earth = ahrs.get_earth_accel();
+
+    println!("Attitude quat: {}", ahrs.quaternion);
+    println!("Attitude roll: {}, pitch: {}, yaw: {}", att_euler.x, att_euler.y, att_euler.z);
+    println!("Attitude earth: {}, pitch: {}, yaw: {}", att_earth.x, att_earth.y, att_earth.z);
 }
 
 /// Read all 3 measurements, by commanding a DMA transfer. The transfer is closed, and readings

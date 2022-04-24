@@ -87,6 +87,8 @@ use flight_ctrls::{
 use filter_imu::ImuFilters;
 use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
 
+use madgwick::Ahrs;
+
 use ppks::{Location, LocationType};
 
 // Our DT timer speed, in Hz.
@@ -372,6 +374,7 @@ mod app {
         imu_filters: ImuFilters,
         base_point: Location,
         command_state: CommandState,
+        ahrs: Ahrs,
     }
 
     #[local]
@@ -612,6 +615,8 @@ mod app {
         let mut base_point = Location::default();
         init_sensors(&mut params, &mut base_point, &mut i2c1, &mut i2c2);
 
+        let ahrs = sensor_fusion::setup_ahrs();
+
         update_timer.enable();
 
         println!("Entering main loop...");
@@ -655,6 +660,7 @@ mod app {
                 imu_filters: ImuFilters::new(),
                 base_point,
                 command_state: Default::default(),
+                ahrs,
             },
             Local { spi3 },
             init::Monotonics(),
@@ -674,7 +680,7 @@ mod app {
     shared = [current_params, manual_inputs, input_map, current_pwr,
     velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
-    dma, rotor_timer_a, rotor_timer_b
+    dma, rotor_timer_a, rotor_timer_b, ahrs,
     ],
     priority = 2
     )]
@@ -696,7 +702,7 @@ mod app {
                 }
             });
 
-        cx.shared.current_params.lock(|params| {
+        (cx.shared.current_params, cx.shared.ahrs).lock(|params, ahrs| {
             // if LOOP_I.fetch_add(1,Ordering::Acquire) % 100 == 0 {
 
             println!(
@@ -708,7 +714,11 @@ mod app {
                 "IMU Data: roll {}, pitch: {}, yaw: {}",
                 params.v_roll, params.v_pitch, params.v_yaw
             );
-            // }
+
+
+           // todo let attitude = sensor_...
+            sensor_fusion.update_get_attitude(params, ahrs, ahrs_offset);
+
         });
 
         // todo: Dshot test
