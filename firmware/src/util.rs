@@ -8,39 +8,7 @@ pub struct IirInstWrapper {
 }
 unsafe impl Send for IirInstWrapper {}
 
-// todo: Move Quaternion and RotorMath elsewhere as appropriate.
-
-/// A quaternion. Used for attitude state
-struct Quaternion {
-    i: f32,
-    j: f32,
-    k: f32,
-    l: f32,
-}
-
-// impl Sub for Quaternion {
-//     type Output = Self;
-//
-//     fn sub(self, other: Self) -> Self::Output {
-//         Self {
-//             x: self.x - other.x,
-//             y: self.y - other.y,
-//             z: self.z - other.z,
-//         }
-//     }
-// }
-
-impl Quaternion {
-    pub fn new(i: f32, j: f32, k: f32, l: f32) -> Self {
-        Self { i, j, k, l }
-    }
-}
-
-/// A generalized quaternion
-struct RotorMath {}
-
 /// Utility fn to make up for `core::cmp::max` requiring f32 to impl `Ord`, which it doesn't.
-/// todo: Move elsewhere?
 pub fn max(a: f32, b: f32) -> f32 {
     if a > b {
         a
@@ -60,4 +28,43 @@ pub fn map_linear(val: f32, range_in: (f32, f32), range_out: (f32, f32)) -> f32 
     let portion = (val - range_in.0) / (range_in.1 - range_in.0);
 
     portion * (range_out.1 - range_out.0) + range_out.0
+}
+
+/// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c
+pub fn crc_init(lut: &mut [u8; 256], poly: u8) {
+    for i in 0..256 {
+        let mut crc = i as u8;
+        for _ in 0..8 {
+            crc = (crc << 1) ^ (if (crc & 0x80) > 0 { poly } else { 0 });
+        }
+        lut[i] = crc & 0xff;
+    }
+}
+
+/// CRC8 using poly 0xD5, includes all bytes from type (buffer[2]) to end of payload.
+/// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c
+pub fn calc_crc(lut: &[u8; 256], data: &[u8], mut size: u8) -> u8 {
+    let mut crc = 0;
+    let mut i = 0;
+
+    while size > 0 {
+        size -= 1;
+        crc = lut[(crc ^ data[i]) as usize];
+        i += 1;
+    }
+    crc
+}
+
+/// Alternative, non-LUT impl from iNav: https://github.com/iNavFlight/inav/wiki/MSP-V2
+pub fn crc8_dvb_s2(crc: u8, a: u8) -> u8 {
+    let mut crc = crc ^ a;
+
+    for _ in 0..8 {
+        if (crc & 0x80) != 0 {
+            crc = (crc << 1) ^ 0xD5;
+        } else {
+            crc = crc << 1;
+        }
+    }
+    crc
 }

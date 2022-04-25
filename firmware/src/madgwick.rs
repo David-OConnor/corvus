@@ -45,26 +45,32 @@ pub struct Settings {
 }
 
 pub struct AhrsCalibration {
-        pub gyro_misalignment: Mat3,
-        pub gyro_sensitivity: Vec3,
-        pub gyro_offset: Vec3,
-        pub accel_misalignment: Mat3,
-        pub accel_sensitivity: Vec3,
-        pub accel_offset: Vec3,
-        pub soft_iron_matrix: Mat3,
-        pub hard_iron_offset: Vec3,
+    pub gyro_misalignment: Mat3,
+    pub gyro_sensitivity: Vec3,
+    pub gyro_offset: Vec3,
+    pub accel_misalignment: Mat3,
+    pub accel_sensitivity: Vec3,
+    pub accel_offset: Vec3,
+    pub soft_iron_matrix: Mat3,
+    pub hard_iron_offset: Vec3,
 }
 
 impl Default for AhrsCalibration {
     fn default() -> Self {
         Self {
-            gyro_misalignment: Mat3 { data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] },
+            gyro_misalignment: Mat3 {
+                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            },
             gyro_sensitivity: Vec3::new(1.0, 1.0, 1.0),
             gyro_offset: Vec3::new(0.0, 0.0, 0.0),
-            accel_misalignment: Mat3 { data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]},
+            accel_misalignment: Mat3 {
+                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            },
             accel_sensitivity: Vec3::new(1.0, 1.0, 1.0),
             accel_offset: Vec3::new(0.0, 0.0, 0.0),
-            soft_iron_matrix: Mat3 { data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] },
+            soft_iron_matrix: Mat3 {
+                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            },
             hard_iron_offset: Vec3::new(0.0, 0.0, 0.0),
         }
     }
@@ -179,8 +185,7 @@ impl Ahrs {
             }
 
             // Calculate accelerometer feedback scaled by 0.5
-            self.half_accelerometer_feedfwd =
-                accelerometer.to_normalized().cross(half_gravity);
+            self.half_accelerometer_feedfwd = accelerometer.to_normalized().cross(half_gravity);
 
             // Ignore accelerometer if acceleration distortion detected
             if self.initialising == true
@@ -219,7 +224,10 @@ impl Ahrs {
             }; // equal to 2nd column of rotation matrix representation scaled by 0.5
 
             // Calculate magnetometer feedback scaled by 0.5
-            self.half_magnetometer_feedback = half_gravity.cross(magnetometer).to_normalized().cross(half_west);
+            self.half_magnetometer_feedback = half_gravity
+                .cross(magnetometer)
+                .to_normalized()
+                .cross(half_west);
 
             // Ignore magnetometer if magnetic distortion detected
             if self.initialising == true
@@ -283,9 +291,10 @@ impl Ahrs {
         dt: f32,
     ) {
         // Calculate roll
-        let roll =(
-            self.quaternion.y * self.quaternion.z + self.quaternion.w * self.quaternion.x
-        ).atan2(self.quaternion.w * self.quaternion.w - 0.5 + self.quaternion.z * self.quaternion.z);
+        let roll = (self.quaternion.y * self.quaternion.z + self.quaternion.w * self.quaternion.x)
+            .atan2(
+                self.quaternion.w * self.quaternion.w - 0.5 + self.quaternion.z * self.quaternion.z,
+            );
 
         // Calculate magnetometer
         let sin_heading = sin(heading);
@@ -652,7 +661,12 @@ fn compass_calc_heading(accelerometer: Vec3, magnetometer: Vec3) -> f32 {
 }
 
 /// Gyroscope and accelerometer calibration model. Returns calibrated measurement.
-pub fn apply_cal_inertial(uncalibrated: Vec3, misalignment: Mat3, sensitivity: Vec3, offset: Vec3) -> Vec3 {
+pub fn apply_cal_inertial(
+    uncalibrated: Vec3,
+    misalignment: Mat3,
+    sensitivity: Vec3,
+    offset: Vec3,
+) -> Vec3 {
     misalignment * (uncalibrated - offset).hadamard_product(sensitivity)
 }
 

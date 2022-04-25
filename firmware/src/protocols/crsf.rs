@@ -37,6 +37,9 @@ use stm32_hal2::{
 
 use crate::{control_interface::ChannelData, util};
 
+// todo: Maybe put in a struct etc? It's constant, but we use a function call to populate it.
+// Note: LUT is here, since it depends on the poly.
+static mut CRC_LUT: [u8; 256] = [0; 256];
 const CRC_POLY: u8 = 0xd;
 const HEADER: u8 = 0xc8;
 
@@ -64,9 +67,6 @@ static mut RX_BUFFER: [u8; MAX_BUF_SIZE] = [0; MAX_BUF_SIZE];
 
 // todo: Consider storing static (non-mut) TX packets, depending on variety of responses.
 static mut TX_BUFFER: [u8; MAX_BUF_SIZE] = [0; MAX_BUF_SIZE];
-
-// todo: Maybe put in a struct etc? It's constant, but we use a function call to populate it.
-static mut CRC_LUT: [u8; 256] = [0; 256];
 
 // "All packets are in the CRSF format [dest] [len] [type] [payload] [crc8]"
 
@@ -183,7 +183,7 @@ pub fn setup(uart: &mut Usart<USART3>, channel: DmaChannel, dma: &mut Dma<DMA1>)
         );
     }
 
-    crc_init(unsafe { &mut CRC_LUT }, CRC_POLY);
+    util::crc_init(unsafe { &mut CRC_LUT }, CRC_POLY);
 }
 
 struct Packet {
@@ -241,9 +241,8 @@ impl Packet {
         }
 
         let crc = buf[start_i + 3 + payload_len];
-
         // todo: Is len what we want here, or whole packet? Whole payload?
-        if calc_crc(unsafe { &CRC_LUT }, &buf, len as u8) != crc {
+        if util::calc_crc(unsafe { &CRC_LUT }, &buf, len as u8) != crc {
             println!("CRC failed on recieved packet");
             return Err(DecodeError {});
         };
@@ -448,29 +447,4 @@ pub fn handle_packet(
     }
 
     result
-}
-
-/// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c
-fn crc_init(lut: &mut [u8; 256], poly: u8) {
-    for i in 0..256 {
-        let mut crc = i as u8;
-        for _ in 0..8 {
-            crc = (crc << 1) ^ (if (crc & 0x80) > 0 { poly } else { 0 });
-        }
-        lut[i] = crc & 0xff;
-    }
-}
-
-/// CRC8 using poly 0xD5, includes all bytes from type (buffer[2]) to end of payload.
-/// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c
-fn calc_crc(lut: &[u8; 256], data: &[u8], mut size: u8) -> u8 {
-    let mut crc = 0;
-    let mut i = 0;
-
-    while size > 0 {
-        size -= 1;
-        crc = lut[(crc ^ data[i]) as usize];
-        i += 1;
-    }
-    crc
 }

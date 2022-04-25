@@ -6,6 +6,9 @@
 
 use stm32_hal2::{pac::USART2, usart::Usart};
 
+const PREAMBLE_0: u8 = 0x24;
+const PREAMBLE_1: u8 = 0x58;
+
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum MessageType {
@@ -20,14 +23,10 @@ pub enum MessageType {
 
 /// A MSP v2 packet
 pub struct Packet {
-    // /// Same lead-in as V1
-    // pub dollar_sign: u8,
-    /// Aka 'X'.
-    pub x: u8, // todo?
     /// Request, response, or error
     pub message_type: MessageType,
-    /// uint8, flag, usage to be defined (set to zero)
-    pub flag: u8,
+    // /// uint8, flag, usage to be defined (set to zero)
+    // pub flag: u8,
     /// (little endian). 0 - 255 is the same function as V1 for backwards compatibility
     pub function: u16,
     /// (little endian) payload size in bytes
@@ -35,10 +34,6 @@ pub struct Packet {
     // We don't store payload here, since it varies in size.
     // n (up to 65535 bytes) payload
     // pub payload: []
-    /// (n= payload size), crc8_dvb_s2 checksum
-    // todo: Calculaet this dynamically in `to_buf`?
-    pub checksum: u8,
-
 }
 
 impl Packet {
@@ -46,11 +41,12 @@ impl Packet {
     /// `buf` in place. Payload is passed here instead of as a struct field
     /// due to its variable size.
     pub fn to_buf(&self, payload: &[u8], buf: &mut [u8]) {
-        buf[0] = 0x24; // hard-set?
-        buf[1] = self.x;
+        // The first two bytes are a hard-set preamble.
+        buf[0] = PREAMBLE_0;
+        buf[1] = PREAMBLE_1;
         buf[2] = self.message_type as u8;
-        buf[3] = self.flag;
-        // todo: QC direction on this!
+        buf[3] = 0; // Flag currently unimplemented in protocol
+                    // todo: QC direction on this!
         buf[4] = (self.function >> 8) as u8;
         buf[5] = self.function as u8;
         buf[6] = (self.payload_size >> 8) as u8;
@@ -60,8 +56,10 @@ impl Packet {
             buf[i + 8] = payload[i];
         }
 
-        // todo: Calculateu checksum here instead of stored?
-        buf[8 + self.payload_size] = self.checksum;
+        // todo: Is len whole packet len, or just payload?
+        let crc = calc_crc(unsafe { &CRC_LUT }, &payload, self.payload_size);
+
+        buf[8 + self.payload_size] = crc;
     }
 }
 

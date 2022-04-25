@@ -720,10 +720,8 @@ mod app {
                 params.v_roll, params.v_pitch, params.v_yaw
             );
 
-
-           // todo let attitude = sensor_...
+            // todo let attitude = sensor_...
             sensor_fusion.update_get_attitude(params, ahrs, ahrs_offset);
-
         });
 
         // todo: Dshot test

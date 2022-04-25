@@ -190,14 +190,9 @@ impl Quaternion {
         let qwqw_minus_half = self.w * self.w - 0.5; // calculate common terms to avoid repeated operations
 
         EulerAngle {
-            roll: (
-                self.y * self.z - self.w * self.x
-
-            ).atan2(qwqw_minus_half + self.z * self.z,),
+            roll: (self.y * self.z - self.w * self.x).atan2(qwqw_minus_half + self.z * self.z),
             pitch: -1.0 * (2.0 * (self.x * self.z + self.w * self.y)).asin(),
-            yaw: (
-                self.x * self.y - self.w * self.z
-            ).atan2(qwqw_minus_half + self.x * self.x),
+            yaw: (self.x * self.y - self.w * self.z).atan2(qwqw_minus_half + self.x * self.x),
         }
     }
 

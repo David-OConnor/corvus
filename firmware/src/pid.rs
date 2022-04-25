@@ -575,7 +575,7 @@ pub fn run_attitude(
         InputMode::Acro => {
             // (Acro mode has handled by the rates loop)
 
-            // todo: If all sticks (other than throttle) are centerd., command an attitude where that
+            // todo: If a rate axis is centered. command an attitude where that
             // todo position was left off. (quaternion)
         }
 
