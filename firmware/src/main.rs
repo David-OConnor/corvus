@@ -503,6 +503,11 @@ mod app {
         // let pressure = baro::read(&mut i2c2);
         // println!("Pressure: {}", pressure);
 
+        // We use UART2 for the OSD, for DJI, via the MSP protocol.
+        let mut usart2 = Usart::new(dp.USART3, 115_200, Default::default(), &clock_cfg);
+        // todo: DMA for OSD?
+        osd::setup(&mut uart2); // Keep this channel in sync with `setup.rs`.
+
         // We use `uart1` for the radio controller receiver, via CRSF protocol.
         // CRSF protocol uses a single wire half duplex uart connection.
         //  * The master sends one frame every 4ms and the slave replies between two frames from the master.

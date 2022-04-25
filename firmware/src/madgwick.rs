@@ -45,27 +45,27 @@ pub struct Settings {
 }
 
 pub struct AhrsCalibration {
-        pub gyroscopeMisalignment: Mat3,
-        pub gyroscopeSensitivity: Vec3,
-        pub gyroscopeOffset: Vec3,
-        pub accelerometerMisalignment: Mat3,
-        pub accelerometerSensitivity: Vec3,
-        pub accelerometerOffset: Vec3,
-        pub softIronMatrix: Mat3,
-        pub hardIronOffset: Vec3,
+        pub gyro_misalignment: Mat3,
+        pub gyro_sensitivity: Vec3,
+        pub gyro_offset: Vec3,
+        pub accel_misalignment: Mat3,
+        pub accel_sensitivity: Vec3,
+        pub accel_offset: Vec3,
+        pub soft_iron_matrix: Mat3,
+        pub hard_iron_offset: Vec3,
 }
 
 impl Default for AhrsCalibration {
     fn default() -> Self {
         Self {
-            //     const FusionMatrix gyroscopeMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
-            //     const FusionVector gyroscopeSensitivity = {1.0f, 1.0f, 1.0f};
-            //     const FusionVector gyroscopeOffset = {0.0f, 0.0f, 0.0f};
-            //     const FusionMatrix accelerometerMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
-            //     const FusionVector accelerometerSensitivity = {1.0f, 1.0f, 1.0f};
-            //     const FusionVector accelerometerOffset = {0.0f, 0.0f, 0.0f};
-            //     const FusionMatrix softIronMatrix = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
-            //     const FusionVector hardIronOffset = {0.0f, 0.0f, 0.0f};
+            gyro_misalignment: Mat3 { data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] },
+            gyro_sensitivity: Vec3::new(1.0, 1.0, 1.0),
+            gyro_offset: Vec3::new(0.0, 0.0, 0.0),
+            accel_misalignment: Mat3 { data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]},
+            accel_sensitivity: Vec3::new(1.0, 1.0, 1.0),
+            accel_offset: Vec3::new(0.0, 0.0, 0.0),
+            soft_iron_matrix: Mat3 { data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] },
+            hard_iron_offset: Vec3::new(0.0, 0.0, 0.0),
         }
     }
 }
@@ -649,4 +649,14 @@ fn compass_calc_heading(accelerometer: Vec3, magnetometer: Vec3) -> f32 {
 
     // Calculate angular heading relative to magnetic north
     magnetic_west.x.atan2(magnetic_north.x)
+}
+
+/// Gyroscope and accelerometer calibration model. Returns calibrated measurement.
+pub fn apply_cal_inertial(uncalibrated: Vec3, misalignment: Mat3, sensitivity: Vec3, offset: Vec3) -> Vec3 {
+    misalignment * (uncalibrated - offset).hadamard_product(sensitivity)
+}
+
+/// Magnetometer calibration model. Returns calibrated measurement.
+pub fn apply_cal_magnetic(ncalibrated: Vec3, softIronMatrix: Mat3, hardIronOffset: Vec3) -> Vec3 {
+    softIronMatrix * uncalibrated - hardIronOffset
 }

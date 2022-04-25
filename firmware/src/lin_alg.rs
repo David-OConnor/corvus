@@ -52,6 +52,10 @@ impl Mul<f32> for Vec3 {
 }
 
 impl Vec3 {
+    pub fn new(x: f32, y: f32, z: f32) -> Self {
+        Self { x, y, z }
+    }
+
     /// Vector of zeros.
     pub fn zero() -> Self {
         Self {

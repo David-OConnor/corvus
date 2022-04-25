@@ -92,21 +92,14 @@ impl ImuReadings {
 /// Setup the Attitude Heading Reference System; currently using Madgwick filter.
 /// [See official example here](https://github.com/xioTechnologies/Fusion/blob/main/Examples/Advanced/main.c)
 pub fn setup_ahrs() -> Ahrs {
+    // Note: Calibration and offsets ares handled handled by their defaults currently.
     let mut ahrs = Ahrs::default();
 
     let mut offset = madgwick::Offset;
     offset.initialize(crate::IMU_UPDATE_RATE as u32);
     ahrs.offset = offset;
 
-    // todo: Consider storing this in AHRS struct! Probably in cal sub-struct
-    //     const FusionMatrix gyroscopeMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
-    //     const FusionVector gyroscopeSensitivity = {1.0f, 1.0f, 1.0f};
-    //     const FusionVector gyroscopeOffset = {0.0f, 0.0f, 0.0f};
-    //     const FusionMatrix accelerometerMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
-    //     const FusionVector accelerometerSensitivity = {1.0f, 1.0f, 1.0f};
-    //     const FusionVector accelerometerOffset = {0.0f, 0.0f, 0.0f};
-    //     const FusionMatrix softIronMatrix = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
-    //     const FusionVector hardIronOffset = {0.0f, 0.0f, 0.0f};
+
 
     // todo: These are from the Madgwick example. What should they be?
     let ahrs_settings = madgwick::Settings {
@@ -118,6 +111,8 @@ pub fn setup_ahrs() -> Ahrs {
 
     ahrs.set_settings(&ahrs_settings);
 
+    // todo: Calibation proecedure, either in air or on ground.
+
     ahrs
 }
 
@@ -127,9 +122,9 @@ pub fn update_get_attitude(ahrs: &Ahrs, offset: &ahrs::Offset, params: &Params) 
     let accel = lin_alg::Vec3 { x: params.a_x, y: params.a_y, z: params.a_z };
 
     // Apply calibration
-    gyroscope = FusionCalibrationInertial(gyroscope, gyroscopeMisalignment, gyroscopeSensitivity, gyroscopeOffset);
-    accelerometer = FusionCalibrationInertial(accelerometer, accelerometerMisalignment, accelerometerSensitivity, accelerometerOffset);
-    magnetometer = FusionCalibrationMagnetic(magnetometer, softIronMatrix, hardIronOffset);
+    gyroscope = madgwick::apply_cal_inertial(gyroscope, gyroscopeMisalignment, gyroscopeSensitivity, gyroscopeOffset);
+    accelerometer = madgwick::apply_cal_inertial(accelerometer, accelerometerMisalignment, accelerometerSensitivity, accelerometerOffset);
+    magnetometer = madgwick::apply_cal_magnetic(magnetometer, softIronMatrix, hardIronOffset);
 
     // Update gyroscope offset correction algorithm
     let gyroscope = offset.update(gyroscope);

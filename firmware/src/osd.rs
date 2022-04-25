@@ -1,8 +1,20 @@
 //! This module contains code for interfacing with DJI's OSD system, via UART.
+//!
+//!
+//! https://ardupilot.org/copter/docs/common-msp-overview.html
+//! https://github.com/betaflight/betaflight/tree/master/src/main/msp - Maybe? Maybe
+
+// MSP requires a free serial port, and its speed defaults to 115200 baud.
+// SERIAL2_PROTOCOL = 33
 
 use stm32_hal2::{pac::USART2, usart::Usart};
 
 // todo: Osd struct, or individual functions?
+
+/// Initial config for the OSD
+pub fn setup(uart: &mut Usart<USART2>) {
+    // todo: DMA?
+}
 
 /// Draw the current airspeed
 pub fn draw_airspeed() {}
