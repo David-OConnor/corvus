@@ -741,7 +741,6 @@ pub fn run_rate(
 
                 let yaw_correction_factor = ((hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
 
-                // todo: Impl for Attitude mode too? Or is it not appropriate there?
                 if hor_speed > YAW_ASSIST_MIN_SPEED {
                     rates_commanded.yaw += yaw_correction_factor;
                 }
@@ -752,7 +751,6 @@ pub fn run_rate(
 
                 let roll_correction_factor = (-(hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
 
-                // todo: Impl for Attitude mode too?
                 if hor_speed > YAW_ASSIST_MIN_SPEED {
                     rates_commanded.yaw += roll_correction_factor;
                 }

@@ -81,7 +81,7 @@ use protocols::{crsf, dshot};
 
 use flight_ctrls::{
     ArmStatus, AutopilotStatus, CommandState, CtrlInputs, InputMap, InputMode, Params, RotorPower,
-    POWER_LUT,
+    POWER_LUT, AxisLocks,
 };
 
 use filter_imu::ImuFilters;
@@ -349,6 +349,7 @@ mod app {
         pid_attitude: PidGroup,
         pid_rate: PidGroup,
         manual_inputs: CtrlInputs,
+        axis_locks: AxisLocks,
         current_pwr: RotorPower,
         dma: Dma<DMA1>,
         spi1: Spi<SPI1>,
@@ -631,7 +632,7 @@ mod app {
                 user_cfg,
                 state_volatile,
                 input_map: Default::default(),
-                input_mode: InputMode::Attitude,
+                input_mode: InputMode::Acro,
                 autopilot_status: Default::default(),
                 ctrl_coeffs: Default::default(),
                 current_params: params,
@@ -642,6 +643,7 @@ mod app {
                 pid_attitude: Default::default(),
                 pid_rate: Default::default(),
                 manual_inputs: Default::default(),
+                axis_locks: Default::default(),
                 current_pwr: Default::default(),
                 dma,
                 spi1,
@@ -685,7 +687,7 @@ mod app {
     shared = [current_params, manual_inputs, input_map, current_pwr,
     velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
-    dma, rotor_timer_a, rotor_timer_b, ahrs,
+    dma, rotor_timer_a, rotor_timer_b, ahrs, axis_locks,
     ],
     priority = 2
     )]

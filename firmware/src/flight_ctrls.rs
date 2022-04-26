@@ -75,6 +75,16 @@ impl AircraftProperties {
     }
 }
 
+/// We use this to freeze an axis in acro mode, when the control for that axis is neutral.
+/// this prevents drift from accumulation of errors. Values are uuler angle locked at, in radians. Only used
+/// for pitch and roll, since yaw is coupled to those, and can't be maintained independently.
+/// todo: Is there a way to do this using portions of a quaternion?
+#[derive(Default)]
+pub struct AxisLocks {
+    pub pitch_locked: Option<f32>,
+    pub roll_locked: Option<f32>,
+}
+
 /// Specify the rotor. Includdes methods that get information regarding timer and DMA, per
 /// specific board setups.
 #[derive(Clone, Copy)]
@@ -211,8 +221,6 @@ pub struct AutopilotStatus {
     /// Heading is fixed.
     pub hdg_hold: Option<f32>,
     /// Automatically adjust raw to zero out slip
-    // todo: Do yaw assist and roll assist make sense for Attitude mode.
-    // todo: Do you even want attitude mode as an option??
     pub yaw_assist: bool,
     /// Automatically adjust roll (rate? angle?) to zero out slip, ie based on rudder inputs.
     /// Don't enable both yaw assist and roll assist at the same time.
@@ -247,6 +255,7 @@ pub enum InputMode {
     /// roll/pitch stick to its maximum position, the drone will also reach the maximum angle
     /// it’s allowed to tilt (defined by the user), and it won’t flip over. As you release the
     /// stick back to centre, the aircraft will also return to its level position.
+    /// We use attitude mode as a no-GPS fallback.
     Attitude,
     // GPS-hold, also known as Loiter. Maintains a specific position.
     /// In `Command` mode, the device loiters when idle. Otherwise, it flies at specific velocities,
