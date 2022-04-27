@@ -412,7 +412,7 @@ pub fn handle_packet(
                 extended_dest: Some(DestAddr::RadioTransmitter),
                 extended_src: Some(DestAddr::CrsfTransmitter),
                 payload,
-                crc: calc_crc(unsafe { &CRC_LUT }, &payload, 2),
+                crc: util::calc_crc(unsafe { &CRC_LUT }, &payload, 2),
             };
 
             unsafe {

@@ -56,6 +56,7 @@ pub fn calc_crc(lut: &[u8; 256], data: &[u8], mut size: u8) -> u8 {
 }
 
 /// Alternative, non-LUT impl from iNav: https://github.com/iNavFlight/inav/wiki/MSP-V2
+/// "crc8_dvb_s2 checksum algorithm. This is a single byte CRC algorithm that is ... robust"
 pub fn crc8_dvb_s2(crc: u8, a: u8) -> u8 {
     let mut crc = crc ^ a;
 

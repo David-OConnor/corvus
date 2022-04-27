@@ -251,6 +251,7 @@ impl Quaternion {
 
 /// 3x3 matrix in row-major order.
 /// See http://en.wikipedia.org/wiki/Row-major_order
+#[derive(Clone)]
 pub struct Mat3 {
     pub data: [f32; 9],
 }
@@ -282,9 +283,9 @@ impl Mat3 {
 
 /// Euler angles.
 pub struct EulerAngle {
-    roll: f32,
-    pitch: f32,
-    yaw: f32,
+    pub roll: f32,
+    pub pitch: f32,
+    pub yaw: f32,
 }
 
 impl EulerAngle {

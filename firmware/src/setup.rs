@@ -66,7 +66,7 @@ pub fn setup_pins() {
             // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
             let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(1)); // Tim2 ch1
             // todo: TS no signs of life from PA1
-            // let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(1)); // Tim2 ch2
+            // let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(1)); // Tim2 ch1
             let mut rotor2 = Pin::new(Port::A, 1, PinMode::Output); // Tim2 ch2
             let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
             let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4

@@ -61,7 +61,7 @@ mod filter_imu;
 mod flight_ctrls;
 mod lin_alg;
 mod madgwick;
-mod osd;
+// mod osd;
 mod pid;
 mod pid_tuning;
 mod ppks;
@@ -80,8 +80,8 @@ use drivers::tof_vl53l1 as tof;
 use protocols::{crsf, dshot};
 
 use flight_ctrls::{
-    ArmStatus, AutopilotStatus, CommandState, CtrlInputs, InputMap, InputMode, Params, RotorPower,
-    POWER_LUT, AxisLocks,
+    ArmStatus, AutopilotStatus, AxisLocks, CommandState, CtrlInputs, InputMap, InputMode, Params,
+    RotorPower, POWER_LUT,
 };
 
 use filter_imu::ImuFilters;
@@ -505,9 +505,11 @@ mod app {
         // println!("Pressure: {}", pressure);
 
         // We use UART2 for the OSD, for DJI, via the MSP protocol.
-        let mut usart2 = Usart::new(dp.USART3, 115_200, Default::default(), &clock_cfg);
+        let mut uart2 = Usart::new(dp.USART2, 115_200, Default::default(), &clock_cfg);
         // todo: DMA for OSD?
-        osd::setup(&mut uart2); // Keep this channel in sync with `setup.rs`.
+
+        // todo: Put back
+        // osd::setup(&mut uart2); // Keep this channel in sync with `setup.rs`.
 
         // We use `uart1` for the radio controller receiver, via CRSF protocol.
         // CRSF protocol uses a single wire half duplex uart connection.
@@ -723,7 +725,7 @@ mod app {
             );
 
             // todo let attitude = sensor_...
-            sensor_fusion.update_get_attitude(params, ahrs, ahrs_offset);
+            sensor_fusion::update_get_attitude(ahrs, params);
         });
 
         // todo: Dshot test

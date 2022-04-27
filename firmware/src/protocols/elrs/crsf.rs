@@ -11,6 +11,8 @@
 // todo: Trim this file down to only what you need; you're not really communicating over
 // todo UART here; just find the bits the ELRS code has tightly integrated, and remove the rest.
 
+use crate::util;
+
 const OpenTXsyncPacketInterval: u32 = 200; // in ms todo: define; what type
 // this is the smallest telemetry FIFO size in ETX with CRSF defined
 const HANDSET_TELEMETRY_FIFO_SIZE: u16 = 128; // todo: Define type
@@ -182,7 +184,7 @@ fn sendLinkStatisticsToTX(&self)
         CRSF_FRAMETYPE_LINK_STATISTICS,
     ];
 
-    let mut crc: u8 = crsf_crc.calc(outBuffer[3]);
+    let mut crc: u8 = util::calc_crc(outBuffer[3]); // todo: QC which CRC, and if it's initiaalized.
     crc = crsf_crc.calc((byte *)&LinkStatistics, LinkStatisticsFrameLength, crc);
 
     if SerialOutFIFO.ensure(outBuffer[0] + 1)

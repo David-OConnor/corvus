@@ -23,6 +23,8 @@
 
 use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sin_f32 as sin};
 
+use defmt::println;
+
 use stm32_hal2::{
     dma::{Dma, DmaChannel},
     gpio::Pin,
@@ -100,7 +102,7 @@ pub fn setup_ahrs() -> Ahrs {
     // Note: Calibration and offsets ares handled handled by their defaults currently.
     let mut ahrs = Ahrs::default();
 
-    let mut offset = madgwick::Offset;
+    let mut offset = madgwick::Offset::default();
     offset.initialize(crate::IMU_UPDATE_RATE as u32);
     ahrs.offset = offset;
 
@@ -109,7 +111,7 @@ pub fn setup_ahrs() -> Ahrs {
         gain: 0.5,
         accel_rejection: 10.,
         magnetic_rejection: 20.,
-        rejection_timeout: 5. * IMU_UPDATE_RATE,
+        rejection_timeout: (5. * crate::IMU_UPDATE_RATE) as u32,
     };
 
     ahrs.set_settings(&ahrs_settings);
@@ -120,46 +122,48 @@ pub fn setup_ahrs() -> Ahrs {
 }
 
 /// Update and get the attitude from the AHRS.
-pub fn update_get_attitude(ahrs: &Ahrs, offset: &ahrs::Offset, params: &Params) {
-    let gryo = lin_alg::Vec3 {
+pub fn update_get_attitude(ahrs: &mut Ahrs, params: &Params) {
+    let gyro = Vec3 {
         x: params.v_roll,
         y: params.v_pitch,
         z: params.v_yaw,
     };
-    let accel = lin_alg::Vec3 {
+    let accel = Vec3 {
         x: params.a_x,
         y: params.a_y,
         z: params.a_z,
     };
 
     // Apply calibration
-    gyroscope = madgwick::apply_cal_inertial(
-        gyroscope,
-        gyroscopeMisalignment,
-        gyroscopeSensitivity,
-        gyroscopeOffset,
+    let gyroscope = madgwick::apply_cal_inertial(
+        gyro,
+        ahrs.calibration.gyro_misalignment.clone(),
+        ahrs.calibration.gyro_sensitivity,
+        ahrs.calibration.gyro_offset,
     );
-    accelerometer = madgwick::apply_cal_inertial(
-        accelerometer,
-        accelerometerMisalignment,
-        accelerometerSensitivity,
-        accelerometerOffset,
+    let accelerometer = madgwick::apply_cal_inertial(
+        accel,
+        ahrs.calibration.accel_misalignment.clone(),
+        ahrs.calibration.accel_sensitivity,
+        ahrs.calibration.accel_offset,
     );
-    magnetometer = madgwick::apply_cal_magnetic(magnetometer, softIronMatrix, hardIronOffset);
+
+    // todo: Once you add mag.
+    // let magnetometer = madgwick::apply_cal_magnetic(magnetometer, softIronMatrix, hardIronOffset);
 
     // Update gyroscope offset correction algorithm
-    let gyroscope = offset.update(gyroscope);
+    let gyroscope = ahrs.offset.update(gyroscope);
 
     // todo: Can we use the hard-set 8kHz IMU-spec DT, or do we need to measure?
-    ahrs.update_no_magnetometer(gyro, accel, DT_IMU);
+    ahrs.update_no_magnetometer(gyro, accel, crate::DT_IMU);
 
     let att_euler = ahrs.quaternion.to_euler();
     let att_earth = ahrs.get_earth_accel();
 
-    println!("Attitude quat: {}", ahrs.quaternion);
+    println!("Attitude quat: {} {} {} {}", ahrs.quaternion.w, ahrs.quaternion.x, ahrs.quaternion.y, ahrs.quaternion.z);
     println!(
         "Attitude roll: {}, pitch: {}, yaw: {}",
-        att_euler.x, att_euler.y, att_euler.z
+        att_euler.roll, att_euler.pitch, att_euler.yaw
     );
     println!(
         "Attitude earth: {}, pitch: {}, yaw: {}",

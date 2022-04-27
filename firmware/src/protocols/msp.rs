@@ -6,6 +6,11 @@
 
 use stm32_hal2::{pac::USART2, usart::Usart};
 
+use crate::util;
+
+static mut CRC_LUT: [u8; 256] = [0; 256];
+const CRC_POLY: u8 = 0xd;
+
 const PREAMBLE_0: u8 = 0x24;
 const PREAMBLE_1: u8 = 0x58;
 
@@ -57,9 +62,12 @@ impl Packet {
         }
 
         // todo: Is len whole packet len, or just payload?
-        let crc = calc_crc(unsafe { &CRC_LUT }, &payload, self.payload_size);
+        // todo: CRC init?? With what poly?
+        // let crc = util::calc_crc(unsafe { &CRC_LUT }, &payload, self.payload_size as u8);
+        // todo: What is the first argument to this CRC algo??
+        let crc = util::crc8_dvb_s2(payload[0], self.payload_size as u8);
 
-        buf[8 + self.payload_size] = crc;
+        buf[8 + self.payload_size as usize] = crc;
     }
 }
 

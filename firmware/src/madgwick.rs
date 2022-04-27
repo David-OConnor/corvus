@@ -95,7 +95,7 @@ pub struct Ahrs {
     pub magnetometer_ignored: bool,
     pub mag_rejection_timer: u32,
     pub mag_rejection_timeout: bool,
-    pub offset: AhrsOffset,
+    pub offset: Offset,
     pub calibration: AhrsCalibration,
 }
 
@@ -324,7 +324,7 @@ impl Ahrs {
     /// Returns the Earth acceleration measurement equal to accelerometer
     /// measurement in the Earth coordinate frame with the 1 g of gravity removed.
     /// ahrs AHRS algorithm structure.
-    fn get_earth_accel(&self) -> Vec3 {
+    pub fn get_earth_accel(&self) -> Vec3 {
         let q = self.quaternion;
         let a = self.accelerometer;
 
@@ -588,7 +588,7 @@ fn axes_swap(sensor: Vec3, alignment: AxesAlignment) -> Vec3 {
 /// Gyroscope offset algorithm structure.  Structure members are used
 /// internally and must not be accessed by the application.
 #[derive(Default)]
-struct Offset {
+pub struct Offset {
     pub filter_coefficient: f32,
     pub timeout: u32,
     pub timer: u32,
@@ -599,7 +599,7 @@ impl Offset {
     /// Initialises the gyroscope offset algorithm.
     /// offset Gyroscope offset algorithm structure.
     /// Sample rate in Hz.
-    fn initialize(&mut self, sample_rate: u32) {
+    pub fn initialize(&mut self, sample_rate: u32) {
         self.filter_coefficient = TAU * CUTOFF_FREQUENCY * (1. / sample_rate as f32);
         self.timeout = TIMEOUT * sample_rate;
         self.timer = 0;
@@ -611,7 +611,7 @@ impl Offset {
     /// Gyroscope offset algorithm structure.
     /// Gyroscope measurement in radians per second.
     /// return Corrected gyroscope measurement in radians per second.
-    fn update(&mut self, gyroscope: Vec3) -> Vec3 {
+    pub fn update(&mut self, gyroscope: Vec3) -> Vec3 {
         // Subtract offset from gyroscope measurement
         let gyroscope = gyroscope - self.gyroscope_offset;
 
@@ -671,6 +671,6 @@ pub fn apply_cal_inertial(
 }
 
 /// Magnetometer calibration model. Returns calibrated measurement.
-pub fn apply_cal_magnetic(ncalibrated: Vec3, softIronMatrix: Mat3, hardIronOffset: Vec3) -> Vec3 {
+pub fn apply_cal_magnetic(uncalibrated: Vec3, softIronMatrix: Mat3, hardIronOffset: Vec3) -> Vec3 {
     softIronMatrix * uncalibrated - hardIronOffset
 }
