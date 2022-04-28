@@ -1,6 +1,8 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 #runner = "probe-run --chip STM32H743ZITx" # to list chips, run `probe-run --list-chips.`
 #runner = "probe-run --chip STM32H745ZITx" # to list chips, run `probe-run --list-chips.`
+#runner = "probe-run --chip STM32G431CBUx" # to list chips, run `probe-run --list-chips.`
+# todo: No 491 target. Ok to use 431? Maybe 484 or something that supports higher flash?
 runner = "probe-run --chip STM32G431CBUx" # to list chips, run `probe-run --list-chips.`
 
 rustflags = [

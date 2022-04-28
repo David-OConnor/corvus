@@ -142,7 +142,7 @@ impl Ahrs {
         self.accelerometer = Vec3::zero();
         self.initialising = true;
         self.ramped_gain = INITIAL_GAIN;
-        self.half_accelerometer_feedfwd = Vec3::zero();
+        self.half_accelerometer_feedback = Vec3::zero();
         self.half_magnetometer_feedback = Vec3::zero();
         self.accelerometer_ignored = false;
         self.accel_rejection_timer = 0;
@@ -219,7 +219,7 @@ impl Ahrs {
             }
 
             // Calculate accelerometer feedback scaled by 0.5
-            self.half_accelerometer_feedfwd = accelerometer.to_normalized().cross(half_gravity);
+            self.half_accelerometer_feedback = accelerometer.to_normalized().cross(half_gravity);
 
             // Ignore accelerometer if acceleration distortion detected
             if self.initialising == true
@@ -379,7 +379,7 @@ impl Ahrs {
 
     /// Returns the AHRS algorithm internal states.
     fn get_internal_states(&self) -> InternalStates {
-        let rejection_timeout_reciprocol = 1.0 / self.settings.rejection_timeout as f32;
+        let rejection_timeout_reciprocal = 1.0 / self.settings.rejection_timeout as f32;
 
         InternalStates {
             accel_error: (2.0 * self.half_accelerometer_feedback.magnitude()).asin(),
@@ -388,7 +388,7 @@ impl Ahrs {
             magnetic_error: (2.0 * self.half_magnetometer_feedback.magnitude()).asin(),
             magnetometer_ignored: self.magnetometer_ignored,
             magnetic_rejection_timer: self.mag_rejection_timer as f32
-                * rejection_timeout_reciprocol,
+                * rejection_timeout_reciprocal,
         }
     }
 
@@ -629,8 +629,7 @@ impl Offset {
 
     /// Updates the gyroscope offset algorithm and returns the corrected
     /// gyroscope measurement.
-    /// Gyroscope offset algorithm structure.
-    /// Gyroscope measurement in radians per second.
+    /// Gyroscope measurement is in radians per second.
     /// return Corrected gyroscope measurement in radians per second.
     pub fn update(&mut self, gyroscope: Vec3) -> Vec3 {
         // Subtract offset from gyroscope measurement
@@ -653,7 +652,7 @@ impl Offset {
 
         // Adjust offset if timer has elapsed
         self.gyroscope_offset = self.gyroscope_offset + gyroscope * self.filter_coefficient;
-        return gyroscope;
+        gyroscope
     }
 }
 

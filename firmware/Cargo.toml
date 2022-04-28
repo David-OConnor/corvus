@@ -40,7 +40,7 @@ num_enum = { version = "0.5.7", default_features = false }
 # `xx` features for STM32-familiy specific things, like PLL config.
 mercury-g4 = ["g4"]
 mercury-h7 = ["h7"]
-g4 = ["stm32-hal2/g4rt", "stm32-hal2/g431", "stm32-hal2/usb", "stm32-usbd"]
+g4 = ["stm32-hal2/g4rt", "stm32-hal2/g491", "stm32-hal2/usb", "stm32-usbd"]
 h7 = ["stm32-hal2/h7rt", "stm32-hal2/h743"]
 
 default = ["mercury-g4"]

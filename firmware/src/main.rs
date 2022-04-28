@@ -34,6 +34,8 @@ use defmt::println;
 static mut TEMP_BUF: [u8; 48] = [0_u8; 48]; // todo temp!!
 static mut TEMP_I: usize = 0;
 
+// todo: Low power mode when idle to save battery (minor), and perhaps improve lifetime.
+
 cfg_if! {
     if #[cfg(feature = "g4")] {
         use stm32_hal2::usb::{Peripheral, UsbBus, UsbBusType};
@@ -369,8 +371,8 @@ mod app {
         rotor_timer_b: Timer<TIM3>,
         elrs_timer: Timer<TIM4>,
         // todo: Figure out how to store usb_dev and usb_serial as resources. Getting errors atm.
-        // usb_dev: UsbDevice<UsbBusType>,
-        // usb_serial: SerialPort<UsbBusType>,
+        usb_dev: UsbDevice<'static, UsbBusType>,
+        usb_serial: SerialPort<'static, UsbBusType>,
         // `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
         power_used: f32,
         // Store filter instances for the PID loop derivatives. One for each param used.
@@ -435,6 +437,7 @@ mod app {
 
         // Set up pins with appropriate modes.
         setup::setup_pins();
+        // loop {} // todo temp!
 
         let mut dma = Dma::new(dp.DMA1);
         #[cfg(feature = "g4")]
@@ -677,8 +680,8 @@ mod app {
                 rotor_timer_b,
                 elrs_timer,
                 // todo: Put these back. If you have to, use mutex<refcell.
-                // usb_dev,
-                // usb_serial,
+                usb_dev,
+                usb_serial,
                 flash_onboard,
                 power_used: 0.,
                 pid_deriv_filters: PidDerivFilters::new(),
@@ -974,30 +977,29 @@ mod app {
             );
     }
 
-    // todo: Put this USB ISR back in once you've sorted your RTIC resource for usb_dev and usb_serial.
-    // #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params], local = [], priority = 3)]
-    // /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
-    // /// application.
-    // fn usb_isr(mut cx: usb_isr::Context) {
-    //     (cx.shared.usb_dev, cx.shared.usb_serial, cx.shared.params).lock(
-    //         |usb_dev, usb_serial, params| {
-    //             if !usb_dev.poll(&mut [usb_serial]) {
-    //                 return;
-    //             }
-    //
-    //             let mut buf = [0u8; 8];
-    //             match usb_serial.read(&mut buf) {
-    //                 // todo: match all start bits and end bits. Running into an error using the naive approach.
-    //                 Ok(count) => {
-    //                     usb_serial.write(&[1, 2, 3]).ok();
-    //                 }
-    //                 Err(_) => {
-    //                     //...
-    //                 }
-    //             }
-    //         },
-    //     )
-    // }
+    #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params], local = [], priority = 3)]
+    /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
+    /// application.
+    fn usb_isr(mut cx: usb_isr::Context) {
+        (cx.shared.usb_dev, cx.shared.usb_serial, cx.shared.current_params).lock(
+            |usb_dev, usb_serial, params| {
+                if !usb_dev.poll(&mut [usb_serial]) {
+                    return;
+                }
+
+                let mut buf = [0u8; 8];
+                match usb_serial.read(&mut buf) {
+                    // todo: match all start bits and end bits. Running into an error using the naive approach.
+                    Ok(count) => {
+                        usb_serial.write(&[1, 2, 3]).ok();
+                    }
+                    Err(_) => {
+                        //...
+                    }
+                }
+            },
+        )
+    }
 
     // Note: This is actually Channel 3, but there's an issue with G4 streams being off
     // from their interrupt handler by 1.
