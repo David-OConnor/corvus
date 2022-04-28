@@ -170,6 +170,7 @@ pub enum PacketData {
 pub fn setup(uart: &mut Usart<USART3>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
     // Idle interrupt, in conjunction with circular DMA, to indicate we're received a message.
     uart.enable_interrupt(UsartInterrupt::Idle);
+    // uart.enable_interrupt(UsartInterrupt::ReadNotEmpty); // todo temp!!!
 
     unsafe {
         uart.read_dma(
@@ -369,6 +370,8 @@ pub fn handle_packet(
     // Note: As long as we're stopping and starting the transfer each packet, `start_i` will
     // always be 0.
     let start_i = 0;
+
+    println!("RX buf: {:?}", unsafe { RX_BUFFER });
 
     let packet = match Packet::from_buf(unsafe { &RX_BUFFER }, start_i) {
         Ok(p) => p,

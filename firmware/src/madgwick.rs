@@ -12,6 +12,8 @@
 //!
 //! This library is a translation of the original algorithm below:
 //! [Original algorithm, by Seb Madgwick, in C](https://github.com/xioTechnologies/Fusion)
+//! " The algorithm is based on the revised AHRS algorithm presented in chapter 7 of Madgwick's
+//! PhD thesis. This is a different algorithm to the better-known initial AHRS algorithm presented in chapter 3, commonly referred to as the Madgwick algorithm."
 //!
 //! https://github.com/chris1seto/OzarkRiver/tree/4channel/FlightComputerFirmware/Src/Madgwick
 //! https://github.com/bjohnsonfl/Madgwick_Filter
@@ -27,6 +29,17 @@ use cmsis_dsp_sys::{arm_cos_f32, arm_sin_f32};
 
 use super::lin_alg::{EulerAngle, Mat3, Quaternion, Vec3};
 
+const G: f32 = 9.80665; // Gravity, in m/s^2
+
+// Cutoff frequency in Hz.
+const CUTOFF_FREQUENCY: f32 = 0.02;
+
+// Timeout in seconds.
+const TIMEOUT: u32 = 5;
+
+// Threshold in radians per second.
+const THRESHOLD: f32 = 0.05236;
+
 fn cos(v: f32) -> f32 {
     unsafe { arm_cos_f32(v) }
 }
@@ -35,13 +48,23 @@ fn sin(v: f32) -> f32 {
     unsafe { arm_sin_f32(v) }
 }
 
-#[derive(Default)]
 /// AHRS algorithm settings.
 pub struct Settings {
     pub gain: f32,
     pub accel_rejection: f32,
     pub magnetic_rejection: f32,
     pub rejection_timeout: u32,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            gain: 0.5,
+            accel_rejection: 90.0,
+            magnetic_rejection: 90.0,
+            rejection_timeout: 0,
+        }
+    }
 }
 
 pub struct AhrsCalibration {
@@ -87,7 +110,7 @@ pub struct Ahrs {
     pub initialising: bool,
     pub ramped_gain: f32,
     pub ramped_gain_step: f32,
-    pub half_accelerometer_feedfwd: Vec3,
+    pub half_accelerometer_feedback: Vec3,
     pub half_magnetometer_feedback: Vec3,
     pub accelerometer_ignored: bool,
     pub accel_rejection_timer: u32,
@@ -100,6 +123,17 @@ pub struct Ahrs {
 }
 
 impl Ahrs {
+    /// Initialises the AHRS algorithm structure.
+    pub fn new(settings: &Settings, sample_rate: u32) -> Self {
+        let mut result = Self::default();
+
+        result.set_settings(settings);
+        result.reset();
+        result.offset = Offset::new(sample_rate);
+
+        result
+    }
+
     /// Resets the AHRS algorithm.  This is equivalent to reinitialising the
     /// algorithm while maintaining the current settings.
     /// param ahrs AHRS algorithm structure.
@@ -118,11 +152,10 @@ impl Ahrs {
         self.mag_rejection_timeout = false;
     }
 
-    /// brief Sets the AHRS algorithm settings.
-    /// param ahrs AHRS algorithm structure.
-    /// aram settings Settings.
-    pub fn set_settings(&mut self, settings: &Settings) {
+    /// Sets the AHRS algorithm settings.
+    fn set_settings(&mut self, settings: &Settings) {
         self.settings.gain = settings.gain;
+
         if settings.accel_rejection == 0.0 || settings.rejection_timeout == 0 {
             self.settings.accel_rejection = f32::MAX;
         } else {
@@ -133,8 +166,9 @@ impl Ahrs {
         } else {
             self.settings.magnetic_rejection = (0.5 * sin(settings.magnetic_rejection)).powi(2);
         }
+
         self.settings.rejection_timeout = settings.rejection_timeout;
-        if self.initialising == false {
+        if !self.initialising {
             self.ramped_gain = self.settings.gain;
         }
         self.ramped_gain_step = (INITIAL_GAIN - self.settings.gain) / INITIALISATION_PERIOD;
@@ -145,9 +179,9 @@ impl Ahrs {
     /// Updates the AHRS algorithm using the gyroscope, accelerometer, and
     /// magnetometer measurements.
     /// Gyroscope measurement in radians per second
-    /// accelerometer Accelerometer measurement in -g- m/s^2.
-    /// magnetometer Magnetometer measurement in arbitrary units.
-    /// dt in seconds.
+    /// accelerometer Accelerometer measurement is in -g- m/s^2.
+    /// magnetometer Magnetometer measurement is in arbitrary units.
+    /// dt is in seconds.
     pub fn update(&mut self, gyroscope: Vec3, accelerometer: Vec3, magnetometer: Vec3, dt: f32) {
         let q = self.quaternion;
 
@@ -167,9 +201,9 @@ impl Ahrs {
         // Calculate direction of gravity indicated by algorithm
         let half_gravity = Vec3 {
             x: q.x * q.z - q.w * q.y,
-            y: q.w * q.x + q.y * q.z,
+            y: q.y * q.z + q.w * q.x,
             z: q.w * q.w - 0.5 + q.z * q.z,
-        }; // equal to 3rd column of rotation matrix representation scaled by 0.5
+        }; // third column of transposed rotation matrix scaled by 0.5
 
         // Calculate accelerometer feedback
         let mut half_accelerometer_feedback = Vec3::zero();
@@ -189,10 +223,10 @@ impl Ahrs {
 
             // Ignore accelerometer if acceleration distortion detected
             if self.initialising == true
-                || self.half_accelerometer_feedfwd.magnitude_squared()
+                || self.half_accelerometer_feedback.magnitude_squared()
                     <= self.settings.accel_rejection
             {
-                half_accelerometer_feedback = self.half_accelerometer_feedfwd;
+                half_accelerometer_feedback = self.half_accelerometer_feedback;
                 self.accelerometer_ignored = false;
                 self.accel_rejection_timer -= if self.accel_rejection_timer >= 10 {
                     10
@@ -221,7 +255,7 @@ impl Ahrs {
                 x: q.x * q.y + q.w * q.z,
                 y: q.w * q.w - 0.5 + q.y * q.y,
                 z: q.y * q.z - q.w * q.x,
-            }; // equal to 2nd column of rotation matrix representation scaled by 0.5
+            }; // second column of transposed rotation matrix scaled by 0.5
 
             // Calculate magnetometer feedback scaled by 0.5
             self.half_magnetometer_feedback = half_gravity
@@ -246,11 +280,8 @@ impl Ahrs {
             }
         }
 
-        // Convert gyroscope to radians per second scaled by 0.5
-        let half_gyro = gyroscope * 0.5;
-
         // Apply feedback to gyroscope
-        let adjusted_half_gyro = half_gyro
+        let adjusted_half_gyro = gyroscope * 0.5
             + (half_accelerometer_feedback + half_magnetometer_feedback) * self.ramped_gain;
 
         // Integrate rate of change of quaternion
@@ -262,10 +293,9 @@ impl Ahrs {
 
     /// Updates the AHRS algorithm using the gyroscope and accelerometer
     /// measurements only.
-    /// ahrs AHRS algorithm structure.
-    /// gyroscope Gyroscope measurement in degrees per second.
-    /// accelerometer Accelerometer measurement in g.
-    /// deltaTime dt in seconds.
+    /// yroscope measurement is in radians per second.
+    /// Accelerometer measurement is in m/s^2
+    /// dt is in seconds.
     pub fn update_no_magnetometer(&mut self, gyroscope: Vec3, accelerometer: Vec3, dt: f32) {
         // Update AHRS algorithm
         self.update(gyroscope, accelerometer, Vec3::zero(), dt);
@@ -278,11 +308,10 @@ impl Ahrs {
 
     /// Updates the AHRS algorithm using the gyroscope, accelerometer, and
     /// heading measurements.
-    /// ahrs AHRS algorithm structure.
-    /// gyroscope Gyroscope measurement in degrees per second.
-    /// accelerometer Accelerometer measurement in g.
-    /// heading Heading measurement in degrees.
-    /// dt in seconds.
+    /// Gyroscope measurement is in radians per second.
+    /// Accelerometer is measured in m/s^2
+    /// Heading measurement is in radians per second.
+    /// dt is in seconds.
     pub fn update_external_heading(
         &mut self,
         gyroscope: Vec3,
@@ -291,10 +320,8 @@ impl Ahrs {
         dt: f32,
     ) {
         // Calculate roll
-        let roll = (self.quaternion.y * self.quaternion.z + self.quaternion.w * self.quaternion.x)
-            .atan2(
-                self.quaternion.w * self.quaternion.w - 0.5 + self.quaternion.z * self.quaternion.z,
-            );
+        let q = self.quaternion;
+        let roll = (q.w * q.x + q.y * q.z).atan2(0.5 - q.y * q.y - q.x * q.x);
 
         // Calculate magnetometer
         let sin_heading = sin(heading);
@@ -310,14 +337,19 @@ impl Ahrs {
 
     /// Returns the linear acceleration measurement equal to the accelerometer
     /// measurement with the 1 g of gravity removed.
-    /// ahrs AHRS algorithm structure.
     fn get_linear_accel(&self) -> Vec3 {
         let q = self.quaternion;
-        let gravity = Vec3 {
+
+        // todo: Update this for m/s^2!!
+        let mut gravity = Vec3 {
             x: 2.0 * (q.x * q.z - q.w * q.y),
-            y: 2.0 * (q.w * q.x + q.y * q.z),
+            y: 2.0 * (q.y * q.z + q.w * q.x),
             z: 2.0 * (q.w * q.w - 0.5 + q.z * q.z),
-        }; // equal to 3rd column of rotation matrix representation scaled by the acceleration correction
+        }; // third column of transposed rotation matrix
+
+        // todo: Do we just multiply by g here?
+        gravity = gravity * G;
+
         self.accelerometer - gravity
     }
 
@@ -335,25 +367,28 @@ impl Ahrs {
         let qxqy = q.x * q.y;
         let qxqz = q.x * q.z;
         let qyqz = q.y * q.z;
+
+        // todo: Do we need to compensate for G here too?
         Vec3 {
             x: 2.0 * ((qwqw - 0.5 + q.x * q.x) * a.x + (qxqy - qwqz) * a.y + (qxqz + qwqy) * a.z),
             y: 2.0 * ((qxqy + qwqz) * a.x + (qwqw - 0.5 + q.y * q.y) * a.y + (qyqz - qwqx) * a.z),
             z: (2.0 * ((qxqz - qwqy) * a.x + (qyqz + qwqx) * a.y + (qwqw - 0.5 + q.z * q.z) * a.z))
                 - 1.0,
-        } // transpose of a rotation matrix representation multiplied with the accelerometer, with 1 g subtracted
+        } * G // rotation matrix multiplied with the accelerometer, with 1 g subtracted
     }
 
     /// Returns the AHRS algorithm internal states.
     fn get_internal_states(&self) -> InternalStates {
-        let rejection_timeout_interval = 1.0 / self.settings.rejection_timeout as f32;
+        let rejection_timeout_reciprocol = 1.0 / self.settings.rejection_timeout as f32;
 
         InternalStates {
-            accel_error: (2.0 * self.half_accelerometer_feedfwd.magnitude()).asin(),
+            accel_error: (2.0 * self.half_accelerometer_feedback.magnitude()).asin(),
             accelerometer_ignored: self.accelerometer_ignored,
-            accel_rejection_timer: self.accel_rejection_timer as f32 * rejection_timeout_interval,
+            accel_rejection_timer: self.accel_rejection_timer as f32 * rejection_timeout_reciprocal,
             magnetic_error: (2.0 * self.half_magnetometer_feedback.magnitude()).asin(),
             magnetometer_ignored: self.magnetometer_ignored,
-            magnetic_rejection_timer: self.mag_rejection_timer as f32 * rejection_timeout_interval,
+            magnetic_rejection_timer: self.mag_rejection_timer as f32
+                * rejection_timeout_reciprocol,
         }
     }
 
@@ -376,28 +411,15 @@ impl Ahrs {
     fn set_heading(&mut self, heading: f32) {
         let q = self.quaternion;
 
-        let inverse_heading = (q.x * q.y + q.w * q.z).atan2(q.w * q.w - 0.5 + q.x * q.x); // Euler angle of conjugate
-        let half_inv_hdg_minus_offset = 0.5 * (inverse_heading - heading);
-        let inv_hdg_quat = Quaternion {
-            w: cos(half_inv_hdg_minus_offset),
+        let yaw = (q.w * q.z + q.x * q.y).atan2(0.5 - q.y * q.y - q.z * q.z);
+        let half_iyaw_minus_heading = 0.5 * (yaw - heading);
+        let rotation = Quaternion {
+            w: cos(half_iyaw_minus_heading),
             x: 0.0,
             y: 0.0,
-            z: -1.0 * sin(half_inv_hdg_minus_offset),
+            z: -1.0 * sin(half_iyaw_minus_heading),
         };
-        self.quaternion = inv_hdg_quat * self.quaternion;
-    }
-
-    /// Initialises the AHRS algorithm structure.
-    /// ahrs AHRS algorithm structure.
-    fn initialize(&mut self) {
-        let settings = Settings {
-            gain: 0.5,
-            accel_rejection: 90.0,
-            magnetic_rejection: 90.0,
-            rejection_timeout: 0,
-        };
-        self.set_settings(&settings);
-        self.reset();
+        self.quaternion = rotation * self.quaternion;
     }
 }
 
@@ -458,132 +480,130 @@ enum AxesAlignment {
     NZPXNY, /* -Z+X-Y */
 }
 
-/// Swaps sensor axes for alignment with the body axes.
-/// @param sensor Sensor axes.
-/// @param alignment Axes alignment.
-/// return Sensor axes aligned with the body axes.
-fn axes_swap(sensor: Vec3, alignment: AxesAlignment) -> Vec3 {
-    match alignment {
-        AxesAlignment::PXPYPZ => sensor,
-        AxesAlignment::PXNZPY => Vec3 {
-            x: sensor.x,
-            y: -sensor.z,
-            z: sensor.y,
-        },
-        AxesAlignment::PXNYNZ => Vec3 {
-            x: sensor.x,
-            y: -sensor.y,
-            z: -sensor.z,
-        },
-        AxesAlignment::PXPZNY => Vec3 {
-            x: sensor.x,
-            y: sensor.z,
-            z: -sensor.y,
-        },
-        AxesAlignment::NXPYNZ => Vec3 {
-            x: -sensor.x,
-            y: sensor.y,
-            z: -sensor.z,
-        },
-        AxesAlignment::NXPZPY => Vec3 {
-            x: -sensor.x,
-            y: sensor.z,
-            z: sensor.y,
-        },
-        AxesAlignment::NXNYPZ => Vec3 {
-            x: -sensor.x,
-            y: -sensor.y,
-            z: sensor.z,
-        },
-        AxesAlignment::NXNZNY => Vec3 {
-            x: -sensor.x,
-            y: -sensor.z,
-            z: -sensor.y,
-        },
-        AxesAlignment::PYNXPZ => Vec3 {
-            x: sensor.y,
-            y: -sensor.x,
-            z: sensor.z,
-        },
-        AxesAlignment::PYNZNX => Vec3 {
-            x: sensor.y,
-            y: -sensor.z,
-            z: -sensor.x,
-        },
-        AxesAlignment::PYPXNZ => Vec3 {
-            x: sensor.y,
-            y: sensor.x,
-            z: -sensor.z,
-        },
-        AxesAlignment::PYPZPX => Vec3 {
-            x: sensor.y,
-            y: sensor.z,
-            z: sensor.x,
-        },
-        AxesAlignment::NYPXPZ => Vec3 {
-            x: -sensor.y,
-            y: sensor.x,
-            z: sensor.z,
-        },
-        AxesAlignment::NYNZPX => Vec3 {
-            x: -sensor.y,
-            y: -sensor.z,
-            z: sensor.x,
-        },
-        AxesAlignment::NYNXNZ => Vec3 {
-            x: -sensor.y,
-            y: -sensor.x,
-            z: -sensor.z,
-        },
-        AxesAlignment::NYPZNX => Vec3 {
-            x: -sensor.y,
-            y: sensor.z,
-            z: -sensor.x,
-        },
-        AxesAlignment::PZPYNX => Vec3 {
-            x: sensor.z,
-            y: sensor.y,
-            z: -sensor.x,
-        },
-        AxesAlignment::PZPXPY => Vec3 {
-            x: sensor.z,
-            y: sensor.x,
-            z: sensor.y,
-        },
-        AxesAlignment::PZNYPX => Vec3 {
-            x: sensor.z,
-            y: -sensor.y,
-            z: sensor.x,
-        },
-        AxesAlignment::PZNXNY => Vec3 {
-            x: sensor.z,
-            y: -sensor.x,
-            z: -sensor.y,
-        },
-        AxesAlignment::NZPYPX => Vec3 {
-            x: -sensor.z,
-            y: sensor.y,
-            z: sensor.x,
-        },
-        AxesAlignment::NZNXPY => Vec3 {
-            x: -sensor.z,
-            y: -sensor.x,
-            z: sensor.y,
-        },
-        AxesAlignment::NZNYNX => Vec3 {
-            x: -sensor.z,
-            y: -sensor.y,
-            z: -sensor.x,
-        },
-        AxesAlignment::NZPXNY => Vec3 {
-            x: -sensor.z,
-            y: sensor.x,
-            z: -sensor.y,
-        },
+impl AxesAlignment {
+    /// Swaps sensor axes for alignment with the body axes.
+    /// Feturn Sensor axes aligned with the body axes.
+    pub fn axes_swap(&mut self, sensor: Vec3) -> Vec3 {
+        match self {
+            Self::PXPYPZ => sensor,
+            Self::PXNZPY => Vec3 {
+                x: sensor.x,
+                y: -sensor.z,
+                z: sensor.y,
+            },
+            Self::PXNYNZ => Vec3 {
+                x: sensor.x,
+                y: -sensor.y,
+                z: -sensor.z,
+            },
+            Self::PXPZNY => Vec3 {
+                x: sensor.x,
+                y: sensor.z,
+                z: -sensor.y,
+            },
+            Self::NXPYNZ => Vec3 {
+                x: -sensor.x,
+                y: sensor.y,
+                z: -sensor.z,
+            },
+            Self::NXPZPY => Vec3 {
+                x: -sensor.x,
+                y: sensor.z,
+                z: sensor.y,
+            },
+            Self::NXNYPZ => Vec3 {
+                x: -sensor.x,
+                y: -sensor.y,
+                z: sensor.z,
+            },
+            Self::NXNZNY => Vec3 {
+                x: -sensor.x,
+                y: -sensor.z,
+                z: -sensor.y,
+            },
+            Self::PYNXPZ => Vec3 {
+                x: sensor.y,
+                y: -sensor.x,
+                z: sensor.z,
+            },
+            Self::PYNZNX => Vec3 {
+                x: sensor.y,
+                y: -sensor.z,
+                z: -sensor.x,
+            },
+            Self::PYPXNZ => Vec3 {
+                x: sensor.y,
+                y: sensor.x,
+                z: -sensor.z,
+            },
+            Self::PYPZPX => Vec3 {
+                x: sensor.y,
+                y: sensor.z,
+                z: sensor.x,
+            },
+            Self::NYPXPZ => Vec3 {
+                x: -sensor.y,
+                y: sensor.x,
+                z: sensor.z,
+            },
+            Self::NYNZPX => Vec3 {
+                x: -sensor.y,
+                y: -sensor.z,
+                z: sensor.x,
+            },
+            Self::NYNXNZ => Vec3 {
+                x: -sensor.y,
+                y: -sensor.x,
+                z: -sensor.z,
+            },
+            Self::NYPZNX => Vec3 {
+                x: -sensor.y,
+                y: sensor.z,
+                z: -sensor.x,
+            },
+            Self::PZPYNX => Vec3 {
+                x: sensor.z,
+                y: sensor.y,
+                z: -sensor.x,
+            },
+            Self::PZPXPY => Vec3 {
+                x: sensor.z,
+                y: sensor.x,
+                z: sensor.y,
+            },
+            Self::PZNYPX => Vec3 {
+                x: sensor.z,
+                y: -sensor.y,
+                z: sensor.x,
+            },
+            Self::PZNXNY => Vec3 {
+                x: sensor.z,
+                y: -sensor.x,
+                z: -sensor.y,
+            },
+            Self::NZPYPX => Vec3 {
+                x: -sensor.z,
+                y: sensor.y,
+                z: sensor.x,
+            },
+            Self::NZNXPY => Vec3 {
+                x: -sensor.z,
+                y: -sensor.x,
+                z: sensor.y,
+            },
+            Self::NZNYNX => Vec3 {
+                x: -sensor.z,
+                y: -sensor.y,
+                z: -sensor.x,
+            },
+            Self::NZPXNY => Vec3 {
+                x: -sensor.z,
+                y: sensor.x,
+                z: -sensor.y,
+            },
+        }
     }
 }
-
-// FusionOffset.h:
 
 /// Gyroscope offset algorithm structure.  Structure members are used
 /// internally and must not be accessed by the application.
@@ -597,13 +617,14 @@ pub struct Offset {
 
 impl Offset {
     /// Initialises the gyroscope offset algorithm.
-    /// offset Gyroscope offset algorithm structure.
-    /// Sample rate in Hz.
-    pub fn initialize(&mut self, sample_rate: u32) {
-        self.filter_coefficient = TAU * CUTOFF_FREQUENCY * (1. / sample_rate as f32);
-        self.timeout = TIMEOUT * sample_rate;
-        self.timer = 0;
-        self.gyroscope_offset = Vec3::zero();
+    /// Sample rate is in Hz.
+    pub fn new(sample_rate: u32) -> Self {
+        Self {
+            filter_coefficient: TAU * CUTOFF_FREQUENCY * (1. / sample_rate as f32),
+            timeout: TIMEOUT * sample_rate,
+            timer: 0,
+            gyroscope_offset: Vec3::zero(),
+        }
     }
 
     /// Updates the gyroscope offset algorithm and returns the corrected
@@ -636,18 +657,9 @@ impl Offset {
     }
 }
 
-// Cutoff frequency in Hz.
-const CUTOFF_FREQUENCY: f32 = 0.02;
-
-// Timeout in seconds.
-const TIMEOUT: u32 = 5;
-
-// Threshold in radians per second.
-const THRESHOLD: f32 = 0.05236;
-
 /// Calculates the heading relative to magnetic north.
-/// accelerometer Accelerometer measurement in any calibrated units.
-/// magnetometer Magnetometer measurement in any calibrated units.
+/// Accelerometer measurement is in any calibrated units.
+/// Magnetometer measurement is in any calibrated units.
 /// return Heading angle in radians
 fn compass_calc_heading(accelerometer: Vec3, magnetometer: Vec3) -> f32 {
     // Compute direction of magnetic west (Earth's y axis)

@@ -96,33 +96,8 @@ impl ImuReadings {
     }
 }
 
-/// Setup the Attitude Heading Reference System; currently using Madgwick filter.
-/// [See official example here](https://github.com/xioTechnologies/Fusion/blob/main/Examples/Advanced/main.c)
-pub fn setup_ahrs() -> Ahrs {
-    // Note: Calibration and offsets ares handled handled by their defaults currently.
-    let mut ahrs = Ahrs::default();
-
-    let mut offset = madgwick::Offset::default();
-    offset.initialize(crate::IMU_UPDATE_RATE as u32);
-    ahrs.offset = offset;
-
-    // todo: These are from the Madgwick example. What should they be?
-    let ahrs_settings = madgwick::Settings {
-        gain: 0.5,
-        accel_rejection: 10.,
-        magnetic_rejection: 20.,
-        rejection_timeout: (5. * crate::IMU_UPDATE_RATE) as u32,
-    };
-
-    ahrs.set_settings(&ahrs_settings);
-
-    // todo: Calibation proecedure, either in air or on ground.
-
-    ahrs
-}
-
 /// Update and get the attitude from the AHRS.
-pub fn update_get_attitude(ahrs: &mut Ahrs, params: &Params) {
+pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     let gyro = Vec3 {
         x: params.v_roll,
         y: params.v_pitch,
@@ -160,15 +135,23 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &Params) {
     let att_euler = ahrs.quaternion.to_euler();
     let att_earth = ahrs.get_earth_accel();
 
-    println!("Attitude quat: {} {} {} {}", ahrs.quaternion.w, ahrs.quaternion.x, ahrs.quaternion.y, ahrs.quaternion.z);
-    println!(
-        "Attitude roll: {}, pitch: {}, yaw: {}",
-        att_euler.roll, att_euler.pitch, att_euler.yaw
-    );
-    println!(
-        "Attitude earth: {}, pitch: {}, yaw: {}",
-        att_earth.x, att_earth.y, att_earth.z
-    );
+    // println!("Attitude quat: {} {} {} {}", ahrs.quaternion.w, ahrs.quaternion.x, ahrs.quaternion.y, ahrs.quaternion.z);
+    // println!(
+    //     "Attitude roll: {}, pitch: {}, yaw: {}",
+    //     att_euler.roll, att_euler.pitch, att_euler.yaw
+    // );
+    // println!(
+    //     "Attitude earth: {}, pitch: {}, yaw: {}",
+    //     att_earth.x, att_earth.y, att_earth.z
+    // );
+
+    // params.s_pitch = att_earth.x;
+    // params.s_roll = att_earth.y;
+    // params.s_yaw = att_earth.z;
+    //
+    params.s_pitch = att_euler.pitch;
+    params.s_roll = att_euler.roll;
+    params.s_yaw = att_euler.yaw;
 }
 
 /// Read all 3 measurements, by commanding a DMA transfer. The transfer is closed, and readings

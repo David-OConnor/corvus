@@ -23,13 +23,16 @@ use stm32_hal2::{
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{Timer, TimerConfig, TimerInterrupt},
-    usart::Usart,
+    usart::{Usart, UsartInterrupt},
 };
 
 #[cfg(feature = "h7")]
 use stm32_hal2::clocks::PllCfg;
 
 use defmt::println;
+
+static mut TEMP_BUF: [u8; 48] = [0_u8; 48]; // todo temp!!
+static mut TEMP_I: usize = 0;
 
 cfg_if! {
     if #[cfg(feature = "g4")] {
@@ -99,7 +102,7 @@ const DT_TIM_FREQ: u32 = 200_000_000;
 const IMU_UPDATE_RATE: f32 = 8_000.;
 
 // todo: Set update rate attitude back to 1600 etc. Slower rate now since we're using this loop to TS.
-const UPDATE_RATE_ATTITUDE: f32 = 2.; // IMU rate / 5.
+const UPDATE_RATE_ATTITUDE: f32 = 1_600.; // IMU rate / 5.
 const UPDATE_RATE_VELOCITY: f32 = 400.; // IMU rate / 20.
 
 // How many inner loop ticks occur between mid and outer loop.
@@ -530,6 +533,10 @@ mod app {
         let mut uart3 = Usart::new(dp.USART3, 420_000, Default::default(), &clock_cfg);
         crsf::setup(&mut uart3, DmaChannel::C7, &mut dma); // Keep this channel in sync with `setup.rs`.
 
+        // loop {
+        //
+        // }
+
         // We use the RTC to assist with power use measurement.
         let rtc = Rtc::new(dp.RTC, Default::default());
 
@@ -623,7 +630,16 @@ mod app {
         let mut base_point = Location::default();
         init_sensors(&mut params, &mut base_point, &mut i2c1, &mut i2c2);
 
-        let ahrs = sensor_fusion::setup_ahrs();
+        // todo: Calibation proecedure, either in air or on ground.
+        let ahrs_settings = madgwick::Settings {
+            gain: 0.5,
+            accel_rejection: 10.,
+            magnetic_rejection: 20.,
+            rejection_timeout: (5. * crate::IMU_UPDATE_RATE) as u32,
+        };
+
+        // Note: Calibration and offsets ares handled handled by their defaults currently.
+        let ahrs = Ahrs::new(&ahrs_settings, crate::IMU_UPDATE_RATE as u32);
 
         update_timer.enable();
 
@@ -698,6 +714,12 @@ mod app {
     fn update_isr(mut cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
 
+        static mut i: usize = 0; // todo temp
+
+        unsafe {
+            // println!("CRSF: {:?}", TEMP_BUF);
+        }
+
         (
             cx.shared.command_state,
             cx.shared.rotor_timer_a,
@@ -714,17 +736,29 @@ mod app {
         (cx.shared.current_params, cx.shared.ahrs).lock(|params, ahrs| {
             // if LOOP_I.fetch_add(1,Ordering::Acquire) % 100 == 0 {
 
-            println!(
-                "IMU Data: Ax {}, Ay: {}, Az: {}",
-                params.a_x, params.a_y, params.a_z
-            );
+            if unsafe { i } % 4_000 == 0 {
+                // todo temp
+                println!(
+                    "IMU Data: Ax {}, Ay: {}, Az: {}",
+                    params.a_x, params.a_y, params.a_z
+                );
 
-            println!(
-                "IMU Data: roll {}, pitch: {}, yaw: {}",
-                params.v_roll, params.v_pitch, params.v_yaw
-            );
+                println!(
+                    "IMU Data: roll {}, pitch: {}, yaw: {}",
+                    params.v_roll, params.v_pitch, params.v_yaw
+                );
 
-            // todo let attitude = sensor_...
+                println!(
+                    "Attitude: roll {}, pitch: {}, yaw: {}",
+                    params.s_roll, params.s_pitch, params.s_yaw
+                );
+            }
+
+            unsafe {
+                i += 1;
+            }; // todo temp
+
+            // todo: Put this back when ready to test att platform again.
             sensor_fusion::update_get_attitude(ahrs, params);
         });
 
@@ -1033,29 +1067,35 @@ mod app {
         })
     }
 
-    #[task(binds = DMA1_CH6, shared = [dma, spi2, cs_elrs], priority = 3)]
-    /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
-    /// we receive IMU data; it triggers the inner PID loop.
-    fn elrs_rx_isr(mut cx: elrs_rx_isr::Context) {
-        // Clear DMA interrupt this way due to RTIC conflict.
-        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit()) }
-
-        (cx.shared.spi2, cx.shared.cs_elrs, cx.shared.dma).lock(|spi, cs, dma| {
-            cs.set_high();
-            dma.stop(DmaChannel::C1); // spi.stop_dma only can stop a single channel atm.
-            spi.stop_dma(DmaChannel::C2, dma);
-        });
-    }
+    // #[task(binds = DMA1_CH6, shared = [dma, spi2, cs_elrs], priority = 3)]
+    // /// Handle SPI ELRS data received.
+    // fn elrs_rx_isr(mut cx: elrs_rx_isr::Context) {
+    //     // Clear DMA interrupt this way due to RTIC conflict.
+    //     unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif6().set_bit()) }
+    //
+    //     (cx.shared.spi2, cx.shared.cs_elrs, cx.shared.dma).lock(|spi, cs, dma| {
+    //         cs.set_high();
+    //         dma.stop(DmaChannel::C1); // spi.stop_dma only can stop a single channel atm.
+    //         spi.stop_dma(DmaChannel::C2, dma);
+    //     });
+    // }
 
     #[task(binds = USART3, shared = [dma, uart3], priority = 3)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     fn crsf_isr(mut cx: crsf_isr::Context) {
         (cx.shared.uart3, cx.shared.dma).lock(|uart, dma| {
+            uart.clear_interrupt(UsartInterrupt::Idle);
+            // println!("YEAH");
+            // uart.clear_interrupt(UsartInterrupt::ReadNotEmpty); // todo temp!!
+
+            // unsafe {
+            //     TEMP_BUF[TEMP_I % 48] = uart.read_one();
+            //     TEMP_I += 1;
+            // }
+
             crsf::handle_packet(uart, dma, DmaChannel::C7, DmaChannel::C8);
         });
-        println!("CRSF Interrupt");
-        // todo: DMA? Or not.
     }
 }
 
