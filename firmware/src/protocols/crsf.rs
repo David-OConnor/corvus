@@ -34,6 +34,7 @@ use stm32_hal2::{
     pac::{DMA1, USART3},
     usart::{Usart, UsartInterrupt},
 };
+use stm32_hal2::dma::{Circular, DmaInterrupt};
 
 use crate::{control_interface::ChannelData, util};
 
@@ -53,19 +54,22 @@ const CONTROL_VAL_MIN: f32 = -1.;
 const CONTROL_VAL_MAX: f32 = 1.;
 
 // Used both both TX and RX buffers. Includes payload, and other data words.
-const MAX_BUF_SIZE: usize = 64;
+// Note that for receiving channel data, we use 26 bytes total (22 of which are channel data).
 
-const PAYLOAD_SIZE_GPS: usize = 15;
-const PAYLOAD_SIZE_BATTERY: usize = 8;
-const PAYLOAD_SIZE_LINK_STATS: usize = 10;
-const PAYLOAD_SIZE_RC_CHANNELS: usize = 22;
-const PAYLOAD_SIZE_ATTITUDE: usize = 6;
+// Note: 64 bytes is allowed per the protocol. Lower this to reduce latency and mem use. (Minor concern)
+// - We only expect 26-byte packets for channel data, and 14-byte packets for link stats.
+const MAX_BUF_SIZE: usize = 26;
+
+// const PAYLOAD_SIZE_GPS: usize = 15;
+// const PAYLOAD_SIZE_BATTERY: usize = 8;
+// const PAYLOAD_SIZE_LINK_STATS: usize = 10;
+// const PAYLOAD_SIZE_RC_CHANNELS: usize = 22;
+// const PAYLOAD_SIZE_ATTITUDE: usize = 6;
 
 const CRSF_CHANNEL_COUNT: usize = 16;
 
-static mut RX_BUFFER: [u8; MAX_BUF_SIZE] = [0; MAX_BUF_SIZE];
+pub static mut RX_BUFFER: [u8; MAX_BUF_SIZE] = [0; MAX_BUF_SIZE];
 
-// todo: Consider storing static (non-mut) TX packets, depending on variety of responses.
 static mut TX_BUFFER: [u8; MAX_BUF_SIZE] = [0; MAX_BUF_SIZE];
 
 // "All packets are in the CRSF format [dest] [len] [type] [payload] [crc8]"
@@ -101,7 +105,6 @@ enum DestAddr {
 /// Frame type (packet type?)
 /// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c#L29
 enum FrameType {
-    // todo: Description of each of these?
     Gps = 0x02,
     BatterySensor = 0x08,
     /// Link data and telemtry, eg RSSI.
@@ -169,20 +172,22 @@ pub enum PacketData {
 /// firmware setup.
 pub fn setup(uart: &mut Usart<USART3>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
     // Idle interrupt, in conjunction with circular DMA, to indicate we're received a message.
-    uart.enable_interrupt(UsartInterrupt::Idle);
+    // uart.enable_interrupt(UsartInterrupt::Idle);
+    uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
     // uart.enable_interrupt(UsartInterrupt::ReadNotEmpty); // todo temp!!!
 
-    unsafe {
-        uart.read_dma(
-            &mut RX_BUFFER,
-            channel,
-            ChannelCfg {
-                // circular: Circular,
-                ..Default::default()
-            },
-            dma,
-        );
-    }
+    // unsafe {
+    //     uart.read_dma(
+    //         &mut RX_BUFFER,
+    //         channel,
+    //         ChannelCfg {
+    //             circular: Circular::Enabled,
+    //             ..Default::default()
+    //         },
+    //         dma,
+    //     );
+    // }
+    dma.enable_interrupt(channel, DmaInterrupt::TransferComplete);
 
     util::crc_init(unsafe { &mut CRC_LUT }, CRC_POLY);
 }
@@ -224,9 +229,10 @@ impl Packet {
 
         // Byte 1 (`len` var below) is the length of bytes to follow, ie type (1 byte),
         // payload (determined by this), and crc (1 byte)
-        // Overall packet length is PayloadLength + 4 (dest, len, type, crc),
+        // Overall packet length is PayloadLength + 4 (dest, len, type, crc) for non-extended
+        // packets. Channel data doesn't use extended.
         let len = buf[start_i + 1] as usize;
-        let payload_len = len - 2; // todo: Take extended into acct!
+        let payload_len = len - 2; // todo: Take extended into acct
 
         let frame_type: FrameType = match buf[start_i + 2].try_into() {
             Ok(f) => f,
@@ -243,9 +249,11 @@ impl Packet {
 
         let crc = buf[start_i + 3 + payload_len];
         // todo: Is len what we want here, or whole packet? Whole payload?
-        if util::calc_crc(unsafe { &CRC_LUT }, &buf, len as u8) != crc {
-            println!("CRC failed on recieved packet");
-            return Err(DecodeError {});
+        let expected_crc = util::calc_crc(unsafe { &CRC_LUT }, &buf, len as u8);
+        if expected_crc != crc {
+            println!("CRC failed on recieved packet. Expected: {}. Received: {}", expected_crc, crc);
+            // todo: Come back to and return error!
+            // return Err(DecodeError {});
         };
 
         Ok(Packet {
@@ -291,7 +299,6 @@ impl Packet {
             data[i] = self.payload[i] as u16;
         }
 
-        // todo: Use this to figure out how the channels are split.
         println!("Payload: {:?}", self.payload);
 
         let mut raw_channels = [0_u16; CRSF_CHANNEL_COUNT];
@@ -425,6 +432,7 @@ pub fn handle_packet(
             }
         }
         FrameType::RcChannelsPacked => {
+            // We expect a 22-byte payload of channel data, and no extended source or dest.
             let channel_data = match packet.to_channel_data() {
                 Ok(v) => v,
                 Err(_) => {
@@ -434,6 +442,7 @@ pub fn handle_packet(
             result = Some(PacketData::ChannelData(channel_data));
         }
         FrameType::LinkStatistics => {
+            println!("Found link statistics. Todo:  Handle.");
             let link_stats = match packet.to_link_stats() {
                 Ok(v) => v,
                 Err(_) => {

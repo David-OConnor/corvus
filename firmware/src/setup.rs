@@ -12,6 +12,11 @@ use stm32_hal2::{
     timer::TimChannel,
 };
 
+pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
+pub const IMU_RX_CH: DmaChannel = DmaChannel::C2;
+pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
+pub const ELRS_RX_CH: DmaChannel = DmaChannel::C6;
+
 impl Rotor {
     // todo: Feature gate these methods based on board, as required.
     pub fn tim_channel(&self) -> TimChannel {
@@ -170,8 +175,8 @@ pub fn setup_pins() {
 /// Assign DMA channels to peripherals.
 pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     // IMU
-    dma::mux(DmaChannel::C1, DmaInput::Spi1Tx, mux);
-    dma::mux(DmaChannel::C2, DmaInput::Spi1Rx, mux);
+    dma::mux(IMU_TX_CH, DmaInput::Spi1Tx, mux);
+    dma::mux(IMU_RX_CH, DmaInput::Spi1Rx, mux);
     // dma::mux(DmaChannel::C2, DmaInput::Dac1Ch1, mux); // todo temp TS DMA!
 
     // todo: Give you're using burst DMA here, one channel per timer, how does this work?
@@ -183,11 +188,11 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     dma::mux(Rotor::R3.dma_channel(), Rotor::R3.dma_input(), mux);
 
     // LoRa (ELRS)
-    dma::mux(DmaChannel::C5, DmaInput::Spi2Tx, mux);
-    dma::mux(DmaChannel::C6, DmaInput::Spi2Rx, mux);
+    // dma::mux(DmaChannel::C5, DmaInput::Spi2Tx, mux);
+    dma::mux(ELRS_RX_CH, DmaInput::Spi2Rx, mux);
 
     // CRSF (ELRS backup)
-    dma::mux(DmaChannel::C7, DmaInput::Usart3Rx, mux);
+    dma::mux(CRSF_RX_CH, DmaInput::Usart3Rx, mux);
     // Note: If we run out of DMA channels, consider removing the CRSF transmit channel;
     // we only have it set up to respond to pings, and that's probably unecessary.
     // dma::mux(DmaChannel::C8, DmaInput::Usart3Tx, mux);
@@ -198,7 +203,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
 
     // We use Spi transfer complete to know when our readings are ready - in its ISR,
     // we trigger the attitude-rates PID loop.
-    dma.enable_interrupt(DmaChannel::C2, DmaInterrupt::TransferComplete);
+    dma.enable_interrupt(IMU_RX_CH, DmaInterrupt::TransferComplete);
 
     // We use Dshot transfer-complete interrupts to disable the timer.
     dma.enable_interrupt(Rotor::R1.dma_channel(), DmaInterrupt::TransferComplete);
@@ -206,5 +211,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     dma.enable_interrupt(Rotor::R3.dma_channel(), DmaInterrupt::TransferComplete);
 
     // Process ELRS control data
-    dma.enable_interrupt(DmaChannel::C6, DmaInterrupt::TransferComplete);
+    dma.enable_interrupt(ELRS_RX_CH, DmaInterrupt::TransferComplete);
+
+    dma.enable_interrupt(CRSF_RX_CH, DmaInterrupt::TransferComplete);
 }

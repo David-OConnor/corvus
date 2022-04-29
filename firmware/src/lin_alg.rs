@@ -66,7 +66,7 @@ impl Vec3 {
     }
 
     /// Vector of ones.
-    pub fn one() -> Self {
+    pub fn ones() -> Self {
         Self {
             x: 1.,
             y: 1.,
@@ -76,7 +76,8 @@ impl Vec3 {
 
     /// Returns true if the vector is zero.
     pub fn is_zero(&self) -> bool {
-        self.x == 0.0 && self.y == 0.0 && self.z == 0.0
+        let eps = 0.00001;
+        self.x.abs() < eps && self.y.abs() == eps && self.z.abs() < eps
     }
 
     /// Returns a sum of all elements
@@ -104,23 +105,18 @@ impl Vec3 {
 
     /// Returns the vector magnitude squared
     pub fn magnitude_squared(self) -> f32 {
-        self.hadamard_product(self).sum()
+        (self.hadamard_product(self)).sum()
     }
 
     /// Returns the vector magnitude.
     pub fn magnitude(&self) -> f32 {
-        self.magnitude_squared().sqrt()
+        (self.magnitude_squared()).sqrt()
     }
 
     /// Returns the normalised version of the vector
     pub fn to_normalized(&self) -> Self {
         let mag_recip = 1. / self.magnitude();
-        // const float magnitudeReciprocal = FusionFastInverseSselfrt(self.w * self.w + self.x * self.x + self.y * self.y + self.z * self.z);
-        Self {
-            x: self.x * mag_recip,
-            y: self.y * mag_recip,
-            z: self.z * mag_recip,
-        }
+        *self * mag_recip
     }
 }
 
@@ -219,16 +215,6 @@ impl Quaternion {
                 2.0 * (qyqz - qwqx),
                 2.0 * (qwqw - 0.5 + self.z * self.z),
             ]
-        }
-    }
-
-    /// Returns the Quaternion conjugate.
-    pub fn conjugate(&self) -> Self {
-        Self {
-            w: self.w,
-            x: -1.0 * self.x,
-            y: -1.0 * self.y,
-            z: -1.0 * self.z,
         }
     }
 

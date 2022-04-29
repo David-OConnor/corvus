@@ -15,7 +15,7 @@ use stm32_hal2::{
     self,
     adc::{Adc, AdcDevice},
     clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllSrc},
-    dma::{self, Dma, DmaChannel},
+    dma::{self, Dma, DmaChannel, ChannelCfg, Circular},
     flash::Flash,
     gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
@@ -31,8 +31,8 @@ use stm32_hal2::clocks::PllCfg;
 
 use defmt::println;
 
-static mut TEMP_BUF: [u8; 48] = [0_u8; 48]; // todo temp!!
-static mut TEMP_I: usize = 0;
+// static mut TEMP_BUF: [u8; 48] = [0_u8; 48]; // todo temp!!
+// static mut TEMP_I: usize = 0;
 
 // todo: Low power mode when idle to save battery (minor), and perhaps improve lifetime.
 
@@ -370,7 +370,6 @@ mod app {
         rotor_timer_a: Timer<TIM2>,
         rotor_timer_b: Timer<TIM3>,
         elrs_timer: Timer<TIM4>,
-        // todo: Figure out how to store usb_dev and usb_serial as resources. Getting errors atm.
         usb_dev: UsbDevice<'static, UsbBusType>,
         usb_serial: SerialPort<'static, UsbBusType>,
         // `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
@@ -534,10 +533,14 @@ mod app {
         // The STM32-HAL default UART config includes stop bits = 1, parity disabled, and 8-bit words,
         // which is what we want.
         let mut uart3 = Usart::new(dp.USART3, 420_000, Default::default(), &clock_cfg);
-        crsf::setup(&mut uart3, DmaChannel::C7, &mut dma); // Keep this channel in sync with `setup.rs`.
+        crsf::setup(&mut uart3, setup::CRSF_RX_CH, &mut dma); // Keep this channel in sync with `setup.rs`.
+
+        let mut buf = [0_u8; 400];
 
         // loop {
-        //
+        //     uart3.read(&mut buf);
+        //     println!("BUF {:?}", buf);
+        //     delay.delay_ms(500);
         // }
 
         // We use the RTC to assist with power use measurement.
@@ -600,7 +603,6 @@ mod app {
         cfg_if! {
             if #[cfg(feature = "g4")] {
                 let usb = Peripheral { regs: dp.USB };
-                // let usb_bus = UsbBus::new(usb);
 
                 unsafe { USB_BUS = Some(UsbBus::new(usb)) };
 
@@ -679,7 +681,6 @@ mod app {
                 rotor_timer_a,
                 rotor_timer_b,
                 elrs_timer,
-                // todo: Put these back. If you have to, use mutex<refcell.
                 usb_dev,
                 usb_serial,
                 flash_onboard,
@@ -977,32 +978,33 @@ mod app {
             );
     }
 
-    #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params], local = [], priority = 3)]
-    /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
-    /// application.
-    fn usb_isr(mut cx: usb_isr::Context) {
-        (cx.shared.usb_dev, cx.shared.usb_serial, cx.shared.current_params).lock(
-            |usb_dev, usb_serial, params| {
-                if !usb_dev.poll(&mut [usb_serial]) {
-                    return;
-                }
+    // todo: Put back USB ISR later
 
-                let mut buf = [0u8; 8];
-                match usb_serial.read(&mut buf) {
-                    // todo: match all start bits and end bits. Running into an error using the naive approach.
-                    Ok(count) => {
-                        usb_serial.write(&[1, 2, 3]).ok();
-                    }
-                    Err(_) => {
-                        //...
-                    }
-                }
-            },
-        )
-    }
+    // #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params], local = [], priority = 3)]
+    // /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
+    // /// application.
+    // fn usb_isr(mut cx: usb_isr::Context) {
+    //     println!("USB ISR");
+    //     (cx.shared.usb_dev, cx.shared.usb_serial, cx.shared.current_params).lock(
+    //         |usb_dev, usb_serial, params| {
+    //             if !usb_dev.poll(&mut [usb_serial]) {
+    //                 return;
+    //             }
+    //
+    //             let mut buf = [0u8; 8];
+    //             match usb_serial.read(&mut buf) {
+    //                 // todo: match all start bits and end bits. Running into an error using the naive approach.
+    //                 Ok(count) => {
+    //                     usb_serial.write(&[1, 2, 3]).ok();
+    //                 }
+    //                 Err(_) => {
+    //                     //...
+    //                 }
+    //             }
+    //         },
+    //     )
+    // }
 
-    // Note: This is actually Channel 3, but there's an issue with G4 streams being off
-    // from their interrupt handler by 1.
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
     #[task(binds = DMA1_CH3, shared = [rotor_timer_a], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
@@ -1027,7 +1029,6 @@ mod app {
         gpio::set_low(Port::A, 1);
     }
 
-    // See note about about DMA channels being off by 1.
     #[task(binds = DMA1_CH4, shared = [rotor_timer_b], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_b(mut cx: dshot_isr_b::Context) {
@@ -1082,13 +1083,26 @@ mod app {
     //     });
     // }
 
-    #[task(binds = USART3, shared = [dma, uart3], priority = 3)]
+    #[task(binds = USART3, shared = [uart3, dma], priority = 3)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     fn crsf_isr(mut cx: crsf_isr::Context) {
         (cx.shared.uart3, cx.shared.dma).lock(|uart, dma| {
-            uart.clear_interrupt(UsartInterrupt::Idle);
-            // println!("YEAH");
+            uart.clear_interrupt(UsartInterrupt::CharDetect(0));
+            // uart.clear_interrupt(UsartInterrupt::Idle);
+            println!("Starting CRSF xfer");
+            unsafe {
+                uart.read_dma(
+                    &mut crsf::RX_BUFFER,
+                    setup::CRSF_RX_CH,
+                    ChannelCfg {
+                        circular: Circular::Enabled,
+                        ..Default::default()
+                    },
+                    dma,
+                );
+            }
+
             // uart.clear_interrupt(UsartInterrupt::ReadNotEmpty); // todo temp!!
 
             // unsafe {
@@ -1096,7 +1110,18 @@ mod app {
             //     TEMP_I += 1;
             // }
 
-            crsf::handle_packet(uart, dma, DmaChannel::C7, DmaChannel::C8);
+            // crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8);
+        });
+    }
+
+    #[task(binds = DMA1_CH5, shared = [uart3, dma], priority = 3)]
+    /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
+    fn crsf_tc_isr(mut cx: crsf_tc_isr::Context) {
+        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif7().set_bit()) }
+        println!("CRSF TC");
+
+        (cx.shared.uart3, cx.shared.dma).lock(|uart, dma| {
+            crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8);
         });
     }
 }
