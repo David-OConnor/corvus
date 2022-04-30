@@ -4,7 +4,7 @@
 
 use core::{
     f32::consts::TAU,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicUsize, AtomicBool, Ordering},
 };
 
 use cfg_if::cfg_if;
@@ -123,6 +123,11 @@ const DIRECT_AUTOPILOT_MAX_RNG: f32 = 500.;
 // loop.
 const VELOCITY_ATTITUDE_UPDATE_RATIO: usize = 4;
 static LOOP_I: AtomicUsize = AtomicUsize::new(0);
+
+
+// We use this to make sure a received char equal to the FC destination value (eg as part
+// of channel data) doesn't interrupt our data receive.
+static CRSF_RX_IN_PROG: AtomicBool = AtomicBool::new(false);
 
 // Enable this to print parameters (eg location, altitude, attitude, angular rates etc) to the console.
 const DEBUG_PARAMS: bool = true;
@@ -334,6 +339,7 @@ fn init_sensors(
 
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
+    use stm32_hal2::dma::DmaInterrupt;
     use super::*;
 
     // todo: Move vars from here to `local` as required.
@@ -1083,44 +1089,13 @@ mod app {
     //     });
     // }
 
-    #[task(binds = USART3, shared = [uart3, dma], priority = 3)]
+    #[task(binds = USART3, shared = [uart3, dma], priority = 8)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
-    /// we receive IMU data; it triggers the inner PID loop.
+    /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
+    /// to start capturing immediately, or we'll miss part of the packet.
     fn crsf_isr(mut cx: crsf_isr::Context) {
         (cx.shared.uart3, cx.shared.dma).lock(|uart, dma| {
-            uart.clear_interrupt(UsartInterrupt::CharDetect(0));
-            // uart.clear_interrupt(UsartInterrupt::Idle);
-            println!("Starting CRSF xfer");
-            unsafe {
-                uart.read_dma(
-                    &mut crsf::RX_BUFFER,
-                    setup::CRSF_RX_CH,
-                    ChannelCfg {
-                        circular: Circular::Enabled,
-                        ..Default::default()
-                    },
-                    dma,
-                );
-            }
-
-            // uart.clear_interrupt(UsartInterrupt::ReadNotEmpty); // todo temp!!
-
-            // unsafe {
-            //     TEMP_BUF[TEMP_I % 48] = uart.read_one();
-            //     TEMP_I += 1;
-            // }
-
-            // crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8);
-        });
-    }
-
-    #[task(binds = DMA1_CH5, shared = [uart3, dma], priority = 3)]
-    /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
-    fn crsf_tc_isr(mut cx: crsf_tc_isr::Context) {
-        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif7().set_bit()) }
-        println!("CRSF TC");
-
-        (cx.shared.uart3, cx.shared.dma).lock(|uart, dma| {
+            uart.clear_interrupt(UsartInterrupt::Idle);
             crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8);
         });
     }

@@ -212,6 +212,4 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
 
     // Process ELRS control data
     dma.enable_interrupt(ELRS_RX_CH, DmaInterrupt::TransferComplete);
-
-    dma.enable_interrupt(CRSF_RX_CH, DmaInterrupt::TransferComplete);
 }

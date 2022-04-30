@@ -7,6 +7,7 @@
 //! https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.h
 //! https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Serial3.c#L160
 //! https://github.com/chris1seto/PX4-Autopilot/tree/pr-rc_crsf_standalone_driver/src/drivers/rc/crsf_rc
+//! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/CrsfProtocol/crsf_protocol.h
 //!
 //! [Addtional standaone ref](https://github.com/CapnBry/CRServoF/tree/master/lib/CrsfSerial)
 //! From BF:
@@ -41,8 +42,7 @@ use crate::{control_interface::ChannelData, util};
 // todo: Maybe put in a struct etc? It's constant, but we use a function call to populate it.
 // Note: LUT is here, since it depends on the poly.
 static mut CRC_LUT: [u8; 256] = [0; 256];
-const CRC_POLY: u8 = 0xd;
-const HEADER: u8 = 0xc8;
+const CRC_POLY: u8 = 0xd5;
 
 const CHANNEL_VAL_MIN: u16 = 172;
 const CHANNEL_VAL_MAX: u16 = 1_811;
@@ -58,7 +58,8 @@ const CONTROL_VAL_MAX: f32 = 1.;
 
 // Note: 64 bytes is allowed per the protocol. Lower this to reduce latency and mem use. (Minor concern)
 // - We only expect 26-byte packets for channel data, and 14-byte packets for link stats.
-const MAX_BUF_SIZE: usize = 26;
+const MAX_PACKET_SIZE: usize = 26;
+const MAX_PAYLOAD_SIZE: usize = 22;
 
 // const PAYLOAD_SIZE_GPS: usize = 15;
 // const PAYLOAD_SIZE_BATTERY: usize = 8;
@@ -68,9 +69,10 @@ const MAX_BUF_SIZE: usize = 26;
 
 const CRSF_CHANNEL_COUNT: usize = 16;
 
-pub static mut RX_BUFFER: [u8; MAX_BUF_SIZE] = [0; MAX_BUF_SIZE];
+pub static mut RX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
+// pub static mut RX_BUFFER: [u8; 64] = [0; 64]; // todo experimenting with circ
 
-static mut TX_BUFFER: [u8; MAX_BUF_SIZE] = [0; MAX_BUF_SIZE];
+static mut TX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
 
 // "All packets are in the CRSF format [dest] [len] [type] [payload] [crc8]"
 
@@ -98,6 +100,7 @@ enum DestAddr {
     CrsfReceiver = 0xec,
     /// Going to the transmitter module
     CrsfTransmitter = 0xee,
+    ElrsLua = 0xef,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq, TryFromPrimitive)]
@@ -128,6 +131,7 @@ enum FrameType {
     MspReq = 0x7a,
     MspResp = 0x7b,
     MspWrite = 0x7c,
+    ArdupilotResp = 0x80,
 }
 
 #[derive(Default)]
@@ -172,22 +176,19 @@ pub enum PacketData {
 /// firmware setup.
 pub fn setup(uart: &mut Usart<USART3>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
     // Idle interrupt, in conjunction with circular DMA, to indicate we're received a message.
-    // uart.enable_interrupt(UsartInterrupt::Idle);
-    uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
-    // uart.enable_interrupt(UsartInterrupt::ReadNotEmpty); // todo temp!!!
+    uart.enable_interrupt(UsartInterrupt::Idle);
 
-    // unsafe {
-    //     uart.read_dma(
-    //         &mut RX_BUFFER,
-    //         channel,
-    //         ChannelCfg {
-    //             circular: Circular::Enabled,
-    //             ..Default::default()
-    //         },
-    //         dma,
-    //     );
-    // }
-    dma.enable_interrupt(channel, DmaInterrupt::TransferComplete);
+    unsafe {
+        uart.read_dma(
+            &mut RX_BUFFER,
+            channel,
+            ChannelCfg {
+                circular: Circular::Enabled,
+                ..Default::default()
+            },
+            dma,
+        );
+    }
 
     util::crc_init(unsafe { &mut CRC_LUT }, CRC_POLY);
 }
@@ -199,7 +200,7 @@ struct Packet {
     pub frame_type: FrameType,
     pub extended_dest: Option<DestAddr>,
     pub extended_src: Option<DestAddr>,
-    pub payload: [u8; MAX_BUF_SIZE],
+    pub payload: [u8; MAX_PAYLOAD_SIZE],
     pub crc: u8,
 }
 
@@ -239,7 +240,7 @@ impl Packet {
             Err(_) => return Err(DecodeError {}),
         };
 
-        let mut payload = [0; MAX_BUF_SIZE];
+        let mut payload = [0; MAX_PAYLOAD_SIZE];
 
         // todo: Extended src/dest
 
@@ -249,7 +250,7 @@ impl Packet {
 
         let crc = buf[start_i + 3 + payload_len];
         // todo: Is len what we want here, or whole packet? Whole payload?
-        let expected_crc = util::calc_crc(unsafe { &CRC_LUT }, &buf, len as u8);
+        let expected_crc = util::calc_crc(unsafe { &CRC_LUT }, &buf[2..buf.len() - 1], buf.len() as u8 - 3);
         if expected_crc != crc {
             println!("CRC failed on recieved packet. Expected: {}. Received: {}", expected_crc, crc);
             // todo: Come back to and return error!
@@ -268,7 +269,7 @@ impl Packet {
     }
 
     /// Fill a buffer from this payload. Used to respond to ping requests from the transmitter.
-    pub fn to_buf(&self, buf: &mut [u8; MAX_BUF_SIZE]) {
+    pub fn to_buf(&self, buf: &mut [u8; MAX_PACKET_SIZE]) {
         buf[0] = self.dest_addr as u8;
         buf[1] = self.len as u8;
         buf[2] = self.frame_type as u8;
@@ -294,8 +295,8 @@ impl Packet {
     pub fn to_channel_data(&self) -> Result<ChannelData, DecodeError> {
         let mut result = ChannelData::default();
 
-        let mut data = [0; MAX_BUF_SIZE];
-        for i in 0..MAX_BUF_SIZE {
+        let mut data = [0; MAX_PAYLOAD_SIZE];
+        for i in 0..MAX_PAYLOAD_SIZE {
             data[i] = self.payload[i] as u16;
         }
 
@@ -334,7 +335,7 @@ impl Packet {
         result.aux_2 = raw_channels[5] as u8;
 
         println!(
-            "Result ch1: {:?}\n{:?}\n{:?}\n{:?}\n{:?}\n",
+            "Result Ch1: {:?}\n Ch2: {:?}\n CH3: {:?}\n CH4: {:?}\n Aux2: {:?}\n",
             result.channel_1, result.channel_2, result.channel_3, result.channel_4, result.aux_2
         );
 
@@ -372,8 +373,6 @@ pub fn handle_packet(
     tx_chan: DmaChannel,
 ) -> Option<PacketData> {
     uart.clear_interrupt(UsartInterrupt::Idle);
-    dma.stop(rx_chan);
-
     // Note: As long as we're stopping and starting the transfer each packet, `start_i` will
     // always be 0.
     let start_i = 0;
@@ -393,7 +392,10 @@ pub fn handle_packet(
         DestAddr::FlightController => (),
         // Improper destination address from the sender.
         _ => {
-            return None;
+            // todo: We're trigger a char recognition input on FC, which satisfies this
+            // todo req... And, it's throwing bogus for this first char, perhaps as a result
+            // todo of when we start the xfer.
+            // return None;
         }
     }
 
@@ -404,7 +406,7 @@ pub fn handle_packet(
         FrameType::DevicePing => {
             // Send a reply.
             // todo: Consider hard coding this as a dedicated buffer instead of calculating each time.
-            let mut payload = [0; MAX_BUF_SIZE];
+            let mut payload = [0; MAX_PAYLOAD_SIZE];
             payload[0..22].clone_from_slice(&[
                 // Display name - "Anyleaf", null-terminated
                 0x41, 0x6e, 0x79, 0x6c, 0x65, 0x61, 0x66, 00, 0x45, 0x4c, 0x52,
@@ -422,7 +424,7 @@ pub fn handle_packet(
                 extended_dest: Some(DestAddr::RadioTransmitter),
                 extended_src: Some(DestAddr::CrsfTransmitter),
                 payload,
-                crc: util::calc_crc(unsafe { &CRC_LUT }, &payload, 2),
+                crc: util::calc_crc(unsafe { &CRC_LUT }, &payload[2..payload.len() - 1], payload.len() as u8 - 3),
             };
 
             unsafe {
