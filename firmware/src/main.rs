@@ -4,7 +4,7 @@
 
 use core::{
     f32::consts::TAU,
-    sync::atomic::{AtomicUsize, AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use cfg_if::cfg_if;
@@ -15,7 +15,7 @@ use stm32_hal2::{
     self,
     adc::{Adc, AdcDevice},
     clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllSrc},
-    dma::{self, Dma, DmaChannel, ChannelCfg, Circular},
+    dma::{self, ChannelCfg, Circular, Dma, DmaChannel},
     flash::Flash,
     gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
@@ -82,6 +82,8 @@ pub use drivers::imu_icm426xx as imu;
 // use drivers::imu_ism330dhcx as imu;
 use drivers::tof_vl53l1 as tof;
 
+use control_interface::ChannelData;
+
 use protocols::{crsf, dshot};
 
 use flight_ctrls::{
@@ -123,7 +125,6 @@ const DIRECT_AUTOPILOT_MAX_RNG: f32 = 500.;
 // loop.
 const VELOCITY_ATTITUDE_UPDATE_RATIO: usize = 4;
 static LOOP_I: AtomicUsize = AtomicUsize::new(0);
-
 
 // We use this to make sure a received char equal to the FC destination value (eg as part
 // of channel data) doesn't interrupt our data receive.
@@ -339,8 +340,8 @@ fn init_sensors(
 
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
-    use stm32_hal2::dma::DmaInterrupt;
     use super::*;
+    use stm32_hal2::dma::DmaInterrupt;
 
     // todo: Move vars from here to `local` as required.
     #[shared]
@@ -359,6 +360,7 @@ mod app {
         pid_velocity: PidGroup,
         pid_attitude: PidGroup,
         pid_rate: PidGroup,
+        control_channel_data: ChannelData,
         manual_inputs: CtrlInputs,
         axis_locks: AxisLocks,
         current_pwr: RotorPower,
@@ -409,7 +411,7 @@ mod app {
         let clock_cfg = Clocks {
             // Config for 480Mhz full speed:
             #[cfg(feature = "h7")]
-            pll_src: PllSrc::Hse(8_000_000),
+            pll_src: PllSrc::Hse(16_000_000),
             #[cfg(feature = "g4")]
             input_src: InputSrc::Pll(PllSrc::Hse(16_000_000)),
             // vos_range: VosRange::VOS0, // Note: This may use extra power. todo: Put back!
@@ -671,6 +673,7 @@ mod app {
                 pid_velocity: Default::default(),
                 pid_attitude: Default::default(),
                 pid_rate: Default::default(),
+                control_channel_data: Default::default(),
                 manual_inputs: Default::default(),
                 axis_locks: Default::default(),
                 current_pwr: Default::default(),
@@ -715,7 +718,7 @@ mod app {
     shared = [current_params, manual_inputs, input_map, current_pwr,
     velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
-    dma, rotor_timer_a, rotor_timer_b, ahrs, axis_locks,
+    dma, rotor_timer_a, rotor_timer_b, ahrs, axis_locks, control_channel_data,
     ],
     priority = 2
     )]
@@ -743,34 +746,59 @@ mod app {
                 }
             });
 
-        (cx.shared.current_params, cx.shared.ahrs).lock(|params, ahrs| {
-            // if LOOP_I.fetch_add(1,Ordering::Acquire) % 100 == 0 {
+        (
+            cx.shared.current_params,
+            cx.shared.ahrs,
+            cx.shared.control_channel_data,
+        )
+            .lock(|params, ahrs, ch_data| {
+                // if LOOP_I.fetch_add(1,Ordering::Acquire) % 100 == 0 {
 
-            if unsafe { i } % 4_000 == 0 {
-                // todo temp
-                println!(
-                    "IMU Data: Ax {}, Ay: {}, Az: {}",
-                    params.a_x, params.a_y, params.a_z
-                );
+                if unsafe { i } % 2_000 == 0 {
+                    // todo temp
+                    println!(
+                        "IMU Data: Ax {}, Ay: {}, Az: {}",
+                        params.a_x, params.a_y, params.a_z
+                    );
 
-                println!(
-                    "IMU Data: roll {}, pitch: {}, yaw: {}",
-                    params.v_roll, params.v_pitch, params.v_yaw
-                );
+                    println!(
+                        "IMU Data: roll {}, pitch: {}, yaw: {}",
+                        params.v_roll, params.v_pitch, params.v_yaw
+                    );
 
-                println!(
-                    "Attitude: roll {}, pitch: {}, yaw: {}",
-                    params.s_roll, params.s_pitch, params.s_yaw
-                );
-            }
+                    println!(
+                        "Attitude: roll {}, pitch: {}, yaw: {}",
+                        params.s_roll, params.s_pitch, params.s_yaw
+                    );
 
-            unsafe {
-                i += 1;
-            }; // todo temp
+                    println!(
+                        "Ch1: {} Ch2: {} Ch3: {} Ch4: {}",
+                        ch_data.channel_1, ch_data.channel_2, ch_data.channel_3, ch_data.channel_4,
+                    );
 
-            // todo: Put this back when ready to test att platform again.
-            sensor_fusion::update_get_attitude(ahrs, params);
-        });
+                    println!(
+                        "Aux1: {} Aux2: {} Aux3: {} Aux4: {}",
+                        ch_data.aux_1 == ArmStatus::Armed,
+                        ch_data.aux_2,
+                        ch_data.aux_3,
+                        ch_data.aux_4,
+                    );
+
+                    println!(
+                        "Aux5: {} Aux6: {} Aux7: {} Aux8: {}",
+                        ch_data.aux_5, ch_data.aux_6, ch_data.aux_7, ch_data.aux_8,
+                    );
+
+                    println!("RX buf: {:?}", unsafe { crsf::RX_BUFFER });
+                }
+
+                unsafe {
+                    i += 1;
+                }; // todo temp
+
+                // todo: Put this back when ready to test att platform again.
+                sensor_fusion::update_get_attitude(ahrs, params);
+            });
 
         // todo: Dshot test
         // (
@@ -1089,15 +1117,31 @@ mod app {
     //     });
     // }
 
-    #[task(binds = USART3, shared = [uart3, dma], priority = 8)]
+    #[task(binds = USART3, shared = [uart3, dma, control_channel_data], priority = 8)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
     fn crsf_isr(mut cx: crsf_isr::Context) {
-        (cx.shared.uart3, cx.shared.dma).lock(|uart, dma| {
-            uart.clear_interrupt(UsartInterrupt::Idle);
-            crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8);
-        });
+        (
+            cx.shared.uart3,
+            cx.shared.dma,
+            cx.shared.control_channel_data,
+        )
+            .lock(|uart, dma, ch_data| {
+                uart.clear_interrupt(UsartInterrupt::Idle);
+                if let Some(crsf_data) =
+                    crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8)
+                {
+                    match crsf_data {
+                        crsf::PacketData::ChannelData(data) => {
+                            *ch_data = data;
+                        }
+                        crsf::PacketData::LinkStats(stats) => {
+                            // todo
+                        }
+                    }
+                }
+            });
     }
 }
 

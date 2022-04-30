@@ -51,10 +51,10 @@ pub struct ElrsChannelData {
 #[derive(Default)]
 pub struct _ElrsChannelDataOts {
     /// Channels 1-4 are 10-bit channels.
-    pub channel_1: u16,
-    pub channel_2: u16,
-    pub channel_3: u16,
-    pub channel_4: u16,
+    pub channel_1: u16, // Aileron
+    pub channel_2: u16, // Elevator
+    pub channel_3: u16, // Throttle
+    pub channel_4: u16, // Rudder
     /// Aux 1 is 2-positions, and must be used for arming. AKA "Channel 5"
     pub aux_1: crate::ArmStatus,
     /// Aux 2-8 are 64 or 128-position channels. (6 or 7 bit)
@@ -71,10 +71,10 @@ pub struct _ElrsChannelDataOts {
 /// Represents channel data in a useful format.
 #[derive(Default)]
 pub struct ChannelData {
-    pub channel_1: f32,
-    pub channel_2: f32,
-    pub channel_3: f32,
-    pub channel_4: f32,
+    pub channel_1: f32, // Aileron
+    pub channel_2: f32, // Elevator
+    pub channel_3: f32, // Throttle
+    pub channel_4: f32, // Rudder
     pub aux_1: crate::ArmStatus,
     // todo: Floats for these?
     pub aux_2: u8,

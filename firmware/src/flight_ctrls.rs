@@ -31,6 +31,7 @@ const THRUST_IN_RNG: (f32, f32) = (0., 1.);
 const PITCH_PWR_RNG: (f32, f32) = (-1., 1.);
 const ROLL_PWR_RNG: (f32, f32) = (-1., 1.);
 const YAW_PWR_RNG: (f32, f32) = (-1., 1.);
+// todo: Note that if you support 0-centering throttles, make this -1 to +1 as well.
 const THRUST_PWR_RNG: (f32, f32) = (0., 1.);
 
 // Minimium speed before auto-yaw will engate. (if we end up setting up auto-yaw to align flight path

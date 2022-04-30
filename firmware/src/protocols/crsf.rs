@@ -26,16 +26,17 @@
 //! Note that there doesn't appear to be a published spec, so we piece together what we can from
 //! code and wisdom from those who've done this before.
 
+use core::f64::MAX;
 use num_enum::TryFromPrimitive; // Enum from integer
 
 use defmt::println;
 
+use stm32_hal2::dma::{Circular, DmaInterrupt};
 use stm32_hal2::{
     dma::{ChannelCfg, Dma, DmaChannel},
     pac::{DMA1, USART3},
     usart::{Usart, UsartInterrupt},
 };
-use stm32_hal2::dma::{Circular, DmaInterrupt};
 
 use crate::{control_interface::ChannelData, util};
 
@@ -51,6 +52,8 @@ const CHANNEL_VAL_MAX_F32: f32 = 1_811.;
 // const CHANNEL_VAL_SPAN: u16 = CHANNEL_VAL_MAX - CHANNEL_VAL_MIN;
 
 const CONTROL_VAL_MIN: f32 = -1.;
+// todo: Note that if you support 0-centering throttles, make this -1 as well.
+const CONTROL_VAL_MIN_THROTTLE: f32 = 0.;
 const CONTROL_VAL_MAX: f32 = 1.;
 
 // Used both both TX and RX buffers. Includes payload, and other data words.
@@ -63,8 +66,8 @@ const MAX_PAYLOAD_SIZE: usize = 22;
 
 // const PAYLOAD_SIZE_GPS: usize = 15;
 // const PAYLOAD_SIZE_BATTERY: usize = 8;
-// const PAYLOAD_SIZE_LINK_STATS: usize = 10;
-// const PAYLOAD_SIZE_RC_CHANNELS: usize = 22;
+const PAYLOAD_SIZE_LINK_STATS: usize = 10;
+const PAYLOAD_SIZE_RC_CHANNELS: usize = 22;
 // const PAYLOAD_SIZE_ATTITUDE: usize = 6;
 
 const CRSF_CHANNEL_COUNT: usize = 16;
@@ -136,7 +139,7 @@ enum FrameType {
 
 #[derive(Default)]
 /// https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support
-struct LinkStats {
+pub struct LinkStats {
     /// Timestamp these stats were recorded. (TBD format; processed locally; not part of packet from tx).
     timestamp: u32,
     /// Uplink - received signal strength antenna 1 (RSSI). RSSI dBm as reported by the RX. Values
@@ -205,25 +208,29 @@ struct Packet {
 }
 
 /// Map a raw CRSF channel value to a useful value.
-fn channel_to_val(mut chan_val: u16) -> f32 {
+fn channel_to_val(mut chan_val: u16, is_throttle: bool) -> f32 {
     if chan_val < CHANNEL_VAL_MIN {
         chan_val = CHANNEL_VAL_MIN
     } else if chan_val > CHANNEL_VAL_MAX {
         chan_val = CHANNEL_VAL_MAX
     }
 
-    // todo: Map one of the channels to 0. to 1. instead of -1. to 1. ?
+    let control_val_min = if is_throttle {
+        CONTROL_VAL_MIN_THROTTLE
+    } else {
+        CONTROL_VAL_MIN
+    };
     util::map_linear(
         chan_val as f32,
         (CHANNEL_VAL_MIN_F32, CHANNEL_VAL_MAX_F32),
-        (CONTROL_VAL_MIN, CONTROL_VAL_MAX),
+        (control_val_min, CONTROL_VAL_MAX),
     )
 }
 
 impl Packet {
     /// Decode a packet, from the rx buffer.
-    pub fn from_buf(buf: &[u8], start_i: usize) -> Result<Self, DecodeError> {
-        let dest_addr: DestAddr = match buf[start_i].try_into() {
+    pub fn from_buf(buf: &[u8]) -> Result<Self, DecodeError> {
+        let dest_addr: DestAddr = match buf[0].try_into() {
             Ok(d) => d,
             Err(_) => return Err(DecodeError {}),
         };
@@ -232,29 +239,45 @@ impl Packet {
         // payload (determined by this), and crc (1 byte)
         // Overall packet length is PayloadLength + 4 (dest, len, type, crc) for non-extended
         // packets. Channel data doesn't use extended.
-        let len = buf[start_i + 1] as usize;
-        let payload_len = len - 2; // todo: Take extended into acct
+        let len = buf[1] as usize;
+         // Note: Take extended into acct, if you end up supporting that.
+        let payload_len = len - 2;
 
-        let frame_type: FrameType = match buf[start_i + 2].try_into() {
+        let frame_type: FrameType = match buf[2].try_into() {
             Ok(f) => f,
             Err(_) => return Err(DecodeError {}),
         };
 
         let mut payload = [0; MAX_PAYLOAD_SIZE];
 
-        // todo: Extended src/dest
+        // Note Extended src/dest is not included, but we don't need that for channel data
+        // or link statistics, which is all this module currently supports.
 
-        for i in start_i..start_i + payload_len {
-            payload[i] = buf[i + 3]
+        if payload_len > MAX_PAYLOAD_SIZE {
+            // If we don't catch this here, code will crash at the line below.
+            println!("Payload len is too large; skipping.");
+            return Err(DecodeError {});
         }
 
-        let crc = buf[start_i + 3 + payload_len];
-        // todo: Is len what we want here, or whole packet? Whole payload?
-        let expected_crc = util::calc_crc(unsafe { &CRC_LUT }, &buf[2..buf.len() - 1], buf.len() as u8 - 3);
+        for i in 0..payload_len {
+            payload[i] = buf[i + 3];
+        }
+
+        let crc = buf[3 + payload_len];
+
+        let expected_crc = util::calc_crc(
+            unsafe { &CRC_LUT },
+            &buf[2..buf.len() - 1],
+            buf.len() as u8 - 3,
+        );
+
         if expected_crc != crc {
-            println!("CRC failed on recieved packet. Expected: {}. Received: {}", expected_crc, crc);
-            // todo: Come back to and return error!
-            // return Err(DecodeError {});
+            println!(
+                "CRC failed on recieved packet. Expected: {}. Received: {}",
+                expected_crc, crc
+            );
+            println!("RX buf: {:?}", unsafe { RX_BUFFER });
+            return Err(DecodeError {});
         };
 
         Ok(Packet {
@@ -300,7 +323,7 @@ impl Packet {
             data[i] = self.payload[i] as u16;
         }
 
-        println!("Payload: {:?}", self.payload);
+        // println!("Payload: {:?}", self.payload);
 
         let mut raw_channels = [0_u16; CRSF_CHANNEL_COUNT];
 
@@ -324,20 +347,20 @@ impl Packet {
 
         // crsf_status.channel_data.timestamp = Ticks_Now();
 
-        println!("aux1 raw: {:?}", raw_channels[4]);
+        // println!("aux1 raw: {:?}", raw_channels[4]);
 
         // Clamp, and map CRSF data to a scale between -1. and 1.  or 0. to +1.
-        result.channel_1 = channel_to_val(raw_channels[0]);
-        result.channel_2 = channel_to_val(raw_channels[1]);
-        result.channel_3 = channel_to_val(raw_channels[2]);
-        result.channel_4 = channel_to_val(raw_channels[3]);
+        result.channel_1 = channel_to_val(raw_channels[0], false);
+        result.channel_2 = channel_to_val(raw_channels[1], false);
+        result.channel_3 = channel_to_val(raw_channels[2], true);
+        result.channel_4 = channel_to_val(raw_channels[3], false);
         // result.aux_1 = raw_channels[4]; // todo
         result.aux_2 = raw_channels[5] as u8;
 
-        println!(
-            "Result Ch1: {:?}\n Ch2: {:?}\n CH3: {:?}\n CH4: {:?}\n Aux2: {:?}\n",
-            result.channel_1, result.channel_2, result.channel_3, result.channel_4, result.aux_2
-        );
+        // println!(
+        //     "Result Ch1: {:?}\n Ch2: {:?}\n CH3: {:?}\n CH4: {:?}\n Aux2: {:?}\n",
+        //     result.channel_1, result.channel_2, result.channel_3, result.channel_4, result.aux_2
+        // );
 
         Ok(result)
     }
@@ -372,17 +395,43 @@ pub fn handle_packet(
     rx_chan: DmaChannel,
     tx_chan: DmaChannel,
 ) -> Option<PacketData> {
-    uart.clear_interrupt(UsartInterrupt::Idle);
-    // Note: As long as we're stopping and starting the transfer each packet, `start_i` will
-    // always be 0.
-    let start_i = 0;
 
-    println!("RX buf: {:?}", unsafe { RX_BUFFER });
+    // Find the position in the buffer where our data starts. It's a circular buffer, so this could
+    // be anywhere, at time of line going idle. Then pass in a buffer, rearranged start-to-end.
+    // todo: Is there a cheaper way to do this than scanning for a matching pattern?
 
-    let packet = match Packet::from_buf(unsafe { &RX_BUFFER }, start_i) {
+    let mut start_i = 0;
+    let mut start_i_found = false;
+    for i in 0..MAX_PACKET_SIZE {
+        unsafe {
+            if RX_BUFFER[i] == DestAddr::FlightController as u8
+                && (RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_RC_CHANNELS as u8 + 2
+                    || RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_LINK_STATS as u8 + 2)
+                && (RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::RcChannelsPacked as u8
+                    || RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::LinkStatistics as u8)
+
+            {
+                start_i = i;
+                start_i_found = true;
+            }
+        }
+    }
+    if !start_i_found {
+        println!("Can't find starting position in payload; skipping");
+        println!("RX buf: {:?}", unsafe { RX_BUFFER });
+        return None;
+    }
+
+    let mut buf_shifted = [0; MAX_PACKET_SIZE];
+    for i in 0..MAX_PACKET_SIZE {
+        buf_shifted[i] = unsafe { RX_BUFFER }[(start_i + i) % MAX_PACKET_SIZE];
+    }
+
+    let packet = match Packet::from_buf(&buf_shifted) {
         Ok(p) => p,
         Err(_) => {
             println!("Error decoding packet address or frame type; skipping");
+            println!("RX buf: {:?}", unsafe { RX_BUFFER });
             return None;
         }
     };
@@ -424,7 +473,11 @@ pub fn handle_packet(
                 extended_dest: Some(DestAddr::RadioTransmitter),
                 extended_src: Some(DestAddr::CrsfTransmitter),
                 payload,
-                crc: util::calc_crc(unsafe { &CRC_LUT }, &payload[2..payload.len() - 1], payload.len() as u8 - 3),
+                crc: util::calc_crc(
+                    unsafe { &CRC_LUT },
+                    &payload[2..payload.len() - 1],
+                    payload.len() as u8 - 3,
+                ),
             };
 
             unsafe {
@@ -454,11 +507,11 @@ pub fn handle_packet(
         }
         _ => (),
     }
-
-    // Start the next transfer.
-    unsafe {
-        uart.read_dma(&mut RX_BUFFER, rx_chan, Default::default(), dma);
-    }
+    //
+    // // Start the next transfer.
+    // unsafe {
+    //     uart.read_dma(&mut RX_BUFFER, rx_chan, Default::default(), dma);
+    // }
 
     result
 }
