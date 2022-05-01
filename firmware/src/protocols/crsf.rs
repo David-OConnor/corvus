@@ -26,7 +26,6 @@
 //! Note that there doesn't appear to be a published spec, so we piece together what we can from
 //! code and wisdom from those who've done this before.
 
-use core::f64::MAX;
 use num_enum::TryFromPrimitive; // Enum from integer
 
 use defmt::println;
@@ -38,7 +37,11 @@ use stm32_hal2::{
     usart::{Usart, UsartInterrupt},
 };
 
-use crate::{control_interface::ChannelData, util, ArmStatus};
+use crate::{
+    control_interface::{ChannelData, LinkStats},
+    flight_ctrls::{ArmStatus, InputModeSwitch},
+    util,
+};
 
 // todo: Maybe put in a struct etc? It's constant, but we use a function call to populate it.
 // Note: LUT is here, since it depends on the poly.
@@ -135,38 +138,6 @@ enum FrameType {
     MspResp = 0x7b,
     MspWrite = 0x7c,
     ArdupilotResp = 0x80,
-}
-
-// todo: Consider moving this to `control_interface.`
-#[derive(Default)]
-/// https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support
-pub struct LinkStats {
-    /// Timestamp these stats were recorded. (TBD format; processed locally; not part of packet from tx).
-    pub timestamp: u32,
-    /// Uplink - received signal strength antenna 1 (RSSI). RSSI dBm as reported by the RX. Values
-    /// vary depending on mode, antenna quality, output power and distance. Ranges from -128 to 0.
-    pub uplink_rssi_1: u8,
-    /// Uplink - received signal strength antenna 2 (RSSI).  	Second antenna RSSI, used in diversity mode
-    /// (Same range as rssi_1)
-    pub uplink_rssi_2: u8,
-    /// Uplink - link quality (valid packets). The number of successful packets out of the last
-    /// 100 from TX → RX
-    pub uplink_link_quality: u8,
-    /// Uplink - signal-to-noise ratio. SNR reported by the RX. Value varies mostly by radio chip
-    /// and gets lower with distance (once the agc hits its limit)
-    pub uplink_snr: i8,
-    /// Active antenna for diversity RX (0 - 1)
-    pub active_antenna: u8,
-    pub rf_mode: u8,
-    /// Uplink - transmitting power. (mW?) 50mW reported as 0, as CRSF/OpenTX do not have this option
-    pub uplink_tx_power: u8,
-    /// Downlink - received signal strength (RSSI). RSSI dBm of telemetry packets received by TX.
-    pub downlink_rssi: u8,
-    /// Downlink - link quality (valid packets). An LQ indicator of telemetry packets received RX → TX
-    /// (0 - 100)
-    pub downlink_link_quality: u8,
-    /// Downlink - signal-to-noise ratio. 	SNR reported by the TX for telemetry packets
-    pub downlink_snr: i8,
 }
 
 /// Used to pass packet data to the main program, returned by the handler triggered in the UART-idle
@@ -334,48 +305,37 @@ impl Packet {
         raw_channels[3] = (data[4] >> 1 | data[5] << 7) & 0x07FF;
         raw_channels[4] = (data[5] >> 4 | data[6] << 4) & 0x07FF;
         raw_channels[5] = (data[6] >> 7 | data[7] << 1 | data[8] << 9) & 0x07FF;
-        raw_channels[6] = (data[8] >> 2 | data[9] << 6) & 0x07FF;
-        raw_channels[7] = (data[9] >> 5 | data[10] << 3) & 0x07FF;
-        raw_channels[8] = (data[11] | data[12] << 8) & 0x07FF;
-        raw_channels[9] = (data[12] >> 3 | data[13] << 5) & 0x07FF;
-        raw_channels[10] = (data[13] >> 6 | data[14] << 2 | data[15] << 10) & 0x07FF;
-        raw_channels[11] = (data[15] >> 1 | data[16] << 7) & 0x07FF;
-        raw_channels[12] = (data[16] >> 4 | data[17] << 4) & 0x07FF;
-        raw_channels[13] = (data[17] >> 7 | data[18] << 1 | data[19] << 9) & 0x07FF;
-        raw_channels[14] = (data[19] >> 2 | data[20] << 6) & 0x07FF;
-        raw_channels[15] = (data[20] >> 5 | data[21] << 3) & 0x07FF;
+        // raw_channels[6] = (data[8] >> 2 | data[9] << 6) & 0x07FF;
+        // raw_channels[7] = (data[9] >> 5 | data[10] << 3) & 0x07FF;
+        // raw_channels[8] = (data[11] | data[12] << 8) & 0x07FF;
+        // raw_channels[9] = (data[12] >> 3 | data[13] << 5) & 0x07FF;
+        // raw_channels[10] = (data[13] >> 6 | data[14] << 2 | data[15] << 10) & 0x07FF;
+        // raw_channels[11] = (data[15] >> 1 | data[16] << 7) & 0x07FF;
+        // raw_channels[12] = (data[16] >> 4 | data[17] << 4) & 0x07FF;
+        // raw_channels[13] = (data[17] >> 7 | data[18] << 1 | data[19] << 9) & 0x07FF;
+        // raw_channels[14] = (data[19] >> 2 | data[20] << 6) & 0x07FF;
+        // raw_channels[15] = (data[20] >> 5 | data[21] << 3) & 0x07FF;
 
-        // crsf_status.channel_data.timestamp = Ticks_Now();
+        let arm_status = match raw_channels[4] {
+            0..=1_000 => ArmStatus::Disarmed,
+            _ => ArmStatus::Armed,
+        };
+        let input_mode = match raw_channels[5] {
+            0..=1_000 => InputModeSwitch::Acro,
+            _ => InputModeSwitch::AttitudeCommand,
+        };
 
-        // println!("aux1 raw: {:?}", raw_channels[4]);
-
-        // println!("Aux 1: {}", raw_channels[4]); // todo temp
-
+        // Note that we could map to CRSF channels (Or to their ELRS-mapped origins), but this is
+        // currently set up to map directly to how we use the controls.
         ChannelData {
             // Clamp, and map CRSF data to a scale between -1. and 1.  or 0. to +1.
-            channel_1: channel_to_val(raw_channels[0], false),
-            channel_2: channel_to_val(raw_channels[1], false),
-            channel_3: channel_to_val(raw_channels[2], true),
-            channel_4: channel_to_val(raw_channels[3], false),
-            // aux_1: ArmStatus::Armed, // todo
-            // aux_1: raw_channels[4] as u8,
-            // aux_2: raw_channels[5] as u8,
-            // aux_3: raw_channels[6] as u8,
-            // aux_4: raw_channels[7] as u8,
-            // aux_5: raw_channels[8] as u8,
-            // aux_6: raw_channels[9] as u8,
-            // aux_7: raw_channels[10] as u8,
-            // aux_8: raw_channels[11] as u8,
-            aux_1: raw_channels[4],
-            aux_2: raw_channels[5],
-            aux_3: raw_channels[6],
-            aux_4: raw_channels[7],
-            aux_5: raw_channels[8],
-            aux_6: raw_channels[9],
-            aux_7: raw_channels[10],
-            aux_8: raw_channels[11],
+            roll: channel_to_val(raw_channels[0], false),
+            pitch: channel_to_val(raw_channels[1], false),
+            throttle: channel_to_val(raw_channels[2], true),
+            yaw: channel_to_val(raw_channels[3], false),
+            arm_status,
+            input_mode,
         }
-        // Note: CRSF channels 12-15 not included in our current scheme, which is 4 channels + 8 aux.
     }
 
     /// Interpret a CRSF packet as link statistics
@@ -450,8 +410,8 @@ pub fn handle_packet(
     // Only handle packets addressed to a flight controller.
     match packet.dest_addr {
         DestAddr::FlightController => (),
-        // Improper destination address from the sender.
         _ => {
+            // Improper destination address from the sender.
             return None;
         }
     }

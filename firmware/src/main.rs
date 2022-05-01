@@ -82,12 +82,9 @@ pub use drivers::imu_icm426xx as imu;
 // use drivers::imu_ism330dhcx as imu;
 use drivers::tof_vl53l1 as tof;
 
-use control_interface::ChannelData;
+use control_interface::{ChannelData, LinkStats};
 
-use protocols::{
-    crsf::{self, LinkStats},
-    dshot,
-};
+use protocols::{crsf, dshot};
 
 use flight_ctrls::{
     ArmStatus, AutopilotStatus, AxisLocks, CommandState, CtrlInputs, InputMap, InputMode, Params,
@@ -344,6 +341,7 @@ fn init_sensors(
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
     use super::*;
+    use crate::flight_ctrls::InputModeSwitch;
     use stm32_hal2::dma::DmaInterrupt;
 
     // todo: Move vars from here to `local` as required.
@@ -778,22 +776,14 @@ mod app {
                     );
 
                     println!(
-                        "Ch1: {} Ch2: {} Ch3: {} Ch4: {}",
-                        ch_data.channel_1, ch_data.channel_2, ch_data.channel_3, ch_data.channel_4,
+                        "Ctrls -> roll: {} pitch: {} yaw: {} throttle: {}",
+                        ch_data.roll, ch_data.pitch, ch_data.yaw, ch_data.throttle,
                     );
 
                     println!(
-                        "Aux1: {} Aux2: {} Aux3: {} Aux4: {}",
-                        // ch_data.aux_1 == ArmStatus::Armed,
-                        ch_data.aux_1,
-                        ch_data.aux_2,
-                        ch_data.aux_3,
-                        ch_data.aux_4,
-                    );
-
-                    println!(
-                        "Aux5: {} Aux6: {} Aux7: {} Aux8: {}",
-                        ch_data.aux_5, ch_data.aux_6, ch_data.aux_7, ch_data.aux_8,
+                        "Armed: {} Mode: {}",
+                        ch_data.arm_status == ArmStatus::Armed,
+                        ch_data.input_mode == InputModeSwitch::AttitudeCommand,
                     );
 
                     println!(

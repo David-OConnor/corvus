@@ -245,6 +245,20 @@ pub struct AutopilotStatus {
     pub recover: Option<f32>, // value is MSL alt to hold, eg our alt at time of command.
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum InputModeSwitch {
+    /// Acro mode
+    Acro,
+    /// Command if GPS is present; Attitude if not
+    AttitudeCommand,
+}
+
+impl Default for InputModeSwitch {
+    fn default() -> Self {
+        Self::Acro
+    }
+}
+
 /// Mode used for control inputs. These are the three "industry-standard" modes.
 #[derive(Clone, Copy, PartialEq)]
 pub enum InputMode {
