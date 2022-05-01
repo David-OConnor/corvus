@@ -84,7 +84,10 @@ use drivers::tof_vl53l1 as tof;
 
 use control_interface::ChannelData;
 
-use protocols::{crsf, dshot};
+use protocols::{
+    crsf::{self, LinkStats},
+    dshot,
+};
 
 use flight_ctrls::{
     ArmStatus, AutopilotStatus, AxisLocks, CommandState, CtrlInputs, InputMap, InputMode, Params,
@@ -361,6 +364,7 @@ mod app {
         pid_attitude: PidGroup,
         pid_rate: PidGroup,
         control_channel_data: ChannelData,
+        control_link_stats: LinkStats,
         manual_inputs: CtrlInputs,
         axis_locks: AxisLocks,
         current_pwr: RotorPower,
@@ -674,6 +678,7 @@ mod app {
                 pid_attitude: Default::default(),
                 pid_rate: Default::default(),
                 control_channel_data: Default::default(),
+                control_link_stats: Default::default(),
                 manual_inputs: Default::default(),
                 axis_locks: Default::default(),
                 current_pwr: Default::default(),
@@ -718,7 +723,7 @@ mod app {
     shared = [current_params, manual_inputs, input_map, current_pwr,
     velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
-    dma, rotor_timer_a, rotor_timer_b, ahrs, axis_locks, control_channel_data,
+    dma, rotor_timer_a, rotor_timer_b, ahrs, axis_locks, control_channel_data, control_link_stats,
     ],
     priority = 2
     )]
@@ -750,8 +755,9 @@ mod app {
             cx.shared.current_params,
             cx.shared.ahrs,
             cx.shared.control_channel_data,
+            cx.shared.control_link_stats,
         )
-            .lock(|params, ahrs, ch_data| {
+            .lock(|params, ahrs, ch_data, link_stats| {
                 // if LOOP_I.fetch_add(1,Ordering::Acquire) % 100 == 0 {
 
                 if unsafe { i } % 2_000 == 0 {
@@ -778,7 +784,8 @@ mod app {
 
                     println!(
                         "Aux1: {} Aux2: {} Aux3: {} Aux4: {}",
-                        ch_data.aux_1 == ArmStatus::Armed,
+                        // ch_data.aux_1 == ArmStatus::Armed,
+                        ch_data.aux_1,
                         ch_data.aux_2,
                         ch_data.aux_3,
                         ch_data.aux_4,
@@ -787,6 +794,17 @@ mod app {
                     println!(
                         "Aux5: {} Aux6: {} Aux7: {} Aux8: {}",
                         ch_data.aux_5, ch_data.aux_6, ch_data.aux_7, ch_data.aux_8,
+                    );
+
+                    println!(
+                        "up RSSI: {}, Uplink qual: {} SNR: {}, tx pwr: {}, down RSSI: {}, down qual: {}, down snr: {}",
+                        link_stats.uplink_rssi_1,
+                        link_stats.uplink_link_quality,
+                        link_stats.uplink_snr,
+                        link_stats.uplink_tx_power,
+                        link_stats.downlink_rssi,
+                        link_stats.downlink_link_quality,
+                        link_stats.downlink_snr,
                     );
                 }
 
@@ -1115,7 +1133,7 @@ mod app {
     //     });
     // }
 
-    #[task(binds = USART3, shared = [uart3, dma, control_channel_data], priority = 8)]
+    #[task(binds = USART3, shared = [uart3, dma, control_channel_data, control_link_stats], priority = 8)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
@@ -1124,8 +1142,9 @@ mod app {
             cx.shared.uart3,
             cx.shared.dma,
             cx.shared.control_channel_data,
+            cx.shared.control_link_stats,
         )
-            .lock(|uart, dma, ch_data| {
+            .lock(|uart, dma, ch_data, link_stats| {
                 uart.clear_interrupt(UsartInterrupt::Idle);
                 if let Some(crsf_data) =
                     crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8)
@@ -1135,20 +1154,7 @@ mod app {
                             *ch_data = data;
                         }
                         crsf::PacketData::LinkStats(stats) => {
-                            // todo: Link stats struct in Shared.
-                            println!("up RSSI: {}, Uplink qual: {} SNR: {}, tx pwr: {}, down RSSI: {},",
-                            stats.uplink_rssi_1, stats.uplink_link_quality, stats.uplink_snr, stats.uplink_tx_power,
-                            stats.downlink_rssi);
-        //                             result.uplink_rssi_1 = data[0];
-        // result.uplink_rssi_2 = data[1];
-        // result.uplink_link_quality = data[2];
-        // result.uplink_snr = data[3] as i8;
-        // result.active_antenna = data[4];
-        // result.rf_mode = data[5];
-        // result.uplink_tx_power = data[6];
-        // result.downlink_rssi = data[7];
-        // result.downlink_link_quality = data[8];
-        // result.downlink_snr = data[9] as i8;
+                            *link_stats = stats;
                         }
                     }
                 }

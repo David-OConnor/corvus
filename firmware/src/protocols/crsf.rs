@@ -38,7 +38,7 @@ use stm32_hal2::{
     usart::{Usart, UsartInterrupt},
 };
 
-use crate::{control_interface::ChannelData, util};
+use crate::{control_interface::ChannelData, util, ArmStatus};
 
 // todo: Maybe put in a struct etc? It's constant, but we use a function call to populate it.
 // Note: LUT is here, since it depends on the poly.
@@ -137,6 +137,7 @@ enum FrameType {
     ArdupilotResp = 0x80,
 }
 
+// todo: Consider moving this to `control_interface.`
 #[derive(Default)]
 /// https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support
 pub struct LinkStats {
@@ -240,7 +241,7 @@ impl Packet {
         // Overall packet length is PayloadLength + 4 (dest, len, type, crc) for non-extended
         // packets. Channel data doesn't use extended.
         let len = buf[1] as usize;
-         // Note: Take extended into acct, if you end up supporting that.
+        // Note: Take extended into acct, if you end up supporting that.
         let payload_len = len - 2;
 
         let frame_type: FrameType = match buf[2].try_into() {
@@ -267,7 +268,7 @@ impl Packet {
 
         let expected_crc = util::calc_crc(
             unsafe { &CRC_LUT },
-             // len + 2 gets us to the end. -1 to ommit CRC itself, which isn't part of the calculation.
+            // len + 2 gets us to the end. -1 to ommit CRC itself, which isn't part of the calculation.
             &buf[2..len + 1],
             len as u8 - 1,
         );
@@ -316,9 +317,7 @@ impl Packet {
 
     /// Interpret a CRSF packet as ELRS channel data.
     /// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c#L148
-    pub fn to_channel_data(&self) -> Result<ChannelData, DecodeError> {
-        let mut result = ChannelData::default();
-
+    pub fn to_channel_data(&self) -> ChannelData {
         let mut data = [0; MAX_PAYLOAD_SIZE];
         for i in 0..MAX_PAYLOAD_SIZE {
             data[i] = self.payload[i] as u16;
@@ -350,25 +349,38 @@ impl Packet {
 
         // println!("aux1 raw: {:?}", raw_channels[4]);
 
-        // Clamp, and map CRSF data to a scale between -1. and 1.  or 0. to +1.
-        result.channel_1 = channel_to_val(raw_channels[0], false);
-        result.channel_2 = channel_to_val(raw_channels[1], false);
-        result.channel_3 = channel_to_val(raw_channels[2], true);
-        result.channel_4 = channel_to_val(raw_channels[3], false);
-        // result.aux_1 = raw_channels[4]; // todo
-        result.aux_2 = raw_channels[5] as u8;
+        // println!("Aux 1: {}", raw_channels[4]); // todo temp
 
-        // println!(
-        //     "Result Ch1: {:?}\n Ch2: {:?}\n CH3: {:?}\n CH4: {:?}\n Aux2: {:?}\n",
-        //     result.channel_1, result.channel_2, result.channel_3, result.channel_4, result.aux_2
-        // );
-
-        Ok(result)
+        ChannelData {
+            // Clamp, and map CRSF data to a scale between -1. and 1.  or 0. to +1.
+            channel_1: channel_to_val(raw_channels[0], false),
+            channel_2: channel_to_val(raw_channels[1], false),
+            channel_3: channel_to_val(raw_channels[2], true),
+            channel_4: channel_to_val(raw_channels[3], false),
+            // aux_1: ArmStatus::Armed, // todo
+            // aux_1: raw_channels[4] as u8,
+            // aux_2: raw_channels[5] as u8,
+            // aux_3: raw_channels[6] as u8,
+            // aux_4: raw_channels[7] as u8,
+            // aux_5: raw_channels[8] as u8,
+            // aux_6: raw_channels[9] as u8,
+            // aux_7: raw_channels[10] as u8,
+            // aux_8: raw_channels[11] as u8,
+            aux_1: raw_channels[4],
+            aux_2: raw_channels[5],
+            aux_3: raw_channels[6],
+            aux_4: raw_channels[7],
+            aux_5: raw_channels[8],
+            aux_6: raw_channels[9],
+            aux_7: raw_channels[10],
+            aux_8: raw_channels[11],
+        }
+        // Note: CRSF channels 12-15 not included in our current scheme, which is 4 channels + 8 aux.
     }
 
     /// Interpret a CRSF packet as link statistics
     /// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c#L179
-    pub fn to_link_stats(&self) -> Result<LinkStats, DecodeError> {
+    pub fn to_link_stats(&self) -> LinkStats {
         let mut result = LinkStats::default();
 
         let data = self.payload;
@@ -385,7 +397,7 @@ impl Packet {
         result.downlink_link_quality = data[8];
         result.downlink_snr = data[9] as i8;
 
-        Ok(result)
+        result
     }
 }
 
@@ -396,7 +408,6 @@ pub fn handle_packet(
     rx_chan: DmaChannel,
     tx_chan: DmaChannel,
 ) -> Option<PacketData> {
-
     // Find the position in the buffer where our data starts. It's a circular buffer, so this could
     // be anywhere, at time of line going idle. Then pass in a buffer, rearranged start-to-end.
     // todo: Is there a cheaper way to do this than scanning for a matching pattern?
@@ -410,7 +421,6 @@ pub fn handle_packet(
                     || RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_LINK_STATS as u8 + 2)
                 && (RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::RcChannelsPacked as u8
                     || RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::LinkStatistics as u8)
-
             {
                 start_i = i;
                 start_i_found = true;
@@ -486,21 +496,12 @@ pub fn handle_packet(
         }
         FrameType::RcChannelsPacked => {
             // We expect a 22-byte payload of channel data, and no extended source or dest.
-            let channel_data = match packet.to_channel_data() {
-                Ok(v) => v,
-                Err(_) => {
-                    return None;
-                }
-            };
+            let channel_data = packet.to_channel_data();
             result = Some(PacketData::ChannelData(channel_data));
         }
         FrameType::LinkStatistics => {
-            let link_stats = match packet.to_link_stats() {
-                Ok(v) => v,
-                Err(_) => {
-                    return None;
-                }
-            };
+            let link_stats = packet.to_link_stats();
+            result = Some(PacketData::LinkStats(link_stats));
         }
         _ => (),
     }

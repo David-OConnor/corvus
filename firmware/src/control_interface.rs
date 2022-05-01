@@ -75,14 +75,17 @@ pub struct ChannelData {
     pub channel_2: f32, // Elevator
     pub channel_3: f32, // Throttle
     pub channel_4: f32, // Rudder
-    pub aux_1: crate::ArmStatus,
+    // pub aux_1: crate::ArmStatus,
+
+    // todo: Should these be u8 or u16? Diff between CRSF and ELRS specs, perhaps.
+    pub aux_1: u16,
     // todo: Floats for these?
-    pub aux_2: u8,
-    pub aux_3: u8,
-    pub aux_4: u8,
-    pub aux_5: u8,
-    pub aux_6: u8,
-    pub aux_7: u8,
-    pub aux_8: u8,
+    pub aux_2: u16,
+    pub aux_3: u16,
+    pub aux_4: u16,
+    pub aux_5: u16,
+    pub aux_6: u16,
+    pub aux_7: u16,
+    pub aux_8: u16,
     // todo: telemetry, signal quality etc
 }
