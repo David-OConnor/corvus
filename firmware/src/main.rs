@@ -116,6 +116,10 @@ const DT_IMU: f32 = 1. / IMU_UPDATE_RATE;
 const DT_ATTITUDE: f32 = 1. / UPDATE_RATE_ATTITUDE;
 const DT_VELOCITY: f32 = 1. / UPDATE_RATE_VELOCITY;
 
+/// Block RX reception of packets coming in at a faster rate then this. This prevents external
+/// sources from interfering with other parts of the application by taking too much time.
+const MAX_RF_UPDATE_RATE: f32 = 800.; // Hz
+
 // Max distance from curent location, to point, then base a
 // direct-to point can be, in meters. A sanity check
 // todo: Take into account flight time left.
@@ -377,6 +381,7 @@ mod app {
         flash_onboard: Flash,
         // rtc: Rtc,
         update_timer: Timer<TIM15>,
+        rf_limiter_timer: Timer<TIM16>,
         rotor_timer_a: Timer<TIM2>,
         rotor_timer_b: Timer<TIM3>,
         elrs_timer: Timer<TIM4>,
@@ -569,6 +574,16 @@ mod app {
         );
         update_timer.enable_interrupt(TimerInterrupt::Update);
 
+        let rf_limiter_timer = Timer::new_tim16(
+            dp.TIM16,
+            MAX_RF_UPDATE_RATE,
+            TimerConfig {
+                one_pulse_mode: true,
+                ..Default::default()
+            },
+            &clock_cfg,
+        );
+
         let rotor_timer_cfg = TimerConfig {
             // We use ARPE since we change duty with the timer running.
             auto_reload_preload: true,
@@ -690,6 +705,7 @@ mod app {
                 uart3,
                 // rtc,
                 update_timer,
+                rf_limiter_timer,
                 rotor_timer_a,
                 rotor_timer_b,
                 elrs_timer,
@@ -1097,6 +1113,8 @@ mod app {
     fn elrs_timer_isr(mut cx: elrs_timer_isr::Context) {
         cx.shared.elrs_timer.lock(|timer| {
             timer.clear_interrupt(TimerInterrupt::Update);
+            // elrs::HWtimerCallbackTick(timer);
+            // elrs::HWtimerCallbackTock(timer);
         });
     }
 
@@ -1124,19 +1142,30 @@ mod app {
     //     });
     // }
 
-    #[task(binds = USART3, shared = [uart3, dma, control_channel_data, control_link_stats], priority = 8)]
+    #[task(binds = USART3, shared = [uart3, dma, control_channel_data, control_link_stats, rf_limiter_timer], priority = 6)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
     fn crsf_isr(mut cx: crsf_isr::Context) {
+        // todo: abort if a new update comes before a RF update timer fires
+
         (
             cx.shared.uart3,
             cx.shared.dma,
             cx.shared.control_channel_data,
             cx.shared.control_link_stats,
+            cx.shared.rf_limiter_timer,
         )
-            .lock(|uart, dma, ch_data, link_stats| {
+            .lock(|uart, dma, ch_data, link_stats, rf_limiter_timer| {
                 uart.clear_interrupt(UsartInterrupt::Idle);
+
+                if rf_limiter_timer.is_enabled() {
+                    return;
+                } else {
+                    // rf_limiter_timer.reset_countdown();
+                    rf_limiter_timer.enable();
+                }
+
                 if let Some(crsf_data) =
                     crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8)
                 {

@@ -70,12 +70,15 @@ pub struct _CrsfChannelData {
 }
 
 /// Represents channel data in our end-use format.
-#[derive(Default)]
 pub struct ChannelData {
-    pub roll: f32,     // Aileron, -1. to 1.
-    pub pitch: f32,    // Elevator, -1. to 1.
-    pub throttle: f32, // Throttle, 0. to 1., or -1. to 1. depending on if stick auto-centers.
-    pub yaw: f32,      // Rudder, -1. to 1.
+    /// Aileron, -1. to 1.
+    pub roll: f32,
+    /// Elevator, -1. to 1.
+    pub pitch: f32,
+    /// Throttle, 0. to 1., or -1. to 1. depending on if stick auto-centers.
+    pub throttle: f32,
+    /// Rudder, -1. to 1.
+    pub yaw: f32,
     pub arm_status: ArmStatus,
     pub input_mode: InputModeSwitch,
     pub alt_hold: AltHoldSwitch,

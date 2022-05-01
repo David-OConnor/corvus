@@ -10,14 +10,14 @@
 mod common;
 mod fhss;
 mod lqcalc;
-mod msp;
+// mod msp;
 mod pfd;
 mod lowpassfilter;
 mod rx_main;
 mod ota;
-mod stubborn;
+// mod stubborn;
 mod sx1280_regs;
-mod crsf;
+// mod crsf;
 mod sx1280;
 mod sx1280_hal;
 
@@ -28,11 +28,6 @@ use crate::flight_ctrls::CtrlInputs;
 
 use stm32_hal2::{pac::SPI3, spi::Spi};
 
-pub fn get_inputs(spi: &mut Spi<SPI3>) -> CtrlInputs {
-    // todo: fix this.
-
-    CtrlInputs::default()
-}
 
 // todo: Should this mod be under drivers, or top level? Or a new top-level mod folder called protocols,
 // todo where DSHOT, and our USB comms also is?
