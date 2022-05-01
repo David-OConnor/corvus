@@ -788,8 +788,6 @@ mod app {
                         "Aux5: {} Aux6: {} Aux7: {} Aux8: {}",
                         ch_data.aux_5, ch_data.aux_6, ch_data.aux_7, ch_data.aux_8,
                     );
-
-                    println!("RX buf: {:?}", unsafe { crsf::RX_BUFFER });
                 }
 
                 unsafe {
@@ -1137,7 +1135,20 @@ mod app {
                             *ch_data = data;
                         }
                         crsf::PacketData::LinkStats(stats) => {
-                            // todo
+                            // todo: Link stats struct in Shared.
+                            println!("up RSSI: {}, Uplink qual: {} SNR: {}, tx pwr: {}, down RSSI: {},",
+                            stats.uplink_rssi_1, stats.uplink_link_quality, stats.uplink_snr, stats.uplink_tx_power,
+                            stats.downlink_rssi);
+        //                             result.uplink_rssi_1 = data[0];
+        // result.uplink_rssi_2 = data[1];
+        // result.uplink_link_quality = data[2];
+        // result.uplink_snr = data[3] as i8;
+        // result.active_antenna = data[4];
+        // result.rf_mode = data[5];
+        // result.uplink_tx_power = data[6];
+        // result.downlink_rssi = data[7];
+        // result.downlink_link_quality = data[8];
+        // result.downlink_snr = data[9] as i8;
                         }
                     }
                 }

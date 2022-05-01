@@ -141,31 +141,31 @@ enum FrameType {
 /// https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support
 pub struct LinkStats {
     /// Timestamp these stats were recorded. (TBD format; processed locally; not part of packet from tx).
-    timestamp: u32,
+    pub timestamp: u32,
     /// Uplink - received signal strength antenna 1 (RSSI). RSSI dBm as reported by the RX. Values
     /// vary depending on mode, antenna quality, output power and distance. Ranges from -128 to 0.
-    uplink_rssi_1: u8,
+    pub uplink_rssi_1: u8,
     /// Uplink - received signal strength antenna 2 (RSSI).  	Second antenna RSSI, used in diversity mode
     /// (Same range as rssi_1)
-    uplink_rssi_2: u8,
+    pub uplink_rssi_2: u8,
     /// Uplink - link quality (valid packets). The number of successful packets out of the last
     /// 100 from TX → RX
-    uplink_link_quality: u8,
+    pub uplink_link_quality: u8,
     /// Uplink - signal-to-noise ratio. SNR reported by the RX. Value varies mostly by radio chip
     /// and gets lower with distance (once the agc hits its limit)
-    uplink_snr: i8,
+    pub uplink_snr: i8,
     /// Active antenna for diversity RX (0 - 1)
-    active_antenna: u8,
-    rf_mode: u8,
+    pub active_antenna: u8,
+    pub rf_mode: u8,
     /// Uplink - transmitting power. (mW?) 50mW reported as 0, as CRSF/OpenTX do not have this option
-    uplink_tx_power: u8,
+    pub uplink_tx_power: u8,
     /// Downlink - received signal strength (RSSI). RSSI dBm of telemetry packets received by TX.
-    downlink_rssi: u8,
+    pub downlink_rssi: u8,
     /// Downlink - link quality (valid packets). An LQ indicator of telemetry packets received RX → TX
     /// (0 - 100)
-    downlink_link_quality: u8,
+    pub downlink_link_quality: u8,
     /// Downlink - signal-to-noise ratio. 	SNR reported by the TX for telemetry packets
-    downlink_snr: i8,
+    pub downlink_snr: i8,
 }
 
 /// Used to pass packet data to the main program, returned by the handler triggered in the UART-idle
@@ -263,20 +263,21 @@ impl Packet {
             payload[i] = buf[i + 3];
         }
 
-        let crc = buf[3 + payload_len];
+        let received_crc = buf[payload_len + 3];
 
         let expected_crc = util::calc_crc(
             unsafe { &CRC_LUT },
-            &buf[2..buf.len() - 1],
-            buf.len() as u8 - 3,
+             // len + 2 gets us to the end. -1 to ommit CRC itself, which isn't part of the calculation.
+            &buf[2..len + 1],
+            len as u8 - 1,
         );
 
-        if expected_crc != crc {
+        if expected_crc != received_crc {
             println!(
                 "CRC failed on recieved packet. Expected: {}. Received: {}",
-                expected_crc, crc
+                expected_crc, received_crc
             );
-            println!("RX buf: {:?}", unsafe { RX_BUFFER });
+            println!("Shifted buf: {:?}", buf);
             return Err(DecodeError {});
         };
 
@@ -287,7 +288,7 @@ impl Packet {
             extended_dest: None,
             extended_src: None,
             payload,
-            crc,
+            crc: received_crc,
         })
     }
 
@@ -441,10 +442,7 @@ pub fn handle_packet(
         DestAddr::FlightController => (),
         // Improper destination address from the sender.
         _ => {
-            // todo: We're trigger a char recognition input on FC, which satisfies this
-            // todo req... And, it's throwing bogus for this first char, perhaps as a result
-            // todo of when we start the xfer.
-            // return None;
+            return None;
         }
     }
 
@@ -497,7 +495,6 @@ pub fn handle_packet(
             result = Some(PacketData::ChannelData(channel_data));
         }
         FrameType::LinkStatistics => {
-            println!("Found link statistics. Todo:  Handle.");
             let link_stats = match packet.to_link_stats() {
                 Ok(v) => v,
                 Err(_) => {
@@ -507,11 +504,6 @@ pub fn handle_packet(
         }
         _ => (),
     }
-    //
-    // // Start the next transfer.
-    // unsafe {
-    //     uart.read_dma(&mut RX_BUFFER, rx_chan, Default::default(), dma);
-    // }
 
     result
 }
