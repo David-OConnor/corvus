@@ -245,6 +245,7 @@ pub struct AutopilotStatus {
     pub recover: Option<f32>, // value is MSL alt to hold, eg our alt at time of command.
 }
 
+// todo: Consider putting these mode switches in `control_interface`.
 #[derive(Clone, Copy, PartialEq)]
 pub enum InputModeSwitch {
     /// Acro mode
@@ -256,6 +257,20 @@ pub enum InputModeSwitch {
 impl Default for InputModeSwitch {
     fn default() -> Self {
         Self::Acro
+    }
+}
+
+// todo: Consider putting these mode switches in `control_interface`.
+#[derive(Clone, Copy, PartialEq)]
+pub enum AltHoldSwitch {
+    Disabled,
+    EnabledMsl,
+    EnabledAgl,
+}
+
+impl Default for AltHoldSwitch {
+    fn default() -> Self {
+        Self::Disabled
     }
 }
 
@@ -303,25 +318,25 @@ pub struct CtrlInputs {
     /// Attitude mode: Change altitude
     pub thrust: f32,
 }
-
-impl CtrlInputs {
-    /// Get manual inputs from the radio. Map from the radio input values to our standard values of
-    /// 0. to 1. (throttle), and -1. to 1. (pitch, roll, yaw).
-    pub fn get_manual_inputs(cfg: &UserCfg) -> Self {
-        // todo: Get radio input here.!
-        let pitch = 0.;
-        let roll = 0.;
-        let yaw = 0.;
-        let thrust = 0.;
-
-        Self {
-            pitch: map_linear(pitch, cfg.pitch_input_range, PITCH_IN_RNG),
-            roll: map_linear(roll, cfg.roll_input_range, ROLL_IN_RNG),
-            yaw: map_linear(yaw, cfg.pitch_input_range, YAW_IN_RNG),
-            thrust: map_linear(thrust, cfg.throttle_input_range, THRUST_IN_RNG),
-        }
-    }
-}
+//
+// impl CtrlInputs {
+//     /// Get manual inputs from the radio. Map from the radio input values to our standard values of
+//     /// 0. to 1. (throttle), and -1. to 1. (pitch, roll, yaw).
+//     pub fn get_manual_inputs(cfg: &UserCfg) -> Self {
+//         // todo: Get radio input here.!
+//         let pitch = 0.;
+//         let roll = 0.;
+//         let yaw = 0.;
+//         let thrust = 0.;
+//
+//         Self {
+//             pitch: map_linear(pitch, cfg.pitch_input_range, PITCH_IN_RNG),
+//             roll: map_linear(roll, cfg.roll_input_range, ROLL_IN_RNG),
+//             yaw: map_linear(yaw, cfg.pitch_input_range, YAW_IN_RNG),
+//             thrust: map_linear(thrust, cfg.throttle_input_range, THRUST_IN_RNG),
+//         }
+//     }
+// }
 
 /// Represents parameters at a fixed instant. Can be position, velocity, or accel.
 #[derive(Default)]

@@ -24,7 +24,7 @@
 //     Aux8(u8),
 // }
 
-use crate::flight_ctrls::{ArmStatus, InputModeSwitch};
+use crate::flight_ctrls::{AltHoldSwitch, ArmStatus, InputModeSwitch};
 
 /// Represents data from all ELRS channels, including what channel it is, and the data passed.
 /// [ELRS FAQ](https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support)
@@ -46,67 +46,40 @@ pub struct ElrsChannelData {
     pub aux_6: u8,
     pub aux_7: u8,
     pub aux_8: u8,
-    // todo: telemetry, signal quality etc
 }
 
-/// Represents data from all ELRS channels, including what channel it is, and the data passed.
-/// [ELRS FAQ](https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support)
-/// Assumes "Wide hybrid mode", as described in the FAQ.
+/// Represents CRSF channel data
 #[derive(Default)]
-pub struct _ElrsChannelDataOts {
-    /// Channels 1-4 are 10-bit channels.
-    pub channel_1: u16, // Aileron
-    pub channel_2: u16, // Elevator
-    pub channel_3: u16, // Throttle
-    pub channel_4: u16, // Rudder
-    /// Aux 1 is 2-positions, and must be used for arming. AKA "Channel 5"
-    pub aux_1: crate::ArmStatus,
-    /// Aux 2-8 are 64 or 128-position channels. (6 or 7 bit)
-    pub aux_2: u8,
-    pub aux_3: u8,
-    pub aux_4: u8,
-    pub aux_5: u8,
-    pub aux_6: u8,
-    pub aux_7: u8,
-    pub aux_8: u8,
+pub struct _CrsfChannelData {
+    pub channel_1: u16,
+    pub channel_2: u16,
+    pub channel_3: u16,
+    pub channel_4: u16,
+    pub aux_1: u16,
+    pub aux_2: u16,
+    pub aux_3: u16,
+    pub aux_4: u16,
+    pub aux_5: u16,
+    pub aux_6: u16,
+    pub aux_7: u16,
+    pub aux_8: u16,
+    pub aux_9: u16,
+    pub aux_10: u16,
+    pub aux_11: u16,
+    pub aux_12: u16,
 }
 
-// /// Represents channel data in a useful format.
-// #[derive(Default)]
-// pub struct CrsfChannelData {
-//     pub channel_1: f32, // Aileron
-//     pub channel_2: f32, // Elevator
-//     pub channel_3: f32, // Throttle
-//     pub channel_4: f32, // Rudder
-//     pub aux_1: u16,
-//     pub aux_2: u16,
-//     pub aux_3: u16,
-//     pub aux_4: u16,
-//     pub aux_5: u16,
-//     pub aux_6: u16,
-//     pub aux_7: u16,
-//     pub aux_8: u16,
-//     pub aux_9: u16,
-//     pub aux_10: u16,
-//     pub aux_11: u16,
-//     pub aux_12: u16,
-// }
-
-/// Represents channel data in a useful format.
+/// Represents channel data in our end-use format.
 #[derive(Default)]
 pub struct ChannelData {
-    pub roll: f32,     // Aileron
-    pub pitch: f32,    // Elevator
-    pub throttle: f32, // Throttle
-    pub yaw: f32,      // Rudder
+    pub roll: f32,     // Aileron, -1. to 1.
+    pub pitch: f32,    // Elevator, -1. to 1.
+    pub throttle: f32, // Throttle, 0. to 1., or -1. to 1. depending on if stick auto-centers.
+    pub yaw: f32,      // Rudder, -1. to 1.
     pub arm_status: ArmStatus,
     pub input_mode: InputModeSwitch,
-    // pub aux_3: u16,
-    // pub aux_4: u16,
-    // pub aux_5: u16,
-    // pub aux_6: u16,
-    // pub aux_7: u16,
-    // pub aux_8: u16,
+    pub alt_hold: AltHoldSwitch,
+    // todo: Auto-recover commanded, auto-TO/land/RTB, obstacle avoidance etc.
 }
 
 // todo: Consider moving this to `control_interface.`

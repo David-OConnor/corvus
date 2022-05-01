@@ -39,7 +39,7 @@ use stm32_hal2::{
 
 use crate::{
     control_interface::{ChannelData, LinkStats},
-    flight_ctrls::{ArmStatus, InputModeSwitch},
+    flight_ctrls::{AltHoldSwitch, ArmStatus, InputModeSwitch},
     util,
 };
 
@@ -296,7 +296,7 @@ impl Packet {
 
         // println!("Payload: {:?}", self.payload);
 
-        let mut raw_channels = [0_u16; CRSF_CHANNEL_COUNT];
+        let mut raw_channels = [0_u16; 7];
 
         // Decode channel data
         raw_channels[0] = (data[0] | data[1] << 8) & 0x07FF;
@@ -305,7 +305,7 @@ impl Packet {
         raw_channels[3] = (data[4] >> 1 | data[5] << 7) & 0x07FF;
         raw_channels[4] = (data[5] >> 4 | data[6] << 4) & 0x07FF;
         raw_channels[5] = (data[6] >> 7 | data[7] << 1 | data[8] << 9) & 0x07FF;
-        // raw_channels[6] = (data[8] >> 2 | data[9] << 6) & 0x07FF;
+        raw_channels[6] = (data[8] >> 2 | data[9] << 6) & 0x07FF;
         // raw_channels[7] = (data[9] >> 5 | data[10] << 3) & 0x07FF;
         // raw_channels[8] = (data[11] | data[12] << 8) & 0x07FF;
         // raw_channels[9] = (data[12] >> 3 | data[13] << 5) & 0x07FF;
@@ -324,6 +324,11 @@ impl Packet {
             0..=1_000 => InputModeSwitch::Acro,
             _ => InputModeSwitch::AttitudeCommand,
         };
+        let alt_hold = match raw_channels[6] {
+            0..=667 => AltHoldSwitch::Disabled,
+            668..=1_333 => AltHoldSwitch::EnabledMsl,
+            _ => AltHoldSwitch::EnabledAgl,
+        };
 
         // Note that we could map to CRSF channels (Or to their ELRS-mapped origins), but this is
         // currently set up to map directly to how we use the controls.
@@ -335,6 +340,7 @@ impl Packet {
             yaw: channel_to_val(raw_channels[3], false),
             arm_status,
             input_mode,
+            alt_hold,
         }
     }
 

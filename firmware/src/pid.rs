@@ -17,6 +17,7 @@ use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as dsp_sys;
 
 use crate::{
+    control_interface::ChannelData,
     flight_ctrls::{
         self, AltType, AutopilotStatus, CommandState, CtrlInputs, InputMap, InputMode, Params,
         POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED,
@@ -354,7 +355,8 @@ fn calc_pid_error(
 /// or position.
 pub fn run_velocity(
     params: &Params,
-    inputs: &CtrlInputs,
+    // inputs: &CtrlInputs,
+    ch_data: &ChannelData,
     input_map: &InputMap,
     velocities_commanded: &mut CtrlInputs,
     attitude_commanded: &mut CtrlInputs,
@@ -437,7 +439,7 @@ pub fn run_velocity(
     let mut k_d_roll = coeffs.roll.k_d_attitude;
 
     let eps1 = 0.01;
-    if inputs.pitch > eps1 || inputs.roll > eps1 {
+    if ch_data.pitch > eps1 || ch_data.roll > eps1 {
         commands.loiter_set = false;
     }
 
@@ -525,7 +527,8 @@ pub fn run_velocity(
 /// attitude.
 pub fn run_attitude(
     params: &Params,
-    inputs: &CtrlInputs,
+    // inputs: &CtrlInputs,
+    ch_data: &ChannelData,
     input_map: &InputMap,
     attitudes_commanded: &mut CtrlInputs,
     rates_commanded: &mut CtrlInputs,
@@ -581,10 +584,10 @@ pub fn run_attitude(
 
         InputMode::Attitude => {
             *attitudes_commanded = CtrlInputs {
-                pitch: input_map.calc_pitch_angle(inputs.pitch),
-                roll: input_map.calc_roll_angle(inputs.roll),
-                yaw: input_map.calc_yaw_rate(inputs.yaw),
-                thrust: inputs.thrust,
+                pitch: input_map.calc_pitch_angle(ch_data.pitch),
+                roll: input_map.calc_roll_angle(ch_data.roll),
+                yaw: input_map.calc_yaw_rate(ch_data.yaw),
+                thrust: ch_data.throttle,
             };
         }
         InputMode::Command => {
@@ -679,7 +682,7 @@ pub fn run_rate(
     input_mode: InputMode,
     autopilot_status: &AutopilotStatus,
     cfg: &UserCfg,
-    manual_inputs: &mut CtrlInputs,
+    ch_data: &ChannelData,
     rates_commanded: &mut CtrlInputs,
     pid: &mut PidGroup,
     filters: &mut PidDerivFilters,
@@ -717,10 +720,10 @@ pub fn run_rate(
 
             // todo: Logic if all sticks neutral, to hold that attitude (quaternion)
             *rates_commanded = CtrlInputs {
-                pitch: input_map.calc_pitch_rate(manual_inputs.pitch),
-                roll: input_map.calc_roll_rate(manual_inputs.roll),
-                yaw: input_map.calc_yaw_rate(manual_inputs.yaw),
-                thrust: flight_ctrls::power_from_throttle(manual_inputs.thrust, &power_interp_inst),
+                pitch: input_map.calc_pitch_rate(ch_data.pitch),
+                roll: input_map.calc_roll_rate(ch_data.roll),
+                yaw: input_map.calc_yaw_rate(ch_data.yaw),
+                thrust: flight_ctrls::power_from_throttle(ch_data.throttle, &power_interp_inst),
             };
 
             if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
@@ -817,10 +820,10 @@ pub fn run_rate(
                 // input_map.calc_thrust_pwr(pid.thrust.out());
                 pid.thrust.out()
             } else {
-                manual_inputs.thrust
+                ch_data.throttle
             }
         }
-        InputMode::Attitude => manual_inputs.thrust,
+        InputMode::Attitude => ch_data.throttle,
         InputMode::Command => rates_commanded.thrust,
     };
 

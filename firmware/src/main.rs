@@ -363,7 +363,7 @@ mod app {
         pid_rate: PidGroup,
         control_channel_data: ChannelData,
         control_link_stats: LinkStats,
-        manual_inputs: CtrlInputs,
+        // manual_inputs: CtrlInputs,
         axis_locks: AxisLocks,
         current_pwr: RotorPower,
         dma: Dma<DMA1>,
@@ -677,7 +677,7 @@ mod app {
                 pid_rate: Default::default(),
                 control_channel_data: Default::default(),
                 control_link_stats: Default::default(),
-                manual_inputs: Default::default(),
+                // manual_inputs: Default::default(),
                 axis_locks: Default::default(),
                 current_pwr: Default::default(),
                 dma,
@@ -718,7 +718,7 @@ mod app {
     // todo: Remove rotor timers, spi, and dma from this ISR; we only use it for tresting DSHOT
     #[task(
     binds = TIM1_BRK_TIM15,
-    shared = [current_params, manual_inputs, input_map, current_pwr,
+    shared = [current_params, input_map, current_pwr,
     velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
     dma, rotor_timer_a, rotor_timer_b, ahrs, axis_locks, control_channel_data, control_link_stats,
@@ -825,7 +825,7 @@ mod app {
 
         (
             cx.shared.current_params,
-            cx.shared.manual_inputs,
+            cx.shared.control_channel_data,
             cx.shared.input_map,
             cx.shared.current_pwr,
             cx.shared.velocities_commanded,
@@ -843,7 +843,7 @@ mod app {
         )
             .lock(
                 |params,
-                 manual_inputs,
+                 control_channel_data,
                  input_map,
                  current_pwr,
                  velocities_commanded,
@@ -876,7 +876,7 @@ mod app {
                         _ => {
                             pid::run_attitude(
                                 params,
-                                manual_inputs,
+                                control_channel_data,
                                 input_map,
                                 attitudes_commanded,
                                 rates_commanded,
@@ -896,7 +896,7 @@ mod app {
                                 {
                                     pid::run_velocity(
                                         params,
-                                        manual_inputs,
+                                        control_channel_data,
                                         input_map,
                                         velocities_commanded,
                                         attitudes_commanded,
@@ -926,7 +926,7 @@ mod app {
         });
     }
 
-    #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, input_mode, manual_inputs, input_map, autopilot_status,
+    #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, input_mode, control_channel_data, input_map, autopilot_status,
     rates_commanded, pid_rate, pid_deriv_filters, imu_filters, current_pwr, ctrl_coeffs, command_state, cs_imu, user_cfg,
     rotor_timer_a, rotor_timer_b], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
@@ -958,7 +958,7 @@ mod app {
 
         (
             cx.shared.current_params,
-            cx.shared.manual_inputs,
+            cx.shared.control_channel_data,
             cx.shared.input_mode,
             cx.shared.autopilot_status,
             cx.shared.rates_commanded,
@@ -975,7 +975,7 @@ mod app {
         )
             .lock(
                 |params,
-                 manual_inputs,
+                 control_channel_data,
                  input_mode,
                  autopilot_status,
                  rates_commanded,
@@ -1001,7 +1001,7 @@ mod app {
                         *input_mode,
                         autopilot_status,
                         cfg,
-                        manual_inputs,
+                        control_channel_data,
                         rates_commanded,
                         pid_inner,
                         filters,
@@ -1100,14 +1100,15 @@ mod app {
         });
     }
 
-    #[task(binds = EXTI15_10, shared = [user_cfg, manual_inputs], local = [spi3], priority = 4)]
+    #[task(binds = EXTI15_10, shared = [user_cfg, control_channel_data], local = [spi3], priority = 4)]
     /// We use this ISR when receiving data from the radio, via ELRS
     fn radio_data_isr(mut cx: radio_data_isr::Context) {
         gpio::clear_exti_interrupt(14);
-        (cx.shared.user_cfg, cx.shared.manual_inputs).lock(|cfg, manual_inputs| {
-            // *manual_inputs = elrs::get_inputs(cx.local.spi3);
-            *manual_inputs = CtrlInputs::get_manual_inputs(cfg); // todo: this?
-        })
+        // todo: for when you impl native ELRS
+        // (cx.shared.user_cfg, cx.shared.control_channel_data).lock(|cfg, ch_data| {
+        //     // *manual_inputs = elrs::get_inputs(cx.local.spi3);
+        //     // *ch_data = CtrlInputs::get_manual_inputs(cfg); // todo: this?
+        // })
     }
 
     // #[task(binds = DMA1_CH6, shared = [dma, spi2, cs_elrs], priority = 3)]
