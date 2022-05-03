@@ -38,10 +38,10 @@ use crate::flight_ctrls::Rotor;
 // (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period.
 
 cfg_if! {
-    if #[cfg(feature = "mercury-h7")] {
+    if #[cfg(feature = "h7")] {
         pub const DSHOT_PSC_600: u32 = 0;
         pub const DSHOT_ARR_600: u32 = 332;
-    } else if #[cfg(feature = "mercury-g4")] {
+    } else if #[cfg(feature = "g4")] {
         // 170Mhz tim clock. Results in 600.707kHz.
         pub const DSHOT_PSC_600: u16 = 0;
         pub const DSHOT_ARR_600: u16 = 282;
@@ -64,7 +64,7 @@ static mut PAYLOAD_R3_4: [u16; 36] = [0; 36];
 #[derive(Copy, Clone)]
 #[repr(u16)]
 pub enum Command {
-    /// todo: Motor Stop is perhaps not yet implemented.
+    /// Note: Motor Stop is perhaps not yet implemented.
     MotorStop = 0,
     Beacon1 = 1,
     Beacon2 = 2,
@@ -134,19 +134,11 @@ pub fn setup_timers(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
     timer_b.enable_pwm_output(Rotor::R4.tim_channel(), OutputCompare::Pwm1, 0.);
 }
 
-// todo: Do we need compiler fences between payload seup, and starting the DMA writes? Consider adding if you
-// todo run into trouble.
-
-/// Stop all motors, by setting their power to 0.
+/// Stop all motors, by setting their power to 0. Note that the Motor Stop command may not
+/// be implemented, and this approach gets the job done. Run this at program init, so the ESC
+/// get its required zero-throttle setting, generally required by ESC firmware to complete
+/// initialization.
 pub fn stop_all(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
-    // todo: Motor stop may not work / may not be implemented, so consider changing to a 0 power signal.
-    // setup_payload(Rotor::R1, CmdType::Command(Command::MotorStop));
-    // setup_payload(Rotor::R2, CmdType::Command(Command::MotorStop));
-    // setup_payload(Rotor::R3, CmdType::Command(Command::MotorStop));
-    // setup_payload(Rotor::R4, CmdType::Command(Command::MotorStop));
-    //
-    // send_payload_a(timer_a, dma);
-    // send_payload_b(timer_b, dma);
     set_power_a(Rotor::R1, Rotor::R2, 0., 0., timer_a, dma);
     set_power_b(Rotor::R3, Rotor::R4, 0., 0., timer_b, dma);
 }
@@ -207,7 +199,6 @@ pub fn setup_payload(rotor: Rotor, cmd: CmdType) {
     let crc = (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F;
     let mut packet = (packet << 4) | crc;
 
-    // todo: method on rotor for payload?
     let (payload, offset) = unsafe {
         match rotor {
             Rotor::R1 => (&mut PAYLOAD_R1_2, 0),
@@ -270,12 +261,10 @@ fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
 
     // Set back to alternate function.
     unsafe {
-        (*pac::GPIOA::ptr())
-            .moder
-            .modify(|_, w| w.moder0().bits(0b10));
-        (*pac::GPIOA::ptr())
-            .moder
-            .modify(|_, w| w.moder1().bits(0b10));
+        (*pac::GPIOA::ptr()).moder.modify(|_, w| {
+            w.moder0().bits(0b10);
+            w.moder1().bits(0b10)
+        });
     }
 
     unsafe {
@@ -286,9 +275,9 @@ fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
             Rotor::R1.dma_channel(),
             Default::default(),
             dma,
+            true,
         );
     }
-
     // Note that timer enabling is handled by `write_dma_burst`.
 }
 
@@ -299,12 +288,10 @@ fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     dma.stop(Rotor::R3.dma_channel());
 
     unsafe {
-        (*pac::GPIOB::ptr())
-            .moder
-            .modify(|_, w| w.moder0().bits(0b10));
-        (*pac::GPIOB::ptr())
-            .moder
-            .modify(|_, w| w.moder1().bits(0b10));
+        (*pac::GPIOB::ptr()).moder.modify(|_, w| {
+            w.moder0().bits(0b10);
+            w.moder1().bits(0b10)
+        });
     }
 
     unsafe {
@@ -315,6 +302,7 @@ fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
             Rotor::R3.dma_channel(),
             Default::default(),
             dma,
+            false,
         );
     }
 }

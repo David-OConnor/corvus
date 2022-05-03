@@ -6,9 +6,6 @@
 //! Adapted from the official ELRS example here:
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/rx_main.cpp
 
-// todo: Re MSP:
-// "it's not needed for the basic link but it's needed some advanced tlm and 2way communication"
-
 use core::mem;
 
 use cortex_m::delay::Delay;
@@ -21,16 +18,7 @@ use stm32_hal2::{
 use defmt::println;
 
 use super::{
-    common::{
-        self, RATE_DEFAULT, connectionState, connectionHasModelMatch, ConnectionState,
-        SYNC_PACKET_RATE_OFFSET,
-        SYNC_PACKET_RATE_MASK,
-        SYNC_PACKET_SWITCH_MASK,
-        SYNC_PACKET_SWITCH_OFFSET,
-        SYNC_PACKET_TLM_OFFSET,
-        SYNC_PACKET_TLM_MASK,
-        *,
-    },
+    common::*,
     ota::*,
     fhss, lqcalc, pfd,
     lowpassfilter::LPF,
@@ -175,22 +163,22 @@ unsafe fn getRFlinkInfo() {
     if antenna == 0 {
         if rssiDBM > 0 { rssiDBM = 0; }
         // BetaFlight/iNav expect positive values for -dBm (e.g. -80dBm -> sent as 80)
-        crsf.LinkStatistics.uplink_RSSI_1 = -rssiDBM;
+        // crsf.LinkStatistics.uplink_RSSI_1 = -rssiDBM;
     } else {
         if rssiDBM > 0 { rssiDBM = 0; }
         // BetaFlight/iNav expect positive values for -dBm (e.g. -80dBm -> sent as 80)
         // May be overwritten below if DEBUG_BF_LINK_STATS is set
-        crsf.LinkStatistics.uplink_RSSI_2 = -rssiDBM;
+        // crsf.LinkStatistics.uplink_RSSI_2 = -rssiDBM;
     }
 
-    crsf.PackedRCdataOut.ch15 = UINT10_to_CRSF(map(constrain(rssiDBM, ExpressLRS_currAirRate_RFperfParams.RXsensitivity, -50),
-                                                   ExpressLRS_currAirRate_RFperfParams.RXsensitivity, -50, 0, 1023));
-    crsf.PackedRCdataOut.ch14 = UINT10_to_CRSF(fmap(uplinkLQ, 0, 100, 0, 1023));
-
-    crsf.LinkStatistics.active_antenna = antenna;
-    crsf.LinkStatistics.uplink_SNR = Radio.LastPacketSNR;
-
-    crsf.LinkStatistics.rf_Mode = ExpressLRS_currAirRate_Modparams.enum_rate;
+    // crsf.PackedRCdataOut.ch15 = UINT10_to_CRSF(map(constrain(rssiDBM, ExpressLRS_currAirRate_RFperfParams.RXsensitivity, -50),
+    //                                                ExpressLRS_currAirRate_RFperfParams.RXsensitivity, -50, 0, 1023));
+    // crsf.PackedRCdataOut.ch14 = UINT10_to_CRSF(fmap(uplinkLQ, 0, 100, 0, 1023));
+    //
+    // crsf.LinkStatistics.active_antenna = antenna;
+    // crsf.LinkStatistics.uplink_SNR = Radio.LastPacketSNR;
+    //
+    // crsf.LinkStatistics.rf_Mode = ExpressLRS_currAirRate_Modparams.enum_rate;
 }
 
 unsafe fn SetRFLinkRate(index: u8, hwTimer: &mut Timer<TIM4>) // Set speed of RF link
@@ -212,7 +200,7 @@ unsafe fn SetRFLinkRate(index: u8, hwTimer: &mut Timer<TIM4>) // Set speed of RF
         0,
         uidMacSeedGet(),
         CRCInitializer,
-        (ModParams.radio_type == RADIO_TYPE_SX128x_FLRC), // #endif
+        (ModParams.radio_type == RadioType::SX128x_FLRC), // #endif
     );
 
     // Wait for (11/10) 110% of time it takes to cycle through all freqs in FHSS table (in ms)
@@ -248,7 +236,7 @@ unsafe fn HandleFHSS() -> bool {
     let modresultTLM: u8 =
         (NonceRX + 1) % (TLMratioEnumToValue(ExpressLRS_currAirRate_Modparams.TLMinterval));
 
-    if modresultTLM != 0 || ExpressLRS_currAirRate_Modparams.TLMinterval == TLM_RATIO_NO_TLM
+    if modresultTLM != 0 || ExpressLRS_currAirRate_Modparams.TLMinterval == TlmRatio::NO_TLM
     // if we are about to send a tlm response don't bother going back to rx
     {
         Radio.RXnb();
@@ -264,7 +252,7 @@ unsafe fn HandleSendTelemetryResponse() -> bool {
         (NonceRX + 1) % TLMratioEnumToValue(ExpressLRS_currAirRate_Modparams.TLMinterval);
 
     if connectionState == ConnectionState::disconnected
-        || ExpressLRS_currAirRate_Modparams.TLMinterval == TLM_RATIO_NO_TLM
+        || ExpressLRS_currAirRate_Modparams.TLMinterval == TlmRatio::NO_TLM
         || alreadyTLMresp == true
         || modresult != 0
     {
@@ -283,15 +271,15 @@ unsafe fn HandleSendTelemetryResponse() -> bool {
         // The value in linkstatistics is "positivized" (inverted polarity)
         // and must be inverted on the TX side. Positive values are used
         // so save a bit to encode which antenna is in use
-        Radio.TXdataBuffer[2] = crsf.LinkStatistics.uplink_RSSI_1 | (antenna << 7);
-        Radio.TXdataBuffer[3] = crsf.LinkStatistics.uplink_RSSI_2 | (connectionHasModelMatch << 7);
-        Radio.TXdataBuffer[4] = crsf.LinkStatistics.uplink_SNR;
-        Radio.TXdataBuffer[5] = crsf.LinkStatistics.uplink_Link_quality;
-        Radio.TXdataBuffer[6] = if MspReceiver.GetCurrentConfirm() {
-            1
-        } else {
-            0
-        };
+        // Radio.TXdataBuffer[2] = crsf.LinkStatistics.uplink_RSSI_1 | (antenna << 7);
+        // Radio.TXdataBuffer[3] = crsf.LinkStatistics.uplink_RSSI_2 | (connectionHasModelMatch << 7);
+        // Radio.TXdataBuffer[4] = crsf.LinkStatistics.uplink_SNR;
+        // Radio.TXdataBuffer[5] = crsf.LinkStatistics.uplink_Link_quality;
+        // Radio.TXdataBuffer[6] = if MspReceiver.GetCurrentConfirm() {
+        //     1
+        // } else {
+        //     0
+        // };
 
         NextTelemetryType = ELRS_TELEMETRY_TYPE_DATA;
         // Start the count at 1 because the next will be DATA and doing +1 before checking
@@ -386,7 +374,7 @@ pub unsafe fn HWtimerCallbackTick(hwTimer: &mut Timer<TIM4>) {
 
     // Save the LQ value before the inc() reduces it by 1
     uplinkLQ = LQCalc.getLQ();
-    crsf.LinkStatistics.uplink_Link_quality = uplinkLQ;
+    // crsf.LinkStatistics.uplink_Link_quality = uplinkLQ;
     // Only advance the LQI period counter if we didn't send Telemetry this period
     if !alreadyTLMresp {
         LQCalc.inc();
@@ -394,7 +382,7 @@ pub unsafe fn HWtimerCallbackTick(hwTimer: &mut Timer<TIM4>) {
 
     alreadyTLMresp = false;
     alreadyFHSS = false;
-    crsf.RXhandleUARTout();
+    // crsf.RXhandleUARTout();
 }
 
 //////////////////////////////////////////////////////////////
@@ -570,7 +558,7 @@ unsafe fn ProcessRfPacket_RC() {
 
     let telemetryConfirmValue: bool = UnpackChannelData(
         Radio.RXdataBuffer,
-        &crsf,
+        // &crsf,
         unsafe { NonceRX },
         TLMratioEnumToValue(ExpressLRS_currAirRate_Modparams.TLMinterval),
     );
@@ -583,7 +571,7 @@ unsafe fn ProcessRfPacket_RC() {
     //             newChannelsAvailable = true;
     //         }
     //     } else {
-    crsf.sendRCFrameToFC();
+    // crsf.sendRCFrameToFC();
     // }
     // }
 }
@@ -710,8 +698,8 @@ unsafe fn ProcessRFPacket(status: SX12xxDriverCommon::rx_status, hwTimer: &mut T
 }
 
 // todo: Move this call to the main fn once you figure out where it goes.
-unsafe fn RXdoneISR(status: SX12xxDriverCommon::rx_status) {
-    ProcessRFPacket(status);
+unsafe fn RXdoneISR(status: SX12xxDriverCommon::rx_status, hwTimer: &mut Timer<TIM4>) {
+    ProcessRFPacket(status, hwTimer);
 }
 
 // todo: Move this call to the main fn once you figure out where it goes.
@@ -780,7 +768,7 @@ unsafe fn setupBindingFromConfig() {
     }
 }
 
-fn setupRadio() {
+fn setupRadio(hwTimer: &mut Timer<TIM4>) {
     Radio.currFreq = GetInitialFreq();
 
     let init_success: bool = Radio.Begin();
@@ -801,7 +789,7 @@ fn setupRadio() {
     Radio.TXdoneCallback = &TXdoneISR;
 
     unsafe {
-        SetRFLinkRate(RATE_DEFAULT);
+        SetRFLinkRate(RATE_DEFAULT, hwTimer);
         RFmodeCycleMultiplier = 1;
     }
 }
@@ -812,20 +800,9 @@ unsafe fn updateTelemetryBurst() {
     }
     telemBurstValid = true;
 
-    let hz: u32 = RateEnumToHz(ExpressLRS_currAirRate_Modparams.enum_rate);
-    let ratiodiv: u32 = TLMratioEnumToValue(ExpressLRS_currAirRate_Modparams.TLMinterval);
-    // telemInterval = 1000 / (hz / ratiodiv);
-    // burst = TELEM_MIN_LINK_INTERVAL / telemInterval;
-    // This ^^^ rearranged to preserve precision vvv
-    telemetryBurstMax = (TELEM_MIN_LINK_INTERVAL as u32 * hz / ratiodiv / 1_000) as u8;
-
-    // Reserve one slot for LINK telemetry
-    if telemetryBurstMax > 1 {
-        telemetryBurstMax -= 1;
-    } else {
-        telemetryBurstMax = 1;
-    }
-    //println!("TLMburst: {}", telemetryBurstMax);
+    let hz: u32 = CurrAirRateModParams.enum_rate.hz();
+    let ratiodiv: u32 = CurrAirRateModParams.TLMinterval.value();
+    telemetryBurstMax = TLMBurstMaxForRateRatio(hz, ratiodiv);
 
     // Notify the sender to adjust its expected throughput
     TelemetrySender.UpdateTelemetryRate(hz as u16, ratiodiv as u8, telemetryBurstMax);
@@ -833,7 +810,7 @@ unsafe fn updateTelemetryBurst() {
 
 /// If not connected will rotate through the RF modes looking for sync
 /// and blink LED
-unsafe fn cycleRfMode(now: u32) {
+unsafe fn cycleRfMode(now: u32, hwTimer: &mut Timer<TIM4>) {
     if connectionState == ConnectionState::connected || connectionState == ConnectionState::wifiUpdate || InBindingMode {
         return;
     }
@@ -844,38 +821,38 @@ unsafe fn cycleRfMode(now: u32) {
         RFmodeLastCycled = now;
         LastSyncPacket = now; // reset this variable
         SendLinkStatstoFCForcedSends = 2;
-        SetRFLinkRate(scanIndex % RATE_MAX); // switch between rates
+        SetRFLinkRate(scanIndex % RATE_MAX, hwTimer); // switch between rates
         LQCalc.reset();
         // Display the current air rate to the user as an indicator something is happening
         scanIndex += 1;
         Radio.RXnb();
-        INFOLN("%u", ExpressLRS_currAirRate_Modparams, interval);
+        println!("{}", ExpressLRS_currAirRate_Modparams.interval);
 
         // Switch to FAST_SYNC if not already in it (won't be if was just connected)
         RFmodeCycleMultiplier = 1;
     } // if time to switch RF mode
 }
 
-unsafe fn updateBindingMode() {
+unsafe fn updateBindingMode(hwTimer: &mut Timer<TIM4>) {
     // If the eeprom is indicating that we're not bound
     // and we're not already in binding mode, enter binding
     if !config.GetIsBound() && !unsafe { InBindingMode } {
-        INFOLN("RX has not been bound, enter binding mode...");
-        EnterBindingMode();
+        println!("RX has not been bound, enter binding mode...");
+        EnterBindingMode(hwTimer);
     }
     // If in binding mode and the bind packet has come in, leave binding mode
     else if config.GetIsBound() && unsafe { InBindingMode } {
-        ExitBindingMode();
+        ExitBindingMode(hwtimer);
     }
 
     // #ifndef MY_UID
     // If the power on counter is >=3, enter binding and clear counter
-    if (config.GetPowerOnCounter() >= 3) {
+    if config.GetPowerOnCounter() >= 3 {
         config.SetPowerOnCounter(0);
         config.Commit();
 
-        INFOLN("Power on counter >=3, enter binding mode...");
-        EnterBindingMode();
+        println!("Power on counter >=3, enter binding mode...");
+        EnterBindingMode(hwTimer);
     }
     // #endif
 }
@@ -889,7 +866,7 @@ unsafe fn checkSendLinkStatsToFc(now: u32) {
         if (connectionState != ConnectionState::disconnected && ConnectionState::connectionHasModelMatch)
             || SendLinkStatstoFCForcedSends != 0
         {
-            crsf.sendLinkStatisticsToFC();
+            // crsf.sendLinkStatisticsToFC();
             SendLinkStatstoFCintervalLastSent = now;
             if SendLinkStatstoFCForcedSends != 0 {
                 SendLinkStatstoFCForcedSends -= 1;
@@ -898,11 +875,11 @@ unsafe fn checkSendLinkStatsToFc(now: u32) {
     }
 }
 
-fn setup(hwTimer: &mut Timer<TIM4>) {
+fn setup(hwTimer: &mut Timer<TIM4>, delay: &mut Delay) {
     setupTarget();
 
     // Init EEPROM and load config, checking powerup count
-    unsafe { setupConfigAndPocCheck(); }
+    unsafe { setupConfigAndPocCheck(delay); }
 
     println!("ExpressLRS Module Booting...");
 
@@ -915,21 +892,11 @@ fn setup(hwTimer: &mut Timer<TIM4>) {
         fhss::randomiseFHSSsequence(uidMacSeedGet());
     }
 
-    setupRadio();
+    setupRadio(hwTimer);
 
     if unsafe { connectionState } != ConnectionState::radioFailed {
-        // RFnoiseFloor = MeasureNoiseFloor(); //TODO move MeasureNoiseFloor to driver libs
-        // println!("RF noise floor: {} dBm", RFnoiseFloor);
-
-        hwTimer.callbackTock = &HWtimerCallbackTock;
-        hwTimer.callbackTick = &HWtimerCallbackTick;
-
-        unsafe {
-            MspReceiver.SetDataToReceive(ELRS_MSP_BUFFER, MspData, ELRS_MSP_BYTES_PER_CALL);
-        }
-
         Radio.RXnb();
-        crsf.Begin();
+        // crsf.Begin();
         hwTimer.init();
     }
 
@@ -938,21 +905,20 @@ fn setup(hwTimer: &mut Timer<TIM4>) {
 
 unsafe fn loop_(hwTimer: &mut Timer<TIM4>) {
     now: u32 = millis();
-    HandleUARTin();
-    if hwTimer.running == false {
-        crsf.RXhandleUARTout();
+    if hwTimer.enabled() == false {
+        // crsf.RXhandleUARTout();
     }
 
     devicesUpdate(now);
 
     if config.IsModified() && unsafe { !InBindingMode } {
         Radio.SetTxIdleMode();
-        LostConnection();
+        LostConnection(hwTimer);
         config.Commit();
         devicesTriggerEvent();
     }
 
-    if connectionState > ConnectionState::MODE_STATES {
+    if connectionState > ConnectionState::MODE_STATES as u8 {
         return;
     }
 
@@ -985,7 +951,7 @@ unsafe fn loop_(hwTimer: &mut Timer<TIM4>) {
     }
 
     unsafe {
-        cycleRfMode(now);
+        cycleRfMode(now, hwTimer: &mut Timer<TIM4>);
         servosUpdate(now);
     }
 
@@ -996,7 +962,7 @@ unsafe fn loop_(hwTimer: &mut Timer<TIM4>) {
         < ((now - localLastValidPacket) as i32))
     // check if we lost conn.
     {
-        LostConnection();
+        LostConnection(hwTimer);
     }
 
     if connectionState == ConnectionState::tentative
@@ -1010,8 +976,8 @@ unsafe fn loop_(hwTimer: &mut Timer<TIM4>) {
 
     unsafe { checkSendLinkStatsToFc(now) };
 
-    if (RXtimerState == tim_tentative)
-        && (now - GotConnectionMillis) > ConsiderConnGoodMillis
+    if RXtimerState == tim_tentative
+        && now - GotConnectionMillis > ConsiderConnGoodMillis
         && OffsetDx.abs() <= 5
     {
         RXtimerState = tim_locked;
@@ -1030,10 +996,10 @@ unsafe fn loop_(hwTimer: &mut Timer<TIM4>) {
         }
     }
     unsafe { updateTelemetryBurst() };
-    updateBindingMode();
+    updateBindingMode(hwTimer);
 }
 
-unsafe fn EnterBindingMode() {
+unsafe fn EnterBindingMode(hwTimer: &mut Timer<TIM4>) {
     if connectionState == ConnectionState::connected || unsafe { InBindingMode } {
         // Don't enter binding if:
         // - we're already connected
@@ -1058,7 +1024,7 @@ unsafe fn EnterBindingMode() {
 
     // Start attempting to bind
     // Lock the RF rate and freq while binding
-    SetRFLinkRate(RATE_BINDING);
+    SetRFLinkRate(RATE_BINDING, hwTimer);
     Radio.SetFrequencyReg(GetInitialFreq());
     // If the Radio Params (including InvertIQ) parameter changed, need to restart RX to take effect
     Radio.RXnb();
@@ -1092,25 +1058,6 @@ unsafe fn ExitBindingMode(hwTimer: &mut Timer<TIM4>) {
     unsafe { InBindingMode = false };
     println!("Exiting binding mode");
     devicesTriggerEvent();
-}
-
-unsafe fn OnELRSBindMSP(packet: &[u8]) {
-    for i in 1..=4 {
-        UID[i + 1] = packet[i];
-    }
-
-    println!(
-        "New UID = {}, {}, {}, {}, {}, {}",
-        UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]
-    );
-
-    // Set new UID in eeprom
-    config.SetUID(UID);
-
-    // Set eeprom byte to indicate RX is bound
-    config.SetIsBound(true);
-
-    // EEPROM commit will happen on the main thread in ExitBindingMode()
 }
 
 fn UpdateModelMatch(model: u8) {

@@ -8,12 +8,14 @@
 //!
 //! Reviewed against source files: 2022-03-19
 
+use core::mem;
+
 use super::sx1280_regs::{
     FlrcBandwidths, FlrcCodingRates, FlrcGaussianFilter, LoRaBandwidths, LoRaCodingRates,
     LoRaSpreadingFactors,
 };
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum TlmRatio {
     NO_TLM = 0,
@@ -114,8 +116,8 @@ impl RfRates {
     }
 }
 
-#[derive(Copy, Clone)]
-enum RadioType {
+#[derive(Copy, Clone, PartialEq)]
+pub enum RadioType {
     SX127x_LORA,
     SX128x_LORA,
     SX128x_FLRC,
@@ -360,13 +362,9 @@ fn enumRatetoIndex(rate: u8) -> u8 {
     }
 }
 
-pub static mut CurrAirRateModParams: ModSettings = ModSettings {
+pub static mut CurrAirRateModParams: ModSettings = mem::zeroed();
 
-};
-
-pub static mut CurrAirRateRfPerfParams: PrefParams = PrefParams {
-
-};
+pub static mut CurrAirRateRfPerfParams: PrefParams = mem::zeroed();
 
 pub static mut connectionState: ConnectionState = ConnectionState::disconnected;
 pub static mut connectionHasModelMatch: bool = false;

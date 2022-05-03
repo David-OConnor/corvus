@@ -23,7 +23,7 @@ use crate::{
         POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED,
     },
     util::IirInstWrapper,
-    UserCfg, DT_ATTITUDE,
+    ArmStatus, UserCfg, DT_ATTITUDE,
 };
 
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
@@ -693,10 +693,12 @@ pub fn run_rate(
     coeffs: &CtrlCoeffGroup,
     max_speed_ver: f32,
     input_map: &InputMap,
+    arm_status: ArmStatus,
     dt: f32,
 ) {
     match input_mode {
         InputMode::Acro => {
+            // todo: Power interp not yet implemented.
             let power_interp_inst = dsp_sys::arm_linear_interp_instance_f32 {
                 nValues: 11,
                 x1: 0.,
@@ -718,7 +720,7 @@ pub fn run_rate(
                 .as_mut_ptr(),
             };
 
-            // todo: Logic if all sticks neutral, to hold that attitude (quaternion)
+            // todo: It pitch or roll stick is neutral, hold that attitude (quaternion)
             *rates_commanded = CtrlInputs {
                 pitch: input_map.calc_pitch_rate(ch_data.pitch),
                 roll: input_map.calc_roll_rate(ch_data.roll),
@@ -820,7 +822,7 @@ pub fn run_rate(
                 // input_map.calc_thrust_pwr(pid.thrust.out());
                 pid.thrust.out()
             } else {
-                ch_data.throttle
+                flight_ctrls::apply_throttle_idle(ch_data.throttle)
             }
         }
         InputMode::Attitude => ch_data.throttle,
@@ -835,6 +837,7 @@ pub fn run_rate(
         current_pwr,
         rotor_timer_a,
         rotor_timer_b,
+        arm_status,
         dma,
     );
 }

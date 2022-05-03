@@ -19,7 +19,7 @@ use stm32_hal2::{
     flash::Flash,
     gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM2, TIM3, TIM4, USART3},
+    pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM16, TIM2, TIM3, TIM4, USART3},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{Timer, TimerConfig, TimerInterrupt},
@@ -30,9 +30,6 @@ use stm32_hal2::{
 use stm32_hal2::clocks::PllCfg;
 
 use defmt::println;
-
-// static mut TEMP_BUF: [u8; 48] = [0_u8; 48]; // todo temp!!
-// static mut TEMP_I: usize = 0;
 
 // todo: Low power mode when idle to save battery (minor), and perhaps improve lifetime.
 
@@ -135,7 +132,7 @@ static LOOP_I: AtomicUsize = AtomicUsize::new(0);
 static CRSF_RX_IN_PROG: AtomicBool = AtomicBool::new(false);
 
 // Enable this to print parameters (eg location, altitude, attitude, angular rates etc) to the console.
-const DEBUG_PARAMS: bool = true;
+// const DEBUG_PARAMS: bool = true;
 
 // todo: Course set mode. Eg, point at thing using controls, activate a button,
 // todo then the thing flies directly at the target.
@@ -400,6 +397,8 @@ mod app {
     #[local]
     struct Local {
         spi3: Spi<SPI3>,
+        arm_signals_received: u8,
+        disarm_signals_received: u8,
     }
 
     #[init]
@@ -608,10 +607,10 @@ mod app {
             }
         }
 
+        dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
+
         // todo: Set this up appropriately.
         let elrs_timer = Timer::new_tim4(dp.TIM4, 1., Default::default(), &clock_cfg);
-
-        dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
 
         let mut user_cfg = UserCfg::default();
 
@@ -624,6 +623,10 @@ mod app {
             &mut rotor_timer_b,
             &mut dma,
         );
+
+        // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
+        dshot::stop_all(&mut rotor_timer_a, &mut rotor_timer_b, &mut dma);
+        delay.delay_ms(500);
 
         cfg_if! {
             if #[cfg(feature = "g4")] {
@@ -719,7 +722,11 @@ mod app {
                 command_state: Default::default(),
                 ahrs,
             },
-            Local { spi3 },
+            Local {
+                spi3,
+                arm_signals_received: 0,
+                disarm_signals_received: 0,
+            },
             init::Monotonics(),
         )
     }
@@ -731,6 +738,8 @@ mod app {
         }
     }
 
+    // todo: Go through these tasks, and make sure they're not reserving unneded shared params.
+
     // todo: Remove rotor timers, spi, and dma from this ISR; we only use it for tresting DSHOT
     #[task(
     binds = TIM1_BRK_TIM15,
@@ -739,6 +748,8 @@ mod app {
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
     dma, rotor_timer_a, rotor_timer_b, ahrs, axis_locks, control_channel_data, control_link_stats,
     ],
+    local = [arm_signals_received, disarm_signals_received],
+
     priority = 2
     )]
     /// This runs periodically, on a ~1kHz timer. It's used to trigger the attitude and velocity PID loops, ie for
@@ -748,99 +759,57 @@ mod app {
 
         static mut i: usize = 0; // todo temp
 
-        unsafe {
-            // println!("CRSF: {:?}", TEMP_BUF);
-        }
+        // todo: Printing channel data here is temporary, to debug.
+        // (
+        //     cx.shared.current_params,
+        //     cx.shared.ahrs,
+        //     cx.shared.control_channel_data,
+        //     cx.shared.control_link_stats,
+        // )
+        //     .lock(|params, ahrs, ch_data, link_stats| {
+        //         // if LOOP_I.fetch_add(1,Ordering::Acquire) % 100 == 0 {
+        //
+        //         if unsafe { i } % 2_000 == 0 {
+        //             // todo temp
+        //             println!(
+        //                 "IMU Data: Ax {}, Ay: {}, Az: {}",
+        //                 params.a_x, params.a_y, params.a_z
+        //             );
+        //
+        //             println!(
+        //                 "IMU Data: roll {}, pitch: {}, yaw: {}",
+        //                 params.v_roll, params.v_pitch, params.v_yaw
+        //             );
+        //
+        //             println!(
+        //                 "Attitude: roll {}, pitch: {}, yaw: {}",
+        //                 params.s_roll, params.s_pitch, params.s_yaw
+        //             );
+        //
 
-        (
-            cx.shared.command_state,
-            cx.shared.rotor_timer_a,
-            cx.shared.rotor_timer_b,
-            cx.shared.dma,
-        )
-            .lock(|state, rotor_timer_a, rotor_timer_b, dma| {
-                if state.armed != ArmStatus::Armed {
-                    // todo temp removed. put back.
-                    // dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
-                }
-            });
+        //
+        //             println!(
+        //                 "up RSSI: {}, Uplink qual: {} SNR: {}, tx pwr: {}, down RSSI: {}, down qual: {}, down snr: {}",
+        //                 link_stats.uplink_rssi_1,
+        //                 link_stats.uplink_link_quality,
+        //                 link_stats.uplink_snr,
+        //                 link_stats.uplink_tx_power,
+        //                 link_stats.downlink_rssi,
+        //                 link_stats.downlink_link_quality,
+        //                 link_stats.downlink_snr,
+        //             );
+        //         }
+        //
+        //         unsafe {
+        //             i += 1;
+        //         }; // todo temp
+        //
+        //         sensor_fusion::update_get_attitude(ahrs, params);
+        //     });
 
         (
             cx.shared.current_params,
             cx.shared.ahrs,
-            cx.shared.control_channel_data,
-            cx.shared.control_link_stats,
-        )
-            .lock(|params, ahrs, ch_data, link_stats| {
-                // if LOOP_I.fetch_add(1,Ordering::Acquire) % 100 == 0 {
-
-                if unsafe { i } % 2_000 == 0 {
-                    // todo temp
-                    println!(
-                        "IMU Data: Ax {}, Ay: {}, Az: {}",
-                        params.a_x, params.a_y, params.a_z
-                    );
-
-                    println!(
-                        "IMU Data: roll {}, pitch: {}, yaw: {}",
-                        params.v_roll, params.v_pitch, params.v_yaw
-                    );
-
-                    println!(
-                        "Attitude: roll {}, pitch: {}, yaw: {}",
-                        params.s_roll, params.s_pitch, params.s_yaw
-                    );
-
-                    println!(
-                        "Ctrls -> roll: {} pitch: {} yaw: {} throttle: {}",
-                        ch_data.roll, ch_data.pitch, ch_data.yaw, ch_data.throttle,
-                    );
-
-                    println!(
-                        "Armed: {} Mode: {}",
-                        ch_data.arm_status == ArmStatus::Armed,
-                        ch_data.input_mode == InputModeSwitch::AttitudeCommand,
-                    );
-
-                    println!(
-                        "up RSSI: {}, Uplink qual: {} SNR: {}, tx pwr: {}, down RSSI: {}, down qual: {}, down snr: {}",
-                        link_stats.uplink_rssi_1,
-                        link_stats.uplink_link_quality,
-                        link_stats.uplink_snr,
-                        link_stats.uplink_tx_power,
-                        link_stats.downlink_rssi,
-                        link_stats.downlink_link_quality,
-                        link_stats.downlink_snr,
-                    );
-                }
-
-                unsafe {
-                    i += 1;
-                }; // todo temp
-
-                // todo: Put this back when ready to test att platform again.
-                sensor_fusion::update_get_attitude(ahrs, params);
-            });
-
-        // todo: Dshot test
-        // (
-        //     cx.shared.rotor_timer_a,
-        //     cx.shared.rotor_timer_b,
-        //     cx.shared.dma,
-        // )
-        //     .lock(|rotor_timer_a, rotor_timer_b, dma| {
-        //         unsafe {
-        //             // println!("DMA ISR {}", dma.regs.isr.read().bits());
-        //
-        //             dshot::set_power_a(Rotor::R1, Rotor::R2, 0.8, 0.2, rotor_timer_a, dma);
-        //
-        //             dshot::set_power_b(Rotor::R3, Rotor::R4, 1., 0.3, rotor_timer_b, dma);
-        //         }
-        //     });
-        return; // todo temp for test
-
-        (
-            cx.shared.current_params,
             cx.shared.control_channel_data,
             cx.shared.input_map,
             cx.shared.current_pwr,
@@ -855,10 +824,14 @@ mod app {
             cx.shared.autopilot_status,
             cx.shared.user_cfg,
             cx.shared.command_state,
+            cx.shared.rotor_timer_a,
+            cx.shared.rotor_timer_b,
+            cx.shared.dma,
             cx.shared.ctrl_coeffs,
         )
             .lock(
                 |params,
+                 ahrs,
                  control_channel_data,
                  input_map,
                  current_pwr,
@@ -873,7 +846,22 @@ mod app {
                  autopilot_status,
                  cfg,
                  command_state,
+                 rotor_timer_a,
+                 rotor_timer_b,
+                 dma,
                  coeffs| {
+                    flight_ctrls::handle_arm_status(
+                        cx.local.arm_signals_received,
+                        cx.local.disarm_signals_received,
+                        control_channel_data.arm_status,
+                        &mut command_state.arm_status,
+                        control_channel_data.throttle,
+                    );
+
+                    // todo: Do you want to update attitude here, or on each IMU data received?
+                    // todo note that the DT you're passing in is currently the IMU update one I think?
+                    // sensor_fusion::update_get_attitude(ahrs, params);
+
                     // todo: Support both UART telemetry from ESC, and analog current sense pin.
                     // todo: Read from an ADC or something, from teh ESC.
                     // let current_current = None;
@@ -884,6 +872,12 @@ mod app {
                     // else {
                     // *power_used += current_pwr.total() * DT;
                     // }
+
+                    if command_state.arm_status != ArmStatus::Armed {
+                        // Also handled in `set_power` fn.
+                        dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
+                        return;
+                    }
 
                     match input_mode {
                         InputMode::Acro => {
@@ -944,7 +938,7 @@ mod app {
 
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, input_mode, control_channel_data, input_map, autopilot_status,
     rates_commanded, pid_rate, pid_deriv_filters, imu_filters, current_pwr, ctrl_coeffs, command_state, cs_imu, user_cfg,
-    rotor_timer_a, rotor_timer_b], priority = 5)]
+    rotor_timer_a, rotor_timer_b, ahrs], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
@@ -955,25 +949,9 @@ mod app {
             cs.set_high();
         });
 
-        let mut imu_data =
-            sensor_fusion::ImuReadings::from_buffer(unsafe { &sensor_fusion::IMU_READINGS });
-
-        cx.shared.imu_filters.lock(|imu_filters| {
-            imu_filters.apply(&mut imu_data);
-        });
-
-        let mut sensor_data_fused = sensor_fusion::estimate_attitude(&imu_data);
-
-        sensor_data_fused.v_pitch = imu_data.v_pitch;
-        sensor_data_fused.v_roll = imu_data.v_roll;
-        sensor_data_fused.v_yaw = imu_data.v_yaw;
-
-        sensor_data_fused.a_x = imu_data.a_x;
-        sensor_data_fused.a_y = imu_data.a_y;
-        sensor_data_fused.a_z = imu_data.a_z;
-
         (
             cx.shared.current_params,
+            cx.shared.ahrs,
             cx.shared.control_channel_data,
             cx.shared.input_mode,
             cx.shared.autopilot_status,
@@ -987,10 +965,12 @@ mod app {
             cx.shared.ctrl_coeffs,
             cx.shared.user_cfg,
             cx.shared.input_map,
+            cx.shared.command_state,
             cx.shared.spi1,
         )
             .lock(
                 |params,
+                 ahrs,
                  control_channel_data,
                  input_mode,
                  autopilot_status,
@@ -1004,13 +984,28 @@ mod app {
                  coeffs,
                  cfg,
                  input_map,
+                 command_state,
                  spi1| {
-                    // todo: Ideally do this higher in the FN, but can only lock once per ISR
                     // Note that these steps are mandatory, per STM32 RM.
-                    dma.stop(DmaChannel::C1); // spi.stop_dma only can stop a single channel atm.
-                    spi1.stop_dma(DmaChannel::C2, dma);
+                    // spi.stop_dma only can stop a single channel atm, hence the 2 calls here.
+                    dma.stop(setup::IMU_TX_CH);
+                    spi1.stop_dma(setup::IMU_RX_CH, dma);
 
-                    *params = sensor_data_fused;
+                    if command_state.arm_status != ArmStatus::Armed {
+                        return;
+                    }
+
+                    let mut imu_data = sensor_fusion::ImuReadings::from_buffer(unsafe {
+                        &sensor_fusion::IMU_READINGS
+                    });
+
+                    cx.shared.imu_filters.lock(|imu_filters| {
+                        imu_filters.apply(&mut imu_data);
+                    });
+
+                    // Note: Consider if you want to update the attitude using the primary update loop,
+                    // vice each IMU update.
+                    sensor_fusion::update_get_attitude(ahrs, params);
 
                     pid::run_rate(
                         params,
@@ -1028,19 +1023,20 @@ mod app {
                         coeffs,
                         cfg.max_speed_ver,
                         input_map,
+                        command_state.arm_status,
                         DT_IMU,
                     );
                 },
             );
     }
 
-    // todo: Put back USB ISR later
+    // todo: Commented out USB ISR so we don't get the annoying beeps from PC on conn/dc
 
     // #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params], local = [], priority = 3)]
     // /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     // /// application.
     // fn usb_isr(mut cx: usb_isr::Context) {
-    //     println!("USB ISR");
+    //     // println!("USB ISR");
     //     (cx.shared.usb_dev, cx.shared.usb_serial, cx.shared.current_params).lock(
     //         |usb_dev, usb_serial, params| {
     //             if !usb_dev.poll(&mut [usb_serial]) {
@@ -1049,7 +1045,6 @@ mod app {
     //
     //             let mut buf = [0u8; 8];
     //             match usb_serial.read(&mut buf) {
-    //                 // todo: match all start bits and end bits. Running into an error using the naive approach.
     //                 Ok(count) => {
     //                     usb_serial.write(&[1, 2, 3]).ok();
     //                 }
@@ -1073,13 +1068,10 @@ mod app {
 
         // Set to Output pin, low.
         unsafe {
-            (*pac::GPIOA::ptr())
-                .moder
-                .modify(|_, w| w.moder0().bits(0b01));
-
-            (*pac::GPIOA::ptr())
-                .moder
-                .modify(|_, w| w.moder1().bits(0b01));
+            (*pac::GPIOA::ptr()).moder.modify(|_, w| {
+                w.moder0().bits(0b01);
+                w.moder1().bits(0b01)
+            });
         }
         gpio::set_low(Port::A, 0);
         gpio::set_low(Port::A, 1);
@@ -1096,29 +1088,26 @@ mod app {
 
         // Set to Output pin, low.
         unsafe {
-            (*pac::GPIOB::ptr())
-                .moder
-                .modify(|_, w| w.moder0().bits(0b01));
-
-            (*pac::GPIOB::ptr())
-                .moder
-                .modify(|_, w| w.moder1().bits(0b01));
+            (*pac::GPIOB::ptr()).moder.modify(|_, w| {
+                w.moder0().bits(0b01);
+                w.moder1().bits(0b01)
+            });
         }
         gpio::set_low(Port::B, 0);
         gpio::set_low(Port::B, 1);
     }
 
-    #[task(binds = TIM4, shared = [elrs_timer], priority = 4)]
-    /// ELRS timer.
-    fn elrs_timer_isr(mut cx: elrs_timer_isr::Context) {
-        cx.shared.elrs_timer.lock(|timer| {
-            timer.clear_interrupt(TimerInterrupt::Update);
-            // elrs::HWtimerCallbackTick(timer);
-            // elrs::HWtimerCallbackTock(timer);
-        });
-    }
+    // #[task(binds = TIM4, shared = [elrs_timer], priority = 4)]
+    // /// ELRS timer.
+    // fn elrs_timer_isr(mut cx: elrs_timer_isr::Context) {
+    //     cx.shared.elrs_timer.lock(|timer| {
+    //         timer.clear_interrupt(TimerInterrupt::Update);
+    //         // elrs::HWtimerCallbackTick(timer);
+    //         // elrs::HWtimerCallbackTock(timer);
+    //     });
+    // }
 
-    #[task(binds = EXTI15_10, shared = [user_cfg, control_channel_data], local = [spi3], priority = 4)]
+    #[task(binds = EXTI15_10, shared = [user_cfg, control_channel_data], local = [spi3], priority = 5)]
     /// We use this ISR when receiving data from the radio, via ELRS
     fn radio_data_isr(mut cx: radio_data_isr::Context) {
         gpio::clear_exti_interrupt(14);
@@ -1142,13 +1131,11 @@ mod app {
     //     });
     // }
 
-    #[task(binds = USART3, shared = [uart3, dma, control_channel_data, control_link_stats, rf_limiter_timer], priority = 6)]
+    #[task(binds = USART3, shared = [uart3, dma, control_channel_data, control_link_stats, rf_limiter_timer], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
     fn crsf_isr(mut cx: crsf_isr::Context) {
-        // todo: abort if a new update comes before a RF update timer fires
-
         (
             cx.shared.uart3,
             cx.shared.dma,
@@ -1160,10 +1147,11 @@ mod app {
                 uart.clear_interrupt(UsartInterrupt::Idle);
 
                 if rf_limiter_timer.is_enabled() {
-                    return;
+                    // todo: Put this back and figure out why this keeps happening.
+                    // return;
                 } else {
                     // rf_limiter_timer.reset_countdown();
-                    rf_limiter_timer.enable();
+                    rf_limiter_timer.enable(); // todo put back
                 }
 
                 if let Some(crsf_data) =

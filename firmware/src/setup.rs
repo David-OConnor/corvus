@@ -74,28 +74,16 @@ pub fn setup_pins() {
             let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
             let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
 
-            // todo TS.
-            let mut rotor1 = Pin::new(Port::A, 0, PinMode::Output);
-            let mut rotor1 = Pin::new(Port::A, 1, PinMode::Output);
-            let mut rotor1 = Pin::new(Port::B, 0, PinMode::Output);
-            let mut rotor1 = Pin::new(Port::B, 1, PinMode::Output);
-
             rotor1.output_speed(OutputSpeed::High);
             rotor2.output_speed(OutputSpeed::High);
             rotor3.output_speed(OutputSpeed::High);
             rotor4.output_speed(OutputSpeed::High);
 
-            // todo: Leave these TS steps in inuntil you get signs of life from PA1.
-            rotor1.set_high();
-            rotor2.set_high();
-            rotor3.set_high();
-            rotor4.set_high();
-
             let _buzzer = Pin::new(Port::A, 10, PinMode::Alt(6)); // Tim1 ch3
 
             // todo: USB? How do we set them up (no alt fn) PA11(DN) and PA12 (DP).
-            let _usb_dm = Pin::new(Port::A, 11, PinMode::Output);
-            let _usb_dp = Pin::new(Port::A, 12, PinMode::Output);
+            // let _usb_dm = Pin::new(Port::A, 11, PinMode::Output);
+            // let _usb_dp = Pin::new(Port::A, 12, PinMode::Output);
 
             let batt_v_adc_ = Pin::new(Port::A, 4, PinMode::Analog);  // ADC2, channel 17
             let current_sense_adc_ = Pin::new(Port::B, 2, PinMode::Analog);  // ADC2, channel 12
@@ -178,9 +166,6 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     // IMU
     dma::mux(IMU_TX_CH, DmaInput::Spi1Tx, mux);
     dma::mux(IMU_RX_CH, DmaInput::Spi1Rx, mux);
-    // dma::mux(DmaChannel::C2, DmaInput::Dac1Ch1, mux); // todo temp TS DMA!
-
-    // todo: Give you're using burst DMA here, one channel per timer, how does this work?
 
     // DSHOT, motors 1 and 2
     dma::mux(Rotor::R1.dma_channel(), Rotor::R1.dma_input(), mux);
@@ -207,7 +192,6 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
 
     // We use Dshot transfer-complete interrupts to disable the timer.
     dma.enable_interrupt(Rotor::R1.dma_channel(), DmaInterrupt::TransferComplete);
-    // dma.enable_interrupt(DmaChannel::C5, DmaInterrupt::TransferComplete);
     dma.enable_interrupt(Rotor::R3.dma_channel(), DmaInterrupt::TransferComplete);
 
     // Process ELRS control data

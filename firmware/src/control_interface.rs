@@ -70,6 +70,7 @@ pub struct _CrsfChannelData {
 }
 
 /// Represents channel data in our end-use format.
+#[derive(Default)]
 pub struct ChannelData {
     /// Aileron, -1. to 1.
     pub roll: f32,
@@ -85,7 +86,6 @@ pub struct ChannelData {
     // todo: Auto-recover commanded, auto-TO/land/RTB, obstacle avoidance etc.
 }
 
-// todo: Consider moving this to `control_interface.`
 #[derive(Default)]
 /// https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support
 pub struct LinkStats {

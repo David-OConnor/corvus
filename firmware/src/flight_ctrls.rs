@@ -6,6 +6,7 @@
 use core::{
     f32::consts::TAU,
     ops::{Add, DivAssign, Mul, MulAssign, Sub},
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use stm32_hal2::{
@@ -14,9 +15,27 @@ use stm32_hal2::{
     timer::Timer,
 };
 
+use defmt::println;
+
 use cmsis_dsp_sys as dsp_sys;
 
 use crate::{dshot, pid::PidState, util, util::map_linear, CtrlCoeffGroup, Location, UserCfg};
+
+// We must receive arm or disarm signals for this many update cycles in a row to perform those actions.
+const NUM_ARM_DISARM_SIGNALS_REQUIRED: u8 = 5;
+
+// This flag gets set if you command arm from the controller without the throttle in the idle position.
+// When this flag is set, the aircraft won't arm until the arm switch is cycled back to safe.
+static ARM_COMMANDED_WITHOUT_IDLE: AtomicBool = AtomicBool::new(false);
+// static CONTROLLER_PREV_ARMED: AtomicBool = AtomicBool::new(false);
+
+const THROTTLE_MAX_TO_ARM: f32 = 0.005;
+
+// If the throttle signal is below this, set idle power.
+const THROTTLE_IDLE_THRESH: f32 = 0.01;
+
+// Power at idle setting.
+const THROTTLE_IDLE_POWER: f32 = 0.00; // todo: 0.01ish?
 
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
@@ -197,8 +216,8 @@ impl Default for ArmStatus {
 
 #[derive(Default)]
 pub struct CommandState {
-    pub pre_armed: ArmStatus,
-    pub armed: ArmStatus,
+    // pub pre_armed: ArmStatus,
+    pub arm_status: ArmStatus,
     pub x: f32,
     pub y: f32,
     pub alt: f32, // m MSL
@@ -523,12 +542,80 @@ impl RotorPower {
         &mut self,
         rotor_timer_a: &mut Timer<TIM2>,
         rotor_timer_b: &mut Timer<TIM3>,
+        arm_status: ArmStatus,
         dma: &mut Dma<DMA1>,
     ) {
-        dshot::set_power_a(Rotor::R1, Rotor::R2, self.p1, self.p2, rotor_timer_a, dma);
-        // dshot::set_power_a(Rotor::R2, self.p2, rotor_timer_a, dma);
-        dshot::set_power_b(Rotor::R3, Rotor::R4, self.p3, self.p4, rotor_timer_b, dma);
-        // dshot::set_power_b(Rotor::R4, self.p4, rotor_timer_b, dma);
+        match arm_status {
+            ArmStatus::Armed => {
+                dshot::set_power_a(Rotor::R1, Rotor::R2, self.p1, self.p2, rotor_timer_a, dma);
+                dshot::set_power_b(Rotor::R3, Rotor::R4, self.p3, self.p4, rotor_timer_b, dma);
+            }
+            ArmStatus::Disarmed => {
+                dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
+            }
+        }
+    }
+}
+
+/// Apply the throttle idle clamp. Generally for modes with manual power setting (?)
+pub fn apply_throttle_idle(throttle: f32) -> f32 {
+    if throttle < THROTTLE_IDLE_THRESH {
+        THROTTLE_IDLE_POWER
+    } else {
+        throttle
+    }
+}
+
+/// Arm or disarm the arm state (and therefor the motors, based on arm switch status and throttle.
+/// Arm switch must be set while throttle is idle.
+pub fn handle_arm_status(
+    arm_signals_received: &mut u8,
+    disarm_signals_received: &mut u8,
+    controller_arm_status: ArmStatus,
+    arm_status: &mut ArmStatus,
+    throttle: f32,
+) {
+    // println!("arm rec: {:?}",  arm_signals_received);
+    match arm_status {
+        ArmStatus::Armed => {
+            if controller_arm_status == ArmStatus::Disarmed {
+                *disarm_signals_received += 1;
+            } else {
+                *disarm_signals_received = 0;
+            }
+
+            if *disarm_signals_received >= NUM_ARM_DISARM_SIGNALS_REQUIRED {
+                *arm_status = ArmStatus::Disarmed;
+                *disarm_signals_received = 0;
+                println!("Aircraft disarmed.");
+            }
+        }
+        ArmStatus::Disarmed => {
+            if controller_arm_status == ArmStatus::Armed {
+                *arm_signals_received += 1;
+            } else {
+                ARM_COMMANDED_WITHOUT_IDLE.store(false, Ordering::Release);
+                *arm_signals_received = 0;
+            }
+
+            if *arm_signals_received >= NUM_ARM_DISARM_SIGNALS_REQUIRED {
+                if !ARM_COMMANDED_WITHOUT_IDLE.load(Ordering::Acquire) {
+                    if throttle < THROTTLE_MAX_TO_ARM {
+                        *arm_status = ArmStatus::Armed;
+                        *arm_signals_received = 0;
+                        println!("Aircraft armed.");
+                    } else {
+                        // Throttle not idle; reset the process, and set the flag requiring
+                        // arm switch cycle to arm.
+                        ARM_COMMANDED_WITHOUT_IDLE.store(true, Ordering::Release);
+                        *arm_signals_received = 0;
+                        // println!("Arm attempted without Throttle not idle; set idle and cycle arm switch to arm.");
+                    }
+                } else {
+                    // println!("(Cycle arm switch to arm.)");
+                }
+            }
+        }
     }
 }
 
@@ -568,6 +655,7 @@ pub fn apply_controls(
     current_pwr: &mut RotorPower,
     rotor_tim_a: &mut Timer<TIM2>,
     rotor_tim_b: &mut Timer<TIM3>,
+    arm_status: ArmStatus,
     dma: &mut Dma<DMA1>,
 ) {
     let mut pwr = RotorPower::default();
@@ -609,7 +697,7 @@ pub fn apply_controls(
         pwr /= highest_v;
     }
 
-    pwr.set(rotor_tim_a, rotor_tim_b, dma);
+    pwr.set(rotor_tim_a, rotor_tim_b, arm_status, dma);
 
     *current_pwr = pwr;
 }
