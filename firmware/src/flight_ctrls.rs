@@ -19,7 +19,7 @@ use defmt::println;
 
 use cmsis_dsp_sys as dsp_sys;
 
-use crate::{dshot, pid::PidState, util, util::map_linear, CtrlCoeffGroup, Location, UserCfg};
+use crate::{dshot, pid::PidState, util, util::map_linear, CtrlCoeffGroup, Location, UserCfg, control_interface::ChannelData};
 
 // We must receive arm or disarm signals for this many update cycles in a row to perform those actions.
 const NUM_ARM_DISARM_SIGNALS_REQUIRED: u8 = 5;
@@ -43,7 +43,7 @@ const THROTTLE_IDLE_POWER: f32 = 0.00; // todo: 0.01ish?
 const MIN_CAL_ALT: f32 = 6.;
 
 /// Time in seconds between subsequent data received before we execute lost-link procedures.
-pub const LOST_LINK_TIMEOUT: f32 = 2.;
+pub const LOST_LINK_TIMEOUT: f32 = 1.;
 
 /// Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
@@ -640,7 +640,7 @@ pub fn handle_arm_status(
 }
 
 /// If we haven't received a radio control signal in a while1, perform an action.
-pub fn handle_lost_link() {
+pub fn handle_lost_link(input_mode: &mut InputMode, control_ch_data: &mut ChannelData) {
     // println!("Handling lost link...")
     // if !timer.is_enabled() {
     //     println!("Lost link to Rx control. Recovering...")
@@ -650,6 +650,16 @@ pub fn handle_lost_link() {
 
         // todo: Make sure you resume flight once link is re-acquired.
     // }
+
+    *input_mode = InputMode::Attitude;
+    control_ch_data.pitch = 0.;
+    control_ch_data.roll = 0.;
+    control_ch_data.yaw = 0.;
+     // todo temp!
+    // todo: The above plus a throttle control, and attitude mode etc
+
+    control_ch_data.throttle = 0.0; // todo: Drops out of sky for now while we test.
+
 }
 
 // todo: DMA for timer? How?

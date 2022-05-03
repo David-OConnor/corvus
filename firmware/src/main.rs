@@ -868,7 +868,10 @@ mod app {
                     );
 
                     if flight_ctrls::LINK_LOST.load(Ordering::Acquire) {
-                        flight_ctrls::handle_lost_link();
+                        println!("LINK IS LOST!!");
+                        // todo: For now, works by commanding attitude mode and level flight.
+                        flight_ctrls::handle_lost_link(input_mode,control_channel_data);
+                        return;
                     }
 
                     // todo: Do you want to update attitude here, or on each IMU data received?
