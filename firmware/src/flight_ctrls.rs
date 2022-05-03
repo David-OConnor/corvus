@@ -29,6 +29,8 @@ const NUM_ARM_DISARM_SIGNALS_REQUIRED: u8 = 5;
 static ARM_COMMANDED_WITHOUT_IDLE: AtomicBool = AtomicBool::new(false);
 // static CONTROLLER_PREV_ARMED: AtomicBool = AtomicBool::new(false);
 
+pub static LINK_LOST: AtomicBool = AtomicBool::new(false);
+
 const THROTTLE_MAX_TO_ARM: f32 = 0.005;
 
 // If the throttle signal is below this, set idle power.
@@ -39,6 +41,9 @@ const THROTTLE_IDLE_POWER: f32 = 0.00; // todo: 0.01ish?
 
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
+
+/// Time in seconds between subsequent data received before we execute lost-link procedures.
+pub const LOST_LINK_TIMEOUT: f32 = 2.;
 
 /// Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
@@ -94,6 +99,21 @@ impl AircraftProperties {
         return 0.1; // todo
     }
 }
+
+// /// In the event we lose our control link signal
+// /// todo: Consider removing this later once you settle on a procedure.
+// pub enum LostLinkProcedure {
+//     /// turn off all motors. Aircraft will drop to the ground and crash.
+//     Disarm,
+//     /// Command level attitude and/or louter, and auto land. TOF optional.
+//     LoiterAutoLand,
+//     /// Return to base, climbing as required, and land. Requires GPS. TOF optional.
+//     RtbLand,
+//     /// Climb, to attempt to re-acquire the link
+//     Climb,
+//     /// Hover
+//     Hover
+// }
 
 /// We use this to freeze an axis in acro mode, when the control for that axis is neutral.
 /// this prevents drift from accumulation of errors. Values are uuler angle locked at, in radians. Only used
@@ -617,6 +637,19 @@ pub fn handle_arm_status(
             }
         }
     }
+}
+
+/// If we haven't received a radio control signal in a while1, perform an action.
+pub fn handle_lost_link() {
+    // println!("Handling lost link...")
+    // if !timer.is_enabled() {
+    //     println!("Lost link to Rx control. Recovering...")
+        // todo: Consider how you want to handle this, with and without GPS.
+
+        // todo: To start, command an attitude-mode hover, with baro alt hold.
+
+        // todo: Make sure you resume flight once link is re-acquired.
+    // }
 }
 
 // todo: DMA for timer? How?

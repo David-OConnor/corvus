@@ -19,7 +19,7 @@ use stm32_hal2::{
     flash::Flash,
     gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM16, TIM2, TIM3, TIM4, USART3},
+    pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM2, TIM3, TIM4, TIM15, TIM16, TIM17, USART3},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{Timer, TimerConfig, TimerInterrupt},
@@ -342,7 +342,6 @@ fn init_sensors(
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
     use super::*;
-    use crate::flight_ctrls::InputModeSwitch;
     use stm32_hal2::dma::DmaInterrupt;
 
     // todo: Move vars from here to `local` as required.
@@ -379,6 +378,7 @@ mod app {
         // rtc: Rtc,
         update_timer: Timer<TIM15>,
         rf_limiter_timer: Timer<TIM16>,
+        lost_link_timer: Timer<TIM17>,
         rotor_timer_a: Timer<TIM2>,
         rotor_timer_b: Timer<TIM3>,
         elrs_timer: Timer<TIM4>,
@@ -551,12 +551,6 @@ mod app {
 
         let mut buf = [0_u8; 400];
 
-        // loop {
-        //     uart3.read(&mut buf);
-        //     println!("BUF {:?}", buf);
-        //     delay.delay_ms(500);
-        // }
-
         // We use the RTC to assist with power use measurement.
         let rtc = Rtc::new(dp.RTC, Default::default());
 
@@ -609,6 +603,15 @@ mod app {
 
         dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
 
+        let mut lost_link_timer = Timer::new_tim17(dp.TIM17, 1. / flight_ctrls::LOST_LINK_TIMEOUT,
+            TimerConfig {
+                one_pulse_mode: true,
+                ..Default::default()
+            },
+            &clock_cfg
+        );
+        lost_link_timer.enable_interrupt(TimerInterrupt::Update);
+
         // todo: Set this up appropriately.
         let elrs_timer = Timer::new_tim4(dp.TIM4, 1., Default::default(), &clock_cfg);
 
@@ -626,7 +629,8 @@ mod app {
 
         // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
         dshot::stop_all(&mut rotor_timer_a, &mut rotor_timer_b, &mut dma);
-        delay.delay_ms(500);
+
+        // delay.delay_ms(500); // todo: Do we want/need this?
 
         cfg_if! {
             if #[cfg(feature = "g4")] {
@@ -709,6 +713,7 @@ mod app {
                 // rtc,
                 update_timer,
                 rf_limiter_timer,
+                lost_link_timer,
                 rotor_timer_a,
                 rotor_timer_b,
                 elrs_timer,
@@ -747,6 +752,7 @@ mod app {
     velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
     dma, rotor_timer_a, rotor_timer_b, ahrs, axis_locks, control_channel_data, control_link_stats,
+    lost_link_timer,
     ],
     local = [arm_signals_received, disarm_signals_received],
 
@@ -828,6 +834,7 @@ mod app {
             cx.shared.rotor_timer_b,
             cx.shared.dma,
             cx.shared.ctrl_coeffs,
+            cx.shared.lost_link_timer,
         )
             .lock(
                 |params,
@@ -849,7 +856,9 @@ mod app {
                  rotor_timer_a,
                  rotor_timer_b,
                  dma,
-                 coeffs| {
+                 coeffs,
+                 lost_link_timer,
+                | {
                     flight_ctrls::handle_arm_status(
                         cx.local.arm_signals_received,
                         cx.local.disarm_signals_received,
@@ -857,6 +866,10 @@ mod app {
                         &mut command_state.arm_status,
                         control_channel_data.throttle,
                     );
+
+                    if flight_ctrls::LINK_LOST.load(Ordering::Acquire) {
+                        flight_ctrls::handle_lost_link();
+                    }
 
                     // todo: Do you want to update attitude here, or on each IMU data received?
                     // todo note that the DT you're passing in is currently the IMU update one I think?
@@ -1131,7 +1144,21 @@ mod app {
     //     });
     // }
 
-    #[task(binds = USART3, shared = [uart3, dma, control_channel_data, control_link_stats, rf_limiter_timer], priority = 5)]
+    /// If this triggers, it means we've lost the link. (Note that this is for TIM17)
+    #[task(binds = TIM1_TRG_COM, shared = [lost_link_timer], priority = 2)]
+    fn lost_link_isr(mut cx: lost_link_isr::Context) {
+        println!("Lost the link!");
+
+        (cx.shared.lost_link_timer).lock(|timer| {
+            timer.clear_interrupt(TimerInterrupt::Update);
+            timer.disable();
+        });
+
+        flight_ctrls::LINK_LOST.store(true, Ordering::Release);
+    }
+
+    #[task(binds = USART3, shared = [uart3, dma, control_channel_data, control_link_stats,
+    lost_link_timer, rf_limiter_timer], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
@@ -1141,17 +1168,28 @@ mod app {
             cx.shared.dma,
             cx.shared.control_channel_data,
             cx.shared.control_link_stats,
+            cx.shared.lost_link_timer,
             cx.shared.rf_limiter_timer,
         )
-            .lock(|uart, dma, ch_data, link_stats, rf_limiter_timer| {
+            .lock(|uart, dma, ch_data, link_stats, lost_link_timer, rf_limiter_timer| {
                 uart.clear_interrupt(UsartInterrupt::Idle);
+
+
+                lost_link_timer.reset_countdown();
+                lost_link_timer.enable();
+
+                if flight_ctrls::LINK_LOST.compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
+                    println!("Link re-aquired");
+                    // todo: Execute re-acq procedure
+
+                }
 
                 if rf_limiter_timer.is_enabled() {
                     // todo: Put this back and figure out why this keeps happening.
                     // return;
                 } else {
-                    // rf_limiter_timer.reset_countdown();
-                    rf_limiter_timer.enable(); // todo put back
+                    rf_limiter_timer.reset_countdown();
+                    rf_limiter_timer.enable();
                 }
 
                 if let Some(crsf_data) =
