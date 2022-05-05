@@ -1,4 +1,4 @@
-19841402678337902
+19843065086002794
 Anyleaf_Shared
 4_PIN_STAGGERED_2_54
 4-pin staggered footprint, 2.54MM pitch
@@ -55,6 +55,13 @@ JS5208 switch
 0
 6
 6
+Anyleaf_Shared
+JST PH staggered for 1x04 2mm
+For use with ST-Link
+connector JST PH side entry
+0
+4
+4
 Anyleaf_Shared
 KK_3_PIN_STAGGERED
 MOLEX_022232101, Digikey WM4208-ND Molex 0022232101
@@ -120,7 +127,7 @@ te fpc 84953
 23
 Anyleaf_Shared
 SW-SMD-2_3.6x6.0x8.0
-Small button from JLC, LCSC C318938 
+Small button from JLC, LCSC C354946
 SMD DIP Switch SPST Slide 6.73mm 264mil SMD LowProfile JPin
 0
 2

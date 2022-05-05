@@ -639,8 +639,9 @@ pub fn handle_arm_status(
     }
 }
 
-/// If we haven't received a radio control signal in a while1, perform an action.
-pub fn handle_lost_link(input_mode: &mut InputMode, control_ch_data: &mut ChannelData) {
+/// If we haven't received a radio control signal in a while, perform an action.
+/// todo: Immediate actions, or each update loop while link is still lost?
+pub fn link_lost_steady_state(input_mode: &mut InputMode, control_ch_data: &mut ChannelData) {
     // println!("Handling lost link...")
     // if !timer.is_enabled() {
     //     println!("Lost link to Rx control. Recovering...")

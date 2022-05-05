@@ -341,6 +341,7 @@ fn init_sensors(
 
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
+    use cortex_m::peripheral::NVIC;
     use super::*;
     use stm32_hal2::dma::DmaInterrupt;
 
@@ -408,8 +409,13 @@ mod app {
         // Set up microcontroller peripherals
         let mut dp = pac::Peripherals::take().unwrap();
 
+
+        // todo: Temp to deal with NRST pin issue
+        // dp.FLASH.optr.modify(|_, w| unsafe { w.nrst_mode().bits(0b10) });
+        // cortex_m::peripheral::SCB::sys_reset();
+
         #[cfg(feature = "h7")]
-        SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
+            SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
 
         // Set up clocks
 
@@ -454,7 +460,7 @@ mod app {
 
         let mut dma = Dma::new(dp.DMA1);
         #[cfg(feature = "g4")]
-        dma::enable_mux1();
+            dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dp.DMAMUX);
 
@@ -463,13 +469,13 @@ mod app {
         // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
         // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
         #[cfg(feature = "g4")]
-        // todo: Switch to higher speed.
-        // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
-        // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
-        let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
+            // todo: Switch to higher speed.
+            // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
+            // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
+            let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
         #[cfg(feature = "h7")]
-        // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
-        let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
+            // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
+            let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
 
         let imu_spi_cfg = SpiConfig {
             // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
@@ -480,9 +486,9 @@ mod app {
         let mut spi1 = Spi::new(dp.SPI1, imu_spi_cfg, imu_baud_div);
 
         #[cfg(feature = "mercury-h7")]
-        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+            let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
         #[cfg(feature = "mercury-g4")]
-        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+            let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
         let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
 
@@ -518,10 +524,10 @@ mod app {
         let mut i2c2 = I2c::new(dp.I2C2, i2c_baro_cfg, &clock_cfg);
 
         // println!("Pre altimeter setup");
-        // baro::setup(&mut i2c2);
+        baro::setup(&mut i2c2);
         // println!("Altimeter setup complete");
-        // let pressure = baro::read(&mut i2c2);
-        // println!("Pressure: {}", pressure);
+        let pressure = baro::read(&mut i2c2);
+        println!("Pressure: {}", pressure);
 
         // We use UART2 for the OSD, for DJI, via the MSP protocol.
         let mut uart2 = Usart::new(dp.USART2, 115_200, Default::default(), &clock_cfg);
@@ -604,11 +610,11 @@ mod app {
         dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
 
         let mut lost_link_timer = Timer::new_tim17(dp.TIM17, 1. / flight_ctrls::LOST_LINK_TIMEOUT,
-            TimerConfig {
-                one_pulse_mode: true,
-                ..Default::default()
-            },
-            &clock_cfg
+                                                   TimerConfig {
+                                                       one_pulse_mode: true,
+                                                       ..Default::default()
+                                                   },
+                                                   &clock_cfg
         );
         lost_link_timer.enable_interrupt(TimerInterrupt::Update);
 
@@ -630,7 +636,7 @@ mod app {
         // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
         dshot::stop_all(&mut rotor_timer_a, &mut rotor_timer_b, &mut dma);
 
-        // delay.delay_ms(500); // todo: Do we want/need this?
+        delay.delay_ms(500); // todo temp
 
         cfg_if! {
             if #[cfg(feature = "g4")] {
@@ -763,55 +769,7 @@ mod app {
     fn update_isr(mut cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
 
-        static mut i: usize = 0; // todo temp
-
-        // todo: Printing channel data here is temporary, to debug.
-        // (
-        //     cx.shared.current_params,
-        //     cx.shared.ahrs,
-        //     cx.shared.control_channel_data,
-        //     cx.shared.control_link_stats,
-        // )
-        //     .lock(|params, ahrs, ch_data, link_stats| {
-        //         // if LOOP_I.fetch_add(1,Ordering::Acquire) % 100 == 0 {
-        //
-        //         if unsafe { i } % 2_000 == 0 {
-        //             // todo temp
-        //             println!(
-        //                 "IMU Data: Ax {}, Ay: {}, Az: {}",
-        //                 params.a_x, params.a_y, params.a_z
-        //             );
-        //
-        //             println!(
-        //                 "IMU Data: roll {}, pitch: {}, yaw: {}",
-        //                 params.v_roll, params.v_pitch, params.v_yaw
-        //             );
-        //
-        //             println!(
-        //                 "Attitude: roll {}, pitch: {}, yaw: {}",
-        //                 params.s_roll, params.s_pitch, params.s_yaw
-        //             );
-        //
-
-        //
-        //             println!(
-        //                 "up RSSI: {}, Uplink qual: {} SNR: {}, tx pwr: {}, down RSSI: {}, down qual: {}, down snr: {}",
-        //                 link_stats.uplink_rssi_1,
-        //                 link_stats.uplink_link_quality,
-        //                 link_stats.uplink_snr,
-        //                 link_stats.uplink_tx_power,
-        //                 link_stats.downlink_rssi,
-        //                 link_stats.downlink_link_quality,
-        //                 link_stats.downlink_snr,
-        //             );
-        //         }
-        //
-        //         unsafe {
-        //             i += 1;
-        //         }; // todo temp
-        //
-        //         sensor_fusion::update_get_attitude(ahrs, params);
-        //     });
+        static mut i: usize = 0; // For debugging.
 
         (
             cx.shared.current_params,
@@ -859,6 +817,46 @@ mod app {
                  coeffs,
                  lost_link_timer,
                 | {
+
+                // Debug loop.
+                if unsafe { i } % 2_000 == 0 {
+                    // todo temp
+                    println!(
+                        "IMU Data: Ax {}, Ay: {}, Az: {}",
+                        params.a_x, params.a_y, params.a_z
+                    );
+
+                    println!(
+                        "IMU Data: roll {}, pitch: {}, yaw: {}",
+                        params.v_roll, params.v_pitch, params.v_yaw
+                    );
+
+                    println!(
+                        "Attitude: roll {}, pitch: {}, yaw: {}",
+                        params.s_roll, params.s_pitch, params.s_yaw
+                    );
+                    //
+                    //
+                    //
+                    // println!(
+                    //     "up RSSI: {}, Uplink qual: {} SNR: {}, tx pwr: {}, down RSSI: {}, down qual: {}, down snr: {}",
+                    //     link_stats.uplink_rssi_1,
+                    //     link_stats.uplink_link_quality,
+                    //     link_stats.uplink_snr,
+                    //     link_stats.uplink_tx_power,
+                    //     link_stats.downlink_rssi,
+                    //     link_stats.downlink_link_quality,
+                    //     link_stats.downlink_snr,
+                    // );
+                }
+
+                unsafe {
+                    i += 1;
+                };
+
+                sensor_fusion::update_get_attitude(ahrs, params);
+
+
                     flight_ctrls::handle_arm_status(
                         cx.local.arm_signals_received,
                         cx.local.disarm_signals_received,
@@ -868,9 +866,8 @@ mod app {
                     );
 
                     if flight_ctrls::LINK_LOST.load(Ordering::Acquire) {
-                        println!("LINK IS LOST!!");
                         // todo: For now, works by commanding attitude mode and level flight.
-                        flight_ctrls::handle_lost_link(input_mode,control_channel_data);
+                        flight_ctrls::link_lost_steady_state(input_mode, control_channel_data);
                         return;
                     }
 
@@ -889,9 +886,9 @@ mod app {
                     // *power_used += current_pwr.total() * DT;
                     // }
 
+                    // Note: Arm status primary handler is in the `set_power` fn, but there's no reason
+                    // to run the PIDs if not armed.
                     if command_state.arm_status != ArmStatus::Armed {
-                        // Also handled in `set_power` fn.
-                        dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
                         return;
                     }
 
@@ -1007,10 +1004,6 @@ mod app {
                     dma.stop(setup::IMU_TX_CH);
                     spi1.stop_dma(setup::IMU_RX_CH, dma);
 
-                    if command_state.arm_status != ArmStatus::Armed {
-                        return;
-                    }
-
                     let mut imu_data = sensor_fusion::ImuReadings::from_buffer(unsafe {
                         &sensor_fusion::IMU_READINGS
                     });
@@ -1019,9 +1012,25 @@ mod app {
                         imu_filters.apply(&mut imu_data);
                     });
 
+                    // println!("IMU DATA: {:?}", imu_data.v_pitch);
+
+                    // Apply filtered gyro readings directly to params.
+                    params.v_roll = imu_data.v_roll;
+                    params.v_pitch = imu_data.v_pitch;
+                    params.v_yaw = imu_data.v_yaw;
+
                     // Note: Consider if you want to update the attitude using the primary update loop,
                     // vice each IMU update.
                     sensor_fusion::update_get_attitude(ahrs, params);
+
+                    // Note: There is an arm status primary handler is in the `set_power` fn, but if we abort
+                    // here without it being set, power will remain at whatever state was set at time
+                    // of disarm. Alternatively, we could neither return nor stop motors here, and
+                    // let `set_power` handle it.
+                    if command_state.arm_status != ArmStatus::Armed {
+                        dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
+                        return;
+                    }
 
                     pid::run_rate(
                         params,
@@ -1177,16 +1186,6 @@ mod app {
             .lock(|uart, dma, ch_data, link_stats, lost_link_timer, rf_limiter_timer| {
                 uart.clear_interrupt(UsartInterrupt::Idle);
 
-
-                lost_link_timer.reset_countdown();
-                lost_link_timer.enable();
-
-                if flight_ctrls::LINK_LOST.compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
-                    println!("Link re-aquired");
-                    // todo: Execute re-acq procedure
-
-                }
-
                 if rf_limiter_timer.is_enabled() {
                     // todo: Put this back and figure out why this keeps happening.
                     // return;
@@ -1196,11 +1195,20 @@ mod app {
                 }
 
                 if let Some(crsf_data) =
-                    crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8)
+                crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8)
                 {
                     match crsf_data {
                         crsf::PacketData::ChannelData(data) => {
                             *ch_data = data;
+
+                            lost_link_timer.reset_countdown();
+                            lost_link_timer.enable();
+
+                            if flight_ctrls::LINK_LOST.compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
+                                println!("Link re-aquired");
+                                // todo: Execute re-acq procedure
+
+                            }
                         }
                         crsf::PacketData::LinkStats(stats) => {
                             *link_stats = stats;

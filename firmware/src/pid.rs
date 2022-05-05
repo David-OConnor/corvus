@@ -32,6 +32,7 @@ use crate::{
 const INTEGRATOR_CLAMP_MIN: f32 = -250.;
 const INTEGRATOR_CLAMP_MAX: f32 = 250.;
 
+// These filter states are for the PID D term.
 static mut FILTER_STATE_ROLL_ATTITUDE: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_PITCH_ATTITUDE: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_YAW_ATTITUDE: [f32; 4] = [0.; 4];
@@ -69,8 +70,8 @@ enum LowpassCutoff {
 /// Coefficients and other configurable parameters for controls, for pich and roll.
 /// Has several variants, due to coupling with horizontal (X and Y) movement.
 pub struct CtrlCoeffsPR {
-    // // These coefficients map desired change in flight parameters to rotor power change.
-    // // pitch, roll, and yaw s are in power / radians
+    // These coefficients map desired change in flight parameters to rotor power change.
+    // pitch, roll, and yaw s are in power / radians
     k_p_rate: f32,
     k_i_rate: f32,
     k_d_rate: f32,
@@ -91,6 +92,7 @@ impl Default for CtrlCoeffsPR {
     fn default() -> Self {
         Self {
             // pid for controlling pitch and roll from commanded horizontal position
+            // todo: Set these appropriately.
             k_p_rate: 0.1,
             k_i_rate: 0.,
             k_d_rate: 0.,
@@ -129,6 +131,7 @@ pub struct CtrlCoeffsYT {
 impl Default for CtrlCoeffsYT {
     fn default() -> Self {
         Self {
+            // todo: Set these appropriately.
             k_p_s: 0.1,
             k_i_s: 0.0,
             k_d_s: 0.0,
@@ -160,23 +163,9 @@ impl Default for CtrlCoeffGroup {
     fn default() -> Self {
         Self {
             pitch: Default::default(),
-            roll: CtrlCoeffsPR {
-                k_p_attitude: 45.,
-                k_i_attitude: 80.,
-                k_d_attitude: 30.,
-                ..Default::default()
-            },
+            roll: Default::default(),
             yaw: Default::default(),
-            thrust: CtrlCoeffsYT {
-                k_p_s: 0.1,
-                k_i_s: 0.0,
-                k_d_s: 0.0,
-
-                k_p_v: 45.,
-                k_i_v: 80.0,
-                k_d_v: 0.0,
-                pid_deriv_lowpass_cutoff: LowpassCutoff::H1k,
-            },
+            thrust: Default::default(),
         }
     }
 }
