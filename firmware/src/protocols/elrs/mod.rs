@@ -20,6 +20,7 @@ mod sx1280_regs;
 // mod crsf;
 mod sx1280;
 mod sx1280_hal;
+mod telemetry;
 
 // todo: QC every time you translated a ++. (Search for +=1, followed by using that index). You need
 // todo to more it after the access!

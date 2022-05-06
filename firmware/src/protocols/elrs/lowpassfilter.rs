@@ -51,7 +51,7 @@ impl LPF {
     pub fn update(&mut self, Indata: i32) -> i32 {
         if self.NeedReset {
             self.init(Indata);
-            self.SmoothDataINT
+            return self.SmoothDataINT;
         }
 
         let mut RawData: i32 = 0;

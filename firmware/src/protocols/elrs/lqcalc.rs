@@ -81,7 +81,7 @@ impl LQCALC {
 
     /* Return N, the size of the LQ history */
     pub fn getSize(&self) -> u8 {
-        self.N
+        N // todo: Probably not right?
     }
 
     /* Initialize and zero the history */

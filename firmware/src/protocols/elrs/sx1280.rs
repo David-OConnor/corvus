@@ -129,7 +129,7 @@ impl SX1280Driver {
         }
     }
 
-    fn End(&mut self) {
+    pub fn End(&mut self) {
         self.SetMode(OperatingModes::SLEEP);
         self.hal.end();
         RemoveCallbacks();
@@ -137,9 +137,7 @@ impl SX1280Driver {
         self.common.PayloadLength = 8; // Dummy default value which is overwritten during setup.
     }
 
-    fn Begin(&mut self, delay: &mut Delay) -> bool {
-        self.hal.init();
-
+    pub fn Begin(&mut self, delay: &mut Delay) -> bool {
         self.hal.reset();
         println!("SX1280 Begin");
         delay.delay_ms(100);
@@ -181,7 +179,7 @@ impl SX1280Driver {
         return true;
     }
 
-    fn Config(
+    pub fn Config(
         &mut self,
         bw: u8,
         sf: u8,
@@ -195,7 +193,7 @@ impl SX1280Driver {
         flrcCrcSeed: u16,
         flrc: u8,
     ) {
-        let mut irqs: u8 = IrqMasks::TX_DONE | IrqMasks::RX_DONE;
+        let mut irqs: u8 = (IrqMasks::TX_DONE as u16 | IrqMasks::RX_DONE as u16) as u8;
         let mode = if flrc != 0 {
             PacketTypes::FLRC
         } else {
@@ -242,7 +240,7 @@ impl SX1280Driver {
         self.SetRxTimeoutUs(interval);
     }
 
-    fn SetRxTimeoutUs(&mut self, interval: u32) {
+    pub fn SetRxTimeoutUs(&mut self, interval: u32) {
         if interval > 0 {
             self.timeout = (interval * 1000 / RX_TIMEOUT_PERIOD_BASE_NANOS) as u16;
         // number of periods for the SX1280 to timeout
@@ -251,7 +249,7 @@ impl SX1280Driver {
         }
     }
 
-    fn SetOutputPower(&mut self, mut power: i8) { // todo: Make sure the intent isn't to mut power in place.
+   pub fn SetOutputPower(&mut self, mut power: i8) { // todo: Make sure the intent isn't to mut power in place.
         if power < -18 {
             power = -18;
         } else if 13 < power {
@@ -263,7 +261,7 @@ impl SX1280Driver {
         // println!("SetPower: %d", buf[0]);
     }
 
-    fn SetMode(&mut self, OPmode: OperatingModes) {
+    pub fn SetMode(&mut self, OPmode: OperatingModes) {
         if OPmode == self.currOpmode {
             return;
         }
@@ -323,7 +321,7 @@ impl SX1280Driver {
         self.currOpmode = OPmode;
     }
 
-    fn ConfigModParamsLoRa(&mut self, bw: LoRaBandwidths, sf: LoRaSpreadingFactors, cr: u8) {
+    pub fn ConfigModParamsLoRa(&mut self, bw: LoRaBandwidths, sf: LoRaSpreadingFactors, cr: u8) {
         // Care must therefore be taken to ensure that modulation parameters are set using the command
         // SetModulationParam() only after defining the packet type SetPacketType() to be used
 
@@ -350,7 +348,7 @@ impl SX1280Driver {
         hal.WriteRegisterOne(Reg::FREQ_ERR_CORRECTION, 0x1);
     }
 
-    fn SetPacketParamsLoRa(
+    pub fn SetPacketParamsLoRa(
         &mut self,
         PreambleLength: u8,
         HeaderType: LoRaPacketLengthModes,
@@ -379,7 +377,7 @@ impl SX1280Driver {
         self.modeSupportsFei = HeaderType == LoRaPacketLengthsModes::VARIABLE_LENGTH;
     }
 
-    fn ConfigModParamsFLRC(&mut self, bw: u8, cr: u8, bt: u8) {
+    pub fn ConfigModParamsFLRC(&mut self, bw: u8, cr: u8, bt: u8) {
         let rfparams = [bw, cr, bt];
         self.hal.WriteCommand(
             RadioCommands::SET_MODULATIONPARAMS,
@@ -388,7 +386,7 @@ impl SX1280Driver {
         );
     }
 
-    fn SetPacketParamsFLRC(
+    pub fn SetPacketParamsFLRC(
         &mut self,
         HeaderType: FlrcPacketType,
         // todo: Check the original code isn't meant to modify thes ein place, ie &mut
@@ -442,7 +440,7 @@ impl SX1280Driver {
         self.modeSupportsFei = false;
     }
 
-    fn SetFrequencyHz(&mut self, Reqfreq: u32) {
+    pub fn SetFrequencyHz(&mut self, Reqfreq: u32) {
         // WORD_ALIGNED_ATTR uint8_t buf[3] = {0};
         let mut buf = [0_u8; 3];
 
@@ -456,7 +454,7 @@ impl SX1280Driver {
         self.common.currFreq = Reqfreq;
     }
 
-    fn SetFrequencyReg(&mut self, freq: u32) {
+    pub fn SetFrequencyReg(&mut self, freq: u32) {
         let mut buf: [u8; 3] = [0; 3];
 
         buf[0] = ((freq >> 16) & 0xFF) as u8;
@@ -468,7 +466,7 @@ impl SX1280Driver {
         self.common.currFreq = freq;
     }
 
-    fn SetFIFOaddr(&mut self, txBaseAddr: u8, rxBaseAddr: u8) {
+    pub fn SetFIFOaddr(&mut self, txBaseAddr: u8, rxBaseAddr: u8) {
         let mut buf: [u8; 2] = [0; 2];
 
         buf[0] = txBaseAddr;
@@ -477,7 +475,7 @@ impl SX1280Driver {
             .WriteCommand(RadioCommands::SET_BUFFERBASEADDRESS, &buf, buf.len());
     }
 
-    fn SetDioIrqParams(
+    pub fn SetDioIrqParams(
         &mut self,
         irqMask: u16,
         dio1Mask: u16,
@@ -499,14 +497,14 @@ impl SX1280Driver {
             .WriteCommand(RadioCommands::SET_DIOIRQPARAMS, &buf, buf.len());
     }
 
-    fn GetIrqStatus() -> u16 {
+    pub fn GetIrqStatus() -> u16 {
         let mut status: [u8; 2] = [0; 2];
 
         hal.ReadCommand(RadioCommands::GET_IRQSTATUS, status, 2);
         (status[0] as u16) << 8 | (status[1] as u16)
     }
 
-    fn ClearIrqStatus(&mut self, irqMask: IrqMasks) {
+    pub fn ClearIrqStatus(&mut self, irqMask: IrqMasks) {
         let mut buf = [0_u8; 2];
 
         buf[0] = ((irqMask as u16 >> 8) & 0x00FF) as u8;
@@ -516,7 +514,7 @@ impl SX1280Driver {
             .WriteCommand(RadioCommands::CLR_IRQSTATUS, &mut buf, buf.len());
     }
 
-    fn TXnbISR(&mut self) {
+    pub fn TXnbISR(&mut self) {
         self.currOpmode = OperatingModes::FS; // radio goes to FS after TX
                                               // #ifdef DEBUG_SX1280_OTA_TIMING
                                               //     endTX = micros();
@@ -525,7 +523,7 @@ impl SX1280Driver {
         TXdoneCallback();
     }
 
-    fn TXnb(&mut self) {
+    pub fn TXnb(&mut self) {
         //catch TX timeout
         if currOpmode == OperatingModes::TX {
             //println!("Timeout!");
@@ -542,7 +540,7 @@ impl SX1280Driver {
     }
 
     // todo: Place in apt place for ISR
-    fn RXnbISR(&mut self, irqStatus: u16) {
+    pub fn RXnbISR(&mut self, irqStatus: u16) {
         let fail = if (irqStatus & IrqMasks::CRC_ERROR as u16) != 0 {
             RxStatus::CrcFail as u16
         } else {
@@ -569,19 +567,19 @@ impl SX1280Driver {
         // self.RXdoneCallback(fail);
     }
 
-    fn RXnb(&mut self) {
+    pub fn RXnb(&mut self) {
         self.hal.RXenable();
         self.SetMode(OperatingModes::RX);
     }
 
-    fn GetRxBufferAddr(&mut self) -> u8 {
+    pub fn GetRxBufferAddr(&mut self) -> u8 {
         let mut status = [0_u8; 2];
         self.hal
             .ReadCommand(RadioCommands::GET_RXBUFFERSTATUS, &mut status, 2);
         return status[1];
     }
 
-    fn GetStatus(&mut self) {
+    pub fn GetStatus(&mut self) {
         let mut status: u8 = 0;
         self.hal
             .ReadCommand(RadioCommands::GET_STATUS, &mut [status], 1);
@@ -593,7 +591,7 @@ impl SX1280Driver {
         );
     }
 
-    fn GetFrequencyErrorbool(&self) -> bool {
+    pub fn GetFrequencyErrorbool(&self) -> bool {
         // Only need the highest bit of the 20-bit FEI to determine the direction
         let feiMsb: u8 = hal.ReadRegisterOne(Reg::LR_ESTIMATED_FREQUENCY_ERROR_MSB);
         // fei & (1 << 19) and flip sign if IQinverted
@@ -604,7 +602,7 @@ impl SX1280Driver {
         }
     }
 
-    fn GetRssiInst(&mut self) -> i8 {
+    pub fn GetRssiInst(&mut self) -> i8 {
         let status: u8 = 0;
 
         self.hal
@@ -612,7 +610,7 @@ impl SX1280Driver {
         -((status / 2) as i8)
     }
 
-    fn GetLastPacketStats(&mut self) {
+    pub fn GetLastPacketStats(&mut self) {
         let mut status = [0_u8; 2];
 
         self.hal
@@ -632,7 +630,7 @@ impl SX1280Driver {
         self.common.LastPacketRSSI += negOffset;
     }
 
-    fn IsrCallback(&mut self) {
+    pub fn IsrCallback(&mut self) {
         let mut irqStatus: u16 = instance.GetIrqStatus();
         self.ClearIrqStatus(IrqMasks::RADIO_ALL);
         if (irqStatus & IrqMasks::TX_DONE as u16) != 0 {

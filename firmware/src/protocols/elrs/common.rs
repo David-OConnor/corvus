@@ -130,6 +130,23 @@ impl RfRates {
             Self::LORA_4HZ => 4,
         }
     }
+
+    /// Convert enum_rate to index
+    pub fn to_index(&self) -> u8 {
+        for i in 0..RATE_MAX {
+            let ModParams = get_elrs_airRateConfig(i as usize);
+            if ModParams.rf_rate == self {
+                return i;
+            }
+        }
+        // If 25Hz selected and not available, return the slowest rate available
+        // else return the fastest rate available (500Hz selected but not available)
+
+        match self {
+            Self::LORA_25HZ => RATE_MAX - 1,
+            _ => 0
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -361,23 +378,6 @@ fn get_elrs_RFperfParams(index: usize) -> PrefParams {
     AirRateRFperf[i as usize].clone()
 }
 
-/// Convert enum_rate to index
-fn enumRatetoIndex(rate: u8) -> u8 {
-    for i in 0..RATE_MAX {
-        let ModParams = get_elrs_airRateConfig(i as usize);
-        if ModParams.rf_rate as u8 == rate {
-            return i;
-        }
-    }
-    // If 25Hz selected and not available, return the slowest rate available
-    // else return the fastest rate available (500Hz selected but not available)
-    if rate == RfRates::LORA_25HZ as u8 {
-        RATE_MAX - 1
-    } else {
-        0
-    }
-}
-
 pub static mut CurrAirRateModParams: ModSettings = mem::zeroed();
 
 pub static mut CurrAirRateRfPerfParams: PrefParams = mem::zeroed();
@@ -402,6 +402,27 @@ pub static mut UID: [u8; 6] = [0; 6];
 static mut MasterUID: [u8; 6] = unsafe { [UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]] }; // Special binding UID values
 
 static mut CRCInitializer: u16 = unsafe { ((UID[4] as u16) << 8) | (UID[5] as u16) };
+
+/// Calculate number of 'burst' telemetry frames for the specified air rate and tlm ratio
+/// When attempting to send a LinkStats telemetry frame at most every TELEM_MIN_LINK_INTERVAL_MS,
+/// calculate the number of sequential advanced telemetry frames before another LinkStats is due.
+pub fn TLMBurstMaxForRateRatio(rate: RfRates, ratioDiv: TlmRatio) -> u8 {
+    // Maximum ms between LINK_STATISTICS packets for determining burst max
+    let TELEM_MIN_LINK_INTERVAL_MS: u32 = 512;
+
+    // telemInterval = 1000 / (hz / ratiodiv);
+    // burst = TELEM_MIN_LINK_INTERVAL_MS / telemInterval;
+    // This ^^^ rearranged to preserve precision vvv
+    let mut retVal: u8 = TELEM_MIN_LINK_INTERVAL_MS * rate.hz() / ratioDiv.value() / 1000;
+
+    // Reserve one slot for LINK telemetry
+    if retVal > 1 {
+        retval -= 1;
+    } else {
+        retVal = 1;
+    }
+    retval
+}
 
 unsafe fn uidMacSeedGet() -> u32 {
     ((UID[2] as u32) << 24) + ((UID[3] as u32) << 16) + ((UID[4] as u32) << 8) + UID[5] as u32

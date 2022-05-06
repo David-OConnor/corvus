@@ -46,14 +46,14 @@ pub struct SX1280Hal {
 }
 
 impl SX1280Hal {
-    pub fn end() {
-        TXRXdisable(); // make sure the RX/TX amp pins are disabled
-        detachInterrupt(GPIO_PIN_DIO1);
-        SPI.end();
-        IsrCallback = nullptr; // remove callbacks
+    pub fn end(&mut self) {
+        self.TXRXdisable(); // make sure the RX/TX amp pins are disabled
+        // detachInterrupt(GPIO_PIN_DIO1);
+        // SPI.end();
+        // IsrCallback = nullptr; // remove callbacks
     }
 
-    pub fn init(spi: Spi<SPI2>, nss: Pin, dio: Pin, busy_pin: Pin) -> Self {
+    pub fn new(spi: Spi<SPI2>, nss: Pin, dio: Pin, busy_pin: Pin) -> Self {
         // (This functionality is handled in `main.rs`.)
         Self {
             spi,
