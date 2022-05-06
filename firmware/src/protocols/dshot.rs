@@ -14,6 +14,8 @@
 //! The DSHOT protocol (DSHOT-300, DSHOT-600 etc) is determined by the `DSHOT_ARR_600` and `DSHOT_PSC_600` settings in the
 //! main crate; ie set a 600kHz countdown for DSHOT-600.
 
+use cortex_m::delay::Delay;
+
 use stm32_hal2::{
     dma::Dma,
     pac,
@@ -74,14 +76,14 @@ pub enum Command {
     Beacon4 = 4,
     Beacon5 = 5,
     EscInfo = 6,
-    SpinDir1 = 7,
-    SpinDir2 = 8,
-    _3dModeOff = 9,
-    _3dModeOn = 10,
+    SpinDir1 = 7, // 6x
+    SpinDir2 = 8, // 6x
+    _3dModeOff = 9, // 6x
+    _3dModeOn = 10, // 6x
     SettingsRequest = 11,
     SaveSettings = 12,
-    SpinDirNormal = 20,
-    SpinDirReversed = 21,
+    SpinDirNormal = 20, // 6x
+    SpinDirReversed = 21, // 6x
     Led0On = 22,               // BLHeli32 only
     Led1On = 23,               // BLHeli32 only
     Led2On = 24,               // BLHeli32 only
@@ -93,13 +95,13 @@ pub enum Command {
     AudioStreamModeOnOff = 30, // KISS audio Stream mode on/Off
     SilendModeOnOff = 31,      // KISS silent Mode on/Off
     /// Disables commands 42 to 47
-    TelemetryEnable = 32,
+    TelemetryEnable = 32, // 6x
     /// Enables commands 42 to 47
-    TelemetryDisable = 33,
+    TelemetryDisable = 33,  // 6x
     /// Need 6x. Enables commands 42 to 47 and sends erpm if normal Dshot frame
-    ContinuousErpmTelemetry = 34,
+    ContinuousErpmTelemetry = 34,  // 6x
     /// Enables commands 42 to 47 and sends erpm period if normal Dshot frame
-    ContinuousErpmPeriodTelemetry = 35,
+    ContinuousErpmPeriodTelemetry = 35,  // 6x
     /// 1°C per LSB
     TemperatureTelemetry = 42,
     /// 10mV per LSB, 40.95V max
@@ -151,34 +153,32 @@ pub fn setup_motor_dir(
     timer_a: &mut Timer<TIM2>,
     timer_b: &mut Timer<TIM3>,
     dma: &mut Dma<DMA1>,
+    delay: &mut Delay,
 ) {
-    // todo: DRY
-    if motors_reversed.0 {
-        setup_payload(Rotor::R1, CmdType::Command(Command::SpinDirReversed));
-    } else {
-        setup_payload(Rotor::R1, CmdType::Command(Command::SpinDirNormal));
+    // Spin dir commands need to be sent 6 times.
+    for _ in 0..6 {
+        let cmd_1 = if motors_reversed.0 { CmdType::Command(Command::SpinDirReversed) } else { CmdType::Command(Command::SpinDirNormal) };
+        let cmd_2 = if motors_reversed.1 { CmdType::Command(Command::SpinDirReversed) } else { CmdType::Command(Command::SpinDirNormal) };
+        let cmd_3 = if motors_reversed.2 { CmdType::Command(Command::SpinDirReversed) } else { CmdType::Command(Command::SpinDirNormal) };
+        let cmd_4 = if motors_reversed.3 { CmdType::Command(Command::SpinDirReversed) } else { CmdType::Command(Command::SpinDirNormal) };
+
+        // todo TS
+        // let cmd_1 = CmdType::Command(Command::SpinDir1);
+        // let cmd_2 = CmdType::Command(Command::SpinDir2);
+
+        setup_payload(Rotor::R1, cmd_1);
+        setup_payload(Rotor::R2, cmd_2);
+        send_payload_a(timer_a, dma);
+
+        setup_payload(Rotor::R3, cmd_3);
+        setup_payload(Rotor::R4, cmd_4);
+        send_payload_b(timer_b, dma);
+
+        // quick+dirty blocking delay to help TS this not working. This is OK, since we only run this
+        // on init, or during preflight.
+        delay.delay_ms(100);
     }
 
-    if motors_reversed.1 {
-        setup_payload(Rotor::R2, CmdType::Command(Command::SpinDirReversed));
-    } else {
-        setup_payload(Rotor::R2, CmdType::Command(Command::SpinDirNormal));
-    }
-
-    if motors_reversed.2 {
-        setup_payload(Rotor::R3, CmdType::Command(Command::SpinDirReversed));
-    } else {
-        setup_payload(Rotor::R3, CmdType::Command(Command::SpinDirNormal));
-    }
-
-    if motors_reversed.3 {
-        setup_payload(Rotor::R4, CmdType::Command(Command::SpinDirReversed));
-    } else {
-        setup_payload(Rotor::R4, CmdType::Command(Command::SpinDirNormal));
-    }
-
-    send_payload_a(timer_a, dma);
-    send_payload_b(timer_b, dma);
 }
 
 /// Update our DSHOT payload for a given rotor, with a given power level.
@@ -233,7 +233,7 @@ pub fn set_power_a(
     timer: &mut Timer<TIM2>,
     dma: &mut Dma<DMA1>,
 ) {
-    println!("P: {}", power1);
+    // println!("P: {}", power1);
     setup_payload(rotor1, CmdType::Power(power1));
     setup_payload(rotor2, CmdType::Power(power2));
 

@@ -98,6 +98,10 @@ use madgwick::Ahrs;
 
 use ppks::{Location, LocationType};
 
+// 512k flash. Page size 2kbyte. 72-bit data read (64 bits plus 8 ECC bits)
+// Each page is 8 rows of 256 bytes. 255 pages in main memory.
+const ONBOARD_FLASH_START_PAGE: usize = 160;
+
 // Our DT timer speed, in Hz.
 const DT_TIM_FREQ: u32 = 200_000_000;
 
@@ -646,19 +650,20 @@ mod app {
         let mut state_volatile = StateVolatile::default();
 
         // Hard-coded for our test setup
-        // user_cfg.motors_reversed = (false, true, true, true);
+        user_cfg.motors_reversed = (false, true, true, true);
+
+        // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
+        dshot::stop_all(&mut rotor_timer_a, &mut rotor_timer_b, &mut dma);
+
+        delay.delay_ms(3_000); // todo temp?
 
         dshot::setup_motor_dir(
             user_cfg.motors_reversed,
             &mut rotor_timer_a,
             &mut rotor_timer_b,
             &mut dma,
+            &mut delay,
         );
-
-        // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
-        dshot::stop_all(&mut rotor_timer_a, &mut rotor_timer_b, &mut dma);
-
-        delay.delay_ms(500); // todo temp
 
         cfg_if! {
             if #[cfg(feature = "g4")] {
@@ -684,15 +689,13 @@ mod app {
         let mut flash_onboard = Flash::new(dp.FLASH);
 
         // todo: Testing flash
-        flash_onboard.unlock();
-        let onboard_flash_starting_page: usize = 10; // todo: Make this a const.
-
+        // flash_onboard.unlock();
         let mut flash_buf = [0; 5];
-        let cfg_data = flash_onboard.read_to_buffer(onboard_flash_starting_page, 0, &mut flash_buf);
+        let cfg_data = flash_onboard.read_to_buffer(ONBOARD_FLASH_START_PAGE, 0, &mut flash_buf);
 
-        println!("Flash Buf ( should be 1, 2, 3, 0, 0): {:?}", flash buf);
-        flash_onboard.erase_page(onboard_flash_starting_page);
-        flash_onboard.write_page(onboard_flash_starting_page, &[1, 2, 3, 0, 0]);
+        println!("Flash Buf ( should be 1, 2, 3, 0, 0): {:?}", flash_buf);
+        // flash_onboard.erase_page(ONBOARD_FLASH_START_PAGE);
+        // flash_onboard.write_page(ONBOARD_FLASH_START_PAGE, &[1, 2, 3, 0, 0]);
 
         let mut params = Default::default();
 
@@ -1044,8 +1047,6 @@ mod app {
                         imu_filters.apply(&mut imu_data);
                     });
 
-                    // println!("IMU DATA: {:?}", imu_data.v_pitch);
-
                     // Apply filtered gyro readings directly to params.
                     params.v_roll = imu_data.v_roll;
                     params.v_pitch = imu_data.v_pitch;
@@ -1097,7 +1098,6 @@ mod app {
     // /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     // /// application.
     // fn usb_isr(mut cx: usb_isr::Context) {
-    //     // println!("USB ISR");
     //     (cx.shared.usb_dev, cx.shared.usb_serial, cx.shared.current_params).lock(
     //         |usb_dev, usb_serial, params| {
     //             if !usb_dev.poll(&mut [usb_serial]) {

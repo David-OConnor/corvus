@@ -7,13 +7,12 @@
 //! https://raw.githubusercontent.com/ExpressLRS/ExpressLRS/master/src/lib/SX1280Driver/SX1280.h
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/SX1280Driver/SX1280.cpp
 
+use core::mem;
 use defmt::println;
 
 use super::{sx1280_hal::*, sx1280_regs::*};
 
 use cortex_m::delay::Delay;
-
-type rx_status = u8;
 
 // Inside `DriverCommon` on orig.
 const TXRXBuffSize: usize = 16; // todo define type?
@@ -45,8 +44,6 @@ pub struct SX12xxDriverCommon {
     /////////////Packet Stats//////////
     pub LastPacketRSSI: i8,
     pub LastPacketSNR: i8,
-
-    pub hal: SX1280Hal, // global var in original impl.
 }
 
 // impl SX12xxDriverCommon {
@@ -67,17 +64,9 @@ struct SX1280Driver {
     currOpmode: OperatingModes,
     packet_mode: PacketTypes,
     modeSupportsFei: bool,
-}
 
-impl Default for SX1280Driver {
-    fn default() -> Self {
-        Self {
-            timeout: 0xFFFF,
-            currOpmode: OperatingModes::SLEEP,
-            packet_mode: PacketTypes::LORA, // todo?
-            modeSupportsFei: false,         //todo?
-        }
-    }
+    hal: SX1280Hal, // global var in original impl.
+    common: SX12xxDriverCommon, // global var in original impl.
 }
 
 // SX1280Driver *SX1280Driver::instance = NULL;
@@ -129,24 +118,34 @@ impl SX1280Driver {
     //     instance = this;
     // }
 
+    pub fn new(hal: SX1280Hal, common: SX12xxDriverCommon) -> Self {
+        Self {
+            timeout: 0xFFFF,
+            currOpmode: OperatingModes::SLEEP,
+            packet_mode: PacketTypes::LORA, // todo?
+            modeSupportsFei: false,         //todo?
+            hal,
+            common,
+        }
+    }
+
     fn End(&mut self) {
         self.SetMode(OperatingModes::SLEEP);
         self.hal.end();
         RemoveCallbacks();
-        currFreq = 2_400_000_000;
-        PayloadLength = 8; // Dummy default value which is overwritten during setup.
+        self.common.currFreq = 2_400_000_000;
+        self.common.PayloadLength = 8; // Dummy default value which is overwritten during setup.
     }
 
-    unsafe fn Begin(&mut self, delay: &mut Delay) -> bool {
+    fn Begin(&mut self, delay: &mut Delay) -> bool {
         self.hal.init();
-        self.hal.IsrCallback = &IsrCallback;
 
         self.hal.reset();
         println!("SX1280 Begin");
         delay.delay_ms(100);
-        let firmwareRev: u16 = (((self.hal.ReadRegisterOne(Reg::LR_FIRMWARE_VERSION_MSB)) << 8)
-            | (self.hal.ReadRegisterOne(Reg::LR_FIRMWARE_VERSION_MSB + 1)));
-        println!("Read Vers: %d", firmwareRev);
+        let firmwareRev: u16 = (self.hal.ReadRegisterOne(Reg::LR_FIRMWARE_VERSION_MSB) << 8) as u16
+            | self.hal.ReadRegisterOne(Reg::LR_FIRMWARE_VERSION_LSB) as u16;
+        println!("Read Vers: {}", firmwareRev);
         if (firmwareRev == 0) || (firmwareRev == 65535) {
             // SPI communication failed, just return without configuration
             return false;
@@ -158,7 +157,7 @@ impl SX1280Driver {
         self.ConfigModParamsLoRa(LoRaBandwidths::BW_0800, SX1280_LORA_SF6, SX1280_LORA_CR_4_7); //Configure Modulation Params
         self.hal.WriteCommandOne(RadioCommands::SET_AUTOFS, 0x01); //Enable auto FS
         self.hal
-            .WriteRegisterOne(0x0891, (self.hal.ReadRegisterOne(0x0891) | 0xC0)); //default is low power mode, switch to high sensitivity instead
+            .WriteRegisterOne(Reg::RxGain, (self.hal.ReadRegisterOne(Reg::RxGain) | 0xC0)); //default is low power mode, switch to high sensitivity instead
         self.SetPacketParamsLoRa(
             12,
             SX1280_LORA_PACKET_IMPLICIT,
@@ -166,11 +165,11 @@ impl SX1280Driver {
             SX1280_LORA_CRC_OFF,
             SX1280_LORA_IQ_NORMAL,
         ); //default params
-        self.SetFrequencyReg(currFreq); //Set Freq
+        self.SetFrequencyReg(self.common.currFreq); //Set Freq
         self.SetFIFOaddr(0x00, 0x00); //Config FIFO addr
         self.SetDioIrqParams(
-            IrqMasks::RADIO_ALL,
-            IrqMasks::TX_DONE | IrqMasks::RX_DONE,
+            IrqMasks::RADIO_ALL as u16,
+            IrqMasks::TX_DONE as u16 | IrqMasks::RX_DONE as u16,
             0,
             0,
         ); // todo: 0-padding? fn takes 4 params.                                             //set IRQ to both RXdone/TXdone on DIO1
@@ -203,12 +202,12 @@ impl SX1280Driver {
             PacketTypes::LORA
         };
 
-        PayloadLength = _PayloadLength;
-        IQinverted = InvertIQ;
+        self.common.PayloadLength = _PayloadLength;
+        self.common.IQinverted = InvertIQ;
         self.packet_mode = mode;
         self.SetMode(OperatingModes::STDBY_XOSC);
         self.hal
-            .WriteCommandOne(RadioCommands::SET_PACKETTYPE, mode);
+            .WriteCommandOne(RadioCommands::SET_PACKETTYPE, mode as u8);
 
         if mode == PacketTypes::FLRC {
             println!("Config FLRC");
@@ -216,7 +215,7 @@ impl SX1280Driver {
             self.SetPacketParamsFLRC(
                 FlrcPacketType::FIXED_LENGTH,
                 /*crc=*/ 1,
-                *PreambleLength,
+                PreambleLength,
                 _PayloadLength,
                 flrcSyncWord,
                 flrcCrcSeed,
@@ -239,12 +238,12 @@ impl SX1280Driver {
             );
         }
         self.SetFrequencyReg(freq);
-        self.SetDioIrqParams(IrqMasks::RADIO_ALL, irqs, 0, 0); // todo: 0-padding? fn takes 4 params.
+        self.SetDioIrqParams(IrqMasks::RADIO_ALL as u16, irqs as u16, 0, 0); // todo: 0-padding? fn takes 4 params.
         self.SetRxTimeoutUs(interval);
     }
 
     fn SetRxTimeoutUs(&mut self, interval: u32) {
-        if interval {
+        if interval > 0 {
             self.timeout = (interval * 1000 / RX_TIMEOUT_PERIOD_BASE_NANOS) as u16;
         // number of periods for the SX1280 to timeout
         } else {
@@ -252,15 +251,15 @@ impl SX1280Driver {
         }
     }
 
-    fn SetOutputPower(&mut self, power: &mut i8) {
-        if *power < -18 {
-            *power = -18;
-        } else if 13 < *power {
-            *power = 13;
+    fn SetOutputPower(&mut self, mut power: i8) { // todo: Make sure the intent isn't to mut power in place.
+        if power < -18 {
+            power = -18;
+        } else if 13 < power {
+            power = 13;
         }
-        let mut buf: [u8; 2] = [(power + 18) as u8, RadioCommands::RAMP_04_US as u8];
+        let mut buf: [u8; 2] = [(power + 18) as u8, RampTime::RAMP_04_US as u8];
         self.hal
-            .WriteCommand(RadioCommands::SET_TXPARAMS, buf, sizeof(buf));
+            .WriteCommand(RadioCommands::SET_TXPARAMS, &buf, sizeof(buf));
         // println!("SetPower: %d", buf[0]);
     }
 
@@ -281,17 +280,17 @@ impl SX1280Driver {
 
             OperatingModes::STDBY_RC => {
                 self.hal
-                    .WriteCommandOne(RadioCommands::SET_STANDBY, OperatingModes::STDBY_RC);
+                    .WriteCommandOne(RadioCommands::SET_STANDBY, OperatingModes::STDBY_RC as u8);
                 switchDelay = 1500;
             }
 
             OperatingModes::STDBY_XOSC => {
                 self.hal
-                    .WriteCommandOne(RadioCommands::SET_STANDBY, OperatingModes::STDBY_XOSC);
+                    .WriteCommandOne(RadioCommands::SET_STANDBY, OperatingModes::STDBY_XOSC as u8);
                 switchDelay = 50;
             }
 
-            OperatingModes::MODE_FS => {
+            OperatingModes::FS => {
                 self.hal.WriteCommandOne(RadioCommands::SET_FS, 0x00);
                 switchDelay = 70;
             }
@@ -301,7 +300,7 @@ impl SX1280Driver {
                 buf[1] = timeout >> 8;
                 buf[2] = timeout & 0xFF;
                 self.hal
-                    .WriteCommand(RadioCommands::SET_RX, buf, sizeof(buf));
+                    .WriteCommand(RadioCommands::SET_RX, &buf, sizeof(buf));
                 switchDelay = 100;
             }
 
@@ -311,7 +310,7 @@ impl SX1280Driver {
                 buf[1] = 0xFF; // no timeout set for now
                 buf[2] = 0xFF; // TODO dynamic timeout based on expected onairtime
                 self.hal
-                    .WriteCommand(RadioCommands::SET_TX, buf, sizeof(buf));
+                    .WriteCommand(RadioCommands::SET_TX, &buf, sizeof(buf));
                 switchDelay = 100;
             }
 
@@ -328,11 +327,11 @@ impl SX1280Driver {
         // Care must therefore be taken to ensure that modulation parameters are set using the command
         // SetModulationParam() only after defining the packet type SetPacketType() to be used
 
-        let rfparams = [sf, bw as u8, cr];
+        let rfparams = [sf as u8, bw as u8, cr];
 
         self.hal.WriteCommand(
             RadioCommands::SET_MODULATIONPARAMS,
-            rfparams as u8,
+            &rfparams,
             rfparams.len(),
         );
 
@@ -374,17 +373,17 @@ impl SX1280Driver {
         buf[6] = 0x00;
 
         self.hal
-            .WriteCommand(RadioCommands::SET_PACKETPARAMS, buf, buf.len());
+            .WriteCommand(RadioCommands::SET_PACKETPARAMS, &buf, buf.len());
 
         // FEI only triggers in Lora mode when the header is present :(
         self.modeSupportsFei = HeaderType == LoRaPacketLengthsModes::VARIABLE_LENGTH;
     }
 
-    fn ConfigModParamsFLRC(&mut self, w: u8, cr: u8, bt: u8) {
+    fn ConfigModParamsFLRC(&mut self, bw: u8, cr: u8, bt: u8) {
         let rfparams = [bw, cr, bt];
         self.hal.WriteCommand(
             RadioCommands::SET_MODULATIONPARAMS,
-            rfparams,
+            &rfparams,
             rfparams.len(),
         );
     }
@@ -392,26 +391,27 @@ impl SX1280Driver {
     fn SetPacketParamsFLRC(
         &mut self,
         HeaderType: FlrcPacketType,
-        crc: &mut u8,
-        PreambleLength: &mut u8,
+        // todo: Check the original code isn't meant to modify thes ein place, ie &mut
+        mut crc: u8,
+        mut PreambleLength: u8,
         PayloadLength: u8,
         syncWord: u32,
         crcSeed: u16,
     ) {
         // todo: modifying these in place doesn't cause consequences for the caller, right? Or
         // todo maybe we need the consequencse4?
-        if *PreambleLength < 8 {
-            *PreambleLength = 8;
+        if PreambleLength < 8 {
+            PreambleLength = 8;
         }
-        *PreambleLength = ((PreambleLength / 4) - 1) << 4;
-        *crc = if crc != 0 {
+        PreambleLength = ((PreambleLength / 4) - 1) << 4;
+        crc = if crc != 0 {
             FlrcCrc::CRC_2_BYTE as u8
         } else {
             FlrcCrc::CRC_OFF as u8
         };
 
         let mut buf = [0; 7];
-        buf[0] = *PreambleLength; // AGCPreambleLength
+        buf[0] = PreambleLength; // AGCPreambleLength
         buf[1] = FlrcSyncWordLen::WORD_LEN_P32S as u8; // SyncWordLength
         buf[2] = FlrcSyncWordCombination::MATCH_SYNC_WORD_1 as u8; // SyncWordMatch
         buf[3] = HeaderType as u8; // PacketType
@@ -419,24 +419,24 @@ impl SX1280Driver {
         buf[5] = crc << 4; // CrcLength
         buf[6] = 0x08; // Must be whitening disabled
         self.hal
-            .WriteCommand(RadioCommands::SET_PACKETPARAMS, buf, buf.len());
+            .WriteCommand(RadioCommands::SET_PACKETPARAMS, &buf, buf.len());
 
         // CRC seed (use dedicated cipher)
         buf[0] = (crcSeed >> 8) as u8;
         buf[1] = crcSeed as u8;
-        self.hal.WriteRegister(Reg::FLRC_CRC_SEED, buf, 2);
+        self.hal.WriteRegister(Reg::FLRC_CRC_SEED, &buf, 2);
 
         // CRC POLY 0x3D65
         buf[0] = 0x3D;
         buf[1] = 0x65;
-        self.hal.WriteRegister(Reg::FLRC_CRC_POLY, buf, 2);
+        self.hal.WriteRegister(Reg::FLRC_CRC_POLY, &buf, 2);
 
         // Set SyncWord1
         buf[0] = (syncWord >> 24) as u8;
         buf[1] = (syncWord >> 16) as u8;
         buf[2] = (syncWord >> 8) as u8;
         buf[3] = syncWord as u8;
-        self.hal.WriteRegister(Reg::FLRC_SYNC_WORD, buf, 4);
+        self.hal.WriteRegister(Reg::FLRC_SYNC_WORD, &buf, 4);
 
         // FEI only works in Lora and Ranging mode
         self.modeSupportsFei = false;
@@ -452,8 +452,8 @@ impl SX1280Driver {
         buf[2] = (freq & 0xFF) as u8;
 
         self.hal
-            .WriteCommand(RadioCommands::SET_RFFREQUENCY, buf, buf.len());
-        currFreq = Reqfreq;
+            .WriteCommand(RadioCommands::SET_RFFREQUENCY, &buf, buf.len());
+        self.common.currFreq = Reqfreq;
     }
 
     fn SetFrequencyReg(&mut self, freq: u32) {
@@ -464,8 +464,8 @@ impl SX1280Driver {
         buf[2] = (freq & 0xFF) as u8;
 
         self.hal
-            .WriteCommand(RadioCommands::SET_RFFREQUENCY, buf, buf.len());
-        currFreq = freq;
+            .WriteCommand(RadioCommands::SET_RFFREQUENCY, &buf, buf.len());
+        self.common.currFreq = freq;
     }
 
     fn SetFIFOaddr(&mut self, txBaseAddr: u8, rxBaseAddr: u8) {
@@ -474,29 +474,29 @@ impl SX1280Driver {
         buf[0] = txBaseAddr;
         buf[1] = rxBaseAddr;
         self.hal
-            .WriteCommand(RadioCommands::SET_BUFFERBASEADDRESS, buf, buf.len());
+            .WriteCommand(RadioCommands::SET_BUFFERBASEADDRESS, &buf, buf.len());
     }
 
     fn SetDioIrqParams(
         &mut self,
-        irqMask: IrqMasks,
-        dio1Mask: IrqMasks,
-        dio2Mask: IrqMasks,
-        dio3Mask: IrqMasks,
+        irqMask: u16,
+        dio1Mask: u16,
+        dio2Mask: u16,
+        dio3Mask: u16,
     ) {
         let mut buf: [u8; 8] = [0; 8];
 
-        buf[0] = ((irqMask as u16 >> 8) & 0x00FF) as u8;
-        buf[1] = (irqMask as u16 & 0x00FF) as u8;
-        buf[2] = ((dio1Mask as u16 >> 8) & 0x00FF) as u8;
-        buf[3] = (dio1Mask as u16 & 0x00FF) as u8;
-        buf[4] = ((dio2Mask as u16 >> 8) & 0x00FF) as u8;
-        buf[5] = (dio2Mask as u16 & 0x00FF) as u8;
-        buf[6] = ((dio3Mask as u16 >> 8) & 0x00FF) as u8;
-        buf[7] = (dio3Mask as u16 & 0x00FF) as u8;
+        buf[0] = ((irqMask >> 8) & 0x00FF) as u8;
+        buf[1] = (irqMask & 0x00FF) as u8;
+        buf[2] = ((dio1Mask >> 8) & 0x00FF) as u8;
+        buf[3] = (dio1Mask & 0x00FF) as u8;
+        buf[4] = ((dio2Mask >> 8) & 0x00FF) as u8;
+        buf[5] = (dio2Mask & 0x00FF) as u8;
+        buf[6] = ((dio3Mask >> 8) & 0x00FF) as u8;
+        buf[7] = (dio3Mask & 0x00FF) as u8;
 
         self.hal
-            .WriteCommand(RadioCommands::SET_DIOIRQPARAMS, buf, buf.len());
+            .WriteCommand(RadioCommands::SET_DIOIRQPARAMS, &buf, buf.len());
     }
 
     fn GetIrqStatus() -> u16 {
@@ -506,14 +506,14 @@ impl SX1280Driver {
         (status[0] as u16) << 8 | (status[1] as u16)
     }
 
-    fn ClearIrqStatus(&mut self, irqMask: u16) {
+    fn ClearIrqStatus(&mut self, irqMask: IrqMasks) {
         let mut buf = [0_u8; 2];
 
         buf[0] = ((irqMask as u16 >> 8) & 0x00FF) as u8;
         buf[1] = (irqMask as u16 & 0x00FF) as u8;
 
         self.hal
-            .WriteCommand(RadioCommands::CLR_IRQSTATUS, buf, buf.len());
+            .WriteCommand(RadioCommands::CLR_IRQSTATUS, &mut buf, buf.len());
     }
 
     fn TXnbISR(&mut self) {
@@ -534,7 +534,7 @@ impl SX1280Driver {
             return;
         }
         hal.TXenable(); // do first to allow PA stablise
-        hal.WriteBuffer(0x00, TXdataBuffer, PayloadLength); //todo fix offset to equal fifo addr
+        hal.WriteBuffer(0x00, self.common.TXdataBuffer, self.common.PayloadLength); //todo fix offset to equal fifo addr
         instance.SetMode(OperatingModes::TX);
         // #ifdef DEBUG_SX1280_OTA_TIMING
         //     beginTX = micros();
@@ -543,14 +543,14 @@ impl SX1280Driver {
 
     // todo: Place in apt place for ISR
     fn RXnbISR(&mut self, irqStatus: u16) {
-        let fail: RxStatus = if (irqStatus & IrqMasks::CRC_ERROR) != 0 {
-            RxStatus::CrcFail
+        let fail = if (irqStatus & IrqMasks::CRC_ERROR as u16) != 0 {
+            RxStatus::CrcFail as u16
         } else {
-            RxStatus::Ok
-        } + if (irqStatus & IrqMasks::RX_TX_TIMEOUT) != 0 {
-            RxStatus::RxTimeout
-        } else {
-            RxStatus::Ok
+            RxStatus::Ok as u16 + if (irqStatus & IrqMasks::RX_TX_TIMEOUT as u16) != 0 {
+                RxStatus::RxTimeout as u16
+            } else {
+                RxStatus::Ok as u16
+            }
         };
 
         // In continuous receive mode, the device stays in Rx mode
@@ -560,28 +560,31 @@ impl SX1280Driver {
             // but because we have AUTO_FS enabled we automatically transition to state OperatingModes::FS
             self.currOpmode = OperatingModes::FS;
         }
-        if fail == RxStatus::Ok {
+        if fail == RxStatus::Ok as u16 {
             let FIFOaddr: u8 = self.GetRxBufferAddr();
-            hal.ReadBuffer(FIFOaddr, RXdataBuffer, PayloadLength);
+            hal.ReadBuffer(FIFOaddr, self.common.RXdataBuffer, self.common.PayloadLength);
             GetLastPacketStats();
         }
-        self.RXdoneCallback(fail);
+        // todo: Where is this callback defined (other than as null?)
+        // self.RXdoneCallback(fail);
     }
 
     fn RXnb(&mut self) {
-        hal.RXenable();
+        self.hal.RXenable();
         self.SetMode(OperatingModes::RX);
     }
 
-    fn GetRxBufferAddr() -> u8 {
+    fn GetRxBufferAddr(&mut self) -> u8 {
         let mut status = [0_u8; 2];
-        hal.ReadCommand(RadioCommands::GET_RXBUFFERSTATUS, &mut status, 2);
+        self.hal
+            .ReadCommand(RadioCommands::GET_RXBUFFERSTATUS, &mut status, 2);
         return status[1];
     }
 
-    fn GetStatus() {
+    fn GetStatus(&mut self) {
         let mut status: u8 = 0;
-        hal.ReadCommand(RadioCommands::GET_STATUS, &[status], 1);
+        self.hal
+            .ReadCommand(RadioCommands::GET_STATUS, &mut [status], 1);
         println!(
             "Status: %x, %x, %x",
             (0b11100000 & status) >> 5,
@@ -590,50 +593,56 @@ impl SX1280Driver {
         );
     }
 
-    fn GetFrequencyErrorbool() -> bool {
+    fn GetFrequencyErrorbool(&self) -> bool {
         // Only need the highest bit of the 20-bit FEI to determine the direction
         let feiMsb: u8 = hal.ReadRegisterOne(Reg::LR_ESTIMATED_FREQUENCY_ERROR_MSB);
         // fei & (1 << 19) and flip sign if IQinverted
         if (feiMsb & 0x08) != 0 {
-            IQinverted
+            self.common.IQinverted
         } else {
-            !IQinverted
+            !self.common.IQinverted
         }
     }
 
-    fn GetRssiInst() -> i8 {
+    fn GetRssiInst(&mut self) -> i8 {
         let status: u8 = 0;
 
-        hal.ReadCommand(RadioCommands::GET_RSSIINST, &[status], 1);
-        return -((status / 2) as i8);
+        self.hal
+            .ReadCommand(RadioCommands::GET_RSSIINST, &mut [status], 1);
+        -((status / 2) as i8)
     }
 
-    fn GetLastPacketStats(&self) {
+    fn GetLastPacketStats(&mut self) {
         let mut status = [0_u8; 2];
-        hal.ReadCommand(RadioCommands::GET_PACKETSTATUS, status, 2);
+
+        self.hal
+            .ReadCommand(RadioCommands::GET_PACKETSTATUS, &mut status, 2);
         if self.packet_mode == PacketTypes::FLRC {
             // No SNR in FLRC mode
-            LastPacketRSSI = -(int8_t)(status[1] / 2);
-            LastPacketSNR = 0;
+            self.common.LastPacketRSSI = -((status[1] / 2) as i8);
+            self.common.LastPacketSNR = 0;
             return;
         }
         // LoRa mode has both RSSI and SNR
-        LastPacketRSSI = -((status[0] as i8 / 2) as i8);
-        LastPacketSNR = status[1] as i8 / 4;
+        self.common.LastPacketRSSI = -((status[0] as i8 / 2) as i8);
+        self.common.LastPacketSNR = status[1] as i8 / 4;
         // https://www.mouser.com/datasheet/2/761/DS_SX1280-1_V2.2-1511144.pdf
         // need to subtract SNR from RSSI when SNR <= 0;
-        let negOffset: i8 = if LastPacketSNR < 0 { LastPacketSNR } else { 0 };
-        LastPacketRSSI += negOffset;
+        let negOffset: i8 = if self.common.LastPacketSNR < 0 { self.common.LastPacketSNR } else { 0 };
+        self.common.LastPacketRSSI += negOffset;
     }
 
-    fn IsrCallback() {
+    fn IsrCallback(&mut self) {
         let mut irqStatus: u16 = instance.GetIrqStatus();
-        instance.ClearIrqStatus(IrqMasks::RADIO_ALL);
-        if irqStatus & IrqMasks::TX_DONE {
-            hal.TXRXdisable();
-            instance.TXnbISR();
-        } else if irqStatus & (IrqMasks::RX_DONE | IrqMasks::CRC_ERROR | IrqMasks::RX_TX_TIMEOUT) {
-            instance.RXnbISR(irqStatus);
+        self.ClearIrqStatus(IrqMasks::RADIO_ALL);
+        if (irqStatus & IrqMasks::TX_DONE as u16) != 0 {
+            self.hal.TXRXdisable();
+            self.TXnbISR();
+        } else if irqStatus
+            & (IrqMasks::RX_DONE as u16 | IrqMasks::CRC_ERROR as u16 | IrqMasks::RX_TX_TIMEOUT as u16)
+            != 0
+        {
+            self.RXnbISR(irqStatus);
         }
     }
 }

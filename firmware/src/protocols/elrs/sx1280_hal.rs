@@ -46,14 +46,14 @@ pub struct SX1280Hal {
 }
 
 impl SX1280Hal {
-    fn end() {
+    pub fn end() {
         TXRXdisable(); // make sure the RX/TX amp pins are disabled
         detachInterrupt(GPIO_PIN_DIO1);
         SPI.end();
         IsrCallback = nullptr; // remove callbacks
     }
 
-    fn init(spi: Spi<SPI2>, nss: Pin, dio: Pin, busy_pin: Pin) -> Self {
+    pub fn init(spi: Spi<SPI2>, nss: Pin, dio: Pin, busy_pin: Pin) -> Self {
         // (This functionality is handled in `main.rs`.)
         Self {
             spi,
@@ -63,7 +63,7 @@ impl SX1280Hal {
         }
     }
 
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         println!("SX1280 Reset");
 
         // todo: Currently aren't using rst pin
@@ -129,12 +129,12 @@ impl SX1280Hal {
         self.nss.set_high();
     }
 
-    fn WriteRegister(&mut self, address: u16, buffer: &[u8], size: usize) {
+    pub fn WriteRegister(&mut self, address: Reg, buffer: &[u8], size: usize) {
         let mut OutBuffer = [0_u8; size + 3];
 
         OutBuffer[0] = RadioCommands::WRITE_REGISTER as u8;
-        OutBuffer[1] = ((address & 0xFF00) >> 8) as u8;
-        OutBuffer[2] = (address & 0x00FF) as u8;
+        OutBuffer[1] = ((address as u16 & 0xFF00) >> 8) as u8;
+        OutBuffer[2] = (address as u16 & 0x00FF) as u8;
 
         memcpy(OutBuffer + 3, buffer, size);
 
@@ -146,16 +146,16 @@ impl SX1280Hal {
         BusyDelay(12);
     }
 
-    fn WriteRegisterOne(&mut self, address: u16, value: u8) {
+    pub fn WriteRegisterOne(&mut self, address: Reg, value: u8) {
         self.WriteRegister(address, &[value], 1);
     }
 
-    fn ReadRegister(&mut self, address: u16, buffer: &[u8], size: usize) {
+    pub fn ReadRegister(&mut self, reg: Reg, buffer: &[u8], size: usize) {
         let mut OutBuffer = [0_u8; size + 4];
 
         OutBuffer[0] = RadioCommands::READ_REGISTER as u8;
-        OutBuffer[1] = ((address & 0xFF00) >> 8) as u8;
-        OutBuffer[2] = (address & 0x00FF) as u8;
+        OutBuffer[1] = ((reg as u16 & 0xFF00) >> 8) as u8;
+        OutBuffer[2] = (reg as u16 & 0x00FF) as u8;
         OutBuffer[3] = 0x00;
 
         WaitOnBusy();
@@ -167,13 +167,13 @@ impl SX1280Hal {
         self.nss.set_high();
     }
 
-    fn ReadRegisterOne(&mut self, address: u16) -> u8 {
+    pub fn ReadRegisterOne(&mut self, reg: Reg) -> u8 {
         let mut data: u8 = 0;
-        self.ReadRegister_b(address, &mut data, 1);
+        self.ReadRegister(reg, &mut [data], 1);
         data
     }
 
-    fn WriteBuffer(&mut self, offset: u8, buffer: &[u8], size: usize) {
+    pub fn WriteBuffer(&mut self, offset: u8, buffer: &[u8], size: usize) {
         let mut localbuf = [0_u8; size];
 
         for i in 0..size {
@@ -196,7 +196,7 @@ impl SX1280Hal {
         BusyDelay(12);
     }
 
-    fn ReadBuffer(&mut self, offset: u8, buffer: &mut [u8], size: usize) {
+    pub fn ReadBuffer(&mut self, offset: u8, buffer: &mut [u8], size: usize) {
         let mut OutBuffer: [u8; size + 3] = [0; size + 3];
         let mut localbuf: [u8; size] = [0; size];
 
@@ -219,7 +219,7 @@ impl SX1280Hal {
         }
     }
 
-    fn WaitOnBusy(&self) -> bool {
+    pub fn WaitOnBusy(&self) -> bool {
         // (We use the busy pin)
         // #if defined(GPIO_PIN_BUSY) && (GPIO_PIN_BUSY != UNDEF_PIN)
         let startTime: u32 = micros();
@@ -252,60 +252,60 @@ impl SX1280Hal {
         return true;
     }
 
-    fn dioISR() {
+    pub fn dioISR() {
         if instance.IsrCallback {
             instance.IsrCallback();
         }
     }
 
     // We don't use these pins.
-    // fn TXenable() {
-    // #if defined(GPIO_PIN_PA_ENABLE) && (GPIO_PIN_PA_ENABLE != UNDEF_PIN)
-    //     digitalWrite(GPIO_PIN_PA_ENABLE, HIGH);
-    // #endif
-    // #if defined(GPIO_PIN_RX_ENABLE) && (GPIO_PIN_RX_ENABLE != UNDEF_PIN)
-    //     digitalWrite(GPIO_PIN_RX_ENABLE, LOW);
-    // #endif
-    // #if defined(GPIO_PIN_TX_ENABLE) && (GPIO_PIN_TX_ENABLE != UNDEF_PIN)
-    //     digitalWrite(GPIO_PIN_TX_ENABLE, HIGH);
-    // #endif
-    // #if defined(GPIO_PIN_ANT_CTRL_1) && (GPIO_PIN_ANT_CTRL_1 != UNDEF_PIN)
-    //     digitalWrite(GPIO_PIN_ANT_CTRL_1, HIGH);
-    // #endif
-    // #if defined(GPIO_PIN_ANT_CTRL_2) && (GPIO_PIN_ANT_CTRL_2 != UNDEF_PIN)
-    //     digitalWrite(GPIO_PIN_ANT_CTRL_2, LOW);
-    // #endif
-    // }
+    pub fn TXenable(&self) {
+        // #if defined(GPIO_PIN_PA_ENABLE) && (GPIO_PIN_PA_ENABLE != UNDEF_PIN)
+        //     digitalWrite(GPIO_PIN_PA_ENABLE, HIGH);
+        // #endif
+        // #if defined(GPIO_PIN_RX_ENABLE) && (GPIO_PIN_RX_ENABLE != UNDEF_PIN)
+        //     digitalWrite(GPIO_PIN_RX_ENABLE, LOW);
+        // #endif
+        // #if defined(GPIO_PIN_TX_ENABLE) && (GPIO_PIN_TX_ENABLE != UNDEF_PIN)
+        //     digitalWrite(GPIO_PIN_TX_ENABLE, HIGH);
+        // #endif
+        // #if defined(GPIO_PIN_ANT_CTRL_1) && (GPIO_PIN_ANT_CTRL_1 != UNDEF_PIN)
+        //     digitalWrite(GPIO_PIN_ANT_CTRL_1, HIGH);
+        // #endif
+        // #if defined(GPIO_PIN_ANT_CTRL_2) && (GPIO_PIN_ANT_CTRL_2 != UNDEF_PIN)
+        //     digitalWrite(GPIO_PIN_ANT_CTRL_2, LOW);
+        // #endif
+    }
     //
-    // fn RXenable() {
-    // #if defined(GPIO_PIN_PA_ENABLE) && (GPIO_PIN_PA_ENABLE != UNDEF_PIN)
-    //     digitalWrite(GPIO_PIN_PA_ENABLE, HIGH);
-    // #endif
-    // #if defined(GPIO_PIN_RX_ENABLE) && (GPIO_PIN_RX_ENABLE != UNDEF_PIN)
-    //     digitalWrite(GPIO_PIN_RX_ENABLE, HIGH);
-    // #endif
-    // #if defined(GPIO_PIN_TX_ENABLE) && (GPIO_PIN_TX_ENABLE != UNDEF_PIN)
-    //     digitalWrite(GPIO_PIN_TX_ENABLE, LOW);
-    // #endif
-    // #if defined(GPIO_PIN_ANT_CTRL_1) && (GPIO_PIN_ANT_CTRL_1 != UNDEF_PIN)
-    //     digitalWrite(GPIO_PIN_ANT_CTRL_1, LOW);
-    // #endif
-    // #if defined(GPIO_PIN_ANT_CTRL_2) && (GPIO_PIN_ANT_CTRL_2 != UNDEF_PIN)
-    //     digitalWrite(GPIO_PIN_ANT_CTRL_2, HIGH);
-    // #endif
-    // }
+    pub fn RXenable(&self) {
+        // #if defined(GPIO_PIN_PA_ENABLE) && (GPIO_PIN_PA_ENABLE != UNDEF_PIN)
+        //     digitalWrite(GPIO_PIN_PA_ENABLE, HIGH);
+        // #endif
+        // #if defined(GPIO_PIN_RX_ENABLE) && (GPIO_PIN_RX_ENABLE != UNDEF_PIN)
+        //     digitalWrite(GPIO_PIN_RX_ENABLE, HIGH);
+        // #endif
+        // #if defined(GPIO_PIN_TX_ENABLE) && (GPIO_PIN_TX_ENABLE != UNDEF_PIN)
+        //     digitalWrite(GPIO_PIN_TX_ENABLE, LOW);
+        // #endif
+        // #if defined(GPIO_PIN_ANT_CTRL_1) && (GPIO_PIN_ANT_CTRL_1 != UNDEF_PIN)
+        //     digitalWrite(GPIO_PIN_ANT_CTRL_1, LOW);
+        // #endif
+        // #if defined(GPIO_PIN_ANT_CTRL_2) && (GPIO_PIN_ANT_CTRL_2 != UNDEF_PIN)
+        //     digitalWrite(GPIO_PIN_ANT_CTRL_2, HIGH);
+        // #endif
+    }
     //
-    // fn TXRXdisable() {
-    // #if defined(GPIO_PIN_RX_ENABLE) && (GPIO_PIN_RX_ENABLE != UNDEF_PIN)
-    //     digitalWrite(GPIO_PIN_RX_ENABLE, LOW);
-    // #endif
-    // #if defined(GPIO_PIN_TX_ENABLE) && (GPIO_PIN_TX_ENABLE != UNDEF_PIN)
-    //     digitalWrite(GPIO_PIN_TX_ENABLE, LOW);
-    // #endif
-    // #if defined(GPIO_PIN_PA_ENABLE) && (GPIO_PIN_PA_ENABLE != UNDEF_PIN)
-    //     digitalWrite(GPIO_PIN_PA_ENABLE, LOW);
-    // #endif
-    // }
+    pub fn TXRXdisable(&self) {
+        // #if defined(GPIO_PIN_RX_ENABLE) && (GPIO_PIN_RX_ENABLE != UNDEF_PIN)
+        //     digitalWrite(GPIO_PIN_RX_ENABLE, LOW);
+        // #endif
+        // #if defined(GPIO_PIN_TX_ENABLE) && (GPIO_PIN_TX_ENABLE != UNDEF_PIN)
+        //     digitalWrite(GPIO_PIN_TX_ENABLE, LOW);
+        // #endif
+        // #if defined(GPIO_PIN_PA_ENABLE) && (GPIO_PIN_PA_ENABLE != UNDEF_PIN)
+        //     digitalWrite(GPIO_PIN_PA_ENABLE, LOW);
+        // #endif
+    }
     //
     // #endif // UNIT_TEST
 }

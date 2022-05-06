@@ -9,7 +9,8 @@
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u16)]
 pub enum Reg {
-    LR_FIRMWARE_VERSION_MSB = 0x0153,
+    LR_FIRMWARE_VERSION_MSB = 0x0153, // note: can't find this in RM, but is in ELRS orig firmware.
+    LR_FIRMWARE_VERSION_LSB = 0x0154, // note: can't find this in RM, but is in ELRS orig firmware.
     //The address of the register holding the firmware version MSB
     LR_ESTIMATED_FREQUENCY_ERROR_MSB = 0x0954,
     LR_ESTIMATED_FREQUENCY_ERROR_MASK = 0x0FFFFF,
@@ -19,6 +20,7 @@ pub enum Reg {
     FLRC_CRC_POLY = 0x9C6,
     FLRC_CRC_SEED = 0x9C8,
     FLRC_SYNC_WORD = 0x9CF,
+    RxGain = 0x891, // not in original ELRS impl, but this value is called directly.
 }
 
 const XTAL_FREQ: u32 = 52_000_000;

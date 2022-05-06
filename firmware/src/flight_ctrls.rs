@@ -736,6 +736,8 @@ pub fn apply_controls(
     pwr.p1 += cw;
     pwr.p4 += cw;
 
+    // todo: Clamp each motor to idle?
+
     // Normalize using throttle, so the average power is equal to throttle x 4 rotors.
     pwr *= 4. * throttle / pwr.total();
 
