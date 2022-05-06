@@ -19,7 +19,10 @@ use defmt::println;
 
 use cmsis_dsp_sys as dsp_sys;
 
-use crate::{dshot, pid::PidState, util, util::map_linear, CtrlCoeffGroup, Location, UserCfg, control_interface::ChannelData};
+use crate::{
+    control_interface::ChannelData, dshot, pid::PidState, util, util::map_linear, CtrlCoeffGroup,
+    Location, UserCfg,
+};
 
 // We must receive arm or disarm signals for this many update cycles in a row to perform those actions.
 const NUM_ARM_DISARM_SIGNALS_REQUIRED: u8 = 5;
@@ -85,7 +88,7 @@ static mut IMU_BUF: [u8; 12] = [0; 12];
 /// Represents a complete quadcopter. Used for setting control parameters.
 struct AircraftProperties {
     mass: f32,               // grams
-    arm_len: f32,            // meters
+    arm_len: f32,            // meters. COG to rotor center, horizontally.
     drag_coeff: f32,         // unitless
     thrust_coeff: f32,       // N/m^2
     moment_of_intertia: f32, // kg x m^2
@@ -129,9 +132,13 @@ pub struct AxisLocks {
 /// specific board setups.
 #[derive(Clone, Copy)]
 pub enum Rotor {
+    /// Aft left
     R1,
+    /// Front left
     R2,
+    /// Aft right
     R3,
+    /// Front right
     R4,
 }
 
@@ -645,22 +652,21 @@ pub fn link_lost_steady_state(input_mode: &mut InputMode, control_ch_data: &mut 
     // println!("Handling lost link...")
     // if !timer.is_enabled() {
     //     println!("Lost link to Rx control. Recovering...")
-        // todo: Consider how you want to handle this, with and without GPS.
+    // todo: Consider how you want to handle this, with and without GPS.
 
-        // todo: To start, command an attitude-mode hover, with baro alt hold.
+    // todo: To start, command an attitude-mode hover, with baro alt hold.
 
-        // todo: Make sure you resume flight once link is re-acquired.
+    // todo: Make sure you resume flight once link is re-acquired.
     // }
 
     *input_mode = InputMode::Attitude;
     control_ch_data.pitch = 0.;
     control_ch_data.roll = 0.;
     control_ch_data.yaw = 0.;
-     // todo temp!
+    // todo temp!
     // todo: The above plus a throttle control, and attitude mode etc
 
     control_ch_data.throttle = 0.0; // todo: Drops out of sky for now while we test.
-
 }
 
 // todo: DMA for timer? How?
@@ -676,21 +682,21 @@ fn estimate_rotor_angle(a_desired: f32, v_current: f32, ac_properties: &Aircraft
 }
 
 /// Set rotor speed for all 4 rotors. We model pitch, roll, and yaw based on target angular rates
-/// in these areas, but modifying the power ratio between the appropriate propeller pairs. The ratios
-/// passed in params are on a scale between -1. and +1. The inputs are the ratio of the respective rotor sides.
+/// in these areas. We modify power ratio between the appropriate propeller pairs to change these
+/// parameters. The ratios passed in params are on a scale between -1. and +1. The inputs are the ratio of the respective rotor sides.
 /// Throttle works differently - it's an overall scaler. If ratios are all 0, and power is 1., power for
 /// all motors is 100%. No individual power level is allowed to be above 1. Rather than clip, we
 /// scale other rotor power levels to leave the one set to exceed 1. at 1.
 ///
-/// `pitch_rate` = 0. means equal front/aft power. `pitch_rate` = 1.0 means aft/front rotor power is 100%.
+/// `pitch_rate` = 0. means equal front/aft power. `pitch_rate` = 1.0 means aft/front rotor power is 100%
 /// `pitch_rate`= -1. means aft / front power is 0%.... pitch_rate = 1. means max fwd rotation. roll_rate = 1.
 /// means max right rotation. yaw_rate 1.0 means max clockwise rotation.
 /// Rotor 1 is aft right. R2 is front right. R3 is aft left. R4 is front left.
+/// (Per our experiment: R1 is aft left. R2 is front left. R3 is aft right. R4 is front right.
 ///
 /// Important: Rates here are in terms of max/min - they're not in real units like radians/s!
 ///
-/// Keep in mind: We're trying to map stick position (or more generally, commanded angular rate) to
-/// ratios between prop pairs.
+/// We're trying to map commanded angular rate to ratios between prop pairs.
 pub fn apply_controls(
     pitch_rate: f32,
     roll_rate: f32,
@@ -740,6 +746,8 @@ pub fn apply_controls(
     if highest_v > 1. {
         pwr /= highest_v;
     }
+
+    // todo: Clamp at 0 too, and other code review here.
 
     pwr.set(rotor_tim_a, rotor_tim_b, arm_status, dma);
 

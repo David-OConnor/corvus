@@ -13,7 +13,7 @@ pub enum Reg {
     //The address of the register holding the firmware version MSB
     LR_ESTIMATED_FREQUENCY_ERROR_MSB = 0x0954,
     LR_ESTIMATED_FREQUENCY_ERROR_MASK = 0x0FFFFF,
-    
+
     SF_ADDITIONAL_CONFIG = 0x925,
     FREQ_ERR_CORRECTION = 0x93C,
     FLRC_CRC_POLY = 0x9C6,
@@ -214,14 +214,14 @@ pub enum FlrcGaussianFilter {
 
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
-pub enum RadioFlrcSyncWordLen {
+pub enum FlrcSyncWordLen {
     NOSYNC = 0x00,
     WORD_LEN_P32S = 0x04,
 }
 
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
-pub enum RadioFlrcSyncWordCombination {
+pub enum FlrcSyncWordCombination {
     DISABLE_SYNC_WORD = 0x00,
     MATCH_SYNC_WORD_1 = 0x10,
     MATCH_SYNC_WORD_2 = 0x20,
@@ -234,7 +234,7 @@ pub enum RadioFlrcSyncWordCombination {
 
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
-pub enum RadioFlrcPacketType {
+pub enum FlrcPacketType {
     FIXED_LENGTH = 0x00,
     VARIABLE_LENGTH = 0x20,
 }

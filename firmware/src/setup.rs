@@ -132,12 +132,18 @@ pub fn setup_pins() {
             imu_interrupt.pull(Pull::Up);
             imu_interrupt.enable_interrupt(Edge::Falling);
 
-            // Used to trigger a a control-data-received update based on new ELRS data.
-            let mut elrs_busy = Pin::new(Port::C, 14, PinMode::Input);
-            // todo: Look up how you configure this pin!
-            elrs_busy.output_type(OutputType::OpenDrain);
-            elrs_busy.pull(Pull::Up);
-            elrs_busy.enable_interrupt(Edge::Falling);
+            // ELRS busy and DIO currently in the main fn.
+            //
+            // // Used to trigger a a control-data-received update based on new ELRS data.
+            // let mut elrs_busy = Pin::new(Port::C, 14, PinMode::Input);
+            // elrs_busy.output_type(OutputType::OpenDrain);
+            // elrs_busy.pull(Pull::Up);
+            // elrs_busy.enable_interrupt(Edge::Falling);
+            //
+            // let mut elrs_dio = Pin::new(Port::C, 14, PinMode::Input);
+            // elrs_busy.output_type(OutputType::OpenDrain);
+            // elrs_busy.pull(Pull::Up);
+            // elrs_busy.enable_interrupt(Edge::Falling);
 
             // I2C1 for external sensors, via pads
             let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));

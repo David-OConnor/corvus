@@ -11,10 +11,10 @@ mod common;
 mod fhss;
 mod lqcalc;
 // mod msp;
-mod pfd;
 mod lowpassfilter;
-mod rx_main;
 mod ota;
+mod pfd;
+mod rx_main;
 // mod stubborn;
 mod sx1280_regs;
 // mod crsf;
@@ -27,7 +27,6 @@ mod sx1280_hal;
 use crate::flight_ctrls::CtrlInputs;
 
 use stm32_hal2::{pac::SPI3, spi::Spi};
-
 
 // todo: Should this mod be under drivers, or top level? Or a new top-level mod folder called protocols,
 // todo where DSHOT, and our USB comms also is?

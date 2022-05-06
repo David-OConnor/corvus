@@ -84,6 +84,7 @@ static mut TX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
 
 /// Invalid packet, etc.
 struct DecodeError {}
+// struct CrcError {} todo?
 
 #[derive(Clone, Copy, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]

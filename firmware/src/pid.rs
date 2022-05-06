@@ -788,10 +788,14 @@ pub fn run_rate(
     );
 
     // Adjust gains to map control range and pid out in radians/s to the -1. to 1 rates used by the motor
-    // control logic.
+    // control logic, in `flight_ctrls::apply_controls`.
     let pitch = input_map.calc_pitch_rate_pwr(pid.pitch.out());
     let roll = input_map.calc_roll_rate_pwr(pid.roll.out());
     let yaw = input_map.calc_yaw_rate_pwr(pid.yaw.out());
+
+    // let pitch = pid.pitch.out();
+    // let roll = pid.roll.out();
+    // let yaw = pid.yaw.out();
 
     // todo: Work on this.
     let throttle = match input_mode {

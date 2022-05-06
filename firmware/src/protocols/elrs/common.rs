@@ -28,6 +28,22 @@ pub enum TlmRatio {
     _1_2 = 7,
 }
 
+impl From<u8> for TlmRatio {
+    fn from(v: u8) -> Self {
+        match v {
+            0 => Self::NO_TLM,
+            1 => Self::_1_128,
+            2 => Self::_1_64,
+            3 => Self::_1_32,
+            4 => Self::_1_16,
+            5 => Self::_1_8,
+            6 => Self::_1_4,
+            7 => Self::_1_2,
+            _ => panic!(),
+        }
+    }
+}
+
 impl TlmRatio {
     pub fn value(&self) -> u8 {
         match self {
@@ -71,9 +87,9 @@ enum TxTlmRcvPhase {
 #[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum RXtimerState {
-    tim_disconnected = 0,
-    tim_tentative = 1,
-    tim_locked = 2,
+    Disconnected = 0,
+    Tentative = 1,
+    Locked = 2,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -168,7 +184,7 @@ struct ModSettings {
     pub bw: u8,
     pub sf: u8,
     pub cr: u8,
-    pub interval: u32,         // interval in us seconds that corresponds to that frequency
+    pub interval: u32, // interval in us seconds that corresponds to that frequency
     pub TLMinterval: TlmRatio, // every X packets is a response TLM packet, should be a power of 2
     pub FHSShopInterval: u8, // every X packets we hop to a new frequency. Max value of 16 since only 4 bits have been assigned in the sync package.
     pub PreambleLen: u8,

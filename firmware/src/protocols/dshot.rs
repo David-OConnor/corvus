@@ -21,6 +21,8 @@ use stm32_hal2::{
     timer::{CountDir, OutputCompare, Polarity, Timer, TimerInterrupt},
 };
 
+use defmt::println;
+
 // todo: Bidirectional: Set timers to active low, set GPIO idle to high, and perhaps set down counting
 // todo if required. Then figure out input capture, and fix in HAL.
 
@@ -231,8 +233,13 @@ pub fn set_power_a(
     timer: &mut Timer<TIM2>,
     dma: &mut Dma<DMA1>,
 ) {
+    println!("P: {}", power1);
     setup_payload(rotor1, CmdType::Power(power1));
     setup_payload(rotor2, CmdType::Power(power2));
+
+    // todo temp
+    // setup_payload(rotor1, CmdType::Power(0.));
+    // setup_payload(rotor2, CmdType::Power(0.));
 
     send_payload_a(timer, dma)
 }
@@ -248,6 +255,10 @@ pub fn set_power_b(
 ) {
     setup_payload(rotor1, CmdType::Power(power1));
     setup_payload(rotor2, CmdType::Power(power2));
+
+    // todo temp
+    // setup_payload(rotor1, CmdType::Power(0.));
+    // setup_payload(rotor2, CmdType::Power(power2));
 
     send_payload_b(timer, dma)
 }

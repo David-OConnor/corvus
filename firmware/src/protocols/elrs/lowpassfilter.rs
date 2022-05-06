@@ -12,40 +12,36 @@
 pub struct LPF {
     pub SmoothDataINT: i32,
     pub SmoothDataFP: i32,
-    pub Beta: i32,    // Length = 16
-    pub FP_Shift: i32, //Number of fractional bits
-    pub NeedReset: bool,  // wait for the first data to upcoming.
+    pub Beta: i32,       // Length = 16
+    pub FP_Shift: i32,   //Number of fractional bits
+    pub NeedReset: bool, // wait for the first data to upcoming.
 }
 
 impl LPF {
-
-    pub fn new_a(Beta: i32, FP_Shift: i32) -> Self
-    {
+    pub fn new_a(Beta: i32, FP_Shift: i32) -> Self {
         Self {
             SmoothDataINT: 0, // ??
-            SmoothDataFP: 0, // ??
+            SmoothDataFP: 0,  // ??
             Beta,
             FP_Shift,
             NeedReset: true,
         }
     }
 
-    pub fn new_b(Beta: i32) -> Self
-    {
+    pub fn new_b(Beta: i32) -> Self {
         Self {
             SmoothDataINT: 0, // ??
-            SmoothDataFP: 0, // ??
+            SmoothDataFP: 0,  // ??
             Beta,
             FP_Shift: 5, // default to 5
             NeedReset: true,
         }
     }
 
-    pub fn new_c() -> Self
-    {
+    pub fn new_c() -> Self {
         Self {
             SmoothDataINT: 0, // ??
-            SmoothDataFP: 0, // ??
+            SmoothDataFP: 0,  // ??
             Beta: 3,
             FP_Shift: 5,
             NeedReset: true,
@@ -74,7 +70,6 @@ impl LPF {
         self.NeedReset = true;
     }
 
-
     pub fn init(&mut self, Indata: i32) {
         self.NeedReset = false;
 
@@ -82,5 +77,7 @@ impl LPF {
         self.SmoothDataFP = self.SmoothDataINT << self.FP_Shift;
     }
 
-    pub fn value(&self) -> i32 { self.SmoothDataINT }
+    pub fn value(&self) -> i32 {
+        self.SmoothDataINT
+    }
 }

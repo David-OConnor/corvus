@@ -28,10 +28,7 @@
  * This file provides utilities for packing and unpacking the data to
  * be sent over the radio link.
  */
-
-use super::{
-    crsf::CRSF,
-};
+use super::crsf::CRSF;
 
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
