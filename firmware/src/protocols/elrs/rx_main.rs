@@ -10,8 +10,6 @@ use core::mem;
 
 use cortex_m::delay::Delay;
 
-use stm32_hal2::{pac::TIM4, timer::Timer};
-
 use defmt::println;
 
 use super::{
@@ -181,7 +179,7 @@ unsafe fn getRFlinkInfo() {
     // crsf.LinkStatistics.rf_Mode = ExpressLRS_currAirRate_Modparams.enum_rate;
 }
 
-unsafe fn SetRFLinkRate(index: u8, hwTimer: &mut Timer<TIM4>) // Set speed of RF link
+unsafe fn SetRFLinkRate(index: u8) // Set speed of RF link
 {
     let ModParams: ModSettings = get_elrs_airRateConfig(index as usize);
     let RFperf: RfPrefParams = get_elrs_RFperfParams(index as usize);
@@ -327,7 +325,7 @@ fn HandleFreqCorr(value: bool) {
     }
 }
 
-unsafe fn updatePhaseLock(hwTimer: &mut Timer<TIM4>) {
+unsafe fn updatePhaseLock() {
     if connectionState != ConnectionState::disconnected {
         PFDloop.calcResult();
         PFDloop.reset();
@@ -368,8 +366,8 @@ unsafe fn updatePhaseLock(hwTimer: &mut Timer<TIM4>) {
 
 /// this is 180 out of phase with the other callback, occurs mid-packet reception.
 /// Call this from the main ISR.
-pub unsafe fn HWtimerCallbackTick(hwTimer: &mut Timer<TIM4>) {
-    updatePhaseLock(hwTimer);
+pub unsafe fn HWtimerCallbackTick() {
+    updatePhaseLock();
     NonceRX += 1;
 
     // Save the LQ value before the inc() reduces it by 1
@@ -486,7 +484,7 @@ pub unsafe fn HWtimerCallbackTock(radio: &mut SX12xxDriver) {
     }
 }
 
-unsafe fn LostConnection(Radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) {
+unsafe fn LostConnection(Radio: &mut SX12xxDriver) {
     defmt::println!("lost conn fc={} fo={}", FreqCorrection, hwTimer.FreqOffset);
 
     RFmodeCycleMultiplier = 1;
@@ -507,7 +505,7 @@ unsafe fn LostConnection(Radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) {
     if !InBindingMode && hwTimer.enabled() {
         while micros() - PFDloop.intEventTime > 250 {} // time it just after the tock()
         hwTimer.disable();
-        SetRFLinkRate(nextAirRateIndex, hwTimer); // also sets to initialFreq
+        SetRFLinkRate(nextAirRateIndex); // also sets to initialFreq
         Radio.RXnb();
     }
 }
@@ -628,7 +626,7 @@ unsafe fn ProcessRfPacket_SYNC(radio: &mut SX12xxDriver, now: u32) -> bool {
     return false;
 }
 
-unsafe fn ProcessRFPacket(radio: &mut SX12xxDriver, status: RxStatus, hwTimer: &mut Timer<TIM4>) {
+unsafe fn ProcessRFPacket(radio: &mut SX12xxDriver, status: RxStatus) {
     if status != RxStatus::Ok {
         println!("HW CRC error");
         return;
@@ -697,8 +695,8 @@ unsafe fn ProcessRFPacket(radio: &mut SX12xxDriver, status: RxStatus, hwTimer: &
 }
 
 // todo: Move this call to the main fn once you figure out where it goes.
-unsafe fn RXdoneISR(radio: &mut SX12xxDriver, status: RxStatus, hwTimer: &mut Timer<TIM4>) {
-    ProcessRFPacket(radio, status, hwTimer);
+unsafe fn RXdoneISR(radio: &mut SX12xxDriver, status: RxStatus>) {
+    ProcessRFPacket(radio, status);
 }
 
 // todo: Move this call to the main fn once you figure out where it goes.
@@ -772,7 +770,7 @@ unsafe fn setupBindingFromConfig() {
     }
 }
 
-fn setupRadio(hwTimer: &mut Timer<TIM4>) {
+fn setupRadio() {
     Radio.currFreq = GetInitialFreq();
 
     let init_success: bool = Radio.Begin();
@@ -793,7 +791,7 @@ fn setupRadio(hwTimer: &mut Timer<TIM4>) {
     // }
 
     unsafe {
-        SetRFLinkRate(RATE_DEFAULT, hwTimer);
+        SetRFLinkRate(RATE_DEFAULT);
         RFmodeCycleMultiplier = 1;
     }
 }
@@ -815,7 +813,7 @@ unsafe fn updateTelemetryBurst() {
 
 /// If not connected will rotate through the RF modes looking for sync
 /// and blink LED
-unsafe fn cycleRfMode(now: u32, hwTimer: &mut Timer<TIM4>) {
+unsafe fn cycleRfMode(now: u32) {
     if connectionState == ConnectionState::connected
         || connectionState == ConnectionState::wifiUpdate
         || InBindingMode
@@ -829,7 +827,7 @@ unsafe fn cycleRfMode(now: u32, hwTimer: &mut Timer<TIM4>) {
         RFmodeLastCycled = now;
         LastSyncPacket = now; // reset this variable
         SendLinkStatstoFCForcedSends = 2;
-        SetRFLinkRate(scanIndex % RATE_MAX, hwTimer); // switch between rates
+        SetRFLinkRate(scanIndex % RATE_MAX); // switch between rates
         LQCalc.reset();
         // Display the current air rate to the user as an indicator something is happening
         scanIndex += 1;
@@ -841,16 +839,16 @@ unsafe fn cycleRfMode(now: u32, hwTimer: &mut Timer<TIM4>) {
     } // if time to switch RF mode
 }
 
-unsafe fn updateBindingMode(radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) {
+unsafe fn updateBindingMode(radio: &mut SX12xxDriver) {
     // If the eeprom is indicating that we're not bound
     // and we're not already in binding mode, enter binding
     if !config.GetIsBound() && !unsafe { InBindingMode } {
         println!("RX has not been bound, enter binding mode...");
-        EnterBindingMode(radio, hwTimer);
+        EnterBindingMode(radio);
     }
     // If in binding mode and the bind packet has come in, leave binding mode
     else if config.GetIsBound() && unsafe { InBindingMode } {
-        ExitBindingMode(radio, hwtimer);
+        ExitBindingMode(radio);
     }
 
     // #ifndef MY_UID
@@ -1008,10 +1006,10 @@ unsafe fn loop_(radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) {
         }
     }
     unsafe { updateTelemetryBurst() };
-    updateBindingMode(radio, hwTimer);
+    updateBindingMode(radio);
 }
 
-unsafe fn EnterBindingMode(Radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) {
+unsafe fn EnterBindingMode(Radio: &mut SX12xxDriver) {
     if connectionState == ConnectionState::connected || unsafe { InBindingMode } {
         // Don't enter binding if:
         // - we're already connected
@@ -1036,7 +1034,7 @@ unsafe fn EnterBindingMode(Radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) 
 
     // Start attempting to bind
     // Lock the RF rate and freq while binding
-    SetRFLinkRate(RATE_BINDING, hwTimer);
+    SetRFLinkRate(RATE_BINDING);
     Radio.SetFrequencyReg(GetInitialFreq());
     // If the Radio Params (including InvertIQ) parameter changed, need to restart RX to take effect
     Radio.RXnb();
@@ -1045,7 +1043,7 @@ unsafe fn EnterBindingMode(Radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) 
     devicesTriggerEvent();
 }
 
-unsafe fn ExitBindingMode(radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) {
+unsafe fn ExitBindingMode(radio: &mut SX12xxDriver) {
     if !unsafe { InBindingMode } {
         // Not in binding mode
         println!("Cannot exit binding mode, not in binding mode!");
@@ -1054,7 +1052,7 @@ unsafe fn ExitBindingMode(radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) {
 
     // Prevent any new packets from coming in
     radio.SetTxIdleMode();
-    LostConnection(radio, hwTimer);
+    LostConnection(radio);
     // Write the values to eeprom
     config.Commit();
 

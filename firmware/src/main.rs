@@ -266,10 +266,10 @@ impl Default for UserCfg {
             max_speed_ver: 20.,
             motors_reversed: (false, false, false, false),
             motor_mapping: RotorMapping {
-                r1: RotorPositon::AftLeft,
-                r2: RotorPositon::FrontLeft,
-                r3: RotorPositon::AftRight,
-                r4: RotorPositon::FrontRight,
+                r1: RotorPosition::AftLeft,
+                r2: RotorPosition::FrontLeft,
+                r3: RotorPosition::AftRight,
+                r4: RotorPosition::FrontRight,
             },
             baro_cal: Default::default(),
             // Make sure to update this interp table if you change idle power.
@@ -863,7 +863,7 @@ mod app {
                     }
 
                     // Debug loop.
-                    if unsafe { i } % 2_000 == 0 {
+                    if unsafe { i } % 1_000 == 0 {
                         // todo temp
                         println!(
                             "IMU Data: Ax {}, Ay: {}, Az: {}",
@@ -876,7 +876,7 @@ mod app {
                         );
 
                         println!(
-                            "Attitude: roll {}, pitch: {}, yaw: {}",
+                            "Attitude: roll {}, pitch: {}, yaw: {}\n",
                             params.s_roll, params.s_pitch, params.s_yaw
                         );
                         //

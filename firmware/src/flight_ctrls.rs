@@ -906,7 +906,7 @@ pub fn apply_controls(
         pwr = calc_rotor_powers(pitch_rate, roll_rate, yaw_rate, throttle);
     }
 
-    println!("Rotor power: {} {} {} {}", p1, p2, p3, p4);
+    println!("Rotor power: {} {} {} {}", pwr.front_left, pwr.front_right, pwr.aft_left, pwr.aft_right);
 
     pwr.set(mapping, rotor_tim_a, rotor_tim_b, arm_status, dma);
     *current_pwr = pwr;

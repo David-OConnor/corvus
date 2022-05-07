@@ -32,11 +32,21 @@ use defmt::println;
 
 use super::sx1280_regs::*;
 
-// todo: this blocking delay could be trouble!
-pub fn delay_ms(time_ms: u32) {
-    let cp = unsafe { cortex_m::Peripherals::steal() };
-    let mut delay = Delay::new(cp.SYST, 170_000_000);
-    delay.delay_ms(time_ms);
+// // todo: this blocking delay could be trouble!
+// pub fn delay_ms(time_ms: u32) {
+//     let cp = unsafe { cortex_m::Peripherals::steal() };
+//     let mut delay = Delay::new(cp.SYST, 170_000_000);
+//     delay.delay_ms(time_ms);
+// }
+
+static mut BusyDelayStart: u32 = 0;
+static mut BusyDelayDuration: u32 = 0;
+
+pub fn BusyDelay(duration: u32) {
+    unsafe {
+        BusyDelayStart = micros();
+        BusyDelayDuration = duration;
+    }
 }
 
 // todo: Can't repr bool, so repr u8
@@ -113,8 +123,7 @@ impl SX1280Hal {
         self.spi.transfer(&mut OutBuffer);
         self.nss.set_high();
 
-        // self.BusyDelay(12);
-        delay_ms(12); // todo!
+        BusyDelay(12);
     }
 
     pub fn ReadCommand(&mut self, command: RadioCommands, buffer: &mut [u8], size: usize) {
@@ -163,7 +172,7 @@ impl SX1280Hal {
         self.spi.transfer(&mut OutBuffer);
         self.nss.set_high();
 
-        delay_ms(12);
+        BusyDelay(12);
     }
 
     pub fn WriteRegisterOne(&mut self, address: Reg, value: u8) {
@@ -217,7 +226,7 @@ impl SX1280Hal {
         self.spi.transfer(&mut OutBuffer);
         self.nss.set_high();
 
-        delay_ms(12); // todo!
+        BusyDelay(12);
     }
 
     pub fn ReadBuffer(&mut self, offset: u8, buffer: &mut [u8], size: usize) {

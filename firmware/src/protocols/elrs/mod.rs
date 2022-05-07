@@ -12,6 +12,7 @@ mod fhss;
 mod lqcalc;
 // mod msp;
 mod lowpassfilter;
+mod hwtimer;
 mod ota;
 mod pfd;
 mod rx_main;

@@ -316,7 +316,7 @@ impl SX1280Driver {
         }
 
         // todo: Is this blocking delay acceptable?
-        delay_ms(switchDelay);
+        BusyDelay(switchDelay);
 
         self.currOpmode = OPmode;
     }
