@@ -4,14 +4,9 @@
 #![allow(non_upper_case_globals)]
 
 //! Adapted from the official ELRS example here:
-//! https://github.com/ExpressLRS/ExpressLRS/blob/eedc35b772ce46f56e5c2694bb244690480821fe/src/lib/StubbornSender/stubborn_sender.h
-//! https://github.com/ExpressLRS/ExpressLRS/blob/eedc35b772ce46f56e5c2694bb244690480821fe/src/lib/StubbornSender/stubborn_sender.cpp
-// todo: Receivers?
-
-#![allow(non_snake_case)]
-#![allow(unused_parens)]
-#![allow(non_camel_case_types)]
-#![allow(non_upper_case_globals)]
+//! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/StubbornSender/stubborn_sender.h
+//! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/StubbornSender/stubborn_sender.cpp
+// todo: stubborn Receivers?
 
 // The number of times to resend the same package index before going to RESYNC
 const SENDER_MAX_MISSED_PACKETS: u32 = 20;
@@ -95,18 +90,19 @@ impl StubbornSender {
         packageIndex: &mut u8,
         count: &mut u8,
         currentData: &mut [u8],
+        data_len: usize, // not in orig, but I think we need it
     ) {
         match self.senderState {
             SenderState::RESYNC | SenderState::RESYNC_THEN_SEND => {
                 *packageIndex = maxPackageIndex;
                 *count = 0;
-                for d in currentData {
-                    *d = 0;
+                for i in 0..data_len {
+                    currentData[i] = 0;
                 }
             }
             SenderState::SENDING => {
-                for d in currentData {
-                    *d = d + self.currentOffset;
+                for i in 0..data_len {
+                    currentData[i] += self.currentOffset as u8;
                 }
                 *packageIndex = self.currentPackage;
                 if bytesPerCall > 1 {
@@ -121,8 +117,8 @@ impl StubbornSender {
             }
             _ => {
                 *count = 0;
-                for d in currentData {
-                    *d = 0;
+                for i in 0..data_len {
+                    currentData[i] = 0;
                 }
                 *packageIndex = 0;
             }
@@ -253,7 +249,7 @@ impl StubbornReceiver {
         if packageIndex == self.currentPackage {
             for i in 0..self.bytesPerCall {
                 self.currentOffset += 1;
-                self.data[self.currentOffset] = receiveData[i];
+                self.data[self.currentOffset] = receiveData[i as usize];
             }
 
             currentPackage += 1;

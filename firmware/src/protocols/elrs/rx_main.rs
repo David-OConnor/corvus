@@ -151,7 +151,7 @@ fn minLqForChaos() -> u8 {
     // With a interval of 4 this works out to: 2.4=4, FCC915=4, AU915=8, EU868=8, EU/AU433=36
     let numfhss = fhss::getChannelCount();
     let interval: u8 = ExpressLRS_currAirRate_Modparams.FHSShopInterval;
-    interval * ((interval as u32 * numfhss + 99) / (interval as u32 * numfhss))
+    interval * ((interval as u32 * numfhss + 99) / (interval as u32 * numfhss)) as u8
 }
 
 unsafe fn getRFlinkInfo() {
@@ -244,7 +244,7 @@ unsafe fn HandleFHSS() -> bool {
     true
 }
 
-unsafe fn HandleSendTelemetryResponse(radio: &mut SX12xxDriverCommon) -> bool {
+unsafe fn HandleSendTelemetryResponse(radio: &mut SX12xxDriver) -> bool {
     let mut data: [u8; 69] = [0; 69];
     let mut maxLength: u8 = 0;
     let mut packageIndex: u8 = 0;
@@ -332,7 +332,7 @@ unsafe fn updatePhaseLock(hwTimer: &mut Timer<TIM4>) {
         PFDloop.calcResult();
         PFDloop.reset();
 
-        let RawOffset: i32 = PFDloop.getResult();
+        let RawOffset: i32 = PFDloop.result;
         let Offset: i32 = LPF_Offset.update(RawOffset);
         let OffsetDx: i32 = LPF_OffsetDx.update(RawOffset - prevRawOffset);
         PfdPrevRawOffset = RawOffset;
@@ -467,7 +467,7 @@ unsafe fn updateDiversity() {
     }
 }
 
-pub unsafe fn HWtimerCallbackTock(radio: &mut SX12xxDriverCommon) {
+pub unsafe fn HWtimerCallbackTock(radio: &mut SX12xxDriver) {
     if Regulatory_Domain_EU_CE_2400 {
         // Emulate that TX just happened, even if it didn't because channel is not clear
         if !LBTSuccessCalc.currentIsSet() {
@@ -486,7 +486,7 @@ pub unsafe fn HWtimerCallbackTock(radio: &mut SX12xxDriverCommon) {
     }
 }
 
-unsafe fn LostConnection(Radio: &mut SX12xxDriverCommon, hwTimer: &mut Timer<TIM4>) {
+unsafe fn LostConnection(Radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) {
     defmt::println!("lost conn fc={} fo={}", FreqCorrection, hwTimer.FreqOffset);
 
     RFmodeCycleMultiplier = 1;
@@ -543,7 +543,7 @@ unsafe fn GotConnection(now: u32) {
     println!("got conn");
 }
 
-unsafe fn ProcessRfPacket_RC(Radio: &mut SX12xxDriverCommon) {
+unsafe fn ProcessRfPacket_RC(Radio: &mut SX12xxDriver) {
     // Must be fully connected to process RC packets, prevents processing RC
     // during sync, where packets can be received before connection
     if connectionState != ConnectionState::connected {
@@ -570,7 +570,7 @@ unsafe fn ProcessRfPacket_RC(Radio: &mut SX12xxDriverCommon) {
     // }
 }
 
-unsafe fn ProcessRfPacket_SYNC(radio: &mut SX12xxDriverCommon, now: u32) -> bool {
+unsafe fn ProcessRfPacket_SYNC(radio: &mut SX12xxDriver, now: u32) -> bool {
     // Verify the first two of three bytes of the binding ID, which should always match
     if radio.RXdataBuffer[4] != UID[3] || radio.RXdataBuffer[5] != UID[4] {
         return false;
@@ -628,11 +628,7 @@ unsafe fn ProcessRfPacket_SYNC(radio: &mut SX12xxDriverCommon, now: u32) -> bool
     return false;
 }
 
-unsafe fn ProcessRFPacket(
-    radio: &mut SX12xxDriverCommon,
-    status: RxStatus,
-    hwTimer: &mut Timer<TIM4>,
-) {
+unsafe fn ProcessRFPacket(radio: &mut SX12xxDriver, status: RxStatus, hwTimer: &mut Timer<TIM4>) {
     if status != RxStatus::Ok {
         println!("HW CRC error");
         return;
@@ -681,7 +677,7 @@ unsafe fn ProcessRFPacket(
             }
             SYNC_PACKET => {
                 //sync packet from master
-                doStartTimer = ProcessRfPacket_SYNC(now) && !InBindingMode;
+                doStartTimer = ProcessRfPacket_SYNC(radio, now) && !InBindingMode;
             }
             _ => (),
         }
@@ -701,12 +697,12 @@ unsafe fn ProcessRFPacket(
 }
 
 // todo: Move this call to the main fn once you figure out where it goes.
-unsafe fn RXdoneISR(Radio: &mut SX12xxDriverCommon, status: RxStatus, hwTimer: &mut Timer<TIM4>) {
-    ProcessRFPacket(Radio, status, hwTimer);
+unsafe fn RXdoneISR(radio: &mut SX12xxDriver, status: RxStatus, hwTimer: &mut Timer<TIM4>) {
+    ProcessRFPacket(radio, status, hwTimer);
 }
 
 // todo: Move this call to the main fn once you figure out where it goes.
-fn TXdoneISR(Radio: &mut SX12xxDriverCommon) {
+fn TXdoneISR(Radio: &mut SX12xxDriver) {
     Radio.RXnb();
 }
 
@@ -845,7 +841,7 @@ unsafe fn cycleRfMode(now: u32, hwTimer: &mut Timer<TIM4>) {
     } // if time to switch RF mode
 }
 
-unsafe fn updateBindingMode(radio: &mut SX12xxDriverCommon, hwTimer: &mut Timer<TIM4>) {
+unsafe fn updateBindingMode(radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) {
     // If the eeprom is indicating that we're not bound
     // and we're not already in binding mode, enter binding
     if !config.GetIsBound() && !unsafe { InBindingMode } {
@@ -919,13 +915,13 @@ fn setup(hwTimer: &mut Timer<TIM4>, delay: &mut Delay) {
     devicesStart();
 }
 
-unsafe fn loop_(radio: &mut SX12xxDriverCommon, hwTimer: &mut Timer<TIM4>) {
+unsafe fn loop_(radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) {
     let now: u32 = millis();
 
     devicesUpdate(now);
 
     if config.IsModified() && unsafe { !InBindingMode } {
-        Radio.SetTxIdleMode();
+        radio.SetTxIdleMode();
         LostConnection(radio, hwTimer);
         config.Commit();
         devicesTriggerEvent();
@@ -973,7 +969,7 @@ unsafe fn loop_(radio: &mut SX12xxDriverCommon, hwTimer: &mut Timer<TIM4>) {
     let localLastValidPacket: u32 = unsafe { LastValidPacket }; // Required to prevent race condition due to LastValidPacket getting updated from ISR
     if connectionState == ConnectionState::disconnectPending
         || (connectionState == ConnectionState::connected
-            && (ExpressLRS_currAirRate_RFperfParams.DisconnectTimeoutMs as i32)
+            && (CurrAirRateRfPerfParams.DisconnectTimeoutMs as i32)
                 < ((now - localLastValidPacket) as i32))
     // check if we lost conn.
     {
@@ -983,7 +979,7 @@ unsafe fn loop_(radio: &mut SX12xxDriverCommon, hwTimer: &mut Timer<TIM4>) {
     if connectionState == ConnectionState::tentative
         && LPF_OffsetDx.value().abs() <= 10
         && LPF_Offset.value() < 100
-        && unsafe { LQCalc.getLQRaw() } > minLqForChaos()
+        && unsafe { LQCalc.LQ } > minLqForChaos()
     //detects when we are connected
     {
         GotConnection(now);
@@ -1015,7 +1011,7 @@ unsafe fn loop_(radio: &mut SX12xxDriverCommon, hwTimer: &mut Timer<TIM4>) {
     updateBindingMode(radio, hwTimer);
 }
 
-unsafe fn EnterBindingMode(Radio: &mut SX12xxDriverCommon, hwTimer: &mut Timer<TIM4>) {
+unsafe fn EnterBindingMode(Radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) {
     if connectionState == ConnectionState::connected || unsafe { InBindingMode } {
         // Don't enter binding if:
         // - we're already connected
@@ -1049,7 +1045,7 @@ unsafe fn EnterBindingMode(Radio: &mut SX12xxDriverCommon, hwTimer: &mut Timer<T
     devicesTriggerEvent();
 }
 
-unsafe fn ExitBindingMode(radio: &mut SX12xxDriverCommon, hwTimer: &mut Timer<TIM4>) {
+unsafe fn ExitBindingMode(radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) {
     if !unsafe { InBindingMode } {
         // Not in binding mode
         println!("Cannot exit binding mode, not in binding mode!");

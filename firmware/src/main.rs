@@ -88,7 +88,7 @@ use protocols::{crsf, dshot};
 
 use flight_ctrls::{
     ArmStatus, AutopilotStatus, AxisLocks, CommandState, CtrlInputs, InputMap, InputMode, Params,
-    Rotor, RotorMapping, RotorPower, POWER_LUT,
+    Rotor, RotorMapping, RotorPosition, RotorPower, POWER_LUT,
 };
 
 use filter_imu::ImuFilters;
@@ -188,6 +188,33 @@ static CRSF_RX_IN_PROG: AtomicBool = AtomicBool::new(false);
 /// todo: Movable camera that moves with head motion.
 /// - Ir cam to find or avoid people
 
+#[derive(Clone, Copy)]
+pub enum OperationMode {
+    /// Eg flying
+    Normal,
+    /// Plugged into a PC to verify motors, IMU readings, control readings etc, and adjust settings
+    Preflight,
+}
+
+/// State that doesn't get saved to flash.
+pub struct StateVolatile {
+    op_mode: OperationMode,
+    /// The GPS module is connected. Detected on init.
+    gps_attached: bool,
+    /// The time-of-flight sensor module is connected. Detected on init.
+    tof_attached: bool,
+}
+
+impl Default for StateVolatile {
+    fn default() -> Self {
+        Self {
+            op_mode: OperationMode::Normal,
+            gps_attached: false,
+            tof_attached: false,
+        }
+    }
+}
+
 /// User-configurable settings. These get saved to and loaded from internal flash.
 pub struct UserCfg {
     /// Set a ceiling the aircraft won't exceed. Defaults to 400' (Legal limit in US for drones).
@@ -220,33 +247,6 @@ pub struct UserCfg {
     // power_interp_inst: dsp_sys::arm_linear_interp_instance_f32,
 }
 
-#[derive(Clone, Copy)]
-pub enum OperationMode {
-    /// Eg flying
-    Normal,
-    /// Plugged into a PC to verify motors, IMU readings, control readings etc, and adjust settings
-    Preflight,
-}
-
-/// State that doesn't get saved to flash.
-pub struct StateVolatile {
-    op_mode: OperationMode,
-    /// The GPS module is connected. Detected on init.
-    gps_attached: bool,
-    /// The time-of-flight sensor module is connected. Detected on init.
-    tof_attached: bool,
-}
-
-impl Default for StateVolatile {
-    fn default() -> Self {
-        Self {
-            op_mode: OperationMode::Normal,
-            gps_attached: false,
-            tof_attached: false,
-        }
-    }
-}
-
 impl Default for UserCfg {
     fn default() -> Self {
         Self {
@@ -265,6 +265,12 @@ impl Default for UserCfg {
             max_speed_hor: 20.,
             max_speed_ver: 20.,
             motors_reversed: (false, false, false, false),
+            motor_mapping: RotorMapping {
+                r1: RotorPositon::AftLeft,
+                r2: RotorPositon::FrontLeft,
+                r3: RotorPositon::AftRight,
+                r4: RotorPositon::FrontRight,
+            },
             baro_cal: Default::default(),
             // Make sure to update this interp table if you change idle power.
             // todo: This LUT setup is backwards! You need to put thrust on a fixed spacing,
@@ -1085,6 +1091,7 @@ mod app {
                         pid_inner,
                         filters,
                         current_pwr,
+                        &cfg.motor_mapping,
                         rotor_timer_a,
                         rotor_timer_b,
                         dma,

@@ -1,5 +1,8 @@
 //! This module contains code related to flight controls. Code specific to the PID
 //! loops are in the `pid` module.
+//!
+//! [Betaflight Signal flow diagram](https://github.com/betaflight/betaflight/wiki/Signal-Flow-Diagram)
+//! Note that this is just an example, and isn't necesssarily something to emulate.
 
 // todo: Split up further
 
@@ -51,8 +54,9 @@ const MIN_CAL_ALT: f32 = 6.;
 pub const LOST_LINK_TIMEOUT: f32 = 1.;
 
 // With maximum commanded pitch, yaw, or roll rate, add and subtract this value from
-// opposing rotors.
-const ROTOR_HALF_DELTA_MAX: f32 = 0.20;
+// opposing rotors. Keep this relatively low, since thi scan add up from maneuvers on multiple
+// axes!
+const ROTOR_HALF_PAIR_DELTA_MAX: f32 = 0.15;
 
 // Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
@@ -530,7 +534,7 @@ pub struct RotorMapping {
 
 /// Represents power levels for the rotors. These map from 0. to 1.; 0% to 100% power.
 /// Rotor 1 is aft right. R2 is front right. R3 is aft left. R4 is front left.
-/// (Per our experiment: R1 is aft left. R2 is front left. R3 is aft right. R4 is front right.
+/// (Per our experiment: R1 is aft left. R2 is front left. R3 is aft right. R4 is front right.)
 // todo: Discrete levels perhaps, eg multiples of the integer PWM ARR values.
 #[derive(Default)]
 pub struct RotorPower {
@@ -762,9 +766,9 @@ fn calc_rotor_powers(pitch_rate: f32, roll_rate: f32, yaw_rate: f32, throttle: f
     // todo: Should you adjust how you scale this based on the measured
     // todo rates? Maybe handle in PID.?
 
-    let pitch_delta = ROTOR_HALF_DELTA_MAX * pitch_rate;
-    let roll_delta = ROTOR_HALF_DELTA_MAX * roll_rate;
-    let yaw_delta = ROTOR_HALF_DELTA_MAX * yaw_rate;
+    let pitch_delta = ROTOR_HALF_PAIR_DELTA_MAX * pitch_rate;
+    let roll_delta = ROTOR_HALF_PAIR_DELTA_MAX * roll_rate;
+    let yaw_delta = ROTOR_HALF_PAIR_DELTA_MAX * yaw_rate;
 
     // Nose up for positive pitch.
     front_left += pitch_delta;
@@ -807,6 +811,7 @@ pub fn apply_controls(
     mut roll_rate: f32,
     mut yaw_rate: f32,
     throttle: f32,
+    mapping: &RotorMapping,
     current_pwr: &mut RotorPower,
     rotor_tim_a: &mut Timer<TIM2>,
     rotor_tim_b: &mut Timer<TIM3>,
@@ -857,7 +862,7 @@ pub fn apply_controls(
 
         // todo: Make sure we're not putting another rotor over the threshold with this approach!
 
-        let rate_scaler = (THROTTLE_IDLE_POWER - throttle) / (ROTOR_HALF_DELTA_MAX * rate_val);
+        let rate_scaler = (THROTTLE_IDLE_POWER - throttle) / (ROTOR_HALF_PAIR_DELTA_MAX * rate_val);
         pitch_rate *= rate_scaler;
         roll_rate *= rate_scaler;
         yaw_rate *= rate_scaler;
@@ -891,7 +896,7 @@ pub fn apply_controls(
             RotorPosition::AftRight => -pitch_rate - roll_rate + yaw_rate,
         };
 
-        let rate_scaler = (THROTTLE_MAX_POWER - throttle) / (ROTOR_HALF_DELTA_MAX * rate_val);
+        let rate_scaler = (THROTTLE_MAX_POWER - throttle) / (ROTOR_HALF_PAIR_DELTA_MAX * rate_val);
         // These rates below are already modified from the input args if required by exceeding
         // a min.
         pitch_rate *= rate_scaler;
@@ -903,7 +908,7 @@ pub fn apply_controls(
 
     println!("Rotor power: {} {} {} {}", p1, p2, p3, p4);
 
-    pwr.set(rotor_tim_a, rotor_tim_b, arm_status, dma);
+    pwr.set(mapping, rotor_tim_a, rotor_tim_b, arm_status, dma);
     *current_pwr = pwr;
 }
 

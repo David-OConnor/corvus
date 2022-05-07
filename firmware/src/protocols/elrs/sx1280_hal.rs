@@ -24,11 +24,19 @@ Maintainer: Miguel Luis, Gregory Cristian and Matthieu Verdy
 Modified and adapted by Alessandro Carcione for ELRS project
 */
 
+// todo: These blocking delays could potentially be very bad! QC them!
+use cortex_m::{self, delay::Delay};
 use stm32_hal2::{gpio::Pin, pac::SPI2, spi::Spi};
 
 use defmt::println;
 
 use super::sx1280_regs::*;
+
+pub fn delay_ms(time_ms: u32) {
+    let cp = unsafe { cortex_m::Peripherals::steal() };
+    let mut delay = Delay::new(cp.SYST, 170_000_000);
+    d.delay_ms(time_ms); // todo!
+}
 
 // todo: Can't repr bool, so repr u8
 #[repr(u8)]
@@ -95,36 +103,45 @@ impl SX1280Hal {
         let mut OutBuffer = [0_u8; size + 1];
 
         OutBuffer[0] = command as u8;
-        memcpy(OutBuffer + 1, buffer, size);
+        for i in 0..size {
+            OutBuffer[1 + i] = buffer[i];
+        }
 
-        WaitOnBusy();
+        self.WaitOnBusy();
         self.nss.set_low();
         self.spi.transfer(&mut OutBuffer);
         self.nss.set_high();
 
-        BusyDelay(12);
+        // self.BusyDelay(12);
+        delay_ms(12); // todo!
     }
 
     pub fn ReadCommand(&mut self, command: RadioCommands, buffer: &mut [u8], size: usize) {
         let mut OutBuffer = [0_u8; size + 2];
 
-        WaitOnBusy();
+        self.WaitOnBusy();
         self.nss.set_low();
 
         if command == RadioCommands::GET_STATUS {
             OutBuffer[0] = command as u8;
             OutBuffer[1] = 0x00;
             OutBuffer[2] = 0x00;
-            // todo: What's going on here? Why the sep size?
-            SPI.transfer(OutBuffer, RADIO_GET_STATUS_BUF_SIZEOF);
+
+            self.spi.transfer(&mut OutBuffer);
             buffer[0] = OutBuffer[0];
         } else {
             OutBuffer[0] = command as u8;
             OutBuffer[1] = 0x00;
-            memcpy(OutBuffer + 2, buffer, size);
+
+            for i in 0..size {
+                OutBuffer[2 + i] = buffer[i];
+            }
+
             self.spi.transfer(&mut OutBuffer);
 
-            memcpy(buffer, OutBuffer + 2, size);
+            for i in 0..size {
+                buffer[i] = OutBuffer[2 + i];
+            }
         }
         self.nss.set_high();
     }
@@ -136,21 +153,23 @@ impl SX1280Hal {
         OutBuffer[1] = ((address as u16 & 0xFF00) >> 8) as u8;
         OutBuffer[2] = (address as u16 & 0x00FF) as u8;
 
-        memcpy(OutBuffer + 3, buffer, size);
+        for i in 0..size {
+            OutBuffer[3 + i] = buffer[i];
+        }
 
-        WaitOnBusy();
+        self.WaitOnBusy();
         self.nss.set_low();
         self.spi.transfer(&mut OutBuffer);
         self.nss.set_high();
 
-        BusyDelay(12);
+        delay_ms(12);
     }
 
     pub fn WriteRegisterOne(&mut self, address: Reg, value: u8) {
         self.WriteRegister(address, &[value], 1);
     }
 
-    pub fn ReadRegister(&mut self, reg: Reg, buffer: &[u8], size: usize) {
+    pub fn ReadRegister(&mut self, reg: Reg, buffer: &mut [u8], size: usize) {
         let mut OutBuffer = [0_u8; size + 4];
 
         OutBuffer[0] = RadioCommands::READ_REGISTER as u8;
@@ -158,11 +177,13 @@ impl SX1280Hal {
         OutBuffer[2] = (reg as u16 & 0x00FF) as u8;
         OutBuffer[3] = 0x00;
 
-        WaitOnBusy();
+        self.WaitOnBusy();
         self.nss.set_low();
 
-        spi.transfer(&mut OutBuffer);
-        memcpy(buffer, OutBuffer + 4, size);
+        self.spi.transfer(&mut OutBuffer);
+        for i in 0..size {
+            buffer[i] = OutBuffer[4 + i];
+        }
 
         self.nss.set_high();
     }
@@ -185,15 +206,17 @@ impl SX1280Hal {
         OutBuffer[0] = RadioCommands::WRITE_BUFFER as u8;
         OutBuffer[1] = offset;
 
-        memcpy(OutBuffer + 2, localbuf, size);
+        for i in 0..size {
+            localbuf[i] = OutBuffer[2 + i];
+        }
 
-        WaitOnBusy();
+        self.WaitOnBusy();
 
         self.nss.set_low();
         self.spi.transfer(&mut OutBuffer);
         self.nss.set_high();
 
-        BusyDelay(12);
+        delay_ms(12); // todo!
     }
 
     pub fn ReadBuffer(&mut self, offset: u8, buffer: &mut [u8], size: usize) {
@@ -204,13 +227,15 @@ impl SX1280Hal {
         OutBuffer[1] = offset;
         OutBuffer[2] = 0x00;
 
-        WaitOnBusy();
+        self.WaitOnBusy();
         self.nss.set_low();
 
         self.spi.transfer(&mut OutBuffer);
         self.nss.set_high();
 
-        memcpy(localbuf, OutBuffer + 3, size);
+        for i in 0..size {
+            localbuf[i] = OutBuffer[3 + i];
+        }
 
         for i in 0..size {
             {
@@ -220,8 +245,7 @@ impl SX1280Hal {
     }
 
     pub fn WaitOnBusy(&self) -> bool {
-        // (We use the busy pin)
-        // #if defined(GPIO_PIN_BUSY) && (GPIO_PIN_BUSY != UNDEF_PIN)
+        let wtimeoutUS: u32 = 1_000;
         let startTime: u32 = micros();
 
         while self.busy_pin.is_high()
@@ -253,9 +277,10 @@ impl SX1280Hal {
     }
 
     pub fn dioISR() {
-        if instance.IsrCallback {
-            instance.IsrCallback();
-        }
+        // todo?
+        // if self.IsrCallback {
+        //     instance.IsrCallback();
+        // }
     }
 
     // We don't use these pins.

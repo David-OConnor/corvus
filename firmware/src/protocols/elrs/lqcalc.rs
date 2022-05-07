@@ -19,7 +19,7 @@ pub struct LQCALC {
 
 impl LQCALC {
     pub fn new() -> Self {
-        let mut result = Result::default();
+        let mut result = Self::default();
 
         result.reset();
         // count is reset here only once on construction to start LQ counting
@@ -34,7 +34,7 @@ impl LQCALC {
         if currentIsSet() {
             return;
         }
-        self.LQArray[&self.index] |= self.LQmask;
+        self.LQArray[self.index] |= self.LQmask;
         self.LQ += 1;
     }
 
@@ -59,29 +59,19 @@ impl LQCALC {
             self.LQ -= 1;
         }
 
-        if count < N {
-            count += 1;
+        if self.count < N {
+            self.count += 1;
         }
     }
 
     /* Return the current running total of bits set, in percent */
     pub fn getLQ(&self) -> u8 {
-        self.LQ as u32 * 100 / count
-    }
-
-    /* Return the current running total of bits set, up to N */
-    pub fn getLQRaw(&self) -> u8 {
-        self.LQ
-    }
-
-    /* Return the number of periods recorded so far, up to N */
-    pub fn getCount(&self) -> u8 {
-        self.count
+        (self.LQ as u32 * 100 / count) as u8
     }
 
     /* Return N, the size of the LQ history */
     pub fn getSize(&self) -> u8 {
-        N // todo: Probably not right?
+        N
     }
 
     /* Initialize and zero the history */
@@ -92,7 +82,9 @@ impl LQCALC {
         self.index = 0;
         self.LQmask = (1 << 0);
 
-        for i in 0..sizeof(LQArray) / sizeof(LQArray[0]) {
+        // todo: Is this an accurate translation?
+        // for (uint8_t i = 0; i < (sizeof(LQArray)/sizeof(LQArray[0])); i++)
+        for i in 0..self.LQArray.len() {
             self.LQArray[i] = 0;
         }
     }

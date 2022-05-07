@@ -3,7 +3,8 @@
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
 
-//! Adapted from the official ELRS example here: https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/common.cpp
+//! Adapted from the official ELRS example here:
+//! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/common.cpp
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/options.cpp
 //!
 //! Reviewed against source files: 2022-03-19
@@ -135,7 +136,7 @@ impl RfRates {
     pub fn to_index(&self) -> u8 {
         for i in 0..RATE_MAX {
             let ModParams = get_elrs_airRateConfig(i as usize);
-            if ModParams.rf_rate == self {
+            if ModParams.rf_rate == *self {
                 return i;
             }
         }
@@ -158,14 +159,14 @@ pub enum RadioType {
 
 #[derive(Clone)]
 struct PrefParams {
-    index: u8,
-    enum_rate: RfRates, // Max value of 4 since only 2 bits have been assigned in the sync package.
-    RXsensitivity: i32, // expected RF sensitivity based on
-    TOA: u32,           // time on air in microseconds
-    DisconnectTimeoutMs: u32, // Time without a packet before receiver goes to disconnected (ms)
-    RxLockTimeoutMs: u32, // Max time to go from tentative -> connected state on receiver (ms)
-    SyncPktIntervalDisconnected: u32, // how often to send the SYNC_PACKET packet (ms) when there is no response from RX
-    SyncPktIntervalConnected: u32, // how often to send the SYNC_PACKET packet (ms) when there we have a connection
+    pub index: u8,
+    pub enum_rate: RfRates, // Max value of 4 since only 2 bits have been assigned in the sync package.
+    pub RXsensitivity: i32, // expected RF sensitivity based on
+    pub TOA: u32,           // time on air in microseconds
+    pub DisconnectTimeoutMs: u32, // Time without a packet before receiver goes to disconnected (ms)
+    pub RxLockTimeoutMs: u32, // Max time to go from tentative -> connected state on receiver (ms)
+    pub SyncPktIntervalDisconnected: u32, // how often to send the SYNC_PACKET packet (ms) when there is no response from RX
+    pub SyncPktIntervalConnected: u32, // how often to send the SYNC_PACKET packet (ms) when there we have a connection
 }
 
 impl PrefParams {
@@ -413,7 +414,8 @@ pub fn TLMBurstMaxForRateRatio(rate: RfRates, ratioDiv: TlmRatio) -> u8 {
     // telemInterval = 1000 / (hz / ratiodiv);
     // burst = TELEM_MIN_LINK_INTERVAL_MS / telemInterval;
     // This ^^^ rearranged to preserve precision vvv
-    let mut retVal: u8 = TELEM_MIN_LINK_INTERVAL_MS * rate.hz() / ratioDiv.value() / 1000;
+    let mut retVal: u8 =
+        (TELEM_MIN_LINK_INTERVAL_MS * (rate.hz() as u32) / (ratioDiv.value() as u32) / 1_000) as u8;
 
     // Reserve one slot for LINK telemetry
     if retVal > 1 {

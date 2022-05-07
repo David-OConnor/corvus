@@ -23,7 +23,7 @@ use crate::{
         POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED,
     },
     util::IirInstWrapper,
-    ArmStatus, UserCfg, DT_ATTITUDE,
+    ArmStatus, RotorMapping, UserCfg, DT_ATTITUDE,
 };
 
 use defmt::println;
@@ -683,6 +683,7 @@ pub fn run_rate(
     pid: &mut PidGroup,
     filters: &mut PidDerivFilters,
     current_pwr: &mut crate::RotorPower,
+    rotor_mapping: &RotorMapping,
     rotor_timer_a: &mut Timer<TIM2>,
     rotor_timer_b: &mut Timer<TIM3>,
     dma: &mut Dma<DMA1>,
@@ -839,6 +840,7 @@ pub fn run_rate(
         roll,
         yaw,
         throttle,
+        rotor_mapping,
         current_pwr,
         rotor_timer_a,
         rotor_timer_b,

@@ -23,8 +23,8 @@ pub enum Reg {
     RxGain = 0x891, // not in original ELRS impl, but this value is called directly.
 }
 
-const XTAL_FREQ: u32 = 52_000_000;
-const FREQ_STEP: f64 = XTAL_FREQ as f64 / (1 << 18) as f64;
+pub const XTAL_FREQ: u32 = 52_000_000;
+pub const FREQ_STEP: f32 = XTAL_FREQ as f32 / (1 << 18) as f32;
 
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
