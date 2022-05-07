@@ -6,8 +6,6 @@
 //! Adapted from the official ELRS example here:
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/common.cpp
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/src/options.cpp
-//!
-//! Reviewed against source files: 2022-03-19
 
 use core::mem;
 
@@ -158,7 +156,7 @@ pub enum RadioType {
 }
 
 #[derive(Clone)]
-struct PrefParams {
+pub struct PrefParams {
     pub index: u8,
     pub enum_rate: RfRates, // Max value of 4 since only 2 bits have been assigned in the sync package.
     pub RXsensitivity: i32, // expected RF sensitivity based on
@@ -252,26 +250,26 @@ pub const SYNC_PACKET_TLM_MASK: u8 = 0b111;
 pub const SYNC_PACKET_RATE_MASK: u8 = 0b111;
 // #endif // UNIT_TEST
 
-const AUX1: u8 = 4;
-const AUX2: u8 = 5;
-const AUX3: u8 = 6;
-const AUX4: u8 = 7;
-const AUX5: u8 = 8;
-const AUX6: u8 = 9;
-const AUX7: u8 = 10;
-const AUX8: u8 = 11;
-const AUX9: u8 = 12;
-const AUX10: u8 = 13;
-const AUX11: u8 = 14;
-const AUX12: u8 = 15;
+pub const AUX1: u8 = 4;
+pub const AUX2: u8 = 5;
+pub const AUX3: u8 = 6;
+pub const AUX4: u8 = 7;
+pub const AUX5: u8 = 8;
+pub const AUX6: u8 = 9;
+pub const AUX7: u8 = 10;
+pub const AUX8: u8 = 11;
+pub const AUX9: u8 = 12;
+pub const AUX10: u8 = 13;
+pub const AUX11: u8 = 14;
+pub const AUX12: u8 = 15;
 
 // ELRS SPECIFIC OTA CRC
 // Koopman formatting https://users.ece.cmu.edu/~koopman/crc/
-const ELRS_CRC_POLY: u8 = 0x07; // 0x83
-const ELRS_CRC14_POLY: u8 = 0x2E57; // 0x372B
+pub const ELRS_CRC_POLY: u8 = 0x07; // 0x83
+pub const ELRS_CRC14_POLY: u8 = 0x2E57; // 0x372B
 
 // Sx1280[1] only
-const AirRateConfig: [ModSettings; RATE_MAX as usize] = [
+pub const AirRateConfig: [ModSettings; RATE_MAX as usize] = [
     ModSettings::new(
         0,
         RadioType::SX128x_FLRC,
@@ -352,7 +350,7 @@ const AirRateConfig: [ModSettings; RATE_MAX as usize] = [
     ),
 ];
 
-const AirRateRFperf: [PrefParams; RATE_MAX as usize] = [
+pub const AirRateRFperf: [PrefParams; RATE_MAX as usize] = [
     PrefParams::new(0, RfRates::FLRC_1000HZ, -104, 389, 2500, 2500, 3, 5000),
     PrefParams::new(1, RfRates::FLRC_500HZ, -104, 389, 2500, 2500, 3, 5000),
     PrefParams::new(2, RfRates::LORA_500HZ, -105, 1665, 2500, 2500, 3, 5000),
@@ -361,7 +359,7 @@ const AirRateRFperf: [PrefParams; RATE_MAX as usize] = [
     PrefParams::new(5, RfRates::LORA_50HZ, -117, 18443, 4000, 2500, 0, 5000),
 ];
 
-fn get_elrs_airRateConfig(index: usize) -> ModSettings {
+pub fn get_elrs_airRateConfig(index: usize) -> ModSettings {
     let mut i = index as u8;
     if RATE_MAX <= i {
         // Set to last usable entry in the array
@@ -370,7 +368,7 @@ fn get_elrs_airRateConfig(index: usize) -> ModSettings {
     AirRateConfig[i as usize].clone()
 }
 
-fn get_elrs_RFperfParams(index: usize) -> PrefParams {
+pub fn get_elrs_RFperfParams(index: usize) -> PrefParams {
     let mut i = index as u8;
     if RATE_MAX <= i {
         // Set to last usable entry in the array
@@ -387,22 +385,22 @@ pub static mut connectionState: ConnectionState = ConnectionState::disconnected;
 pub static mut connectionHasModelMatch: bool = false;
 
 // todo: Fix this binding ID.
-static mut BindingUID: [u8; 6] = [0, 1, 2, 3, 4, 5]; // Special binding UID values
-                                                     // if MY_UID {
-                                                     //     = {MY_UID};
-                                                     // }
-                                                     // #else {
-                                                     //          = [
-                                                     //             (uint8_t)HAL_GetUIDw0(), (uint8_t)(HAL_GetUIDw0() >> 8),
-                                                     //             (uint8_t)HAL_GetUIDw1(), (uint8_t)(HAL_GetUIDw1() >> 8),
-                                                     //             (uint8_t)HAL_GetUIDw2(), (uint8_t)(HAL_GetUIDw2() >> 8)};
-                                                     // }
+pub static mut BindingUID: [u8; 6] = [0, 1, 2, 3, 4, 5]; // Special binding UID values
+                                                         // if MY_UID {
+                                                         //     = {MY_UID};
+                                                         // }
+                                                         // #else {
+                                                         //          = [
+                                                         //             (uint8_t)HAL_GetUIDw0(), (uint8_t)(HAL_GetUIDw0() >> 8),
+                                                         //             (uint8_t)HAL_GetUIDw1(), (uint8_t)(HAL_GetUIDw1() >> 8),
+                                                         //             (uint8_t)HAL_GetUIDw2(), (uint8_t)(HAL_GetUIDw2() >> 8)};
+                                                         // }
 
 pub static mut UID: [u8; 6] = [0; 6];
 
-static mut MasterUID: [u8; 6] = unsafe { [UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]] }; // Special binding UID values
+pub static mut MasterUID: [u8; 6] = unsafe { [UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]] }; // Special binding UID values
 
-static mut CRCInitializer: u16 = unsafe { ((UID[4] as u16) << 8) | (UID[5] as u16) };
+pub static mut CRCInitializer: u16 = unsafe { ((UID[4] as u16) << 8) | (UID[5] as u16) };
 
 /// Calculate number of 'burst' telemetry frames for the specified air rate and tlm ratio
 /// When attempting to send a LinkStats telemetry frame at most every TELEM_MIN_LINK_INTERVAL_MS,

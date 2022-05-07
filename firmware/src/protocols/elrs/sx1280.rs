@@ -106,7 +106,7 @@ static mut endTX: u32 = 0;
  * RadioCommands::TICK_SIZE_1000_US = 1000000 nanos
  * RadioCommands::TICK_SIZE_4000_US = 4000000 nanos
  */
-const RX_TIMEOUT_PERIOD_BASE: TickSize = TickSizes::SIZE_0015_US;
+const RX_TIMEOUT_PERIOD_BASE: TickSizes = TickSizes::SIZE_0015_US;
 
 const RX_TIMEOUT_PERIOD_BASE_NANOS: u32 = 15_635;
 impl SX1280Driver {
@@ -148,8 +148,8 @@ impl SX1280Driver {
 
         self.SetMode(OperatingModes::STDBY_RC); //Put in STDBY_RC mode
         self.hal
-            .WriteCommandOne(RadioCommands::SET_PACKETTYPE, SX1280_PACKET_TYPE_LORA); //Set packet type to LoRa
-        self.ConfigModParamsLoRa(LoRaBandwidths::BW_0800, SX1280_LORA_SF6, SX1280_LORA_CR_4_7); //Configure Modulation Params
+            .WriteCommandOne(RadioCommands::SET_PACKETTYPE, PacketTypes::LORA as u8); //Set packet type to LoRa
+        self.ConfigModParamsLoRa(LoRaBandwidths::BW_0800, LoRaSpreadingFactors::SF6, LoRaCodingRates::CR_4_7); //Configure Modulation Params
         self.hal.WriteCommandOne(RadioCommands::SET_AUTOFS, 0x01); //Enable auto FS
         self.hal
             .WriteRegisterOne(Reg::RxGain, (self.hal.ReadRegisterOne(Reg::RxGain) | 0xC0)); //default is low power mode, switch to high sensitivity instead
@@ -171,14 +171,14 @@ impl SX1280Driver {
            // #if defined(USE_SX1280_DCDC)
            // We are using the DC to DC regulator. // todo: COnfirm this.
         self.hal
-            .WriteCommandOne(RadioCommands::SET_REGULATORMODE, SX1280_USE_DCDC); // Enable DCDC converter instead of LDO
+            .WriteCommandOne(RadioCommands::SET_REGULATORMODE, RegulatorModes::DCDC as u8); // Enable DCDC converter instead of LDO
                                                                                  // #endif
         return true;
     }
 
     pub fn Config(
         &mut self,
-        bw: u8,
+        bw: LoRaBandwidths,
         sf: u8,
         cr: u8,
         freq: u32,
@@ -228,8 +228,8 @@ impl SX1280Driver {
                 PreambleLength,
                 packetLengthType,
                 _PayloadLength,
-                CrcTypes::CRC_OFF,
-                InvertIQ,
+                LoRaCrcModes::OFF,
+                LoRaIqModes::INVERTED,
             );
         }
         self.SetFrequencyReg(freq);
@@ -321,11 +321,11 @@ impl SX1280Driver {
         self.currOpmode = OPmode;
     }
 
-    pub fn ConfigModParamsLoRa(&mut self, bw: LoRaBandwidths, sf: LoRaSpreadingFactors, cr: u8) {
+    pub fn ConfigModParamsLoRa(&mut self, bw: LoRaBandwidths, sf: LoRaSpreadingFactors, cr: LoRaCodingRates) {
         // Care must therefore be taken to ensure that modulation parameters are set using the command
         // SetModulationParam() only after defining the packet type SetPacketType() to be used
 
-        let rfparams = [sf as u8, bw as u8, cr];
+        let rfparams = [sf as u8, bw as u8, cr as u8];
 
         self.hal.WriteCommand(
             RadioCommands::SET_MODULATIONPARAMS,

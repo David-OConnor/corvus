@@ -94,7 +94,7 @@ impl StubbornSender {
     ) {
         match self.senderState {
             SenderState::RESYNC | SenderState::RESYNC_THEN_SEND => {
-                *packageIndex = maxPackageIndex;
+                *packageIndex = self.maxPackageIndex;
                 *count = 0;
                 for i in 0..data_len {
                     currentData[i] = 0;
@@ -106,10 +106,10 @@ impl StubbornSender {
                 }
                 *packageIndex = self.currentPackage;
                 if bytesPerCall > 1 {
-                    if currentOffset + bytesPerCall <= length {
-                        *count = bytesPerCall;
+                    if self.currentOffset + self.bytesPerCall as usize <= self.length as usize {
+                        *count = self.bytesPerCall;
                     } else {
-                        *count = length - currentOffset;
+                        *count = self.length - self.currentOffset as u8;
                     }
                 } else {
                     *count = 1;
@@ -130,9 +130,9 @@ impl StubbornSender {
 
         match self.senderState {
             SenderState::SENDING => {
-                if telemetryConfirmValue != waitUntilTelemetryConfirm {
-                    waitCount += 1;
-                    if waitCount > maxWaitCount {
+                if telemetryConfirmValue != self.waitUntilTelemetryConfirm {
+                    self.waitCount += 1;
+                    if self.waitCount > self.maxWaitCount {
                         self.waitUntilTelemetryConfirm = !telemetryConfirmValue;
                         nextSenderState = SenderState::RESYNC;
                     }
@@ -140,7 +140,7 @@ impl StubbornSender {
 
                 self.currentOffset += bytesPerCall;
                 self.currentPackage += 1;
-                self.waitUntilTelemetryConfirm = !waitUntilTelemetryConfirm;
+                self.waitUntilTelemetryConfirm = !self.waitUntilTelemetryConfirm;
                 self.waitCount = 0;
 
                 if self.currentOffset >= length {
@@ -242,7 +242,7 @@ impl StubbornReceiver {
             return;
         }
 
-        if finishedData {
+        if self.finishedData {
             return;
         }
 
@@ -253,7 +253,7 @@ impl StubbornReceiver {
             }
 
             currentPackage += 1;
-            self.telemetryConfirm = !telemetryConfirm;
+            self.telemetryConfirm = !self.telemetryConfirm;
             return;
         }
 

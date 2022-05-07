@@ -10,7 +10,7 @@ use core::mem;
 
 use cortex_m::delay::Delay;
 
-use stm32_hal2::{pac::Tim4, timer::Timer};
+use stm32_hal2::{pac::TIM4, timer::Timer};
 
 use defmt::println;
 
@@ -183,8 +183,8 @@ unsafe fn getRFlinkInfo() {
 
 unsafe fn SetRFLinkRate(index: u8, hwTimer: &mut Timer<TIM4>) // Set speed of RF link
 {
-    let ModParams: ModSettings = get_elrs_airRateConfig(index);
-    let RFperf: RfPrefParams = get_elrs_RFperfParams(index);
+    let ModParams: ModSettings = get_elrs_airRateConfig(index as usize);
+    let RFperf: RfPrefParams = get_elrs_RFperfParams(index as usize);
     let invertIQ = (UID[5] & 0x01) != 0;
 
     hwTimer.set_period(ModParams.interval);
@@ -749,7 +749,7 @@ unsafe fn setupBindingFromConfig() {
             "UID = {}, {}, {}, {}, {}, {}",
             UID[0], UID[1], UID[2], UID[3], UID[4], UID[5]
         );
-        CRCInitializer = (UID[4] << 8) | UID[5];
+        CRCInitializer = ((UID[4] as u16) << 8) | (UID[5] as u16);
         return;
     }
 
@@ -1058,7 +1058,7 @@ unsafe fn ExitBindingMode(radio: &mut SX12xxDriver, hwTimer: &mut Timer<TIM4>) {
     // Write the values to eeprom
     config.Commit();
 
-    CRCInitializer = (UID[4] << 8) | UID[5];
+    CRCInitializer = ((UID[4] as u16) << 8) | (UID[5] as u16);
     FHSSrandomiseFHSSsequence(uidMacSeedGet());
 
     // Force RF cycling to start at the beginning immediately

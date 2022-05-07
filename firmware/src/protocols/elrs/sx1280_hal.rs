@@ -32,10 +32,11 @@ use defmt::println;
 
 use super::sx1280_regs::*;
 
+// todo: this blocking delay could be trouble!
 pub fn delay_ms(time_ms: u32) {
     let cp = unsafe { cortex_m::Peripherals::steal() };
     let mut delay = Delay::new(cp.SYST, 170_000_000);
-    d.delay_ms(time_ms); // todo!
+    delay.delay_ms(time_ms);
 }
 
 // todo: Can't repr bool, so repr u8
