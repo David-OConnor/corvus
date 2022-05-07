@@ -144,7 +144,7 @@ impl RfRates {
 
         match self {
             Self::LORA_25HZ => RATE_MAX - 1,
-            _ => 0
+            _ => 0,
         }
     }
 }

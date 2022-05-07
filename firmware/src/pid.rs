@@ -26,6 +26,8 @@ use crate::{
     ArmStatus, UserCfg, DT_ATTITUDE,
 };
 
+use defmt::println;
+
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
 // todo: What should these be? Taken from an example.
@@ -327,7 +329,12 @@ fn calc_pid_error(
     let mut error_d = [0.];
     dsp_api::biquad_cascade_df1_f32(&mut filter.inner, &[error_d_prefilt], &mut error_d, 1);
 
-    let mut error = PidState {
+    println!(
+        "SP {} M{} e {} p {} i {} d {}",
+        set_pt, measurement, error, error_p, error_i, error_d[0]
+    );
+
+    let mut result = PidState {
         measurement,
         e: error,
         p: error_p,
@@ -335,9 +342,9 @@ fn calc_pid_error(
         d: error_d[0],
     };
 
-    error.anti_windup_clamp();
+    result.anti_windup_clamp();
 
-    error
+    result
 }
 
 /// Run the velocity (outer) PID Loop: This is used to determine attitude, eg based on commanded velocity
@@ -789,6 +796,7 @@ pub fn run_rate(
 
     // Adjust gains to map control range and pid out in radians/s to the -1. to 1 rates used by the motor
     // control logic, in `flight_ctrls::apply_controls`.
+    // todo: Is this right?? Do we want this??
     let pitch = input_map.calc_pitch_rate_pwr(pid.pitch.out());
     let roll = input_map.calc_roll_rate_pwr(pid.roll.out());
     let yaw = input_map.calc_yaw_rate_pwr(pid.yaw.out());
@@ -796,6 +804,10 @@ pub fn run_rate(
     // let pitch = pid.pitch.out();
     // let roll = pid.roll.out();
     // let yaw = pid.yaw.out();
+
+    // println!("Pitch out: {:?}", pitch);
+    // println!("Pitch raw: {:?}", pid.pitch.out());
+    // println!("roll out: {:?}", roll);
 
     // todo: Work on this.
     let throttle = match input_mode {

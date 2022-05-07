@@ -65,7 +65,7 @@ struct SX1280Driver {
     packet_mode: PacketTypes,
     modeSupportsFei: bool,
 
-    hal: SX1280Hal, // global var in original impl.
+    hal: SX1280Hal,             // global var in original impl.
     common: SX12xxDriverCommon, // global var in original impl.
 }
 
@@ -249,7 +249,8 @@ impl SX1280Driver {
         }
     }
 
-   pub fn SetOutputPower(&mut self, mut power: i8) { // todo: Make sure the intent isn't to mut power in place.
+    pub fn SetOutputPower(&mut self, mut power: i8) {
+        // todo: Make sure the intent isn't to mut power in place.
         if power < -18 {
             power = -18;
         } else if 13 < power {
@@ -475,13 +476,7 @@ impl SX1280Driver {
             .WriteCommand(RadioCommands::SET_BUFFERBASEADDRESS, &buf, buf.len());
     }
 
-    pub fn SetDioIrqParams(
-        &mut self,
-        irqMask: u16,
-        dio1Mask: u16,
-        dio2Mask: u16,
-        dio3Mask: u16,
-    ) {
+    pub fn SetDioIrqParams(&mut self, irqMask: u16, dio1Mask: u16, dio2Mask: u16, dio3Mask: u16) {
         let mut buf: [u8; 8] = [0; 8];
 
         buf[0] = ((irqMask >> 8) & 0x00FF) as u8;
@@ -544,11 +539,12 @@ impl SX1280Driver {
         let fail = if (irqStatus & IrqMasks::CRC_ERROR as u16) != 0 {
             RxStatus::CrcFail as u16
         } else {
-            RxStatus::Ok as u16 + if (irqStatus & IrqMasks::RX_TX_TIMEOUT as u16) != 0 {
-                RxStatus::RxTimeout as u16
-            } else {
-                RxStatus::Ok as u16
-            }
+            RxStatus::Ok as u16
+                + if (irqStatus & IrqMasks::RX_TX_TIMEOUT as u16) != 0 {
+                    RxStatus::RxTimeout as u16
+                } else {
+                    RxStatus::Ok as u16
+                }
         };
 
         // In continuous receive mode, the device stays in Rx mode
@@ -560,7 +556,11 @@ impl SX1280Driver {
         }
         if fail == RxStatus::Ok as u16 {
             let FIFOaddr: u8 = self.GetRxBufferAddr();
-            hal.ReadBuffer(FIFOaddr, self.common.RXdataBuffer, self.common.PayloadLength);
+            hal.ReadBuffer(
+                FIFOaddr,
+                self.common.RXdataBuffer,
+                self.common.PayloadLength,
+            );
             GetLastPacketStats();
         }
         // todo: Where is this callback defined (other than as null?)
@@ -626,7 +626,11 @@ impl SX1280Driver {
         self.common.LastPacketSNR = status[1] as i8 / 4;
         // https://www.mouser.com/datasheet/2/761/DS_SX1280-1_V2.2-1511144.pdf
         // need to subtract SNR from RSSI when SNR <= 0;
-        let negOffset: i8 = if self.common.LastPacketSNR < 0 { self.common.LastPacketSNR } else { 0 };
+        let negOffset: i8 = if self.common.LastPacketSNR < 0 {
+            self.common.LastPacketSNR
+        } else {
+            0
+        };
         self.common.LastPacketRSSI += negOffset;
     }
 
@@ -637,7 +641,9 @@ impl SX1280Driver {
             self.hal.TXRXdisable();
             self.TXnbISR();
         } else if irqStatus
-            & (IrqMasks::RX_DONE as u16 | IrqMasks::CRC_ERROR as u16 | IrqMasks::RX_TX_TIMEOUT as u16)
+            & (IrqMasks::RX_DONE as u16
+                | IrqMasks::CRC_ERROR as u16
+                | IrqMasks::RX_TX_TIMEOUT as u16)
             != 0
         {
             self.RXnbISR(irqStatus);

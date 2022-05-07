@@ -88,7 +88,7 @@ use protocols::{crsf, dshot};
 
 use flight_ctrls::{
     ArmStatus, AutopilotStatus, AxisLocks, CommandState, CtrlInputs, InputMap, InputMode, Params,
-    Rotor, RotorPower, POWER_LUT,
+    Rotor, RotorMapping, RotorPower, POWER_LUT,
 };
 
 use filter_imu::ImuFilters;
@@ -208,10 +208,11 @@ pub struct UserCfg {
     mapping_obstacles: bool,
     max_speed_hor: f32,
     max_speed_ver: f32,
-
     /// It's common to arbitrarily wire motors to the ESC. Reverse each from its
     /// default direction, as required.
     motors_reversed: (bool, bool, bool, bool),
+    /// Map motor connection number to position.
+    motor_mapping: RotorMapping,
     baro_cal: baro::BaroCalPt,
     // Note that this inst includes idle power.
     // todo: We want to store this inst, but RTIC doesn't like it not being sync. Maybe static mut.
@@ -655,15 +656,16 @@ mod app {
         // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
         dshot::stop_all(&mut rotor_timer_a, &mut rotor_timer_b, &mut dma);
 
-        delay.delay_ms(3_000); // todo temp?
+        // delay.delay_ms(3_000); // todo temp?
 
-        dshot::setup_motor_dir(
-            user_cfg.motors_reversed,
-            &mut rotor_timer_a,
-            &mut rotor_timer_b,
-            &mut dma,
-            &mut delay,
-        );
+        // todo
+        // dshot::setup_motor_dir(
+        //     user_cfg.motors_reversed,
+        //     &mut rotor_timer_a,
+        //     &mut rotor_timer_b,
+        //     &mut dma,
+        //     &mut delay,
+        // );
 
         cfg_if! {
             if #[cfg(feature = "g4")] {
@@ -1047,10 +1049,14 @@ mod app {
                         imu_filters.apply(&mut imu_data);
                     });
 
-                    // Apply filtered gyro readings directly to params.
+                    // Apply filtered gyro and accel readings directly to params.
                     params.v_roll = imu_data.v_roll;
                     params.v_pitch = imu_data.v_pitch;
                     params.v_yaw = imu_data.v_yaw;
+
+                    params.a_x = imu_data.a_x;
+                    params.a_y = imu_data.a_y;
+                    params.a_z = imu_data.a_z;
 
                     // Note: Consider if you want to update the attitude using the primary update loop,
                     // vice each IMU update.

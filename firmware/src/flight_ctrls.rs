@@ -40,15 +40,21 @@ const THROTTLE_MAX_TO_ARM: f32 = 0.005;
 const THROTTLE_IDLE_THRESH: f32 = 0.01;
 
 // Power at idle setting.
-const THROTTLE_IDLE_POWER: f32 = 0.00; // todo: 0.01ish?
+const THROTTLE_IDLE_POWER: f32 = 0.02; //
+                                       // Max power setting. SHould be 1.
+const THROTTLE_MAX_POWER: f32 = 1.; //
 
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
 
-/// Time in seconds between subsequent data received before we execute lost-link procedures.
+// Time in seconds between subsequent data received before we execute lost-link procedures.
 pub const LOST_LINK_TIMEOUT: f32 = 1.;
 
-/// Our input ranges for the 4 controls
+// With maximum commanded pitch, yaw, or roll rate, add and subtract this value from
+// opposing rotors.
+const ROTOR_HALF_DELTA_MAX: f32 = 0.20;
+
+// Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
 const ROLL_IN_RNG: (f32, f32) = (-1., 1.);
 const YAW_IN_RNG: (f32, f32) = (-1., 1.);
@@ -128,18 +134,23 @@ pub struct AxisLocks {
     pub roll_locked: Option<f32>,
 }
 
-/// Specify the rotor. Includdes methods that get information regarding timer and DMA, per
-/// specific board setups.
+/// Specify the rotor by its connection to the ESC. Includdes methods that get information regarding timer
+/// and DMA, per specific board setups, in `setup`.
 #[derive(Clone, Copy)]
 pub enum Rotor {
-    /// Aft left
     R1,
-    /// Front left
     R2,
-    /// Aft right
     R3,
-    /// Front right
     R4,
+}
+
+/// Specify the rotor by position. Used in power application code.
+#[derive(Clone, Copy)]
+pub enum RotorPosition {
+    FrontLeft,
+    FrontRight,
+    AftLeft,
+    AftRight,
 }
 
 /// Maps control inputs (range 0. to 1. or -1. to 1.) to velocities, rotational velocities etc
@@ -504,78 +515,128 @@ pub struct Params {
 //     }
 // }
 
+/// Map rotor positions to connection numbers to ESC. Positions are associated with flight controls;
+/// numbers are associated with motor control.
+pub struct RotorMapping {
+    // pub front_left: Rotor,
+    // pub front_right: Rotor,
+    // pub aft_left: Rotor,
+    // pub aft_right: Rotor,
+    pub r1: RotorPosition,
+    pub r2: RotorPosition,
+    pub r3: RotorPosition,
+    pub r4: RotorPosition,
+}
+
 /// Represents power levels for the rotors. These map from 0. to 1.; 0% to 100% power.
 /// Rotor 1 is aft right. R2 is front right. R3 is aft left. R4 is front left.
+/// (Per our experiment: R1 is aft left. R2 is front left. R3 is aft right. R4 is front right.
 // todo: Discrete levels perhaps, eg multiples of the integer PWM ARR values.
 #[derive(Default)]
 pub struct RotorPower {
-    pub p1: f32,
-    pub p2: f32,
-    pub p3: f32,
-    pub p4: f32,
-
+    pub front_left: f32,
+    pub front_right: f32,
+    pub aft_left: f32,
+    pub aft_right: f32,
     // For info on ratios, see `apply_controls()`.
-    pub pitch_ratio: f32, // scale of -1. to 1..
-    pub roll_ratio: f32,  // scale of -1. to 1..
-    pub yaw_ratio: f32,   // scale of -1. to 1..
-    pub throttle: f32,    // scale of -0. to 1.
-                          // todo: You may need to add ratios and throttle here.
+    // pub pitch_ratio: f32, // scale of -1. to 1..
+    // pub roll_ratio: f32,  // scale of -1. to 1..
+    // pub yaw_ratio: f32,   // scale of -1. to 1..
+    // pub throttle: f32,    // scale of -0. to 1.
+    // todo: You may need to add ratios and throttle here.
 }
 
-impl MulAssign<f32> for RotorPower {
-    fn mul_assign(&mut self, rhs: f32) {
-        self.p1 *= rhs;
-        self.p2 *= rhs;
-        self.p3 *= rhs;
-        self.p4 *= rhs;
-    }
-}
-
-impl DivAssign<f32> for RotorPower {
-    fn div_assign(&mut self, rhs: f32) {
-        self.p1 /= rhs;
-        self.p2 /= rhs;
-        self.p3 /= rhs;
-        self.p4 /= rhs;
-    }
-}
+// impl MulAssign<f32> for RotorPower {
+//     fn mul_assign(&mut self, rhs: f32) {
+//         self.p1 *= rhs;
+//         self.p2 *= rhs;
+//         self.p3 *= rhs;
+//         self.p4 *= rhs;
+//     }
+// }
+//
+// impl DivAssign<f32> for RotorPower {
+//     fn div_assign(&mut self, rhs: f32) {
+//         self.p1 /= rhs;
+//         self.p2 /= rhs;
+//         self.p3 /= rhs;
+//         self.p4 /= rhs;
+//     }
+// }
 
 impl RotorPower {
+    /// Convert rotor position to its associated power setting.
+    fn by_rotor_num(&self, mapping: &RotorMapping) -> (f32, f32, f32, f32) {
+        // todo: DRY
+        let p1 = match mapping.r1 {
+            RotorPosition::FrontLeft => self.front_left,
+            RotorPosition::FrontRight => self.front_right,
+            RotorPosition::AftLeft => self.aft_left,
+            RotorPosition::AftRight => self.aft_right,
+        };
+
+        let p2 = match mapping.r2 {
+            RotorPosition::FrontLeft => self.front_left,
+            RotorPosition::FrontRight => self.front_right,
+            RotorPosition::AftLeft => self.aft_left,
+            RotorPosition::AftRight => self.aft_right,
+        };
+
+        let p3 = match mapping.r3 {
+            RotorPosition::FrontLeft => self.front_left,
+            RotorPosition::FrontRight => self.front_right,
+            RotorPosition::AftLeft => self.aft_left,
+            RotorPosition::AftRight => self.aft_right,
+        };
+
+        let p4 = match mapping.r4 {
+            RotorPosition::FrontLeft => self.front_left,
+            RotorPosition::FrontRight => self.front_right,
+            RotorPosition::AftLeft => self.aft_left,
+            RotorPosition::AftRight => self.aft_right,
+        };
+
+        (p1, p2, p3, p4)
+    }
+
     /// Calculates total power. Used to normalize individual rotor powers when setting total
     /// power, eg from a thrust setting.
     pub fn total(&self) -> f32 {
-        self.p1 + self.p2 + self.p3 + self.p4
+        self.front_left + self.front_right + self.aft_left + self.aft_right
     }
 
-    /// Find the highest motor power level. Used for scaling power, so as
-    /// not to exceed full power on any motor, while preserving power ratios between motors.
-    pub fn highest(&self) -> f32 {
-        let mut result = self.p1;
-        if self.p2 > result {
-            result = self.p2;
-        }
-        if self.p3 > result {
-            result = self.p3;
-        }
-        if self.p4 > result {
-            result = self.p4;
-        }
-
-        result
-    }
+    // /// Find the highest motor power level. Used for scaling power, so as
+    // /// not to exceed full power on any motor, while preserving power ratios between motors.
+    // pub fn highest(&self) -> f32 {
+    //     let mut result = self.p1;
+    //     if self.p2 > result {
+    //         result = self.p2;
+    //     }
+    //     if self.p3 > result {
+    //         result = self.p3;
+    //     }
+    //     if self.p4 > result {
+    //         result = self.p4;
+    //     }
+    //
+    //     result
+    // }
 
     /// Send this power command to the rotors
     pub fn set(
         &mut self,
+        mapping: &RotorMapping,
         rotor_timer_a: &mut Timer<TIM2>,
         rotor_timer_b: &mut Timer<TIM3>,
         arm_status: ArmStatus,
         dma: &mut Dma<DMA1>,
     ) {
+        let (p1, p2, p3, p4) = self.by_rotor_num(mapping);
+
         match arm_status {
             ArmStatus::Armed => {
-                dshot::set_power_a(Rotor::R1, Rotor::R2, self.p1, self.p2, rotor_timer_a, dma);
-                dshot::set_power_b(Rotor::R3, Rotor::R4, self.p3, self.p4, rotor_timer_b, dma);
+                dshot::set_power_a(Rotor::R1, Rotor::R2, p1, p2, rotor_timer_a, dma);
+                dshot::set_power_b(Rotor::R3, Rotor::R4, p3, p4, rotor_timer_b, dma);
             }
             ArmStatus::Disarmed => {
                 dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
@@ -681,26 +742,70 @@ fn estimate_rotor_angle(a_desired: f32, v_current: f32, ac_properties: &Aircraft
     0. // todo
 }
 
+/// Helper function for `apply_controls`. Sets specific rotor power based on commanded rates and throttle.
+/// We split thihs out so we can call it a second time, in case of a clamp due to min or max power
+/// on a rotor.
+///
+///  The ratios passed in params are on a scale between -1. and +1.
+/// Throttle works differently - it's an overall scaler. If ratios are all 0, and power is 1., power for
+/// all motors is 100%. No individual power level is allowed to be above 1, or below our idle power
+/// setting.
+fn calc_rotor_powers(pitch_rate: f32, roll_rate: f32, yaw_rate: f32, throttle: f32) -> RotorPower {
+    // Start by setting all powers equal to the overall throttle setting.
+    let mut front_left = throttle;
+    let mut front_right = throttle;
+    let mut aft_left = throttle;
+    let mut aft_right = throttle;
+
+    // todo: This is probably where you need gains etc.
+
+    // todo: Should you adjust how you scale this based on the measured
+    // todo rates? Maybe handle in PID.?
+
+    let pitch_delta = ROTOR_HALF_DELTA_MAX * pitch_rate;
+    let roll_delta = ROTOR_HALF_DELTA_MAX * roll_rate;
+    let yaw_delta = ROTOR_HALF_DELTA_MAX * yaw_rate;
+
+    // Nose up for positive pitch.
+    front_left += pitch_delta;
+    front_right += pitch_delta;
+    aft_left -= pitch_delta;
+    aft_right -= pitch_delta;
+
+    // Left side up for positive roll
+    front_left += roll_delta;
+    front_right -= roll_delta;
+    aft_left += roll_delta;
+    aft_right -= roll_delta;
+
+    // todo: Check dir on yaw
+    // Assumes props rotate inwards towards the front and back ends.
+    // Yaw CCW for positive yaw.
+    front_left += yaw_delta;
+    front_right -= yaw_delta;
+    aft_left -= yaw_delta;
+    aft_right += yaw_delta;
+
+    RotorPower {
+        front_left,
+        front_right,
+        aft_left,
+        aft_right,
+    }
+}
+
 /// Set rotor speed for all 4 rotors. We model pitch, roll, and yaw based on target angular rates
 /// in these areas. We modify power ratio between the appropriate propeller pairs to change these
-/// parameters. The ratios passed in params are on a scale between -1. and +1. The inputs are the ratio of the respective rotor sides.
-/// Throttle works differently - it's an overall scaler. If ratios are all 0, and power is 1., power for
-/// all motors is 100%. No individual power level is allowed to be above 1. Rather than clip, we
-/// scale other rotor power levels to leave the one set to exceed 1. at 1.
+/// parameters.
 ///
-/// `pitch_rate` = 0. means equal front/aft power. `pitch_rate` = 1.0 means aft/front rotor power is 100%
-/// `pitch_rate`= -1. means aft / front power is 0%.... pitch_rate = 1. means max fwd rotation. roll_rate = 1.
-/// means max right rotation. yaw_rate 1.0 means max clockwise rotation.
-/// Rotor 1 is aft right. R2 is front right. R3 is aft left. R4 is front left.
-/// (Per our experiment: R1 is aft left. R2 is front left. R3 is aft right. R4 is front right.
+/// If a rotor exceeds min or max power settings, scale our angular rates uniformly until it's
+/// at the threshold, while keeping average power, and rotor symettry intact.
 ///
-/// Important: Rates here are in terms of max/min - they're not in real units like radians/s!
-///
-/// We're trying to map commanded angular rate to ratios between prop pairs.
+/// Rates here are in terms of max/min - they're not in real units like radians/s!
 pub fn apply_controls(
-    pitch_rate: f32,
-    roll_rate: f32,
-    yaw_rate: f32,
+    mut pitch_rate: f32,
+    mut roll_rate: f32,
+    mut yaw_rate: f32,
     throttle: f32,
     current_pwr: &mut RotorPower,
     rotor_tim_a: &mut Timer<TIM2>,
@@ -708,51 +813,97 @@ pub fn apply_controls(
     arm_status: ArmStatus,
     dma: &mut Dma<DMA1>,
 ) {
-    let mut pwr = RotorPower::default();
-    // todo: Do you want a linear mapping between power ratio like this, or is it non-linear?
-    // todo: Make some type of trig function? Note that the linear mapping here is probably
-    // todo good enough for your PID loop to map to specific angular rates.
-    // Map from -1. to 1. we use for our input rates, to 0. to 1. for power levels.
-    let aft = pitch_rate / 2. + 0.5;
-    let front = -pitch_rate / 2. + 0.5;
-    let left = roll_rate / 2. + 0.5;
-    let right = -roll_rate / 2. + 0.5;
-    let ccw = yaw_rate / 2. + 0.5;
-    let cw = -yaw_rate / 2. + 0.5;
+    let mut pwr = calc_rotor_powers(pitch_rate, roll_rate, yaw_rate, throttle);
 
-    pwr.p1 += aft;
-    pwr.p3 += aft;
-    pwr.p2 += front;
-    pwr.p4 += front;
+    /// todo: Think in terms of torque? Include rotor arm?
+    // todo: DRY
+    let mut min_rotor = RotorPosition::FrontLeft;
+    let mut min_pwr = pwr.front_left;
 
-    pwr.p3 += left;
-    pwr.p4 += left;
-    pwr.p1 += right;
-    pwr.p2 += right;
-
-    // todo: Check direction on this. Will be obvious if backwards.
-    pwr.p2 += ccw;
-    pwr.p3 += ccw;
-    pwr.p1 += cw;
-    pwr.p4 += cw;
-
-    // todo: Clamp each motor to idle?
-
-    // Normalize using throttle, so the average power is equal to throttle x 4 rotors.
-    pwr *= 4. * throttle / pwr.total();
-
-    // If any rotor power is set to exceed 1.0 (Eg due to high power setting in conjunction with
-    // one or more high ratios), scale back all powers so the max is at 1. (preserves ratios as a priority
-    // over preserving power level)
-    let mut highest_v = pwr.highest();
-    if highest_v > 1. {
-        pwr /= highest_v;
+    if pwr.front_right < min_pwr {
+        min_rotor = RotorPosition::FrontRight;
+        min_pwr = pwr.front_right;
+    }
+    if pwr.aft_left < min_pwr {
+        min_rotor = RotorPosition::AftLeft;
+        min_pwr = pwr.aft_left;
+    }
+    if pwr.aft_right < min_pwr {
+        min_rotor = RotorPosition::AftRight;
+        min_pwr = pwr.aft_right;
     }
 
-    // todo: Clamp at 0 too, and other code review here.
+    // How we derive this scaling calculation, assuming we scale all rates equally:
+    // FL: throttle + MAX_DELTA * rate_scaler * (pitch_rate + roll_rate + yaw_rate) = IDLE
+    // FR: throttle + MAX_DELTA * rate_scaler * (+pitch_rate - roll_rate - yaw_rate) = IDLE
+    // AL: throttle + MAX_DELTA * rate_scaler * (-pitch_rate + roll_rate - yaw_rate) = IDLE
+    // AR: throttle + MAX_DELTA * rate_scaler * (-pitch_rate - roll_rate + yaw_rate) = IDLE
+    // rate_scaler = (IDLE - throttle) / (MAX_DELTA * (-pitch_rate - roll_rate - yaw_rate))
+
+    // Run the 2 limit checks sequentially, so in the (hopefully unusual case we
+    // exceed both limits (eg with very high rates, and/or max delta?), we still
+    // don't exceed either limit. Note that in the case of either being exceeded, we
+    // attenuate rates, which helps on both ends.
+
+    // Make a var for scaler, so we can use it in our max throttle calc too.
+    if min_pwr < THROTTLE_IDLE_POWER {
+        println!("Min power exceeded; reducing rates.");
+        let rate_val = match min_rotor {
+            RotorPosition::FrontLeft => pitch_rate + roll_rate + yaw_rate,
+            RotorPosition::FrontRight => pitch_rate - roll_rate - yaw_rate,
+            RotorPosition::AftLeft => -pitch_rate + roll_rate - yaw_rate,
+            RotorPosition::AftRight => -pitch_rate - roll_rate + yaw_rate,
+        };
+
+        // todo: Make sure we're not putting another rotor over the threshold with this approach!
+
+        let rate_scaler = (THROTTLE_IDLE_POWER - throttle) / (ROTOR_HALF_DELTA_MAX * rate_val);
+        pitch_rate *= rate_scaler;
+        roll_rate *= rate_scaler;
+        yaw_rate *= rate_scaler;
+
+        pwr = calc_rotor_powers(pitch_rate, roll_rate, yaw_rate, throttle);
+    }
+
+    let mut max_rotor = RotorPosition::FrontLeft;
+    let mut max_pwr = pwr.front_left;
+
+    if pwr.front_right > max_pwr {
+        max_rotor = RotorPosition::FrontRight;
+        max_pwr = pwr.front_right;
+    }
+    if pwr.aft_left > max_pwr {
+        max_rotor = RotorPosition::AftLeft;
+        max_pwr = pwr.aft_left;
+    }
+    if pwr.aft_right > max_pwr {
+        max_rotor = RotorPosition::AftRight;
+        max_pwr = pwr.aft_right;
+    }
+
+    if max_pwr > THROTTLE_MAX_POWER {
+        println!("Max power exceeded; reducing rates.");
+        let rate_val = match max_rotor {
+            // todo DRY
+            RotorPosition::FrontLeft => pitch_rate + roll_rate + yaw_rate,
+            RotorPosition::FrontRight => pitch_rate - roll_rate - yaw_rate,
+            RotorPosition::AftLeft => -pitch_rate + roll_rate - yaw_rate,
+            RotorPosition::AftRight => -pitch_rate - roll_rate + yaw_rate,
+        };
+
+        let rate_scaler = (THROTTLE_MAX_POWER - throttle) / (ROTOR_HALF_DELTA_MAX * rate_val);
+        // These rates below are already modified from the input args if required by exceeding
+        // a min.
+        pitch_rate *= rate_scaler;
+        roll_rate *= rate_scaler;
+        yaw_rate *= rate_scaler;
+
+        pwr = calc_rotor_powers(pitch_rate, roll_rate, yaw_rate, throttle);
+    }
+
+    println!("Rotor power: {} {} {} {}", p1, p2, p3, p4);
 
     pwr.set(rotor_tim_a, rotor_tim_b, arm_status, dma);
-
     *current_pwr = pwr;
 }
 

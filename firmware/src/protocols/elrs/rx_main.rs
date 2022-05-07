@@ -14,7 +14,10 @@ use stm32_hal2::{pac::Tim4, timer::Timer};
 
 use defmt::println;
 
-use super::{common::*, fhss, lowpassfilter::LPF, lqcalc, ota::*, pfd, pfd::*, sx1280::*, telemetry::*,};
+use super::{
+    common::*, fhss, lowpassfilter::LPF, lqcalc, ota::*, pfd, pfd::*, stubborn::*, sx1280::*,
+    telemetry::*,
+};
 
 ///LUA///
 const LUA_MAX_PARAMS: u32 = 32;
@@ -625,7 +628,11 @@ unsafe fn ProcessRfPacket_SYNC(radio: &mut SX12xxDriverCommon, now: u32) -> bool
     return false;
 }
 
-unsafe fn ProcessRFPacket(radio: &mut SX12xxDriverCommon, status: RxStatus, hwTimer: &mut Timer<TIM4>) {
+unsafe fn ProcessRFPacket(
+    radio: &mut SX12xxDriverCommon,
+    status: RxStatus,
+    hwTimer: &mut Timer<TIM4>,
+) {
     if status != RxStatus::Ok {
         println!("HW CRC error");
         return;
@@ -695,11 +702,11 @@ unsafe fn ProcessRFPacket(radio: &mut SX12xxDriverCommon, status: RxStatus, hwTi
 
 // todo: Move this call to the main fn once you figure out where it goes.
 unsafe fn RXdoneISR(Radio: &mut SX12xxDriverCommon, status: RxStatus, hwTimer: &mut Timer<TIM4>) {
-    ProcessRFPacket(Radio,status, hwTimer);
+    ProcessRFPacket(Radio, status, hwTimer);
 }
 
 // todo: Move this call to the main fn once you figure out where it goes.
-fn TXdoneISR(Radio: &mut SX12xxDriverCommon, ) {
+fn TXdoneISR(Radio: &mut SX12xxDriverCommon) {
     Radio.RXnb();
 }
 
@@ -801,7 +808,10 @@ unsafe fn updateTelemetryBurst() {
     }
     telemBurstValid = true;
 
-    telemetryBurstMax = TLMBurstMaxForRateRatio(CurrAirRateModParams.rf_rate,  CurrAirRateModParams.TLMinterval);
+    telemetryBurstMax = TLMBurstMaxForRateRatio(
+        CurrAirRateModParams.rf_rate,
+        CurrAirRateModParams.TLMinterval,
+    );
 
     // Notify the sender to adjust its expected throughput
     TelemetrySender.UpdateTelemetryRate(hz as u16, ratiodiv as u8, telemetryBurstMax);
@@ -844,7 +854,7 @@ unsafe fn updateBindingMode(radio: &mut SX12xxDriverCommon, hwTimer: &mut Timer<
     }
     // If in binding mode and the bind packet has come in, leave binding mode
     else if config.GetIsBound() && unsafe { InBindingMode } {
-        ExitBindingMode(radio,hwtimer);
+        ExitBindingMode(radio, hwtimer);
     }
 
     // #ifndef MY_UID
@@ -854,7 +864,7 @@ unsafe fn updateBindingMode(radio: &mut SX12xxDriverCommon, hwTimer: &mut Timer<
         config.Commit();
 
         println!("Power on counter >=3, enter binding mode...");
-        EnterBindingMode(radio,hwTimer);
+        EnterBindingMode(radio, hwTimer);
     }
     // #endif
 }
@@ -865,8 +875,7 @@ unsafe fn checkSendLinkStatsToFc(now: u32) {
             getRFlinkInfo();
         }
 
-        if (connectionState != ConnectionState::disconnected
-            && connectionHasModelMatch)
+        if (connectionState != ConnectionState::disconnected && connectionHasModelMatch)
             || SendLinkStatstoFCForcedSends != 0
         {
             // crsf.sendLinkStatisticsToFC();
@@ -948,7 +957,7 @@ unsafe fn loop_(radio: &mut SX12xxDriverCommon, hwTimer: &mut Timer<TIM4>) {
         && (now - unsafe { LastSyncPacket } > ExpressLRS_currAirRate_RFperfParams.RxLockTimeoutMs)
     {
         println!("Bad sync, aborting");
-        LostConnection(radio,HwTimer);
+        LostConnection(radio, HwTimer);
 
         unsafe {
             RFmodeLastCycled = now;

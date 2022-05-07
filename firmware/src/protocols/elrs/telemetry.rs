@@ -8,7 +8,6 @@
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/Telemetry/telemetry.h
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/Telemetry/telemetry.cpp
 
-
 // todo: #define - types?
 pub const ELRS_TELEMETRY_TYPE_LINK: u8 = 0x01;
 pub const ELRS_TELEMETRY_TYPE_DATA: u8 = 0x02;
@@ -19,8 +18,7 @@ pub const ELRS_TELEMETRY_MAX_PACKAGES: u8 = (255 >> ELRS_TELEMETRY_SHIFT);
 
 pub const ELRS_MSP_BYTES_PER_CALL: u8 = 5;
 pub const ELRS_MSP_BUFFER: u8 = 65;
-pub const ELRS_MSP_MAX_PACKAGES: u8 = ((ELRS_MSP_BUFFER/ELRS_MSP_BYTES_PER_CALL)+1);
-
+pub const ELRS_MSP_MAX_PACKAGES: u8 = ((ELRS_MSP_BUFFER / ELRS_MSP_BYTES_PER_CALL) + 1);
 
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
@@ -35,11 +33,11 @@ pub enum CustomTelemSubTypeID {
 pub enum TelemetryState {
     TELEMETRY_IDLE = 0,
     RECEIVING_LENGTH,
-    RECEIVING_DATA
+    RECEIVING_DATA,
 }
 
 pub struct CrsfTelemetryPackage {
-    type_ : u8,
+    type_: u8,
     size: u8,
     locked: bool,
     updated: bool,
@@ -96,7 +94,6 @@ pub struct CrsfTelemetryPackage {
 //     bool sendDeviceFrame;
 //     uint8_t modelMatchId;
 // };
-
 
 // todo: Below  might be CRSF only?
 //

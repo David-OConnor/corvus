@@ -18,6 +18,7 @@ mod rx_main;
 // mod stubborn;
 mod sx1280_regs;
 // mod crsf;
+mod stubborn;
 mod sx1280;
 mod sx1280_hal;
 mod telemetry;
