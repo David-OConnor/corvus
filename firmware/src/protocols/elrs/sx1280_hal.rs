@@ -262,9 +262,7 @@ impl SX1280Hal {
         // wait untill not busy or until wtimeoutUS
         {
             if (micros() - startTime) > wtimeoutUS {
-                //println!("TO");
                 return false;
-            } else {
             }
         }
         // #else

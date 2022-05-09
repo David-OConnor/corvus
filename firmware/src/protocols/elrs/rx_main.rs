@@ -14,7 +14,7 @@ use defmt::println;
 
 use super::{
     common::*, fhss, lowpassfilter::LPF, lqcalc, ota::*, pfd, pfd::*, stubborn::*, sx1280::*,
-    telemetry::*,
+    telemetry::*, hwtimer::*,
 };
 
 ///LUA///
@@ -34,6 +34,7 @@ const Regulatory_Domain_EU_CE_2400: bool = false;
 // todo: Do we want this since we only have 1 antenna port?
 static mut antenna: u8 = 0; // which antenna is currently in use
 
+static mut hwTimer: hwTimer = unsafe { mem::zeroed() }; // todo: When do we init this?
 static mut PFDloop: PFD = unsafe { mem::zeroed() };
 static mut config: RxConfig = unsafe { mem::zeroed() };
 static mut telemetry: Telemetry = unsafe { mem::zeroed() };

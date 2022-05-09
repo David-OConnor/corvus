@@ -407,6 +407,7 @@ mod app {
         rotor_timer_a: Timer<TIM2>,
         rotor_timer_b: Timer<TIM3>,
         elrs_timer: Timer<TIM4>,
+        // delay_timer: Timer<TIM5>,
         usb_dev: UsbDevice<'static, UsbBusType>,
         usb_serial: SerialPort<'static, UsbBusType>,
         // `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
@@ -434,7 +435,7 @@ mod app {
         let mut dp = pac::Peripherals::take().unwrap();
 
         #[cfg(feature = "h7")]
-        SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
+            SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
 
         // todo: Range 1 boost mode on G4!!
         let clock_cfg = Clocks {
@@ -477,7 +478,7 @@ mod app {
 
         let mut dma = Dma::new(dp.DMA1);
         #[cfg(feature = "g4")]
-        dma::enable_mux1();
+            dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dp.DMAMUX);
 
@@ -486,13 +487,13 @@ mod app {
         // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
         // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
         #[cfg(feature = "g4")]
-        // todo: Switch to higher speed.
-        // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
-        // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
-        let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
+            // todo: Switch to higher speed.
+            // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
+            // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
+            let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
         #[cfg(feature = "h7")]
-        // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
-        let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
+            // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
+            let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
 
         let imu_spi_cfg = SpiConfig {
             // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
@@ -503,9 +504,9 @@ mod app {
         let mut spi1 = Spi::new(dp.SPI1, imu_spi_cfg, imu_baud_div);
 
         #[cfg(feature = "mercury-h7")]
-        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+            let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
         #[cfg(feature = "mercury-g4")]
-        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+            let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
         cs_imu.set_high();
 
@@ -648,8 +649,20 @@ mod app {
         );
         lost_link_timer.enable_interrupt(TimerInterrupt::Update);
 
-        // todo: Set this up appropriately.
-        let elrs_timer = Timer::new_tim4(dp.TIM4, 1., Default::default(), &clock_cfg);
+        let elrs_timer = Timer::new_tim4(
+            dp.TIM4,
+            1.,
+            TimerConfig {
+                auto_reload_preload: true,
+                ..Default::default()
+            },
+            &clock_cfg);
+
+        // let delay_timer = Timer::new_tim5(
+        //     dp.TIM5,
+        //     1.,
+        //      Default::default(),
+        // &clock_cfg);
 
         let mut user_cfg = UserCfg::default();
 
@@ -658,20 +671,7 @@ mod app {
 
         // Hard-coded for our test setup
         user_cfg.motors_reversed = (false, true, true, true);
-
-        // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
-        dshot::stop_all(&mut rotor_timer_a, &mut rotor_timer_b, &mut dma);
-
-        // delay.delay_ms(3_000); // todo temp?
-
-        // todo
-        // dshot::setup_motor_dir(
-        //     user_cfg.motors_reversed,
-        //     &mut rotor_timer_a,
-        //     &mut rotor_timer_b,
-        //     &mut dma,
-        //     &mut delay,
-        // );
+        // user_cfg.motors_reversed = (false, false, false, false);
 
         cfg_if! {
             if #[cfg(feature = "g4")] {
@@ -699,7 +699,7 @@ mod app {
         // todo: Testing flash
         // flash_onboard.unlock();
         let mut flash_buf = [0; 5];
-        let cfg_data = flash_onboard.read_to_buffer(ONBOARD_FLASH_START_PAGE, 0, &mut flash_buf);
+        // let cfg_data = flash_onboard.read_to_buffer(ONBOARD_FLASH_START_PAGE, 0, &mut flash_buf);
 
         println!("Flash Buf ( should be 1, 2, 3, 0, 0): {:?}", flash_buf);
         // flash_onboard.erase_page(ONBOARD_FLASH_START_PAGE);
@@ -722,7 +722,9 @@ mod app {
         };
 
         // Note: Calibration and offsets ares handled handled by their defaults currently.
-        let ahrs = Ahrs::new(&ahrs_settings, crate::IMU_UPDATE_RATE as u32);
+        let ahrs_cal = madgwick::AhrsCalibration::default(); // todo - load from flash
+
+        let ahrs = Ahrs::new(&ahrs_settings, ahrs_cal, crate::IMU_UPDATE_RATE as u32);
 
         update_timer.enable();
 
@@ -763,6 +765,7 @@ mod app {
                 rotor_timer_a,
                 rotor_timer_b,
                 elrs_timer,
+                // delay_timer,
                 usb_dev,
                 usb_serial,
                 flash_onboard,
@@ -782,8 +785,29 @@ mod app {
         )
     }
 
-    #[idle()]
-    fn idle(_cx: idle::Context) -> ! {
+    #[idle(shared = [user_cfg, rotor_timer_a, rotor_timer_b, dma])]
+    fn idle(cx: idle::Context) -> ! {
+        // Set up DSHOT here, since we need interrupts enabled.
+
+        (cx.shared.user_cfg, cx.shared.rotor_timer_a, cx.shared.rotor_timer_b, cx.shared.dma).lock(
+            |user_cfg, rotor_timer_a, rotor_timer_b, dma| {
+                // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
+                dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
+
+                // todo temp
+                let cp = unsafe { cortex_m::Peripherals::steal() };
+                let mut delay = Delay::new(cp.SYST, 170_000_000);
+
+                delay.delay_ms(2_000);
+
+                dshot::setup_motor_dir(
+                    user_cfg.motors_reversed,
+                    rotor_timer_a,
+                    rotor_timer_b,
+                    dma,
+                );
+            });
+
         loop {
             asm::nop();
         }
@@ -879,6 +903,13 @@ mod app {
                             "Attitude: roll {}, pitch: {}, yaw: {}\n",
                             params.s_roll, params.s_pitch, params.s_yaw
                         );
+
+                        // println!("AHRS Q: {} {} {} {}",
+                        //      ahrs.quaternion.w,
+                        //      ahrs.quaternion.x,
+                        //      ahrs.quaternion.y,
+                        //      ahrs.quaternion.z
+                        // );
                         //
                         //
                         //
@@ -1046,6 +1077,16 @@ mod app {
                     // spi.stop_dma only can stop a single channel atm, hence the 2 calls here.
                     dma.stop(setup::IMU_TX_CH);
                     spi1.stop_dma(setup::IMU_RX_CH, dma);
+
+                    // todo: Temp TS
+                    if command_state.arm_status == ArmStatus::Armed {
+                        dshot::set_power_a(Rotor::R1, Rotor::R2, 0.05, 0.05, rotor_timer_a, dma);
+                        dshot::set_power_b(Rotor::R3, Rotor::R4, 0.05, 0.05, rotor_timer_b, dma);
+                    } else {
+                        dshot::set_power_a(Rotor::R1, Rotor::R2, 0., 0., rotor_timer_a, dma);
+                        dshot::set_power_b(Rotor::R3, Rotor::R4, 0., 0., rotor_timer_b, dma);
+                    }
+                    return;
 
                     let mut imu_data = sensor_fusion::ImuReadings::from_buffer(unsafe {
                         &sensor_fusion::IMU_READINGS
@@ -1245,7 +1286,7 @@ mod app {
                     }
 
                     if let Some(crsf_data) =
-                        crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8)
+                    crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8)
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {

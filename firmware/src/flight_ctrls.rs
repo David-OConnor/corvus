@@ -40,10 +40,10 @@ pub static LINK_LOST: AtomicBool = AtomicBool::new(false);
 const THROTTLE_MAX_TO_ARM: f32 = 0.005;
 
 // If the throttle signal is below this, set idle power.
-const THROTTLE_IDLE_THRESH: f32 = 0.01;
+const THROTTLE_IDLE_THRESH: f32 = 0.03;
 
 // Power at idle setting.
-const THROTTLE_IDLE_POWER: f32 = 0.02; //
+const THROTTLE_IDLE_POWER: f32 = 0.03; //
                                        // Max power setting. SHould be 1.
 const THROTTLE_MAX_POWER: f32 = 1.; //
 
@@ -533,8 +533,7 @@ pub struct RotorMapping {
 }
 
 /// Represents power levels for the rotors. These map from 0. to 1.; 0% to 100% power.
-/// Rotor 1 is aft right. R2 is front right. R3 is aft left. R4 is front left.
-/// (Per our experiment: R1 is aft left. R2 is front left. R3 is aft right. R4 is front right.)
+/// Per our initial setup: R1 is aft left. R2 is front left. R3 is aft right. R4 is front right.
 // todo: Discrete levels perhaps, eg multiples of the integer PWM ARR values.
 #[derive(Default)]
 pub struct RotorPower {

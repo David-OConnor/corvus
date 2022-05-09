@@ -96,28 +96,36 @@ impl ImuReadings {
     }
 }
 
+/// Calibrate the IMU, by taking a series of series while on a level surface.
+pub fn calibrate() ->  madgwick::AhrsCalibration {
+    // todo: average? lowpass?
+    Default::default()
+
+}
+
 /// Update and get the attitude from the AHRS.
 pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
-    let gyro = Vec3 {
-        x: params.v_roll,
-        y: params.v_pitch,
+    // Note that for our Madgwick logic, x is pitch.
+    let mut gyro_data = Vec3 {
+        x: params.v_pitch,
+        y: params.v_roll,
         z: params.v_yaw,
     };
-    let accel = Vec3 {
+    let mut accel_data = Vec3 {
         x: params.a_x,
         y: params.a_y,
         z: params.a_z,
     };
 
     // Apply calibration
-    let gyroscope = madgwick::apply_cal_inertial(
-        gyro,
+    gyro_data = madgwick::apply_cal_inertial(
+        gyro_data,
         ahrs.calibration.gyro_misalignment.clone(),
         ahrs.calibration.gyro_sensitivity,
         ahrs.calibration.gyro_offset,
     );
-    let accelerometer = madgwick::apply_cal_inertial(
-        accel,
+    accel_data = madgwick::apply_cal_inertial(
+        accel_data,
         ahrs.calibration.accel_misalignment.clone(),
         ahrs.calibration.accel_sensitivity,
         ahrs.calibration.accel_offset,
@@ -127,31 +135,31 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     // let magnetometer = madgwick::apply_cal_magnetic(magnetometer, softIronMatrix, hardIronOffset);
 
     // Update gyroscope offset correction algorithm
-    let gyroscope = ahrs.offset.update(gyroscope);
+    let gyro_data = ahrs.offset.update(gyro_data);
 
     // todo: Can we use the hard-set 8kHz IMU-spec DT, or do we need to measure?
-    ahrs.update_no_magnetometer(gyro, accel, crate::DT_IMU);
+    ahrs.update_no_magnetometer(gyro_data, accel_data, crate::DT_IMU);
 
     let att_euler = ahrs.quaternion.to_euler();
-    let att_earth = ahrs.get_earth_accel();
+    // let att_earth = ahrs.get_earth_accel();
 
-    // println!("Attitude quat: {} {} {} {}", ahrs.quaternion.w, ahrs.quaternion.x, ahrs.quaternion.y, ahrs.quaternion.z);
-    // println!(
-    //     "Attitude roll: {}, pitch: {}, yaw: {}",
-    //     att_euler.roll, att_euler.pitch, att_euler.yaw
-    // );
-    // println!(
-    //     "Attitude earth: {}, pitch: {}, yaw: {}",
-    //     att_earth.x, att_earth.y, att_earth.z
-    // );
+    // Update params with our calibrated gryo and accel data, in addition to attitude.
 
-    // params.s_pitch = att_earth.x;
-    // params.s_roll = att_earth.y;
-    // params.s_yaw = att_earth.z;
-    //
-    params.s_pitch = att_euler.pitch;
+    params.v_pitch = gyro_data.x;
+    params.v_roll = gyro_data.y;
+    params.v_yaw = gyro_data.z;
+
+    params.a_x = accel_data.x;
+    params.a_y = accel_data.y;
+    params.a_z = accel_data.z;
+
     params.s_roll = att_euler.roll;
+    params.s_pitch = att_euler.pitch;
     params.s_yaw = att_euler.yaw;
+    
+    // params.s_roll = att_earth.x;
+    // params.s_pitch = att_earth.y;
+    // params.s_yaw = att_earth.z;
 }
 
 /// Read all 3 measurements, by commanding a DMA transfer. The transfer is closed, and readings

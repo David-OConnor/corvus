@@ -7122,7 +7122,7 @@
     (uuid d55c58ae-9adf-4d6c-b50f-1f7069002113)
     (property "Reference" "Y2" (id 0) (at 31.75 283.21 90))
     (property "Value" "52Mhz, 12pF" (id 1) (at 36.83 280.67 90))
-    (property "Footprint" "Crystal:Crystal_SMD_2016-4Pin_2.0x1.6mm" (id 2) (at 34.29 288.29 0)
+    (property "Footprint" "Crystal:Crystal_SMD_3225-4Pin_3.2x2.5mm" (id 2) (at 34.29 288.29 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (property "Datasheet" "https://au.mouser.com/datasheet/2/115/DIOD_S_A0003100872_1-2542169.pdf" (id 3) (at 34.29 288.29 0)
@@ -8392,7 +8392,7 @@
       (reference "Y1") (unit 1) (value "16M") (footprint "Crystal:Crystal_SMD_2016-4Pin_2.0x1.6mm")
     )
     (path "/d55c58ae-9adf-4d6c-b50f-1f7069002113"
-      (reference "Y2") (unit 1) (value "52Mhz, 12pF") (footprint "Crystal:Crystal_SMD_2016-4Pin_2.0x1.6mm")
+      (reference "Y2") (unit 1) (value "52Mhz, 12pF") (footprint "Crystal:Crystal_SMD_3225-4Pin_3.2x2.5mm")
     )
   )
 )

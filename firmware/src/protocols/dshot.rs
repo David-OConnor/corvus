@@ -14,6 +14,8 @@
 //! The DSHOT protocol (DSHOT-300, DSHOT-600 etc) is determined by the `DSHOT_ARR_600` and `DSHOT_PSC_600` settings in the
 //! main crate; ie set a 600kHz countdown for DSHOT-600.
 
+use core::sync::atomic::AtomicBool;
+
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
@@ -56,6 +58,15 @@ cfg_if! {
 const DUTY_HIGH: u16 = DSHOT_ARR_600 * 3 / 4;
 const DUTY_LOW: u16 = DSHOT_ARR_600 * 3 / 8;
 
+// We use this during config that requires multiple signals sent, eg setting. motor direction.
+// pub static PAUSE_AFTER_DSHOT: AtomicBool = AtomicBool::new(false);
+
+// Use this pause duration, in ms, when setting up motor dir.
+pub const PAUSE_BETWEEN_COMMANDS: u32 = 1;
+pub const PAUSE_AFTER_SAVE: u32 = 40; // Must be at least 35ms.
+// BLHeli_32 requires you repeat certain commands, like motor direction, 6 times.
+pub const REPEAT_COMMAND_COUNT: u32 = 6;
+
 // DMA buffers for each rotor. 16-bit data. Note that
 // rotors 1/2 and 3/4 share a timer, so we can use the same DMA stream with them. Data for the 2
 // channels are interleaved.
@@ -65,6 +76,11 @@ static mut PAYLOAD_R3_4: [u16; 36] = [0; 36];
 
 /// Possible DSHOT commands (ie, DSHOT values 0 - 47). Does not include power settings.
 /// [Special commands section](https://brushlesswhoop.com/dshot-and-bidirectional-dshot/)
+/// [BlHeli command code](https://github.com/bitdump/BLHeli/blob/master/BLHeli_32%20ARM/BLHeli_32%20Firmware%20specs/Digital_Cmd_Spec.txt)
+///
+/// Commands are only executed when motors are stopped
+/// Note that throttle has to be zero, and the telemetry bit must be set in the command frames.
+/// Also note that a significant delay (several hundred ms) may be needed between commands.
 #[derive(Copy, Clone)]
 #[repr(u16)]
 pub enum Command {
@@ -76,12 +92,15 @@ pub enum Command {
     Beacon4 = 4,
     Beacon5 = 5,
     EscInfo = 6,
+    /// SpinDir1 and 2 are forced normal and reversed. If you have the ESC set to reversed in the config,
+    /// these will not reverse the motor direction, since it is already operating in reverse.
     SpinDir1 = 7,   // 6x
     SpinDir2 = 8,   // 6x
     _3dModeOff = 9, // 6x
     _3dModeOn = 10, // 6x
     SettingsRequest = 11,
-    SaveSettings = 12,
+    SaveSettings = 12, // 6x, wait at least 35ms before next command.
+    /// Normal and reversed with respect to configuration.
     SpinDirNormal = 20,        // 6x
     SpinDirReversed = 21,      // 6x
     Led0On = 22,               // BLHeli32 only
@@ -143,6 +162,7 @@ pub fn setup_timers(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
 /// get its required zero-throttle setting, generally required by ESC firmware to complete
 /// initialization.
 pub fn stop_all(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
+    // Note that the stop command (Command 0) is currently not implemented, so set throttles to 0.
     set_power_a(Rotor::R1, Rotor::R2, 0., 0., timer_a, dma);
     set_power_b(Rotor::R3, Rotor::R4, 0., 0., timer_b, dma);
 }
@@ -153,47 +173,82 @@ pub fn setup_motor_dir(
     timer_a: &mut Timer<TIM2>,
     timer_b: &mut Timer<TIM3>,
     dma: &mut Dma<DMA1>,
-    delay: &mut Delay,
 ) {
-    // Spin dir commands need to be sent 6 times.
-    for _ in 0..6 {
+    // A blocking delay.
+    let cp = unsafe { cortex_m::Peripherals::steal() };
+    let mut delay = Delay::new(cp.SYST, 170_000_000);
+
+    // Throttle must be 0 with telemetry bit set to use commands.
+    stop_all(timer_a, timer_b, dma);
+    delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+
+    setup_payload(Rotor::R1, CmdType::Command(Command::Led0On));
+    setup_payload(Rotor::R2, CmdType::Command(Command::Led0On));
+    setup_payload(Rotor::R3, CmdType::Command(Command::Led0On));
+    setup_payload(Rotor::R4, CmdType::Command(Command::Led0On));
+
+    send_payload_a(timer_a, dma);
+    send_payload_b(timer_b, dma);
+    delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+
+    // Spin dir commands need to be sent 6 times. (or 10?) We're using the "forced" spin dir commands,
+    // ie not with respect to ESC configuration; although that would be acceptable as well.
+    for _ in 0..REPEAT_COMMAND_COUNT {
         let cmd_1 = if motors_reversed.0 {
-            CmdType::Command(Command::SpinDirReversed)
+            Command::SpinDir2
         } else {
-            CmdType::Command(Command::SpinDirNormal)
+            Command::SpinDir1
         };
         let cmd_2 = if motors_reversed.1 {
-            CmdType::Command(Command::SpinDirReversed)
+            Command::SpinDir2
         } else {
-            CmdType::Command(Command::SpinDirNormal)
+            Command::SpinDir1
         };
         let cmd_3 = if motors_reversed.2 {
-            CmdType::Command(Command::SpinDirReversed)
+            Command::SpinDir2
         } else {
-            CmdType::Command(Command::SpinDirNormal)
+            Command::SpinDir1
         };
         let cmd_4 = if motors_reversed.3 {
-            CmdType::Command(Command::SpinDirReversed)
+            Command::SpinDir2
         } else {
-            CmdType::Command(Command::SpinDirNormal)
+            Command::SpinDir1
         };
 
-        // todo TS
-        // let cmd_1 = CmdType::Command(Command::SpinDir1);
-        // let cmd_2 = CmdType::Command(Command::SpinDir2);
-
-        setup_payload(Rotor::R1, cmd_1);
-        setup_payload(Rotor::R2, cmd_2);
+        setup_payload(Rotor::R1, CmdType::Command(cmd_1));
+        setup_payload(Rotor::R2, CmdType::Command(cmd_2));
         send_payload_a(timer_a, dma);
 
-        setup_payload(Rotor::R3, cmd_3);
-        setup_payload(Rotor::R4, cmd_4);
+        setup_payload(Rotor::R3, CmdType::Command(cmd_3));
+        setup_payload(Rotor::R4, CmdType::Command(cmd_4));
         send_payload_b(timer_b, dma);
 
-        // quick+dirty blocking delay to help TS this not working. This is OK, since we only run this
-        // on init, or during preflight.
-        delay.delay_ms(100);
+        delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+
+        // setup_payload(Rotor::R1, CmdType::Command(Command::SaveSettings));
+        // setup_payload(Rotor::R2, CmdType::Command(Command::SaveSettings));
+        // send_payload_a(timer_a, dma);
+        //
+        // setup_payload(Rotor::R3, CmdType::Command(Command::SaveSettings));
+        // setup_payload(Rotor::R4, CmdType::Command(Command::SaveSettings));
+        // send_payload_b(timer_b, dma);
+        //
+        // delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
     }
+
+    for _ in 0..REPEAT_COMMAND_COUNT {
+        setup_payload(Rotor::R1, CmdType::Command(Command::SaveSettings));
+        setup_payload(Rotor::R2, CmdType::Command(Command::SaveSettings));
+        send_payload_a(timer_a, dma);
+
+        setup_payload(Rotor::R3, CmdType::Command(Command::SaveSettings));
+        setup_payload(Rotor::R4, CmdType::Command(Command::SaveSettings));
+        send_payload_b(timer_b, dma);
+
+        // delay.delay_ms(PAUSE_AFTER_SAVE);
+        delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+    }
+    delay.delay_ms(PAUSE_AFTER_SAVE);
 }
 
 /// Update our DSHOT payload for a given rotor, with a given power level.
@@ -252,10 +307,6 @@ pub fn set_power_a(
     setup_payload(rotor1, CmdType::Power(power1));
     setup_payload(rotor2, CmdType::Power(power2));
 
-    // todo temp
-    // setup_payload(rotor1, CmdType::Power(0.));
-    // setup_payload(rotor2, CmdType::Power(0.));
-
     send_payload_a(timer, dma)
 }
 
@@ -270,10 +321,6 @@ pub fn set_power_b(
 ) {
     setup_payload(rotor1, CmdType::Power(power1));
     setup_payload(rotor2, CmdType::Power(power2));
-
-    // todo temp
-    // setup_payload(rotor1, CmdType::Power(0.));
-    // setup_payload(rotor2, CmdType::Power(power2));
 
     send_payload_b(timer, dma)
 }

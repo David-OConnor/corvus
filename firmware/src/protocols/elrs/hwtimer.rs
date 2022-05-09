@@ -40,10 +40,12 @@ impl hwTimer {
 
 pub fn init(&mut self) {
     if !self.alreadyInit    {
-        self.MyTime.enable_interrupt(TimerInterrupt::Update);
-        self.MyTim.setMode(1, TIMER_OUTPUT_COMPARE);
-        MyTim->setOverflow(hwTimer::HWtimerInterval >> 1, MICROSEC_FORMAT); // 22(50Hz) to 3(500Hz) scaler
-        MyTim->setPreloadEnable(false);
+        self.MyTim.enable_interrupt(TimerInterrupt::Update);
+        // self.MyTim.setMode(1, TIMER_OUTPUT_COMPARE); // todo?
+        // self.MyTim.set_output_compare(TimeChannel1, ); // todo?
+        // MyTim->setOverflow(hwTimer::HWtimerInterval >> 1, MICROSEC_FORMAT); // 22(50Hz) to 3(500Hz) scaler
+        self.MyTime.set_period(sdf);
+        // MyTim->setPreloadEnable(false); Handled in `main.rs`
         self.alreadyInit = true;
     }
 }
@@ -63,7 +65,9 @@ pub fn pause(&self, duration: u32) {}
 pub fn resume(&mut self,) {
     self.isTick = false;
     self.running = true;
-    self.MyTim->setOverflow((hwTimer::HWtimerInterval >> 1), MICROSEC_FORMAT);
+    // self.MyTim->setOverflow((hwTimer::HWtimerInterval >> 1), MICROSEC_FORMAT);
+    // todo:  Hardcode ARR and PSC?
+    self.MyTim.set_period(sdf);
     self.MyTim.reset_counter();
     self.MyTim.enable();
     self.MyTim.reinitialize(); // will trigger the interrupt immediately, but will update the prescaler shadow reg

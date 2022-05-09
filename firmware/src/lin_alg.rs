@@ -7,6 +7,8 @@ use core::ops::{Add, Mul, Sub};
 
 use num_traits::float::Float;
 
+use defmt::println;
+
 /// 3D vector.
 #[derive(Clone, Copy, Default)]
 pub struct Vec3 {
@@ -77,7 +79,7 @@ impl Vec3 {
     /// Returns true if the vector is zero.
     pub fn is_zero(&self) -> bool {
         let eps = 0.00001;
-        self.x.abs() < eps && self.y.abs() == eps && self.z.abs() < eps
+        self.x.abs() < eps && self.y.abs() < eps && self.z.abs() < eps
     }
 
     /// Returns a sum of all elements
@@ -224,6 +226,8 @@ impl Quaternion {
 
     /// Returns the normalised quaternion
     pub fn to_normalized(&self) -> Self {
+        // println!("Q w in mag fn: {}", self.w);
+        // println!("Q mag: {}", self.magnitude());
         let mag_recip = 1. / self.magnitude();
 
         Self {
