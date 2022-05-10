@@ -13,8 +13,10 @@
 //! This library is a translation of the original algorithm below:
 //! [AHRS](https://github.com/xioTechnologies/Fusion)
 //! " The algorithm is based on the revised AHRS algorithm presented in chapter 7 of Madgwick's
-//! PhD thesis. This is a different algorithm to the better-known initial AHRS algorithm presented in chapter 3, commonly referred to as the Madgwick algorithm."
+//! PhD thesis. This is a different algorithm to the better-known initial AHRS algorithm presented in chapter 3,
+//! commonly referred to as the Madgwick algorithm."
 //!
+//! https://courses.cs.washington.edu/courses/cse466/14au/labs/l4/madgwick_internal_report.pdf
 //! https://github.com/chris1seto/OzarkRiver/tree/4channel/FlightComputerFirmware/Src/Madgwick
 //! https://github.com/bjohnsonfl/Madgwick_Filter
 //! https://github.com/chris1seto/OzarkRiver/blob/main/FlightComputerFirmware/Src/ImuAhrs.c
@@ -42,6 +44,12 @@ const TIMEOUT: u32 = 5;
 // Threshold in radians per second.
 const THRESHOLD: f32 = 0.05236;
 
+// Initial gain used during the initialisation.
+const INITIAL_GAIN: f32 = 10.0;
+
+// Initialisation period in seconds.
+const INITIALISATION_PERIOD: f32 = 3.0;
+
 fn cos(v: f32) -> f32 {
     unsafe { arm_cos_f32(v) }
 }
@@ -60,6 +68,7 @@ pub struct Settings {
     /// between these two inclinations is greater than a threshold then the accelerometer will
     /// be ignored for this algorithm update. This is equivalent to a dynamic gain that
     /// deceases as accelerations increase.
+    /// In radians.
     pub accel_rejection: f32,
     /// The magnetic rejection feature reduces the errors that result from temporary magnetic
     /// distortions. Magnetic rejection works using the same principle as acceleration
@@ -68,7 +77,9 @@ pub struct Settings {
     /// not cause the algorithm to reinitialise. If a magnetic rejection timeout occurs then
     /// the heading of the algorithm output will be set to the instantaneous measurement of heading
     /// provided by the magnetometer.
+    /// In radians.
     pub magnetic_rejection: f32,
+    /// In seconds.
     pub rejection_timeout: u32,
 }
 
@@ -175,12 +186,12 @@ impl Ahrs {
     fn set_settings(&mut self, settings: &Settings) {
         self.settings.gain = settings.gain;
 
-        if settings.accel_rejection == 0.0 || settings.rejection_timeout == 0 {
+        if settings.accel_rejection < 0.0001 || settings.rejection_timeout == 0 {
             self.settings.accel_rejection = f32::MAX;
         } else {
             self.settings.accel_rejection = (0.5 * sin(settings.accel_rejection)).powi(2);
         }
-        if (settings.magnetic_rejection == 0.0) || (settings.rejection_timeout == 0) {
+        if settings.magnetic_rejection < 0.0001 || settings.rejection_timeout == 0 {
             self.settings.magnetic_rejection = f32::MAX;
         } else {
             self.settings.magnetic_rejection = (0.5 * sin(settings.magnetic_rejection)).powi(2);
@@ -192,8 +203,6 @@ impl Ahrs {
         }
         self.ramped_gain_step = (INITIAL_GAIN - self.settings.gain) / INITIALISATION_PERIOD;
     }
-
-    // todo: Does accel need to be in G, or can we use m/s^2
 
     /// Updates the AHRS algorithm using the gyroscope, accelerometer, and
     /// magnetometer measurements.
@@ -241,7 +250,7 @@ impl Ahrs {
             self.half_accelerometer_feedback = accel_data.to_normalized().cross(half_gravity);
 
             // Ignore accelerometer if acceleration distortion detected
-            if self.initialising == true
+            if self.initialising
                 || self.half_accelerometer_feedback.magnitude_squared()
                     <= self.settings.accel_rejection
             {
@@ -304,7 +313,7 @@ impl Ahrs {
             + (half_accelerometer_feedback + half_magnetometer_feedback) * self.ramped_gain;
 
         // Integrate rate of change of quaternion
-        self.quaternion = self.quaternion + self.quaternion * (adjusted_half_gyro * dt);
+        self.quaternion = self.quaternion + (self.quaternion * (adjusted_half_gyro * dt));
 
         // Normalise quaternion
         self.quaternion = self.quaternion.to_normalized();
@@ -384,7 +393,6 @@ impl Ahrs {
         let qxqz = q.x * q.z;
         let qyqz = q.y * q.z;
 
-        // todo: Do we need to compensate for G here too?
         Vec3 {
             x: 2.0 * ((qwqw - 0.5 + q.x * q.x) * a.x + (qxqy - qwqz) * a.y + (qxqz + qwqy) * a.z),
             y: 2.0 * ((qxqy + qwqz) * a.x + (qwqw - 0.5 + q.y * q.y) * a.y + (qyqz - qwqx) * a.z),
@@ -422,7 +430,7 @@ impl Ahrs {
     }
 
     /// Sets the heading of the orientation measurement provided by the AHRS
-    /// algorithm.  This function can be used to reset drift in heading when the AHRS
+    /// algorithm. This function can be used to reset drift in heading when the AHRS
     /// algorithm is being used without a magnetometer.
     fn set_heading(&mut self, heading: f32) {
         let q = self.quaternion;
@@ -457,12 +465,6 @@ struct Flags {
     pub mag_rejection_warning: bool,
     pub mag_rejection_timeout: bool,
 }
-
-// Initial gain used during the initialisation.
-const INITIAL_GAIN: f32 = 10.0;
-
-// Initialisation period in seconds.
-const INITIALISATION_PERIOD: f32 = 3.0;
 
 /// Axes alignment describing the sensor axes relative to the body axes.
 /// For example, if the body X axis is aligned with the sensor Y axis and the

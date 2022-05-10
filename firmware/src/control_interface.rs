@@ -24,7 +24,10 @@
 //     Aux8(u8),
 // }
 
-use crate::flight_ctrls::{AltHoldSwitch, ArmStatus, InputModeSwitch};
+use crate::{
+    flight_ctrls::{AltHoldSwitch, InputModeSwitch},
+    safety::ArmStatus,
+};
 
 /// Represents data from all ELRS channels, including what channel it is, and the data passed.
 /// [ELRS FAQ](https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support)

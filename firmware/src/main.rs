@@ -71,6 +71,7 @@ mod pid;
 mod pid_tuning;
 mod ppks;
 mod protocols;
+mod safety;
 mod sensor_fusion;
 mod setup;
 mod util;
@@ -87,9 +88,11 @@ use control_interface::{ChannelData, LinkStats};
 use protocols::{crsf, dshot, usb_cfg};
 
 use flight_ctrls::{
-    ArmStatus, AutopilotStatus, AxisLocks, CommandState, CtrlInputs, InputMap, InputMode, Params,
-    Rotor, RotorMapping, RotorPosition, RotorPower, POWER_LUT,
+    AutopilotStatus, AxisLocks, CommandState, CtrlInputs, InputMap, InputMode, Params, Rotor,
+    RotorMapping, RotorPosition, RotorPower, POWER_LUT,
 };
+
+use safety::ArmStatus;
 
 use filter_imu::ImuFilters;
 use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
@@ -369,6 +372,7 @@ fn init_sensors(
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
     use super::*;
+    use crate::safety;
     use cortex_m::peripheral::NVIC;
     use stm32_hal2::dma::DmaInterrupt;
 
@@ -718,12 +722,7 @@ mod app {
         init_sensors(&mut params, &mut base_point, &mut i2c1, &mut i2c2);
 
         // todo: Calibation proecedure, either in air or on ground.
-        let ahrs_settings = madgwick::Settings {
-            gain: 0.5,
-            accel_rejection: 10.,
-            magnetic_rejection: 20.,
-            rejection_timeout: (5. * crate::IMU_UPDATE_RATE) as u32,
-        };
+        let ahrs_settings = madgwick::Settings::default();
 
         // Note: Calibration and offsets ares handled handled by their defaults currently.
         let ahrs_cal = madgwick::AhrsCalibration::default(); // todo - load from flash
@@ -805,9 +804,8 @@ mod app {
                 let cp = unsafe { cortex_m::Peripherals::steal() };
                 let mut delay = Delay::new(cp.SYST, 170_000_000);
 
-                // todo: Figure out which delays you need. Intent is to allow ESC to warm up before issuing
-                // todo commands.
-                delay.delay_ms(1_000);
+                // Allow ESC to warm up and radio to connect before starting the main loop.
+                delay.delay_ms(2_000);
 
                 dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
                 delay.delay_ms(1);
@@ -941,7 +939,7 @@ mod app {
                         i += 1;
                     };
 
-                    flight_ctrls::handle_arm_status(
+                    safety::handle_arm_status(
                         cx.local.arm_signals_received,
                         cx.local.disarm_signals_received,
                         control_channel_data.arm_status,
@@ -949,9 +947,9 @@ mod app {
                         control_channel_data.throttle,
                     );
 
-                    if flight_ctrls::LINK_LOST.load(Ordering::Acquire) {
+                    if safety::LINK_LOST.load(Ordering::Acquire) {
                         // todo: For now, works by commanding attitude mode and level flight.
-                        flight_ctrls::link_lost_steady_state(
+                        safety::link_lost_steady_state(
                             input_mode,
                             control_channel_data,
                             &mut command_state.arm_status,
@@ -1169,8 +1167,12 @@ mod app {
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
-        (cx.shared.usb_dev, cx.shared.usb_serial, cx.shared.current_params).lock(
-            |usb_dev, usb_serial, params| {
+        (
+            cx.shared.usb_dev,
+            cx.shared.usb_serial,
+            cx.shared.current_params,
+        )
+            .lock(|usb_dev, usb_serial, params| {
                 if !usb_dev.poll(&mut [usb_serial]) {
                     return;
                 }
@@ -1186,8 +1188,7 @@ mod app {
                         println!("Error reading USB signal from PC");
                     }
                 }
-            },
-        )
+            })
     }
 
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
@@ -1275,7 +1276,7 @@ mod app {
             timer.disable();
         });
 
-        flight_ctrls::LINK_LOST.store(true, Ordering::Release);
+        safety::LINK_LOST.store(true, Ordering::Release);
     }
 
     #[task(binds = USART3, shared = [uart3, dma, control_channel_data, control_link_stats,
@@ -1294,7 +1295,13 @@ mod app {
             cx.shared.state_volatile,
         )
             .lock(
-                |uart, dma, ch_data, link_stats, lost_link_timer, rf_limiter_timer, state_volatile| {
+                |uart,
+                 dma,
+                 ch_data,
+                 link_stats,
+                 lost_link_timer,
+                 rf_limiter_timer,
+                 state_volatile| {
                     uart.clear_interrupt(UsartInterrupt::Idle);
 
                     if rf_limiter_timer.is_enabled() {
@@ -1316,8 +1323,7 @@ mod app {
                                 lost_link_timer.enable();
                                 // state_volatile.connected_to_controller = true;
 
-
-                                if flight_ctrls::LINK_LOST
+                                if safety::LINK_LOST
                                     .compare_exchange(
                                         true,
                                         false,

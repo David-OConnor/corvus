@@ -144,16 +144,18 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
 
     // Update params with our calibrated gryo and accel data, in addition to attitude.
 
-    params.v_pitch = gyro_data.x;
-    params.v_roll = gyro_data.y;
+    params.v_roll = gyro_data.x;
+    params.v_pitch = gyro_data.y;
     params.v_yaw = gyro_data.z;
 
     params.a_x = accel_data.x;
     params.a_y = accel_data.y;
     params.a_z = accel_data.z;
 
-    params.s_roll = att_euler.roll;
-    params.s_pitch = att_euler.pitch;
+    // Note: Swapped pitch/roll swapped due to how the madgwick filter or quaternion -> euler angle
+    // is calculated.
+    params.s_roll = att_euler.pitch;
+    params.s_pitch = att_euler.roll;
     params.s_yaw = att_euler.yaw;
 
     // params.s_roll = att_earth.x;

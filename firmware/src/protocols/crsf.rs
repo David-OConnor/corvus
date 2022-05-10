@@ -39,7 +39,8 @@ use stm32_hal2::{
 
 use crate::{
     control_interface::{ChannelData, LinkStats},
-    flight_ctrls::{AltHoldSwitch, ArmStatus, InputModeSwitch},
+    flight_ctrls::{AltHoldSwitch, InputModeSwitch},
+    safety::ArmStatus,
     util,
 };
 

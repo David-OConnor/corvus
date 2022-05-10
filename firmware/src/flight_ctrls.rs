@@ -23,21 +23,9 @@ use defmt::println;
 use cmsis_dsp_sys as dsp_sys;
 
 use crate::{
-    control_interface::ChannelData, dshot, pid::PidState, util, util::map_linear, CtrlCoeffGroup,
-    Location, UserCfg,
+    control_interface::ChannelData, dshot, pid::PidState, safety::ArmStatus, util,
+    util::map_linear, CtrlCoeffGroup, Location, UserCfg,
 };
-
-// We must receive arm or disarm signals for this many update cycles in a row to perform those actions.
-const NUM_ARM_DISARM_SIGNALS_REQUIRED: u8 = 5;
-
-// This flag gets set if you command arm from the controller without the throttle in the idle position.
-// When this flag is set, the aircraft won't arm until the arm switch is cycled back to safe.
-static ARM_COMMANDED_WITHOUT_IDLE: AtomicBool = AtomicBool::new(false);
-// static CONTROLLER_PREV_ARMED: AtomicBool = AtomicBool::new(false);
-
-pub static LINK_LOST: AtomicBool = AtomicBool::new(false);
-
-const THROTTLE_MAX_TO_ARM: f32 = 0.005;
 
 // If the throttle signal is below this, set idle power.
 const THROTTLE_IDLE_THRESH: f32 = 0.03;
@@ -237,22 +225,6 @@ impl Default for InputMap {
             alt_commanded_offset_msl: (0., 100.),
             alt_commanded_agl: (0.5, 8.),
         }
-    }
-}
-
-/// Indicates master motor arm status. Used for both pre arm, and arm. If either is
-/// set to `Disarmed`, the motors will not spin (or stop spinning immediately).
-#[derive(Clone, Copy, PartialEq)]
-pub enum ArmStatus {
-    /// Motors are [pre]disarmed
-    Disarmed,
-    /// Motors are [pre]armed
-    Armed,
-}
-
-impl Default for ArmStatus {
-    fn default() -> Self {
-        Self::Disarmed
     }
 }
 
@@ -655,89 +627,6 @@ pub fn apply_throttle_idle(throttle: f32) -> f32 {
     } else {
         throttle
     }
-}
-
-/// Arm or disarm the arm state (and therefor the motors, based on arm switch status and throttle.
-/// Arm switch must be set while throttle is idle.
-pub fn handle_arm_status(
-    arm_signals_received: &mut u8,
-    disarm_signals_received: &mut u8,
-    controller_arm_status: ArmStatus,
-    arm_status: &mut ArmStatus,
-    throttle: f32,
-) {
-    // println!("arm rec: {:?}",  arm_signals_received);
-    match arm_status {
-        ArmStatus::Armed => {
-            if controller_arm_status == ArmStatus::Disarmed {
-                *disarm_signals_received += 1;
-            } else {
-                *disarm_signals_received = 0;
-            }
-
-            if *disarm_signals_received >= NUM_ARM_DISARM_SIGNALS_REQUIRED {
-                *arm_status = ArmStatus::Disarmed;
-                *disarm_signals_received = 0;
-                println!("Aircraft disarmed.");
-            }
-        }
-        ArmStatus::Disarmed => {
-            if controller_arm_status == ArmStatus::Armed {
-                *arm_signals_received += 1;
-            } else {
-                ARM_COMMANDED_WITHOUT_IDLE.store(false, Ordering::Release);
-                *arm_signals_received = 0;
-            }
-
-            if *arm_signals_received >= NUM_ARM_DISARM_SIGNALS_REQUIRED {
-                if !ARM_COMMANDED_WITHOUT_IDLE.load(Ordering::Acquire) {
-                    if throttle < THROTTLE_MAX_TO_ARM {
-                        *arm_status = ArmStatus::Armed;
-                        *arm_signals_received = 0;
-                        println!("Aircraft armed.");
-                    } else {
-                        // Throttle not idle; reset the process, and set the flag requiring
-                        // arm switch cycle to arm.
-                        ARM_COMMANDED_WITHOUT_IDLE.store(true, Ordering::Release);
-                        *arm_signals_received = 0;
-                        // println!("Arm attempted without Throttle not idle; set idle and cycle arm switch to arm.");
-                    }
-                } else {
-                    // println!("(Cycle arm switch to arm.)");
-                }
-            }
-        }
-    }
-}
-
-/// If we haven't received a radio control signal in a while, perform an action.
-/// todo: Immediate actions, or each update loop while link is still lost?
-pub fn link_lost_steady_state(
-    input_mode: &mut InputMode,
-    control_ch_data: &mut ChannelData,
-    arm_status: &mut ArmStatus,
-    arm_signals_receieved: &mut u8,
-) {
-    // println!("Handling lost link...")
-    // if !timer.is_enabled() {
-    //     println!("Lost link to Rx control. Recovering...")
-    // todo: Consider how you want to handle this, with and without GPS.
-
-    // todo: To start, command an attitude-mode hover, with baro alt hold.
-
-    // todo: Make sure you resume flight once link is re-acquired.
-    // }
-
-    *input_mode = InputMode::Attitude;
-    control_ch_data.pitch = 0.;
-    control_ch_data.roll = 0.;
-    control_ch_data.yaw = 0.;
-    // todo temp!
-    // todo: The above plus a throttle control, and attitude mode etc
-
-    control_ch_data.throttle = 0.0; // todo: Drops out of sky for now while we test.
-    *arm_status = ArmStatus::Disarmed;
-    *arm_signals_receieved = 0;
 }
 
 // todo: DMA for timer? How?

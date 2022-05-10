@@ -185,12 +185,13 @@ impl Quaternion {
 
     /// Converts a Quaternion to Euler angles, in radians.
     pub fn to_euler(&self) -> EulerAngle {
-        let qwqw_minus_half = self.w * self.w - 0.5; // calculate common terms to avoid repeated operations
+        let half_minus_qy_squared = 0.5 - self.y * self.y; // calculate common terms to avoid repeated operations
 
         EulerAngle {
-            roll: (self.y * self.z - self.w * self.x).atan2(qwqw_minus_half + self.z * self.z),
-            pitch: -1.0 * (2.0 * (self.x * self.z + self.w * self.y)).asin(),
-            yaw: (self.x * self.y - self.w * self.z).atan2(qwqw_minus_half + self.x * self.x),
+            roll: (self.w * self.x + self.y * self.z)
+                .atan2(half_minus_qy_squared - self.x * self.x),
+            pitch: (2.0 * (self.w * self.y - self.z * self.x)).asin(),
+            yaw: (self.w * self.z - self.x * self.y).atan2(half_minus_qy_squared - self.z * self.z),
         }
     }
 

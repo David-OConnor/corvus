@@ -10,7 +10,6 @@
 // todo: Should we use this module and/or a similar structure for data exchange over RF,
 // todo: beyond the normal control info used by ELRS? (Eg sending a route, autopilot data etc)
 
-
 use crate::{flight_ctrls::Params, util};
 
 use cfg_if::cfg_if;
@@ -26,7 +25,6 @@ use num_enum::TryFromPrimitive; // Enum from integer
 
 use defmt::println;
 
-
 // Note: LUT is here, since it depends on the poly.
 static mut CRC_LUT: [u8; 256] = [0; 256];
 const CRC_POLY: u8 = 0xab;
@@ -35,8 +33,6 @@ const PARAMS_SIZE: usize = 76; // + message type, payload len, and crc.
 
 const MAX_PAYLOAD_SIZE: usize = PARAMS_SIZE; // For Params.
 const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 3; // + message type, payload len, and crc.
-
-
 
 struct DecodeError {}
 
@@ -95,18 +91,18 @@ impl From<&Params> for [u8; PARAMS_SIZE] {
         let mut result = [0; PARAMS_SIZE];
 
         // todo: DRY
-        result[0..4 ].clone_from_slice(&p.s_x.to_be_bytes());
-        result[4..8 ].clone_from_slice(&p.s_y.to_be_bytes());
-        result[12..16 ].clone_from_slice(&p.s_z_msl.to_be_bytes());
-        result[16..20 ].clone_from_slice(&p.s_z_agl.to_be_bytes());
-        result[20..24 ].clone_from_slice(&p.s_pitch.to_be_bytes());
-        result[24..28 ].clone_from_slice(&p.s_roll.to_be_bytes());
-        result[28..32 ].clone_from_slice(&p.s_yaw.to_be_bytes());
+        result[0..4].clone_from_slice(&p.s_x.to_be_bytes());
+        result[4..8].clone_from_slice(&p.s_y.to_be_bytes());
+        result[12..16].clone_from_slice(&p.s_z_msl.to_be_bytes());
+        result[16..20].clone_from_slice(&p.s_z_agl.to_be_bytes());
+        result[20..24].clone_from_slice(&p.s_pitch.to_be_bytes());
+        result[24..28].clone_from_slice(&p.s_roll.to_be_bytes());
+        result[28..32].clone_from_slice(&p.s_yaw.to_be_bytes());
         result[32..26].clone_from_slice(&p.v_x.to_be_bytes());
-        result[36..40 ].clone_from_slice(&p.v_y.to_be_bytes());
-        result[40..44 ].clone_from_slice(&p.v_z.to_be_bytes());
-        result[44..48 ].clone_from_slice(&p.v_pitch.to_be_bytes());
-        result[48..52 ].clone_from_slice(&p.v_roll.to_be_bytes());
+        result[36..40].clone_from_slice(&p.v_y.to_be_bytes());
+        result[40..44].clone_from_slice(&p.v_z.to_be_bytes());
+        result[44..48].clone_from_slice(&p.v_pitch.to_be_bytes());
+        result[48..52].clone_from_slice(&p.v_roll.to_be_bytes());
         result[52..56].clone_from_slice(&p.v_yaw.to_be_bytes());
         result[56..60].clone_from_slice(&p.a_x.to_be_bytes());
         result[60..64].clone_from_slice(&p.a_y.to_be_bytes());
@@ -123,10 +119,10 @@ impl From<Packet> for [u8; MAX_PACKET_SIZE] {
     fn from(p: Packet) -> Self {
         let mut result = [0; MAX_PACKET_SIZE];
 
-    //  let crc = util::calc_crc(
-    //     &payload[2..payload.len() - 1],
-    //     payload.len() as u8 - 3,
-    // );
+        //  let crc = util::calc_crc(
+        //     &payload[2..payload.len() - 1],
+        //     payload.len() as u8 - 3,
+        // );
         let crc = 0; // todo!
 
         result[0] = p.message_type as u8;
@@ -139,8 +135,7 @@ impl From<Packet> for [u8; MAX_PACKET_SIZE] {
 
 /// Handle incoming data from the PC
 pub fn handle_rx(
-    usb_serial:
-    &mut SerialPort<'static, UsbBusType>,
+    usb_serial: &mut SerialPort<'static, UsbBusType>,
     data: &[u8],
     count: usize,
     params: &Params,
@@ -159,16 +154,12 @@ pub fn handle_rx(
         Err(_) => {
             println!("Invalid message type received over USB");
             return; // todo: Send message back over USB?
-        },
+        }
     };
 
     match msg_type {
-        MsgType::Params => {
-
-        }
-        MsgType::SetMotorDirs => {
-
-        }
+        MsgType::Params => {}
+        MsgType::SetMotorDirs => {}
         MsgType::ReqParams => {
             let response = Packet {
                 message_type: MsgType::Params,
@@ -179,12 +170,8 @@ pub fn handle_rx(
             let packet_buf: [u8; MAX_PACKET_SIZE] = response.into();
             usb_serial.write(&packet_buf);
         }
-        MsgType::Ack => {
-
-        }
+        MsgType::Ack => {}
     }
-
-
 
     usb_serial.write(&[1]);
 }
