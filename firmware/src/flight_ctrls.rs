@@ -712,7 +712,12 @@ pub fn handle_arm_status(
 
 /// If we haven't received a radio control signal in a while, perform an action.
 /// todo: Immediate actions, or each update loop while link is still lost?
-pub fn link_lost_steady_state(input_mode: &mut InputMode, control_ch_data: &mut ChannelData) {
+pub fn link_lost_steady_state(
+    input_mode: &mut InputMode,
+    control_ch_data: &mut ChannelData,
+    arm_status: &mut ArmStatus,
+    arm_signals_receieved: &mut u8,
+) {
     // println!("Handling lost link...")
     // if !timer.is_enabled() {
     //     println!("Lost link to Rx control. Recovering...")
@@ -731,6 +736,8 @@ pub fn link_lost_steady_state(input_mode: &mut InputMode, control_ch_data: &mut 
     // todo: The above plus a throttle control, and attitude mode etc
 
     control_ch_data.throttle = 0.0; // todo: Drops out of sky for now while we test.
+    *arm_status = ArmStatus::Disarmed;
+    *arm_signals_receieved = 0;
 }
 
 // todo: DMA for timer? How?
@@ -784,10 +791,10 @@ fn calc_rotor_powers(pitch_rate: f32, roll_rate: f32, yaw_rate: f32, throttle: f
     // todo: Check dir on yaw
     // Assumes props rotate inwards towards the front and back ends.
     // Yaw CCW for positive yaw.
-    front_left += yaw_delta;
-    front_right -= yaw_delta;
-    aft_left -= yaw_delta;
-    aft_right += yaw_delta;
+    front_left -= yaw_delta;
+    front_right += yaw_delta;
+    aft_left += yaw_delta;
+    aft_right -= yaw_delta;
 
     RotorPower {
         front_left,
@@ -905,7 +912,10 @@ pub fn apply_controls(
         pwr = calc_rotor_powers(pitch_rate, roll_rate, yaw_rate, throttle);
     }
 
-    println!("Rotor power: {} {} {} {}", pwr.front_left, pwr.front_right, pwr.aft_left, pwr.aft_right);
+    println!(
+        "Rotor power: {} {} {} {}",
+        pwr.front_left, pwr.front_right, pwr.aft_left, pwr.aft_right
+    );
 
     pwr.set(mapping, rotor_tim_a, rotor_tim_b, arm_status, dma);
     *current_pwr = pwr;

@@ -97,10 +97,9 @@ impl ImuReadings {
 }
 
 /// Calibrate the IMU, by taking a series of series while on a level surface.
-pub fn calibrate() ->  madgwick::AhrsCalibration {
+pub fn calibrate() -> madgwick::AhrsCalibration {
     // todo: average? lowpass?
     Default::default()
-
 }
 
 /// Update and get the attitude from the AHRS.
@@ -156,7 +155,7 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     params.s_roll = att_euler.roll;
     params.s_pitch = att_euler.pitch;
     params.s_yaw = att_euler.yaw;
-    
+
     // params.s_roll = att_earth.x;
     // params.s_pitch = att_earth.y;
     // params.s_yaw = att_earth.z;

@@ -224,7 +224,6 @@ impl Ahrs {
             z: q.w * q.w - 0.5 + q.z * q.z,
         }; // third column of transposed rotation matrix scaled by 0.5
 
-
         // Calculate accelerometer feedback
         let mut half_accelerometer_feedback = Vec3::zero();
         self.accelerometer_ignored = true;
@@ -246,7 +245,6 @@ impl Ahrs {
                 || self.half_accelerometer_feedback.magnitude_squared()
                     <= self.settings.accel_rejection
             {
-
                 half_accelerometer_feedback = self.half_accelerometer_feedback;
                 self.accelerometer_ignored = false;
                 self.accel_rejection_timer -= if self.accel_rejection_timer >= 10 {
@@ -258,7 +256,6 @@ impl Ahrs {
                 self.accel_rejection_timer += 1;
             }
         }
-
 
         // Calculate magnetometer feedback
         let mut half_magnetometer_feedback = Vec3::zero();
@@ -701,6 +698,10 @@ pub fn apply_cal_inertial(
 }
 
 /// Magnetometer calibration model. Returns calibrated measurement.
-pub fn apply_cal_magnetic(uncalibrated: Vec3, soft_iron_matrix: Mat3, hard_iron_offset: Vec3) -> Vec3 {
+pub fn apply_cal_magnetic(
+    uncalibrated: Vec3,
+    soft_iron_matrix: Mat3,
+    hard_iron_offset: Vec3,
+) -> Vec3 {
     soft_iron_matrix * uncalibrated - hard_iron_offset
 }

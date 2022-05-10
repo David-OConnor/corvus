@@ -64,8 +64,8 @@ const DUTY_LOW: u16 = DSHOT_ARR_600 * 3 / 8;
 // Use this pause duration, in ms, when setting up motor dir.
 pub const PAUSE_BETWEEN_COMMANDS: u32 = 1;
 pub const PAUSE_AFTER_SAVE: u32 = 40; // Must be at least 35ms.
-// BLHeli_32 requires you repeat certain commands, like motor direction, 6 times.
-pub const REPEAT_COMMAND_COUNT: u32 = 6;
+                                      // BLHeli_32 requires you repeat certain commands, like motor direction, 6 times.
+pub const REPEAT_COMMAND_COUNT: u32 = 10; // todo: Set back to 6 once sorted out.
 
 // DMA buffers for each rotor. 16-bit data. Note that
 // rotors 1/2 and 3/4 share a timer, so we can use the same DMA stream with them. Data for the 2
@@ -94,25 +94,25 @@ pub enum Command {
     EscInfo = 6,
     /// SpinDir1 and 2 are forced normal and reversed. If you have the ESC set to reversed in the config,
     /// these will not reverse the motor direction, since it is already operating in reverse.
-    SpinDir1 = 7,   // 6x
+    SpinDir1 = 7, // 6x
     SpinDir2 = 8,   // 6x
     _3dModeOff = 9, // 6x
     _3dModeOn = 10, // 6x
     SettingsRequest = 11,
     SaveSettings = 12, // 6x, wait at least 35ms before next command.
     /// Normal and reversed with respect to configuration.
-    SpinDirNormal = 20,        // 6x
-    SpinDirReversed = 21,      // 6x
-    Led0On = 22,               // BLHeli32 only
-    Led1On = 23,               // BLHeli32 only
-    Led2On = 24,               // BLHeli32 only
-    Led3On = 25,               // BLHeli32 only
-    Led0Off = 26,              // BLHeli32 only
-    Led1Off = 27,              // BLHeli32 only
-    Led2Off = 28,              // BLHeli32 only
-    Led3Off = 29,              // BLHeli32 only
+    SpinDirNormal = 20, // 6x
+    SpinDirReversed = 21, // 6x
+    Led0On = 22,       // BLHeli32 only
+    Led1On = 23,       // BLHeli32 only
+    Led2On = 24,       // BLHeli32 only
+    Led3On = 25,       // BLHeli32 only
+    Led0Off = 26,      // BLHeli32 only
+    Led1Off = 27,      // BLHeli32 only
+    Led2Off = 28,      // BLHeli32 only
+    Led3Off = 29,      // BLHeli32 only
     AudioStreamModeOnOff = 30, // KISS audio Stream mode on/Off
-    SilendModeOnOff = 31,      // KISS silent Mode on/Off
+    SilendModeOnOff = 31, // KISS silent Mode on/Off
     /// Disables commands 42 to 47
     TelemetryEnable = 32, // 6x
     /// Enables commands 42 to 47
@@ -182,14 +182,14 @@ pub fn setup_motor_dir(
     stop_all(timer_a, timer_b, dma);
     delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
 
-    setup_payload(Rotor::R1, CmdType::Command(Command::Led0On));
-    setup_payload(Rotor::R2, CmdType::Command(Command::Led0On));
-    setup_payload(Rotor::R3, CmdType::Command(Command::Led0On));
-    setup_payload(Rotor::R4, CmdType::Command(Command::Led0On));
+    // setup_payload(Rotor::R1, CmdType::Command(Command::Led0On));
+    // setup_payload(Rotor::R2, CmdType::Command(Command::Led0On));
+    // setup_payload(Rotor::R3, CmdType::Command(Command::Led0On));
+    // setup_payload(Rotor::R4, CmdType::Command(Command::Led0On));
 
-    send_payload_a(timer_a, dma);
-    send_payload_b(timer_b, dma);
-    delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+    // send_payload_a(timer_a, dma);
+    // send_payload_b(timer_b, dma);
+    // delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
 
     // Spin dir commands need to be sent 6 times. (or 10?) We're using the "forced" spin dir commands,
     // ie not with respect to ESC configuration; although that would be acceptable as well.
@@ -245,7 +245,6 @@ pub fn setup_motor_dir(
         setup_payload(Rotor::R4, CmdType::Command(Command::SaveSettings));
         send_payload_b(timer_b, dma);
 
-        // delay.delay_ms(PAUSE_AFTER_SAVE);
         delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
     }
     delay.delay_ms(PAUSE_AFTER_SAVE);

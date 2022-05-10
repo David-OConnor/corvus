@@ -84,7 +84,7 @@ use drivers::tof_vl53l1 as tof;
 
 use control_interface::{ChannelData, LinkStats};
 
-use protocols::{crsf, dshot};
+use protocols::{crsf, dshot, usb_cfg};
 
 use flight_ctrls::{
     ArmStatus, AutopilotStatus, AxisLocks, CommandState, CtrlInputs, InputMap, InputMode, Params,
@@ -203,6 +203,8 @@ pub struct StateVolatile {
     gps_attached: bool,
     /// The time-of-flight sensor module is connected. Detected on init.
     tof_attached: bool,
+    // FOr now, we use "link lost" to include never having been connected.
+    // connected_to_controller: bool,
 }
 
 impl Default for StateVolatile {
@@ -211,6 +213,7 @@ impl Default for StateVolatile {
             op_mode: OperationMode::Normal,
             gps_attached: false,
             tof_attached: false,
+            // connected_to_controller: false,
         }
     }
 }
@@ -423,7 +426,7 @@ mod app {
     #[local]
     struct Local {
         spi3: Spi<SPI3>,
-        arm_signals_received: u8,
+        arm_signals_received: u8, // todo: Put in state volatile.
         disarm_signals_received: u8,
     }
 
@@ -435,7 +438,7 @@ mod app {
         let mut dp = pac::Peripherals::take().unwrap();
 
         #[cfg(feature = "h7")]
-            SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
+        SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
 
         // todo: Range 1 boost mode on G4!!
         let clock_cfg = Clocks {
@@ -478,7 +481,7 @@ mod app {
 
         let mut dma = Dma::new(dp.DMA1);
         #[cfg(feature = "g4")]
-            dma::enable_mux1();
+        dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dp.DMAMUX);
 
@@ -487,13 +490,13 @@ mod app {
         // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
         // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
         #[cfg(feature = "g4")]
-            // todo: Switch to higher speed.
-            // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
-            // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
-            let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
+        // todo: Switch to higher speed.
+        // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
+        // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
+        let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
         #[cfg(feature = "h7")]
-            // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
-            let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
+        // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
+        let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
 
         let imu_spi_cfg = SpiConfig {
             // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
@@ -504,9 +507,9 @@ mod app {
         let mut spi1 = Spi::new(dp.SPI1, imu_spi_cfg, imu_baud_div);
 
         #[cfg(feature = "mercury-h7")]
-            let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
         #[cfg(feature = "mercury-g4")]
-            let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
         cs_imu.set_high();
 
@@ -656,7 +659,8 @@ mod app {
                 auto_reload_preload: true,
                 ..Default::default()
             },
-            &clock_cfg);
+            &clock_cfg,
+        );
 
         // let delay_timer = Timer::new_tim5(
         //     dp.TIM5,
@@ -670,8 +674,8 @@ mod app {
         let mut state_volatile = StateVolatile::default();
 
         // Hard-coded for our test setup
-        user_cfg.motors_reversed = (false, true, true, true);
-        // user_cfg.motors_reversed = (false, false, false, false);
+        // user_cfg.motors_reversed = (false, true, true, true);
+        // user_cfg.motors_reversed = (true, true, true, true);
 
         cfg_if! {
             if #[cfg(feature = "g4")] {
@@ -789,23 +793,31 @@ mod app {
     fn idle(cx: idle::Context) -> ! {
         // Set up DSHOT here, since we need interrupts enabled.
 
-        (cx.shared.user_cfg, cx.shared.rotor_timer_a, cx.shared.rotor_timer_b, cx.shared.dma).lock(
-            |user_cfg, rotor_timer_a, rotor_timer_b, dma| {
+        (
+            cx.shared.user_cfg,
+            cx.shared.rotor_timer_a,
+            cx.shared.rotor_timer_b,
+            cx.shared.dma,
+        )
+            .lock(|user_cfg, rotor_timer_a, rotor_timer_b, dma| {
                 // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
-                dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
 
-                // todo temp
                 let cp = unsafe { cortex_m::Peripherals::steal() };
                 let mut delay = Delay::new(cp.SYST, 170_000_000);
 
-                delay.delay_ms(2_000);
+                // todo: Figure out which delays you need. Intent is to allow ESC to warm up before issuing
+                // todo commands.
+                delay.delay_ms(1_000);
 
-                dshot::setup_motor_dir(
-                    user_cfg.motors_reversed,
-                    rotor_timer_a,
-                    rotor_timer_b,
-                    dma,
-                );
+                dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
+                delay.delay_ms(1);
+                //
+                // dshot::setup_motor_dir(
+                //     user_cfg.motors_reversed,
+                //     rotor_timer_a,
+                //     rotor_timer_b,
+                //     dma,
+                // );
             });
 
         loop {
@@ -939,7 +951,12 @@ mod app {
 
                     if flight_ctrls::LINK_LOST.load(Ordering::Acquire) {
                         // todo: For now, works by commanding attitude mode and level flight.
-                        flight_ctrls::link_lost_steady_state(input_mode, control_channel_data);
+                        flight_ctrls::link_lost_steady_state(
+                            input_mode,
+                            control_channel_data,
+                            &mut command_state.arm_status,
+                            cx.local.arm_signals_received,
+                        );
                         return;
                     }
 
@@ -1078,15 +1095,15 @@ mod app {
                     dma.stop(setup::IMU_TX_CH);
                     spi1.stop_dma(setup::IMU_RX_CH, dma);
 
-                    // todo: Temp TS
-                    if command_state.arm_status == ArmStatus::Armed {
-                        dshot::set_power_a(Rotor::R1, Rotor::R2, 0.05, 0.05, rotor_timer_a, dma);
-                        dshot::set_power_b(Rotor::R3, Rotor::R4, 0.05, 0.05, rotor_timer_b, dma);
-                    } else {
-                        dshot::set_power_a(Rotor::R1, Rotor::R2, 0., 0., rotor_timer_a, dma);
-                        dshot::set_power_b(Rotor::R3, Rotor::R4, 0., 0., rotor_timer_b, dma);
-                    }
-                    return;
+                    // todo: Temp TS code to verify rotordirection.
+                    // if command_state.arm_status == ArmStatus::Armed {
+                    //     dshot::set_power_a(Rotor::R1, Rotor::R2, 0.05, 0.05, rotor_timer_a, dma);
+                    //     dshot::set_power_b(Rotor::R3, Rotor::R4, 0.05, 0.05, rotor_timer_b, dma);
+                    // } else {
+                    //     dshot::set_power_a(Rotor::R1, Rotor::R2, 0., 0., rotor_timer_a, dma);
+                    //     dshot::set_power_b(Rotor::R3, Rotor::R4, 0., 0., rotor_timer_b, dma);
+                    // }
+                    // return;
 
                     let mut imu_data = sensor_fusion::ImuReadings::from_buffer(unsafe {
                         &sensor_fusion::IMU_READINGS
@@ -1148,28 +1165,30 @@ mod app {
 
     // todo: Commented out USB ISR so we don't get the annoying beeps from PC on conn/dc
 
-    // #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params], local = [], priority = 3)]
-    // /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
-    // /// application.
-    // fn usb_isr(mut cx: usb_isr::Context) {
-    //     (cx.shared.usb_dev, cx.shared.usb_serial, cx.shared.current_params).lock(
-    //         |usb_dev, usb_serial, params| {
-    //             if !usb_dev.poll(&mut [usb_serial]) {
-    //                 return;
-    //             }
-    //
-    //             let mut buf = [0u8; 8];
-    //             match usb_serial.read(&mut buf) {
-    //                 Ok(count) => {
-    //                     usb_serial.write(&[1, 2, 3]).ok();
-    //                 }
-    //                 Err(_) => {
-    //                     //...
-    //                 }
-    //             }
-    //         },
-    //     )
-    // }
+    #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params], local = [], priority = 3)]
+    /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
+    /// application.
+    fn usb_isr(mut cx: usb_isr::Context) {
+        (cx.shared.usb_dev, cx.shared.usb_serial, cx.shared.current_params).lock(
+            |usb_dev, usb_serial, params| {
+                if !usb_dev.poll(&mut [usb_serial]) {
+                    return;
+                }
+
+                let mut buf = [0u8; 8];
+                match usb_serial.read(&mut buf) {
+                    Ok(count) => {
+                        // usb_serial.write(&[1, 2, 3]).ok();
+                        // todo: Only pass params if needed?
+                        usb_cfg::handle_rx(usb_serial, &buf, count, params);
+                    }
+                    Err(_) => {
+                        println!("Error reading USB signal from PC");
+                    }
+                }
+            },
+        )
+    }
 
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
     #[task(binds = DMA1_CH3, shared = [rotor_timer_a], priority = 6)]
@@ -1260,7 +1279,7 @@ mod app {
     }
 
     #[task(binds = USART3, shared = [uart3, dma, control_channel_data, control_link_stats,
-    lost_link_timer, rf_limiter_timer], priority = 5)]
+    lost_link_timer, rf_limiter_timer, state_volatile], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
@@ -1272,9 +1291,10 @@ mod app {
             cx.shared.control_link_stats,
             cx.shared.lost_link_timer,
             cx.shared.rf_limiter_timer,
+            cx.shared.state_volatile,
         )
             .lock(
-                |uart, dma, ch_data, link_stats, lost_link_timer, rf_limiter_timer| {
+                |uart, dma, ch_data, link_stats, lost_link_timer, rf_limiter_timer, state_volatile| {
                     uart.clear_interrupt(UsartInterrupt::Idle);
 
                     if rf_limiter_timer.is_enabled() {
@@ -1286,7 +1306,7 @@ mod app {
                     }
 
                     if let Some(crsf_data) =
-                    crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8)
+                        crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8)
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {
@@ -1294,6 +1314,8 @@ mod app {
 
                                 lost_link_timer.reset_countdown();
                                 lost_link_timer.enable();
+                                // state_volatile.connected_to_controller = true;
+
 
                                 if flight_ctrls::LINK_LOST
                                     .compare_exchange(
