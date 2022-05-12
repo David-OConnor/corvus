@@ -10,7 +10,7 @@
 // todo: Should we use this module and/or a similar structure for data exchange over RF,
 // todo: beyond the normal control info used by ELRS? (Eg sending a route, autopilot data etc)
 
-use crate::{flight_ctrls::Params, util};
+use crate::{flight_ctrls::Params, control_interface::ChannelData, util};
 
 use cfg_if::cfg_if;
 
@@ -24,33 +24,24 @@ cfg_if! {
 use num_enum::TryFromPrimitive; // Enum from integer
 
 use defmt::println;
+use stm32_hal2::gpio::Port::C;
 
 // Note: LUT is here, since it depends on the poly.
 static mut CRC_LUT: [u8; 256] = [0; 256];
 const CRC_POLY: u8 = 0xab;
 
 const PARAMS_SIZE: usize = 76; // + message type, payload len, and crc.
+const CONTROLS_SIZE: usize = 18; // + message type, payload len, and crc.
 
 const MAX_PAYLOAD_SIZE: usize = PARAMS_SIZE; // For Params.
-const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 3; // + message type, payload len, and crc.
+const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 2; // + message type, and crc.
 
 struct DecodeError {}
 
-// #[derive(Clone, Copy)]
-// /// Repr is payload size.
-// pub enum RxMsgType {
-//     Params,
-//     SetMotorDir
-// }
-//
-// #[derive(Clone, Copy)]
-// /// Repr is payload size.
-// pub enum TxMsgType {
-//     ReqParams,
-// }
-
 // todo: init LUT.
-// util::crc_init(unsafe { &mut CRC_LUT }, CRC_POLY);
+pub fn init_crc() {
+    util::crc_init(unsafe { &mut CRC_LUT }, CRC_POLY);
+}
 
 // struct CrcError {} todo?
 
@@ -58,29 +49,35 @@ struct DecodeError {}
 #[repr(u8)]
 /// Repr is how this type is passed as serial.
 pub enum MsgType {
-    // Transmit from FC
+    /// Transmit from FC
     Params = 0,
     SetMotorDirs = 1,
-    // Receive to FC
+    /// Receive to FC
     ReqParams = 2,
     /// Acknowledgement, eg in response to setting something.
     Ack = 3,
+    /// Controls data (From FC)
+    Controls = 4,
+    /// Request controls data. (From PC)
+    ReqControls = 5,
 }
 
 impl MsgType {
     pub fn payload_size(&self) -> usize {
         match self {
-            Self::Params => 10,
+            Self::Params => PARAMS_SIZE,
             Self::SetMotorDirs => 1, // Packed bits: motors 1-4, R-L. True = CW.
             Self::ReqParams => 0,
             Self::Ack => 0,
+            Self::Controls => CONTROLS_SIZE,
+            Self::ReqControls => 0,
         }
     }
 }
 
 pub struct Packet {
     message_type: MsgType,
-    payload_size: usize,
+    // payload_size: usize,
     payload: [u8; MAX_PAYLOAD_SIZE], // todo?
     crc: u8,
 }
@@ -115,6 +112,23 @@ impl From<&Params> for [u8; PARAMS_SIZE] {
     }
 }
 
+impl From<&ChannelData> for [u8; CONTROLS_SIZE] {
+    /// 4 f32s x 4 = 16, plus 2 u8s for arm and input mode.
+    fn from(p: &ChannelData) -> Self {
+        let mut result = [0; CONTROLS_SIZE];
+
+        // todo: DRY
+        result[0..4].clone_from_slice(&p.pitch.to_be_bytes());
+        result[4..8].clone_from_slice(&p.roll.to_be_bytes());
+        result[8..12].clone_from_slice(&p.yaw.to_be_bytes());
+        result[12..16].clone_from_slice(&p.throttle.to_be_bytes());
+        result[17] = p.arm_status as u8;
+        result[18] = p.input_mode as u8;
+
+        result
+    }
+}
+
 impl From<Packet> for [u8; MAX_PACKET_SIZE] {
     fn from(p: Packet) -> Self {
         let mut result = [0; MAX_PACKET_SIZE];
@@ -126,8 +140,8 @@ impl From<Packet> for [u8; MAX_PACKET_SIZE] {
         let crc = 0; // todo!
 
         result[0] = p.message_type as u8;
-        result[1] = p.payload_size as u8;
-        result[p.payload_size + 3] = crc;
+        // result[1] = p.message_type.payload_size() as u8;
+        result[p.message_type.payload_size() + 3] = crc;
 
         result
     }
@@ -139,10 +153,11 @@ pub fn handle_rx(
     data: &[u8],
     count: usize,
     params: &Params,
+    controls: &ChannelData,
 ) {
     println!("Incoming data. Count: {}", count);
 
-    let data_len = data[1] + 3;
+    let data_len = data[1] + 2;
 
     // let expected_crc = util::calc_crc(); // todo
     // if data[data_len] != expected_crc {
@@ -159,11 +174,13 @@ pub fn handle_rx(
 
     match msg_type {
         MsgType::Params => {}
-        MsgType::SetMotorDirs => {}
+        MsgType::SetMotorDirs => {
+            // todo
+        }
         MsgType::ReqParams => {
             let response = Packet {
                 message_type: MsgType::Params,
-                payload_size: PARAMS_SIZE,
+                // payload_size: PARAMS_SIZE,
                 payload: params.into(),
                 crc: 0, // todo
             };
@@ -171,6 +188,23 @@ pub fn handle_rx(
             usb_serial.write(&packet_buf);
         }
         MsgType::Ack => {}
+        MsgType::ReqControls => {
+            let controls_buf: [u8; CONTROLS_SIZE] = controls.into();
+            let mut payload = [0; MAX_PAYLOAD_SIZE];
+            for i in 0..CONTROLS_SIZE {
+                payload[i] = controls_buf[i];
+            }
+
+            let response = Packet {
+                message_type: MsgType::Controls,
+                // payload_size: CONTROLS_SIZE,
+                payload,
+                crc: 0, // todo
+            };
+            let packet_buf: [u8; MAX_PACKET_SIZE] = response.into();
+            usb_serial.write(&packet_buf);
+        }
+        MsgType::Controls => {}
     }
 
     usb_serial.write(&[1]);

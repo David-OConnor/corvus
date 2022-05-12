@@ -16,8 +16,6 @@ cortex-m-rtic = "1.0.0"
 
 stm32-hal2 = { path = "../../../stm32-hal", optional = true}
 
-stm32-usbd = { version = "0.6.0", optional = true}
-
 # CMSIS-DSP, for FFTs, FIR etc. C lib wrapped with FFI.
 # Trouble with LIBCLANG. See this: https://github.com/rust-lang/rust-bindgen/blob/master/book/src/requirements.md
 #cmsis-dsp-sys = "0.3.1"
@@ -28,6 +26,7 @@ num-traits = { version = "0.2.14", default_features = false } # Absolute value, 
 
 cfg-if = "1.0.0"  # if/else blocks for feature-gating based on flight controller and MCU layout
 
+stm32-usbd = { version = "0.6.0", optional = true}
 usb-device = "0.2.8"
 usbd-serial = "0.1.1"
 

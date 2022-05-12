@@ -63,21 +63,17 @@ const CONTROL_VAL_MAX: f32 = 1.;
 // Used both both TX and RX buffers. Includes payload, and other data words.
 // Note that for receiving channel data, we use 26 bytes total (22 of which are channel data).
 
-// Note: 64 bytes is allowed per the protocol. Lower this to reduce latency and mem use. (Minor concern)
-// - We only expect 26-byte packets for channel data, and 14-byte packets for link stats.
-const MAX_PACKET_SIZE: usize = 26;
-const MAX_PAYLOAD_SIZE: usize = 22;
-
-// const PAYLOAD_SIZE_GPS: usize = 15;
-// const PAYLOAD_SIZE_BATTERY: usize = 8;
 const PAYLOAD_SIZE_LINK_STATS: usize = 10;
 const PAYLOAD_SIZE_RC_CHANNELS: usize = 22;
-// const PAYLOAD_SIZE_ATTITUDE: usize = 6;
+
+// Note: 64 bytes is allowed per the protocol. Lower this to reduce latency and mem use. (Minor concern)
+// - We only expect 26-byte packets for channel data, and 14-byte packets for link stats.
+const MAX_PAYLOAD_SIZE: usize = PAYLOAD_SIZE_RC_CHANNELS;
+const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 4;
 
 const CRSF_CHANNEL_COUNT: usize = 16;
 
 pub static mut RX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
-// pub static mut RX_BUFFER: [u8; 64] = [0; 64]; // todo experimenting with circ
 
 static mut TX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
 

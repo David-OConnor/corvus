@@ -22,10 +22,7 @@ use defmt::println;
 
 use cmsis_dsp_sys as dsp_sys;
 
-use crate::{
-    control_interface::ChannelData, dshot, pid::PidState, safety::ArmStatus, util,
-    util::map_linear, CtrlCoeffGroup, Location, UserCfg,
-};
+use crate::{control_interface::ChannelData, dshot, pid::PidState, safety::ArmStatus, util, util::map_linear, CtrlCoeffGroup, Location, UserCfg, StateVolatile};
 
 // If the throttle signal is below this, set idle power.
 const THROTTLE_IDLE_THRESH: f32 = 0.03;
@@ -280,11 +277,14 @@ pub struct AutopilotStatus {
 
 // todo: Consider putting these mode switches in `control_interface`.
 #[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// For the switch position. We interpret actual mode from this, and other data, like prescense of GPS.
+/// val is for passing over USB serial.
 pub enum InputModeSwitch {
     /// Acro mode
-    Acro,
+    Acro = 0,
     /// Command if GPS is present; Attitude if not
-    AttitudeCommand,
+    AttitudeCommand = 1,
 }
 
 impl Default for InputModeSwitch {
@@ -295,10 +295,13 @@ impl Default for InputModeSwitch {
 
 // todo: Consider putting these mode switches in `control_interface`.
 #[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// For the switch position. We interpret actual mode from this, and other data, like prescense of GPS.
+/// val is for passing over USB serial.
 pub enum AltHoldSwitch {
-    Disabled,
-    EnabledMsl,
-    EnabledAgl,
+    Disabled = 0,
+    EnabledMsl = 1,
+    EnabledAgl = 2,
 }
 
 impl Default for AltHoldSwitch {
@@ -911,3 +914,21 @@ pub fn calibrate_coeffs(params: &Params) -> Result<(), UnsuitableParams> {
 
     Ok(())
 }
+
+pub fn handle_control_mode(input_mode_control: InputModeSwitch, input_mode: &mut InputMode, state_volatile: &mut StateVolatile) {
+    state_volatile.input_mode_switch = input_mode_control; // todo: Do we need or use this field?
+
+    *input_mode = match input_mode_control {
+        InputModeSwitch::Acro => {
+            InputMode::Acro
+        }
+        InputModeSwitch::AttitudeCommand => {
+            if state_volatile.gps_attached {
+                InputMode::Command
+            } else {
+                InputMode::Attitude
+            }
+        }
+    }
+}
+

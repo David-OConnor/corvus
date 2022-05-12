@@ -27,12 +27,14 @@ const THROTTLE_MAX_TO_ARM: f32 = 0.005;
 
 /// Indicates master motor arm status. Used for both pre arm, and arm. If either is
 /// set to `Disarmed`, the motors will not spin (or stop spinning immediately).
+/// Repr u8 is for passing over USB serial.
+#[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
 pub enum ArmStatus {
     /// Motors are [pre]disarmed
-    Disarmed,
+    Disarmed = 0,
     /// Motors are [pre]armed
-    Armed,
+    Armed = 1,
 }
 
 impl Default for ArmStatus {

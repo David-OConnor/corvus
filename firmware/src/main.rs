@@ -92,6 +92,8 @@ use flight_ctrls::{
     RotorMapping, RotorPosition, RotorPower, POWER_LUT,
 };
 
+use lin_alg::{Vec3, Mat3};
+
 use safety::ArmStatus;
 
 use filter_imu::ImuFilters;
@@ -100,6 +102,7 @@ use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
 use madgwick::Ahrs;
 
 use ppks::{Location, LocationType};
+use crate::flight_ctrls::InputModeSwitch;
 
 // 512k flash. Page size 2kbyte. 72-bit data read (64 bits plus 8 ECC bits)
 // Each page is 8 rows of 256 bytes. 255 pages in main memory.
@@ -118,6 +121,9 @@ const UPDATE_RATE_VELOCITY: f32 = 400.; // IMU rate / 20.
 
 // How many inner loop ticks occur between mid and outer loop.
 // const OUTER_LOOP_RATIO: usize = 10;
+
+// Every _ main update loops, log parameters etc to flash.
+const LOGGING_UPDATE_RATIO: usize = 100;
 
 const DT_IMU: f32 = 1. / IMU_UPDATE_RATE;
 const DT_ATTITUDE: f32 = 1. / UPDATE_RATE_ATTITUDE;
@@ -202,6 +208,7 @@ pub enum OperationMode {
 /// State that doesn't get saved to flash.
 pub struct StateVolatile {
     op_mode: OperationMode,
+    input_mode_switch: InputModeSwitch,
     /// The GPS module is connected. Detected on init.
     gps_attached: bool,
     /// The time-of-flight sensor module is connected. Detected on init.
@@ -214,6 +221,7 @@ impl Default for StateVolatile {
     fn default() -> Self {
         Self {
             op_mode: OperationMode::Normal,
+            input_mode_switch: InputModeSwitch::Acro,
             gps_attached: false,
             tof_attached: false,
             // connected_to_controller: false,
@@ -432,6 +440,9 @@ mod app {
         spi3: Spi<SPI3>,
         arm_signals_received: u8, // todo: Put in state volatile.
         disarm_signals_received: u8,
+        /// We use this counter to subdivide the main loop into longer intervals,
+        /// for various tasks like logging, and outer loops.
+        update_loop_counter: usize,
     }
 
     #[init]
@@ -691,10 +702,10 @@ mod app {
 
                 let usb_dev = UsbDeviceBuilder::new(unsafe { USB_BUS.as_ref().unwrap() }, UsbVidPid(0x16c0, 0x27dd))
                     .manufacturer("Anyleaf")
-                    .product("Serial port")
+                    .product("MercuryG4")
                     // We use `serial_number` to identify the device to the PC. If it's too long,
                     // we get permissions errors on the PC.
-                    .serial_number("g4") // todo: Try 2 letter only if causing trouble?
+                    .serial_number("an") // todo: Try 2 letter only if causing trouble?
                     .device_class(USB_CLASS_CDC)
                     .build();
             }
@@ -725,7 +736,19 @@ mod app {
         let ahrs_settings = madgwick::Settings::default();
 
         // Note: Calibration and offsets ares handled handled by their defaults currently.
-        let ahrs_cal = madgwick::AhrsCalibration::default(); // todo - load from flash
+        let ahrs_cal = madgwick::AhrsCalibration {
+              gyro_misalignment: Mat3 {
+                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            },
+            gyro_sensitivity: Vec3::new(1.0, 1.0, 1.0),
+            gyro_offset: Vec3::new(0.0, 0.0, 0.0),
+            accel_misalignment: Mat3 {
+                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            },
+            accel_sensitivity: Vec3::new(1.0, 1.0, 1.0),
+            accel_offset: Vec3::new(0.0, 0.0, 0.0),
+            ..Default::default()
+        }; // todo - load from flash
 
         let ahrs = Ahrs::new(&ahrs_settings, ahrs_cal, crate::IMU_UPDATE_RATE as u32);
 
@@ -783,6 +806,7 @@ mod app {
                 spi3,
                 arm_signals_received: 0,
                 disarm_signals_received: 0,
+                update_loop_counter: 0,
             },
             init::Monotonics(),
         )
@@ -834,7 +858,7 @@ mod app {
     dma, rotor_timer_a, rotor_timer_b, ahrs, axis_locks, control_channel_data, control_link_stats,
     lost_link_timer, state_volatile,
     ],
-    local = [arm_signals_received, disarm_signals_received],
+    local = [arm_signals_received, disarm_signals_received, update_loop_counter],
 
     priority = 2
     )]
@@ -842,8 +866,6 @@ mod app {
     /// sending commands to the attitude and rate PID loop based on things like autopilot, command-mode etc.
     fn update_isr(mut cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
-
-        static mut i: usize = 0; // For debugging.
 
         (
             cx.shared.current_params,
@@ -897,7 +919,7 @@ mod app {
                     }
 
                     // Debug loop.
-                    if unsafe { i } % 1_000 == 0 {
+                    if *cx.local.update_loop_counter % 1_000 == 0 {
                         // todo temp
                         println!(
                             "IMU Data: Ax {}, Ay: {}, Az: {}",
@@ -935,8 +957,12 @@ mod app {
                         // );
                     }
 
+                    if *cx.local.update_loop_counter % LOGGING_UPDATE_RATIO == 0 {
+                        // todo: Eg log rparamsto flash etc.
+                    }
+
                     unsafe {
-                        i += 1;
+                        *cx.local.update_loop_counter += 1;
                     };
 
                     safety::handle_arm_status(
@@ -957,6 +983,12 @@ mod app {
                         );
                         return;
                     }
+
+                    flight_ctrls::handle_control_mode(
+                        control_channel_data.input_mode,
+                        input_mode,
+                        state_volatile,
+                    );
 
                     // todo: Do you want to update attitude here, or on each IMU data received?
                     // todo note that the DT you're passing in is currently the IMU update one I think?
@@ -1163,7 +1195,7 @@ mod app {
 
     // todo: Commented out USB ISR so we don't get the annoying beeps from PC on conn/dc
 
-    #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params], local = [], priority = 3)]
+    #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data], local = [], priority = 3)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
@@ -1171,8 +1203,9 @@ mod app {
             cx.shared.usb_dev,
             cx.shared.usb_serial,
             cx.shared.current_params,
+            cx.shared.control_channel_data
         )
-            .lock(|usb_dev, usb_serial, params| {
+            .lock(|usb_dev, usb_serial, params, ch_data| {
                 if !usb_dev.poll(&mut [usb_serial]) {
                     return;
                 }
@@ -1182,7 +1215,7 @@ mod app {
                     Ok(count) => {
                         // usb_serial.write(&[1, 2, 3]).ok();
                         // todo: Only pass params if needed?
-                        usb_cfg::handle_rx(usb_serial, &buf, count, params);
+                        usb_cfg::handle_rx(usb_serial, &buf, count, params, ch_data);
                     }
                     Err(_) => {
                         println!("Error reading USB signal from PC");
