@@ -1,7 +1,7 @@
 //! This module describes the custom profile we use to exchange data between the flight
 //! controller, and a PC running configuration software, over USB.
 //!
-//! Format - Byte 0: message type. Byte 1: payload len. Byte -1: CRC. Rest: payload
+//! Format - Byte 0: message type. Byte -1: CRC. Rest: payload
 //! We use Little-endian float representations.
 //!
 
@@ -38,7 +38,7 @@ const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 2; // + message type, and crc.
 
 struct DecodeError {}
 
-// todo: init LUT.
+
 pub fn init_crc() {
     util::crc_init(unsafe { &mut CRC_LUT }, CRC_POLY);
 }
@@ -90,22 +90,22 @@ impl From<&Params> for [u8; PARAMS_SIZE] {
         // todo: DRY
         result[0..4].clone_from_slice(&p.s_x.to_be_bytes());
         result[4..8].clone_from_slice(&p.s_y.to_be_bytes());
-        result[12..16].clone_from_slice(&p.s_z_msl.to_be_bytes());
-        result[16..20].clone_from_slice(&p.s_z_agl.to_be_bytes());
-        result[20..24].clone_from_slice(&p.s_pitch.to_be_bytes());
-        result[24..28].clone_from_slice(&p.s_roll.to_be_bytes());
-        result[28..32].clone_from_slice(&p.s_yaw.to_be_bytes());
-        result[32..26].clone_from_slice(&p.v_x.to_be_bytes());
-        result[36..40].clone_from_slice(&p.v_y.to_be_bytes());
-        result[40..44].clone_from_slice(&p.v_z.to_be_bytes());
-        result[44..48].clone_from_slice(&p.v_pitch.to_be_bytes());
-        result[48..52].clone_from_slice(&p.v_roll.to_be_bytes());
-        result[52..56].clone_from_slice(&p.v_yaw.to_be_bytes());
-        result[56..60].clone_from_slice(&p.a_x.to_be_bytes());
-        result[60..64].clone_from_slice(&p.a_y.to_be_bytes());
-        result[64..68].clone_from_slice(&p.a_z.to_be_bytes());
-        result[68..72].clone_from_slice(&p.a_pitch.to_be_bytes());
-        result[72..76].clone_from_slice(&p.a_roll.to_be_bytes());
+        result[8..12].clone_from_slice(&p.s_z_msl.to_be_bytes());
+        result[12..16].clone_from_slice(&p.s_z_agl.to_be_bytes());
+        result[16..20].clone_from_slice(&p.s_pitch.to_be_bytes());
+        result[20..24].clone_from_slice(&p.s_roll.to_be_bytes());
+        result[24..28].clone_from_slice(&p.s_yaw.to_be_bytes());
+        result[28..32].clone_from_slice(&p.v_x.to_be_bytes());
+        result[32..36].clone_from_slice(&p.v_y.to_be_bytes());
+        result[36..40].clone_from_slice(&p.v_z.to_be_bytes());
+        result[40..44].clone_from_slice(&p.v_pitch.to_be_bytes());
+        result[44..48].clone_from_slice(&p.v_roll.to_be_bytes());
+        result[48..52].clone_from_slice(&p.v_yaw.to_be_bytes());
+        result[52..56].clone_from_slice(&p.a_x.to_be_bytes());
+        result[56..60].clone_from_slice(&p.a_y.to_be_bytes());
+        result[60..64].clone_from_slice(&p.a_z.to_be_bytes());
+        result[64..68].clone_from_slice(&p.a_pitch.to_be_bytes());
+        result[68..72].clone_from_slice(&p.a_roll.to_be_bytes());
         result[72..76].clone_from_slice(&p.a_yaw.to_be_bytes());
 
         result
@@ -122,8 +122,8 @@ impl From<&ChannelData> for [u8; CONTROLS_SIZE] {
         result[4..8].clone_from_slice(&p.roll.to_be_bytes());
         result[8..12].clone_from_slice(&p.yaw.to_be_bytes());
         result[12..16].clone_from_slice(&p.throttle.to_be_bytes());
-        result[17] = p.arm_status as u8;
-        result[18] = p.input_mode as u8;
+        result[16] = p.arm_status as u8;
+        result[17] = p.input_mode as u8;
 
         result
     }
@@ -133,15 +133,20 @@ impl From<Packet> for [u8; MAX_PACKET_SIZE] {
     fn from(p: Packet) -> Self {
         let mut result = [0; MAX_PACKET_SIZE];
 
-        //  let crc = util::calc_crc(
-        //     &payload[2..payload.len() - 1],
-        //     payload.len() as u8 - 3,
-        // );
-        let crc = 0; // todo!
-
-        result[0] = p.message_type as u8;
         // result[1] = p.message_type.payload_size() as u8;
-        result[p.message_type.payload_size() + 3] = crc;
+
+        for i in 0..p.message_type.payload_size() {
+            result[i + 1] = p.payload[i];
+        }
+
+        let crc = util::calc_crc(
+            unsafe { &CRC_LUT },
+            // Include everything except for the CRC bit itself.
+            &result[..p.message_type.payload_size() + 1],
+            p.message_type.payload_size() as u8 + 1,
+        );
+
+        result[p.message_type.payload_size() + 1] = crc;
 
         result
     }
@@ -157,14 +162,7 @@ pub fn handle_rx(
 ) {
     println!("Incoming data. Count: {}", count);
 
-    let data_len = data[1] + 2;
-
-    // let expected_crc = util::calc_crc(); // todo
-    // if data[data_len] != expected_crc {
-    //     println!("CRC on incoming USB packet failed; skipping.");
-    //     return; // todo: write a "failed CRC" message over USB?
-    // }
-    let msg_type: MsgType = match data[0].try_into() {
+    let rx_msg_type: MsgType = match data[0].try_into() {
         Ok(d) => d,
         Err(_) => {
             println!("Invalid message type received over USB");
@@ -172,23 +170,51 @@ pub fn handle_rx(
         }
     };
 
-    match msg_type {
+    println!("MSG TYPE: {:?}", rx_msg_type as u8);
+    println!("pl size {:?}", rx_msg_type.payload_size());
+
+    let expected_crc_rx = util::calc_crc(
+        unsafe { &CRC_LUT },
+        &data[..rx_msg_type.payload_size() + 1],
+        rx_msg_type.payload_size() as u8 + 1,
+    );
+
+    if data[rx_msg_type.payload_size() + 1] != expected_crc_rx {
+        println!("Incorrect inbound CRC");
+        // todo: return here.
+    }
+
+        // return; // todo TS
+
+    match rx_msg_type {
         MsgType::Params => {}
         MsgType::SetMotorDirs => {
             // todo
         }
         MsgType::ReqParams => {
+            println!("Params requested...");
             let response = Packet {
                 message_type: MsgType::Params,
                 // payload_size: PARAMS_SIZE,
                 payload: params.into(),
-                crc: 0, // todo
+                crc: 0,
             };
-            let packet_buf: [u8; MAX_PACKET_SIZE] = response.into();
-            usb_serial.write(&packet_buf);
+
+            let mut tx_buf: [u8; MAX_PACKET_SIZE] = response.into();
+
+            let payload_size = MsgType::Params.payload_size();
+            tx_buf[payload_size + 1] = util::calc_crc(
+                unsafe { &CRC_LUT },
+                &tx_buf[..payload_size + 1],
+                payload_size as u8 + 1,
+            );
+
+            usb_serial.write(&tx_buf);
         }
         MsgType::Ack => {}
         MsgType::ReqControls => {
+            println!("Controls requested...");
+
             let controls_buf: [u8; CONTROLS_SIZE] = controls.into();
             let mut payload = [0; MAX_PAYLOAD_SIZE];
             for i in 0..CONTROLS_SIZE {
@@ -199,10 +225,19 @@ pub fn handle_rx(
                 message_type: MsgType::Controls,
                 // payload_size: CONTROLS_SIZE,
                 payload,
-                crc: 0, // todo
+                crc: 0,
             };
-            let packet_buf: [u8; MAX_PACKET_SIZE] = response.into();
-            usb_serial.write(&packet_buf);
+            let mut tx_buf: [u8; MAX_PACKET_SIZE] = response.into();
+
+            // todo DRY. method on Packet?
+            let payload_size = MsgType::Controls.payload_size();
+            tx_buf[payload_size + 1] = util::calc_crc(
+                unsafe { &CRC_LUT },
+                &tx_buf[..payload_size + 1],
+                payload_size as u8 + 1,
+            );
+
+            usb_serial.write(&tx_buf);
         }
         MsgType::Controls => {}
     }

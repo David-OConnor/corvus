@@ -702,14 +702,16 @@ mod app {
 
                 let usb_dev = UsbDeviceBuilder::new(unsafe { USB_BUS.as_ref().unwrap() }, UsbVidPid(0x16c0, 0x27dd))
                     .manufacturer("Anyleaf")
-                    .product("MercuryG4")
+                    // .product("MercuryG4")
+                    .product("G4")
                     // We use `serial_number` to identify the device to the PC. If it's too long,
                     // we get permissions errors on the PC.
-                    .serial_number("an") // todo: Try 2 letter only if causing trouble?
+                    .serial_number("AN") // todo: Try 2 letter only if causing trouble?
                     .device_class(USB_CLASS_CDC)
                     .build();
             }
         }
+        usb_cfg::init_crc();
 
         // todo: DMA for voltage ADC (?)
 
@@ -1195,7 +1197,7 @@ mod app {
 
     // todo: Commented out USB ISR so we don't get the annoying beeps from PC on conn/dc
 
-    #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data], local = [], priority = 3)]
+    #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data], local = [], priority = 7)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
