@@ -89,9 +89,9 @@ pub fn read(i2c: &mut I2c<I2C2>) -> f32 {
     let mut buf2 = [0];
     let mut buf1 = [0];
     let mut buf0 = [0];
-    i2c.write_read(ADDR, &[PSR_B2], &mut buf2);
-    i2c.write_read(ADDR, &[PSR_B1], &mut buf1);
-    i2c.write_read(ADDR, &[PSR_B0], &mut buf0);
+    i2c.write_read(ADDR, &[PSR_B2], &mut buf2).ok();
+    i2c.write_read(ADDR, &[PSR_B1], &mut buf1).ok();
+    i2c.write_read(ADDR, &[PSR_B0], &mut buf0).ok();
 
     let mut result = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
     fix_i24_sign(&mut result);

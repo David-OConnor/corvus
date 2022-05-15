@@ -95,8 +95,8 @@ impl Default for CtrlCoeffsPR {
         Self {
             // pid for controlling pitch and roll from commanded horizontal position
             // todo: Set these appropriately.
-            k_p_rate: 0.1,
-            k_i_rate: 0.00,
+            k_p_rate: 0.05,
+            k_i_rate: 0.05,
             k_d_rate: 0.,
 
             // pid for controlling pitch and roll from commanded horizontal velocity
@@ -123,9 +123,9 @@ pub struct CtrlCoeffsYT {
     k_d_rate: f32,
 
     // PID for controlling yaw or thrust from an explicitly-commanded heading or altitude.
-    k_p_s: f32,
-    k_i_s: f32,
-    k_d_s: f32,
+    k_p_attitude: f32,
+    k_i_attitude: f32,
+    k_s_attitude: f32,
 
     pid_deriv_lowpass_cutoff: LowpassCutoff,
 }
@@ -133,14 +133,13 @@ pub struct CtrlCoeffsYT {
 impl Default for CtrlCoeffsYT {
     fn default() -> Self {
         Self {
-            // todo: Set these appropriately.
             k_p_rate: 0.1,
-            k_i_rate: 0.00,
+            k_i_rate: 0.05,
             k_d_rate: 0.0,
 
-            k_p_s: 0.1,
-            k_i_s: 0.0,
-            k_d_s: 0.0,
+            k_p_attitude: 0.1,
+            k_i_attitude: 0.0,
+            k_s_attitude: 0.0,
 
             pid_deriv_lowpass_cutoff: LowpassCutoff::H1k,
         }
@@ -633,9 +632,9 @@ pub fn run_attitude(
         attitudes_commanded.yaw,
         params.s_yaw,
         &pid.yaw,
-        coeffs.yaw.k_p_s,
-        coeffs.yaw.k_i_s,
-        coeffs.yaw.k_d_s,
+        coeffs.yaw.k_p_attitude,
+        coeffs.yaw.k_i_attitude,
+        coeffs.yaw.k_s_attitude,
         &mut filters.yaw_attitude,
         DT_ATTITUDE,
     );
@@ -645,9 +644,9 @@ pub fn run_attitude(
         attitudes_commanded.thrust,
         params.s_z_msl,
         &pid.thrust,
-        coeffs.thrust.k_p_s,
-        coeffs.thrust.k_i_s,
-        coeffs.thrust.k_d_s,
+        coeffs.thrust.k_p_attitude,
+        coeffs.thrust.k_i_attitude,
+        coeffs.thrust.k_s_attitude,
         &mut filters.thrust,
         DT_ATTITUDE,
     );
@@ -715,6 +714,7 @@ pub fn run_rate(
 
             // Note: We may not need to modify the `rates_commanded` resource in place here; we don't
             // use it upstream.
+            // Map the manual input rates (eg -1. to +1. etc) to real units, eg randians/s.
             *rates_commanded = CtrlInputs {
                 pitch: input_map.calc_pitch_rate(ch_data.pitch),
                 roll: input_map.calc_roll_rate(ch_data.roll),
@@ -758,7 +758,6 @@ pub fn run_rate(
         _ => (),
     }
 
-    // Map the manual input rates (eg -1. to +1. etc) to real units, eg randians/s.
     pid.pitch = calc_pid_error(
         rates_commanded.pitch,
         params.v_pitch,
@@ -806,12 +805,11 @@ pub fn run_rate(
 
     println!("\nYaw rate measured: {:?}", params.v_yaw);
     println!("Yaw rate commanded: {:?}", rates_commanded.yaw);
-    println!("PID Yaw out: {:?}", pid.yaw.out());
     println!("Yaw power: {:?}", yaw);
 
-    // println!("Pitch out: {:?}", pitch);
-    // println!("Pitch raw: {:?}", pid.pitch.out());
-    // println!("roll out: {:?}", roll);
+    println!("Pitch out: {:?}", pitch);
+    println!("roll out: {:?}", roll);
+    println!("PID Yaw out: {:?}", yaw);
 
     // todo: Work on this.
     let throttle = match input_mode {

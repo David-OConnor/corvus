@@ -94,38 +94,6 @@ impl Default for Settings {
     }
 }
 
-pub struct AhrsCalibration {
-    pub gyro_misalignment: Mat3,
-    pub gyro_sensitivity: Vec3,
-    pub gyro_offset: Vec3,
-    pub accel_misalignment: Mat3,
-    pub accel_sensitivity: Vec3,
-    pub accel_offset: Vec3,
-    pub soft_iron_matrix: Mat3,
-    pub hard_iron_offset: Vec3,
-}
-
-impl Default for AhrsCalibration {
-    fn default() -> Self {
-        Self {
-            gyro_misalignment: Mat3 {
-                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
-            },
-            gyro_sensitivity: Vec3::new(1.0, 1.0, 1.0),
-            gyro_offset: Vec3::new(0.0, 0.0, 0.0),
-            accel_misalignment: Mat3 {
-                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
-            },
-            accel_sensitivity: Vec3::new(1.0, 1.0, 1.0),
-            accel_offset: Vec3::new(0.0, 0.0, 0.0),
-            soft_iron_matrix: Mat3 {
-                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
-            },
-            hard_iron_offset: Vec3::new(0.0, 0.0, 0.0),
-        }
-    }
-}
-
 #[derive(Default)]
 /// AHRS algorithm structure.  Structure members are used internally and
 /// must not be accessed by the application.
@@ -146,16 +114,12 @@ pub struct Ahrs {
     pub mag_rejection_timer: u32,
     pub mag_rejection_timeout: bool,
     pub offset: Offset,
-    pub calibration: AhrsCalibration,
 }
 
 impl Ahrs {
     /// Initialises the AHRS algorithm structure.
-    pub fn new(settings: &Settings, calibration: AhrsCalibration, sample_rate: u32) -> Self {
-        let mut result = Self {
-            calibration,
-            ..Self::default()
-        };
+    pub fn new(settings: &Settings, sample_rate: u32) -> Self {
+        let mut result = Self::default();
 
         result.set_settings(settings);
         result.reset();
@@ -678,7 +642,7 @@ impl Offset {
 /// Accelerometer measurement is in any calibrated units.
 /// Magnetometer measurement is in any calibrated units.
 /// return Heading angle in radians
-fn compass_calc_heading(accelerometer: Vec3, magnetometer: Vec3) -> f32 {
+pub fn compass_calc_heading(accelerometer: Vec3, magnetometer: Vec3) -> f32 {
     // Compute direction of magnetic west (Earth's y axis)
     let magnetic_west = accelerometer.cross(magnetometer).to_normalized();
 
@@ -687,23 +651,4 @@ fn compass_calc_heading(accelerometer: Vec3, magnetometer: Vec3) -> f32 {
 
     // Calculate angular heading relative to magnetic north
     magnetic_west.x.atan2(magnetic_north.x)
-}
-
-/// Gyroscope and accelerometer calibration model. Returns calibrated measurement.
-pub fn apply_cal_inertial(
-    uncalibrated: Vec3,
-    misalignment: Mat3,
-    sensitivity: Vec3,
-    offset: Vec3,
-) -> Vec3 {
-    misalignment * (uncalibrated - offset).hadamard_product(sensitivity)
-}
-
-/// Magnetometer calibration model. Returns calibrated measurement.
-pub fn apply_cal_magnetic(
-    uncalibrated: Vec3,
-    soft_iron_matrix: Mat3,
-    hard_iron_offset: Vec3,
-) -> Vec3 {
-    soft_iron_matrix * uncalibrated - hard_iron_offset
 }

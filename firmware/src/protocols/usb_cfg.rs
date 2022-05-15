@@ -202,7 +202,7 @@ pub fn handle_rx(
                 payload_size as u8 + 1,
             );
 
-            usb_serial.write(&tx_buf);
+            usb_serial.write(&tx_buf).ok();
         }
         MsgType::Ack => {}
         MsgType::ReqControls => {
@@ -230,7 +230,7 @@ pub fn handle_rx(
                 payload_size as u8 + 1,
             );
 
-            usb_serial.write(&tx_buf);
+            usb_serial.write(&tx_buf).ok();
         }
         MsgType::Controls => {}
     }

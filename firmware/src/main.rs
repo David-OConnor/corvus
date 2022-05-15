@@ -382,6 +382,7 @@ fn init_sensors(
 mod app {
     use super::*;
     use crate::safety;
+    use crate::sensor_fusion::AhrsCalibration;
     use cortex_m::peripheral::NVIC;
     use stm32_hal2::dma::DmaInterrupt;
 
@@ -434,6 +435,7 @@ mod app {
         base_point: Location,
         command_state: CommandState,
         ahrs: Ahrs,
+        ahrs_calibration: AhrsCalibration,
     }
 
     #[local]
@@ -738,7 +740,7 @@ mod app {
         let ahrs_settings = madgwick::Settings::default();
 
         // Note: Calibration and offsets ares handled handled by their defaults currently.
-        let ahrs_cal = madgwick::AhrsCalibration {
+        let ahrs_calibration = sensor_fusion::AhrsCalibration {
             gyro_misalignment: Mat3 {
                 data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
             },
@@ -752,7 +754,7 @@ mod app {
             ..Default::default()
         }; // todo - load from flash
 
-        let ahrs = Ahrs::new(&ahrs_settings, ahrs_cal, crate::IMU_UPDATE_RATE as u32);
+        let ahrs = Ahrs::new(&ahrs_settings, crate::IMU_UPDATE_RATE as u32);
 
         update_timer.enable();
 
@@ -803,6 +805,7 @@ mod app {
                 base_point,
                 command_state: Default::default(),
                 ahrs,
+                ahrs_calibration,
             },
             Local {
                 spi3,

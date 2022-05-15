@@ -31,9 +31,9 @@ use crate::{
 const THROTTLE_IDLE_THRESH: f32 = 0.03;
 
 // Power at idle setting.
-const THROTTLE_IDLE_POWER: f32 = 0.03; //
-                                       // Max power setting. SHould be 1.
-const THROTTLE_MAX_POWER: f32 = 1.; //
+const THROTTLE_IDLE_POWER: f32 = 0.03;
+// Max power setting.
+const THROTTLE_MAX_POWER: f32 = 1.;
 
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
@@ -53,11 +53,11 @@ const YAW_IN_RNG: (f32, f32) = (-1., 1.);
 const THRUST_IN_RNG: (f32, f32) = (0., 1.);
 
 // Our output ranges for motor power.
-const PITCH_PWR_RNG: (f32, f32) = (-1., 1.);
-const ROLL_PWR_RNG: (f32, f32) = (-1., 1.);
-const YAW_PWR_RNG: (f32, f32) = (-1., 1.);
-// todo: Note that if you support 0-centering throttles, make this -1 to +1 as well.
-const THRUST_PWR_RNG: (f32, f32) = (0., 1.);
+// const PITCH_PWR_RNG: (f32, f32) = (-1., 1.);
+// const ROLL_PWR_RNG: (f32, f32) = (-1., 1.);
+// const YAW_PWR_RNG: (f32, f32) = (-1., 1.);
+// // todo: Note that if you support 0-centering throttles, make this -1 to +1 as well.
+// const THRUST_PWR_RNG: (f32, f32) = (0., 1.);
 
 // Minimium speed before auto-yaw will engate. (if we end up setting up auto-yaw to align flight path
 // with heading)
@@ -357,88 +357,6 @@ pub struct CtrlInputs {
     /// Attitude mode: Change altitude
     pub thrust: f32,
 }
-//
-// impl CtrlInputs {
-//     /// Get manual inputs from the radio. Map from the radio input values to our standard values of
-//     /// 0. to 1. (throttle), and -1. to 1. (pitch, roll, yaw).
-//     pub fn get_manual_inputs(cfg: &UserCfg) -> Self {
-//         // todo: Get radio input here.!
-//         let pitch = 0.;
-//         let roll = 0.;
-//         let yaw = 0.;
-//         let thrust = 0.;
-//
-//         Self {
-//             pitch: map_linear(pitch, cfg.pitch_input_range, PITCH_IN_RNG),
-//             roll: map_linear(roll, cfg.roll_input_range, ROLL_IN_RNG),
-//             yaw: map_linear(yaw, cfg.pitch_input_range, YAW_IN_RNG),
-//             thrust: map_linear(thrust, cfg.throttle_input_range, THRUST_IN_RNG),
-//         }
-//     }
-// }
-
-/// Represents parameters at a fixed instant. Can be position, velocity, or accel.
-#[derive(Default)]
-pub struct ParamsInst {
-    pub x: f32,
-    pub y: f32,
-    pub z_msl: f32,
-    pub z_agl: f32,
-    pub pitch: f32,
-    pub roll: f32,
-    pub yaw: f32,
-}
-
-impl Add for ParamsInst {
-    type Output = Self;
-
-    fn add(self, other: Self) -> Self::Output {
-        Self {
-            x: self.x + other.x,
-            y: self.y + other.y,
-            z_msl: self.z_msl + other.z_msl,
-            z_agl: self.z_agl + other.z_agl,
-            pitch: self.pitch + other.pitch,
-            roll: self.roll + other.roll,
-            yaw: self.yaw + other.yaw,
-        }
-    }
-}
-
-impl Sub for ParamsInst {
-    type Output = Self;
-
-    fn sub(self, other: Self) -> Self::Output {
-        Self {
-            x: self.x - other.x,
-            y: self.y - other.y,
-            z_msl: self.z_msl - other.z_msl,
-            z_agl: self.z_agl - other.z_agl,
-            pitch: self.pitch - other.pitch,
-            roll: self.roll - other.roll,
-            yaw: self.yaw - other.yaw,
-        }
-    }
-}
-
-// Note: We impl multiplication for f32, as a workaround; that's how you impl it for a scalar.
-impl Mul<ParamsInst> for f32 {
-    type Output = ParamsInst;
-
-    fn mul(self, other: ParamsInst) -> ParamsInst {
-        ParamsInst {
-            x: other.x * self,
-            y: other.y * self,
-            z_msl: other.z_msl * self,
-            z_agl: other.z_agl * self,
-            pitch: other.pitch * self,
-            roll: other.roll * self,
-            yaw: other.yaw * self,
-        }
-    }
-}
-
-// todo: Quaternions?
 
 /// Represents a first-order status of the drone. todo: What grid/reference are we using?
 #[derive(Default)]
@@ -454,6 +372,8 @@ pub struct Params {
     pub s_pitch: f32,
     pub s_roll: f32,
     pub s_yaw: f32,
+
+    // todo: AHRS quaternion field, or leave that as part of the `AHRS` struct?
 
     // Velocity
     pub v_x: f32,
@@ -473,29 +393,6 @@ pub struct Params {
     pub a_roll: f32,
     pub a_yaw: f32,
 }
-
-// impl Params {
-//     pub fn get_s(&self) -> ParamsInst {
-//         ParamsInst {
-//             x: self.s_x, y: self.s_y, z: self.s_z,
-//             pitch: self.s_pitch, roll: self.s_roll, yaw: self.s_yaw
-//         }
-//     }
-
-//     pub fn get_v(&self) -> ParamsInst {
-//         ParamsInst {
-//             x: self.v_x, y: self.v_y, z: self.v_z,
-//             pitch: self.v_pitch, roll: self.v_roll, yaw: self.v_yaw
-//         }
-//     }
-
-//     pub fn get_a(&self) -> ParamsInst {
-//         ParamsInst {
-//             x: self.a_x, y: self.a_y, z: self.a_z,
-//             pitch: self.a_pitch, roll: self.a_roll, yaw: self.a_yaw
-//         }
-//     }
-// }
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum RotationDir {
@@ -592,7 +489,7 @@ impl RotorPower {
 
     /// Clamp rotor speeds . A simple form of dealing with a rotor out of limits.
     pub fn clamp(&mut self) {
-        // todo: Why not working?
+        //Note: This loop approach is not working.
         // for rotor in [self.front_left, self.front_right, self.aft_left, self.aft_right].iter_mut() {
         //     if *rotor < THROTTLE_IDLE_POWER {
         //         *rotor = THROTTLE_IDLE_POWER
@@ -696,9 +593,9 @@ fn estimate_rotor_angle(a_desired: f32, v_current: f32, ac_properties: &Aircraft
 /// all motors is 100%. No individual power level is allowed to be above 1, or below our idle power
 /// setting.
 fn calc_rotor_powers(
-    pitch_rate: f32,
-    roll_rate: f32,
-    yaw_rate: f32,
+    pitch_setting: f32,
+    roll_setting: f32,
+    yaw_setting: f32,
     throttle: f32,
     front_left_dir: RotationDir,
 ) -> RotorPower {
@@ -713,9 +610,9 @@ fn calc_rotor_powers(
     // todo: Should you adjust how you scale this based on the measured
     // todo rates? Maybe handle in PID.?
 
-    let pitch_delta = ROTOR_HALF_PAIR_DELTA_MAX * pitch_rate;
-    let roll_delta = ROTOR_HALF_PAIR_DELTA_MAX * roll_rate;
-    let mut yaw_delta = ROTOR_HALF_PAIR_DELTA_MAX * yaw_rate;
+    let pitch_delta = ROTOR_HALF_PAIR_DELTA_MAX * pitch_setting;
+    let roll_delta = ROTOR_HALF_PAIR_DELTA_MAX * roll_setting;
+    let mut yaw_delta = ROTOR_HALF_PAIR_DELTA_MAX * yaw_setting;
 
     // Nose down for positive pitch.
     front_left -= pitch_delta;
@@ -754,14 +651,17 @@ fn calc_rotor_powers(
 /// in these areas. We modify power ratio between the appropriate propeller pairs to change these
 /// parameters.
 ///
-/// If a rotor exceeds min or max power settings, scale our angular rates uniformly until it's
-/// at the threshold, while keeping average power, and rotor symettry intact.
+/// Basic model: For each axis, the starting power is throttle. We then increase or decrease opposing
+/// pair power up to a limit (Or absolute rotor power limit) based on the input commands.
 ///
-/// Rates here are in terms of max/min - they're not in real units like radians/s!
+/// If a rotor exceeds min or max power settings, clamp it. --scale our angular rates uniformly until it's
+/// at the threshold, while keeping average power, and rotor symettry intact.--
+///
+/// Settings here are a scale of  (??) - they're not in real units like radians/s!
 pub fn apply_controls(
-    mut pitch_rate: f32,
-    mut roll_rate: f32,
-    mut yaw_rate: f32,
+    pitch_setting: f32,
+    roll_setting: f32,
+    yaw_setting: f32,
     throttle: f32,
     mapping: &RotorMapping,
     current_pwr: &mut RotorPower,
@@ -771,9 +671,9 @@ pub fn apply_controls(
     dma: &mut Dma<DMA1>,
 ) {
     let mut pwr = calc_rotor_powers(
-        pitch_rate,
-        roll_rate,
-        yaw_rate,
+        pitch_setting,
+        roll_setting,
+        yaw_setting,
         throttle,
         mapping.frontleft_aftright_dir,
     );

@@ -35,7 +35,7 @@ use stm32_hal2::{
 use crate::{
     flight_ctrls::Params,
     imu,
-    lin_alg::Vec3,
+    lin_alg::{Mat3, Vec3},
     madgwick::{self, Ahrs},
 };
 
@@ -100,21 +100,17 @@ impl ImuReadings {
 }
 
 /// Calibrate the IMU, by taking a series of series while on a level surface.
-pub fn calibrate() -> madgwick::AhrsCalibration {
+pub fn calibrate() -> AhrsCalibration {
     // todo: average? lowpass?
     Default::default()
 }
 
 /// Update and get the attitude from the AHRS.
 pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
-    // Note that for our Madgwick logic, x is pitch.
-
-    // todo: This is getting screwed up!!!
+    /// Gyro measurements - not really a vector.
     let mut gyro_data = Vec3 {
-        // todo: Order? Maybe use a EulerAngle struct instead of a vector?
-        // todo: Maybe the API is expecting you to pass gyro data as a vector! Convert your euler angles. Try that!
-        x: params.v_roll,
-        y: params.v_pitch,
+        x: params.v_pitch,
+        y: params.v_roll,
         z: params.v_yaw,
     };
     let mut accel_data = Vec3 {
@@ -122,6 +118,8 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
         y: params.a_y,
         z: params.a_z,
     };
+
+    // todo: Separate calibration from AHRS/madgwick.
 
     // Apply calibration
     // todo: Come back to this.
@@ -171,6 +169,59 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     // params.s_yaw = att_earth.z;
 }
 
+// This calibration functionality is from [AHRS](https://github.com/xioTechnologies/Fusion)
+
+pub struct AhrsCalibration {
+    pub gyro_misalignment: Mat3,
+    pub gyro_sensitivity: Vec3,
+    pub gyro_offset: Vec3,
+    pub accel_misalignment: Mat3,
+    pub accel_sensitivity: Vec3,
+    pub accel_offset: Vec3,
+    pub soft_iron_matrix: Mat3,
+    pub hard_iron_offset: Vec3,
+}
+
+impl Default for AhrsCalibration {
+    fn default() -> Self {
+        Self {
+            gyro_misalignment: Mat3 {
+                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            },
+            gyro_sensitivity: Vec3::new(1.0, 1.0, 1.0),
+            gyro_offset: Vec3::new(0.0, 0.0, 0.0),
+            accel_misalignment: Mat3 {
+                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            },
+            accel_sensitivity: Vec3::new(1.0, 1.0, 1.0),
+            accel_offset: Vec3::new(0.0, 0.0, 0.0),
+            soft_iron_matrix: Mat3 {
+                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            },
+            hard_iron_offset: Vec3::new(0.0, 0.0, 0.0),
+        }
+    }
+}
+
+/// Gyroscope and accelerometer calibration model. Returns calibrated measurement.
+pub fn apply_cal_inertial(
+    uncalibrated: Vec3,
+    misalignment: Mat3,
+    sensitivity: Vec3,
+    offset: Vec3,
+) -> Vec3 {
+    misalignment * (uncalibrated - offset).hadamard_product(sensitivity)
+}
+
+/// Magnetometer calibration model. Returns calibrated measurement.
+pub fn apply_cal_magnetic(
+    uncalibrated: Vec3,
+    soft_iron_matrix: Mat3,
+    hard_iron_offset: Vec3,
+) -> Vec3 {
+    soft_iron_matrix * uncalibrated - hard_iron_offset
+}
+
 /// Read all 3 measurements, by commanding a DMA transfer. The transfer is closed, and readings
 /// are processed in the Transfer Complete ISR.
 pub fn read_imu_dma(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
@@ -196,7 +247,7 @@ pub fn read_imu_dma(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &
 /// Kalman filter predict step
 /// - Use dynamical model to update state estimates.  x^_n+1 = x^_n + T f(x^_n, u)
 /// - Update covaraince (P) P will always increase with this step.
-fn predict() {
+fn _predict() {
     // todo: Switch away from euler angles, eg to quaternions.
 
     // Update nonlinear state-transition fn.
@@ -207,10 +258,10 @@ fn predict() {
 /// Kalman filter update step
 /// - Use measurements from sensors to correct predictions: x^ = x^ + K(y - h(x^, u))
 /// - Update error covariance P (P should decrease in this step)
-fn update() {}
+fn _update() {}
 
 /// Estimate attitude, based on IMU data of accelerations and roll rates.
-pub fn estimate_attitude(readings: &ImuReadings) -> Params {
+pub fn _estimate_attitude(readings: &ImuReadings) -> Params {
     // Euler angle conventions: θ = pitch. phi = roll. ^ indicates an estimate
 
     // todo: Put useful params here.

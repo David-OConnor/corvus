@@ -1382,7 +1382,7 @@ fn VL53L1X_CalibrateXtalk(dev: u16, TargetDistInMm: u16, xtalk: &mut u16) -> i8 
     /* Calculate Xtalk value */
     calXtalk = (512 * (AverageSignalRate * (1 - (AverageDistance / TargetDistInMm)))
         / AverageSpadNb) as u16;
-    if (calXtalk > 0xffff) {
+    if calXtalk > 0xffff {
         calXtalk = 0xffff;
     }
     *xtalk = ((calXtalk * 1000) >> 9) as u16;
