@@ -96,7 +96,7 @@ impl Default for CtrlCoeffsPR {
             // pid for controlling pitch and roll from commanded horizontal position
             // todo: Set these appropriately.
             k_p_rate: 0.1,
-            k_i_rate: 0.,
+            k_i_rate: 0.00,
             k_d_rate: 0.,
 
             // pid for controlling pitch and roll from commanded horizontal velocity
@@ -117,15 +117,15 @@ impl Default for CtrlCoeffsPR {
 /// Coefficients and other configurable parameters for yaw and thrust. This is separate from, and
 /// simpler than the variant for pitch and roll, since it's not coupled to X and Y motion.
 pub struct CtrlCoeffsYT {
+    // PID for controlling yaw or thrust from a velocity directly applied to them. (Eg Acro and attitude)
+    k_p_rate: f32,
+    k_i_rate: f32,
+    k_d_rate: f32,
+
     // PID for controlling yaw or thrust from an explicitly-commanded heading or altitude.
     k_p_s: f32,
     k_i_s: f32,
     k_d_s: f32,
-
-    // PID for controlling yaw or thrust from a velocity directly applied to them. (Eg Acro and attitude)
-    k_p_v: f32,
-    k_i_v: f32,
-    k_d_v: f32,
 
     pid_deriv_lowpass_cutoff: LowpassCutoff,
 }
@@ -134,13 +134,14 @@ impl Default for CtrlCoeffsYT {
     fn default() -> Self {
         Self {
             // todo: Set these appropriately.
+            k_p_rate: 0.1,
+            k_i_rate: 0.00,
+            k_d_rate: 0.0,
+
             k_p_s: 0.1,
             k_i_s: 0.0,
             k_d_s: 0.0,
 
-            k_p_v: 45.,
-            k_i_v: 80.0,
-            k_d_v: 0.0,
             pid_deriv_lowpass_cutoff: LowpassCutoff::H1k,
         }
     }
@@ -151,13 +152,6 @@ pub struct CtrlCoeffGroup {
     pub roll: CtrlCoeffsPR,
     pub yaw: CtrlCoeffsYT,
     pub thrust: CtrlCoeffsYT,
-    // These coefficients are our rotor gains.
-    // todo: Think about how to handle these, and how to map them to the aircraft data struct,
-    // todo, and the input range.
-    // pub gain_pitch: f32,
-    // pub gain_roll: f32,
-    // pub gain_yaw: f32,
-    // pub gain_thrust: f32,
 }
 
 impl Default for CtrlCoeffGroup {
@@ -329,10 +323,10 @@ fn calc_pid_error(
     let mut error_d = [0.];
     dsp_api::biquad_cascade_df1_f32(&mut filter.inner, &[error_d_prefilt], &mut error_d, 1);
 
-    println!(
-        "SP {} M{} e {} p {} i {} d {}",
-        set_pt, measurement, error, error_p, error_i, error_d[0]
-    );
+    // println!(
+    //     "SP {} M{} e {} p {} i {} d {}",
+    //     set_pt, measurement, error, error_p, error_i, error_d[0]
+    // );
 
     let mut result = PidState {
         measurement,
@@ -718,6 +712,9 @@ pub fn run_rate(
             };
 
             // todo: It pitch or roll stick is neutral, hold that attitude (quaternion)
+
+            // Note: We may not need to modify the `rates_commanded` resource in place here; we don't
+            // use it upstream.
             *rates_commanded = CtrlInputs {
                 pitch: input_map.calc_pitch_rate(ch_data.pitch),
                 roll: input_map.calc_roll_rate(ch_data.roll),
@@ -763,7 +760,7 @@ pub fn run_rate(
 
     // Map the manual input rates (eg -1. to +1. etc) to real units, eg randians/s.
     pid.pitch = calc_pid_error(
-        input_map.calc_pitch_rate(rates_commanded.pitch),
+        rates_commanded.pitch,
         params.v_pitch,
         &pid.pitch,
         coeffs.pitch.k_p_rate,
@@ -774,7 +771,7 @@ pub fn run_rate(
     );
 
     pid.roll = calc_pid_error(
-        input_map.calc_roll_rate(rates_commanded.roll),
+        rates_commanded.roll,
         params.v_roll,
         &pid.roll,
         coeffs.roll.k_p_rate,
@@ -785,12 +782,12 @@ pub fn run_rate(
     );
 
     pid.yaw = calc_pid_error(
-        input_map.calc_yaw_rate(rates_commanded.yaw),
+        rates_commanded.yaw,
         params.v_yaw,
         &pid.yaw,
-        coeffs.yaw.k_p_v,
-        coeffs.yaw.k_i_v,
-        coeffs.yaw.k_d_v,
+        coeffs.yaw.k_p_rate,
+        coeffs.yaw.k_i_rate,
+        coeffs.yaw.k_d_rate,
         &mut filters.yaw_rate,
         dt,
     );
@@ -798,13 +795,19 @@ pub fn run_rate(
     // Adjust gains to map control range and pid out in radians/s to the -1. to 1 rates used by the motor
     // control logic, in `flight_ctrls::apply_controls`.
     // todo: Is this right?? Do we want this??
-    let pitch = input_map.calc_pitch_rate_pwr(pid.pitch.out());
-    let roll = input_map.calc_roll_rate_pwr(pid.roll.out());
-    let yaw = input_map.calc_yaw_rate_pwr(pid.yaw.out());
 
-    // let pitch = pid.pitch.out();
-    // let roll = pid.roll.out();
-    // let yaw = pid.yaw.out();
+    // let pitch = input_map.calc_pitch_rate_pwr(pid.pitch.out());
+    // let roll = input_map.calc_roll_rate_pwr(pid.roll.out());
+    // let yaw = input_map.calc_yaw_rate_pwr(pid.yaw.out());
+
+    let pitch = pid.pitch.out();
+    let roll = pid.roll.out();
+    let yaw = pid.yaw.out();
+
+    println!("\nYaw rate measured: {:?}", params.v_yaw);
+    println!("Yaw rate commanded: {:?}", rates_commanded.yaw);
+    println!("PID Yaw out: {:?}", pid.yaw.out());
+    println!("Yaw power: {:?}", yaw);
 
     // println!("Pitch out: {:?}", pitch);
     // println!("Pitch raw: {:?}", pid.pitch.out());
@@ -818,9 +821,9 @@ pub fn run_rate(
                     input_map.calc_thrust(rates_commanded.thrust),
                     params.v_z,
                     &pid.thrust,
-                    coeffs.thrust.k_p_v,
-                    coeffs.thrust.k_i_v,
-                    coeffs.thrust.k_d_v,
+                    coeffs.thrust.k_p_rate,
+                    coeffs.thrust.k_i_rate,
+                    coeffs.thrust.k_d_rate,
                     &mut filters.thrust,
                     dt,
                 );

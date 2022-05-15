@@ -2,10 +2,7 @@
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use crate::{
-    flight_ctrls::{InputMode},
-    control_interface::ChannelData,
-};
+use crate::{control_interface::ChannelData, flight_ctrls::InputMode};
 
 use defmt::println;
 

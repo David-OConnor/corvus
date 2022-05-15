@@ -10,7 +10,7 @@
 // todo: Should we use this module and/or a similar structure for data exchange over RF,
 // todo: beyond the normal control info used by ELRS? (Eg sending a route, autopilot data etc)
 
-use crate::{flight_ctrls::Params, control_interface::ChannelData, util};
+use crate::{control_interface::ChannelData, flight_ctrls::Params, util};
 
 use cfg_if::cfg_if;
 
@@ -37,7 +37,6 @@ const MAX_PAYLOAD_SIZE: usize = PARAMS_SIZE; // For Params.
 const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 2; // + message type, and crc.
 
 struct DecodeError {}
-
 
 pub fn init_crc() {
     util::crc_init(unsafe { &mut CRC_LUT }, CRC_POLY);
@@ -133,7 +132,7 @@ impl From<Packet> for [u8; MAX_PACKET_SIZE] {
     fn from(p: Packet) -> Self {
         let mut result = [0; MAX_PACKET_SIZE];
 
-        // result[1] = p.message_type.payload_size() as u8;
+        result[0] = p.message_type as u8;
 
         for i in 0..p.message_type.payload_size() {
             result[i + 1] = p.payload[i];
@@ -160,8 +159,6 @@ pub fn handle_rx(
     params: &Params,
     controls: &ChannelData,
 ) {
-    println!("Incoming data. Count: {}", count);
-
     let rx_msg_type: MsgType = match data[0].try_into() {
         Ok(d) => d,
         Err(_) => {
@@ -169,9 +166,6 @@ pub fn handle_rx(
             return; // todo: Send message back over USB?
         }
     };
-
-    println!("MSG TYPE: {:?}", rx_msg_type as u8);
-    println!("pl size {:?}", rx_msg_type.payload_size());
 
     let expected_crc_rx = util::calc_crc(
         unsafe { &CRC_LUT },
@@ -184,7 +178,7 @@ pub fn handle_rx(
         // todo: return here.
     }
 
-        // return; // todo TS
+    // return; // todo TS
 
     match rx_msg_type {
         MsgType::Params => {}
@@ -195,7 +189,6 @@ pub fn handle_rx(
             println!("Params requested...");
             let response = Packet {
                 message_type: MsgType::Params,
-                // payload_size: PARAMS_SIZE,
                 payload: params.into(),
                 crc: 0,
             };
@@ -214,22 +207,22 @@ pub fn handle_rx(
         MsgType::Ack => {}
         MsgType::ReqControls => {
             println!("Controls requested...");
+            // let response = Packet {
+            //     message_type: MsgType::Controls,
+            //     payload: controls.into(),
+            //     crc: 0,
+            // };
 
-            let controls_buf: [u8; CONTROLS_SIZE] = controls.into();
-            let mut payload = [0; MAX_PAYLOAD_SIZE];
+            // todo: We probably don't want to be creaeting a max packet size buf here.
+            // let mut tx_buf: [u8; CONTROLS_SIZE + 2] = response.into();
+            let mut tx_buf = [0; CONTROLS_SIZE + 2];
+            tx_buf[0] = MsgType::Controls as u8;
+
+            let payload: [u8; CONTROLS_SIZE] = controls.into();
             for i in 0..CONTROLS_SIZE {
-                payload[i] = controls_buf[i];
+                tx_buf[i + 1] = payload[i];
             }
 
-            let response = Packet {
-                message_type: MsgType::Controls,
-                // payload_size: CONTROLS_SIZE,
-                payload,
-                crc: 0,
-            };
-            let mut tx_buf: [u8; MAX_PACKET_SIZE] = response.into();
-
-            // todo DRY. method on Packet?
             let payload_size = MsgType::Controls.payload_size();
             tx_buf[payload_size + 1] = util::calc_crc(
                 unsafe { &CRC_LUT },
@@ -242,5 +235,5 @@ pub fn handle_rx(
         MsgType::Controls => {}
     }
 
-    usb_serial.write(&[1]);
+    usb_serial.write(&[1]).ok();
 }

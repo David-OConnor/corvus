@@ -89,9 +89,12 @@ impl ImuReadings {
             a_x: imu::interpret_accel(i16::from_be_bytes([buf[1], buf[2]])),
             a_y: imu::interpret_accel(i16::from_be_bytes([buf[3], buf[4]])),
             a_z: imu::interpret_accel(i16::from_be_bytes([buf[5], buf[6]])),
-            v_pitch: imu::interpret_gyro(i16::from_be_bytes([buf[7], buf[8]])),
+            // Positive pitch nose down
+            v_pitch: -imu::interpret_gyro(i16::from_be_bytes([buf[7], buf[8]])),
+            // Positive roll: left wing up
             v_roll: imu::interpret_gyro(i16::from_be_bytes([buf[9], buf[10]])),
-            v_yaw: imu::interpret_gyro(i16::from_be_bytes([buf[11], buf[12]])),
+            // Positive yaw: CW rotation.
+            v_yaw: -imu::interpret_gyro(i16::from_be_bytes([buf[11], buf[12]])),
         }
     }
 }
@@ -105,9 +108,13 @@ pub fn calibrate() -> madgwick::AhrsCalibration {
 /// Update and get the attitude from the AHRS.
 pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     // Note that for our Madgwick logic, x is pitch.
+
+    // todo: This is getting screwed up!!!
     let mut gyro_data = Vec3 {
-        x: params.v_pitch,
-        y: params.v_roll,
+        // todo: Order? Maybe use a EulerAngle struct instead of a vector?
+        // todo: Maybe the API is expecting you to pass gyro data as a vector! Convert your euler angles. Try that!
+        x: params.v_roll,
+        y: params.v_pitch,
         z: params.v_yaw,
     };
     let mut accel_data = Vec3 {
@@ -117,18 +124,19 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     };
 
     // Apply calibration
-    gyro_data = madgwick::apply_cal_inertial(
-        gyro_data,
-        ahrs.calibration.gyro_misalignment.clone(),
-        ahrs.calibration.gyro_sensitivity,
-        ahrs.calibration.gyro_offset,
-    );
-    accel_data = madgwick::apply_cal_inertial(
-        accel_data,
-        ahrs.calibration.accel_misalignment.clone(),
-        ahrs.calibration.accel_sensitivity,
-        ahrs.calibration.accel_offset,
-    );
+    // todo: Come back to this.
+    // gyro_data = madgwick::apply_cal_inertial(
+    //     gyro_data,
+    //     ahrs.calibration.gyro_misalignment.clone(),
+    //     ahrs.calibration.gyro_sensitivity,
+    //     ahrs.calibration.gyro_offset,
+    // );
+    // accel_data = madgwick::apply_cal_inertial(
+    //     accel_data,
+    //     ahrs.calibration.accel_misalignment.clone(),
+    //     ahrs.calibration.accel_sensitivity,
+    //     ahrs.calibration.accel_offset,
+    // );
 
     // todo: Once you add mag.
     // let magnetometer = madgwick::apply_cal_magnetic(magnetometer, softIronMatrix, hardIronOffset);

@@ -92,7 +92,7 @@ use flight_ctrls::{
     RotorMapping, RotorPosition, RotorPower, POWER_LUT,
 };
 
-use lin_alg::{Vec3, Mat3};
+use lin_alg::{Mat3, Vec3};
 
 use safety::ArmStatus;
 
@@ -101,8 +101,8 @@ use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
 
 use madgwick::Ahrs;
 
+use crate::flight_ctrls::{InputModeSwitch, RotationDir};
 use ppks::{Location, LocationType};
-use crate::flight_ctrls::InputModeSwitch;
 
 // 512k flash. Page size 2kbyte. 72-bit data read (64 bits plus 8 ECC bits)
 // Each page is 8 rows of 256 bytes. 255 pages in main memory.
@@ -280,10 +280,11 @@ impl Default for UserCfg {
             max_speed_ver: 20.,
             motors_reversed: (false, false, false, false),
             motor_mapping: RotorMapping {
-                r1: RotorPosition::AftLeft,
-                r2: RotorPosition::FrontLeft,
-                r3: RotorPosition::AftRight,
-                r4: RotorPosition::FrontRight,
+                r1: RotorPosition::AftRight,
+                r2: RotorPosition::FrontRight,
+                r3: RotorPosition::AftLeft,
+                r4: RotorPosition::FrontLeft,
+                frontleft_aftright_dir: RotationDir::Clockwise,
             },
             baro_cal: Default::default(),
             // Make sure to update this interp table if you change idle power.
@@ -689,8 +690,7 @@ mod app {
         let mut state_volatile = StateVolatile::default();
 
         // Hard-coded for our test setup
-        // user_cfg.motors_reversed = (false, true, true, true);
-        // user_cfg.motors_reversed = (true, true, true, true);
+        user_cfg.motors_reversed = (true, false, false, false);
 
         cfg_if! {
             if #[cfg(feature = "g4")] {
@@ -739,7 +739,7 @@ mod app {
 
         // Note: Calibration and offsets ares handled handled by their defaults currently.
         let ahrs_cal = madgwick::AhrsCalibration {
-              gyro_misalignment: Mat3 {
+            gyro_misalignment: Mat3 {
                 data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
             },
             gyro_sensitivity: Vec3::new(1.0, 1.0, 1.0),
@@ -835,7 +835,8 @@ mod app {
 
                 dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
                 delay.delay_ms(1);
-                //
+
+                // todo still not working
                 // dshot::setup_motor_dir(
                 //     user_cfg.motors_reversed,
                 //     rotor_timer_a,
@@ -921,21 +922,35 @@ mod app {
                     }
 
                     // Debug loop.
-                    if *cx.local.update_loop_counter % 1_000 == 0 {
+                    if *cx.local.update_loop_counter % 700 == 0 {
                         // todo temp
                         println!(
-                            "IMU Data: Ax {}, Ay: {}, Az: {}",
+                            "Accel: Ax {}, Ay: {}, Az: {}",
                             params.a_x, params.a_y, params.a_z
                         );
 
                         println!(
-                            "IMU Data: roll {}, pitch: {}, yaw: {}",
+                            "Gyro: roll {}, pitch: {}, yaw: {}",
                             params.v_roll, params.v_pitch, params.v_yaw
                         );
 
                         println!(
                             "Attitude: roll {}, pitch: {}, yaw: {}\n",
                             params.s_roll, params.s_pitch, params.s_yaw
+                        );
+
+                        println!(
+                            "Controls: Pitch: {} Roll: {} Yaw: {} Throttle: {}",
+                            control_channel_data.pitch,
+                            control_channel_data.roll,
+                            control_channel_data.yaw,
+                            control_channel_data.throttle
+                        );
+
+                        println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
+                        println!(
+                            "Input mode sw: {:?}",
+                            control_channel_data.input_mode == InputModeSwitch::Acro
                         );
 
                         // println!("AHRS Q: {} {} {} {}",
@@ -1129,8 +1144,10 @@ mod app {
 
                     // todo: Temp TS code to verify rotordirection.
                     // if command_state.arm_status == ArmStatus::Armed {
-                    //     dshot::set_power_a(Rotor::R1, Rotor::R2, 0.05, 0.05, rotor_timer_a, dma);
-                    //     dshot::set_power_b(Rotor::R3, Rotor::R4, 0.05, 0.05, rotor_timer_b, dma);
+                    //     // dshot::set_power_a(Rotor::R1, Rotor::R2, 0.0, 0.00, rotor_timer_a, dma);
+                    //     // dshot::set_power_a(Rotor::R1, Rotor::R2, 0.05, 0.05, rotor_timer_a, dma);
+                    //     dshot::set_power_b(Rotor::R3, Rotor::R4, 0.00, 0.00, rotor_timer_b, dma);
+                    //     // dshot::set_power_b(Rotor::R3, Rotor::R4, 0.05, 0.05, rotor_timer_b, dma);
                     // } else {
                     //     dshot::set_power_a(Rotor::R1, Rotor::R2, 0., 0., rotor_timer_a, dma);
                     //     dshot::set_power_b(Rotor::R3, Rotor::R4, 0., 0., rotor_timer_b, dma);
@@ -1205,7 +1222,7 @@ mod app {
             cx.shared.usb_dev,
             cx.shared.usb_serial,
             cx.shared.current_params,
-            cx.shared.control_channel_data
+            cx.shared.control_channel_data,
         )
             .lock(|usb_dev, usb_serial, params, ch_data| {
                 if !usb_dev.poll(&mut [usb_serial]) {
