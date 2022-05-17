@@ -923,8 +923,8 @@ mod app {
                     if *cx.local.update_loop_counter % 700 == 0 {
                         // todo temp
                         println!(
-                            "Accel: Ax {}, Ay: {}, Az: {}",
-                            params.a_x, params.a_y, params.a_z
+                            "Accel: Ax {params.a_x}, Ay: {}, Az: {}",
+                            params.a_y, params.a_z
                         );
 
                         println!(
