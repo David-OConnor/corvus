@@ -4,7 +4,6 @@
 //! Reference: https://brushlesswhoop.com/betaflight-rpm-filter/
 
 use cmsis_dsp_api as dsp_api;
-use cmsis_dsp_sys as dsp_sys;
 
 use crate::{sensor_fusion::ImuReadings, util::IirInstWrapper};
 
@@ -57,8 +56,8 @@ pub struct ImuFilters {
     // pub notch_motor4: IirInstWrapper,
 }
 
-impl ImuFilters {
-    pub fn new() -> Self {
+impl Default for ImuFilters {
+    fn default() -> Self {
         let mut result = Self {
             accel_x: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
@@ -118,7 +117,8 @@ impl ImuFilters {
 
         result
     }
-
+}
+impl ImuFilters {
     /// Apply the filters to IMU readings, modifying in place. Block size = 1.
     pub fn apply(&mut self, data: &mut ImuReadings) {
         let block_size = 1;

@@ -37,7 +37,7 @@ pub fn crc_init(lut: &mut [u8; 256], poly: u8) {
         for _ in 0..8 {
             crc = (crc << 1) ^ (if (crc & 0x80) > 0 { poly } else { 0 });
         }
-        lut[i] = crc & 0xff;
+        lut[i] = crc;
     }
 }
 
@@ -64,7 +64,7 @@ pub fn crc8_dvb_s2(crc: u8, a: u8) -> u8 {
         if (crc & 0x80) != 0 {
             crc = (crc << 1) ^ 0xD5;
         } else {
-            crc = crc << 1;
+            crc <<= 1;
         }
     }
     crc

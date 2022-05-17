@@ -2,6 +2,8 @@
 #![allow(unused_parens)]
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
+#![allow(clippy::all)]
+#![allow(dead_code)]
 
 //! This module contains code for the ST VL53L1CB time-of-flight sensor. We use it to find AGL altitude
 //! when near the ground in level flight. Advertised at up to 8M range.
@@ -151,7 +153,7 @@ macro_rules! busy_wait {
 
 /// Helper function to prevent repetition between `write`, `write_read`, and `write_dma`.
 fn set_cr2_write(addr: u8, len: u8, autoend: bool) {
-    let mut regs = unsafe { &(*I2C1::ptr()) };
+    let regs = unsafe { &(*I2C1::ptr()) };
 
     // L44 RM: "Master communication initialization (address phase)
     // In order to initiate the communication, the user must program the following parameters for
@@ -174,7 +176,7 @@ fn set_cr2_write(addr: u8, len: u8, autoend: bool) {
 
 /// Helper function to prevent repetition between `read`, `write_read`, and `read_dma`.
 fn set_cr2_read(addr: u8, len: u8) {
-    let mut regs = unsafe { &(*I2C1::ptr()) };
+    let regs = unsafe { &(*I2C1::ptr()) };
 
     regs.cr2.write(|w| {
         w.sadd().bits((addr << 1) as u16);
@@ -186,7 +188,7 @@ fn set_cr2_read(addr: u8, len: u8) {
 }
 
 fn i2c_write(addr: u8, bytes: &[u8]) {
-    let mut regs = unsafe { &(*I2C1::ptr()) };
+    let regs = unsafe { &(*I2C1::ptr()) };
 
     while regs.cr2.read().start().bit_is_set() {}
 
@@ -199,7 +201,7 @@ fn i2c_write(addr: u8, bytes: &[u8]) {
 }
 
 fn i2c_write_read(addr: u8, bytes: &[u8], buffer: &mut [u8]) {
-    let mut regs = unsafe { &(*I2C1::ptr()) };
+    let regs = unsafe { &(*I2C1::ptr()) };
 
     while regs.cr2.read().start().bit_is_set() {}
 
@@ -1253,7 +1255,7 @@ fn VL53L1X_GetSignalThreshold(dev: u16, signal: &mut u16) -> VL53L1X_ERROR {
 
     status |= VL53L1_RdWord(dev, RANGE_CONFIG__MIN_COUNT_RATE_RTN_LIMIT_MCPS, &mut tmp);
     *signal = tmp << 3;
-    return status;
+    status
 }
 
 /// This function programs a new sigma threshold in mm (default=15 mm)
@@ -1265,7 +1267,7 @@ fn VL53L1X_SetSigmaThreshold(dev: u16, Sigma: u16) -> VL53L1X_ERROR {
     }
     /* 16 bits register 14.2 format */
     status |= VL53L1_WrWord(dev, RANGE_CONFIG__SIGMA_THRESH, Sigma << 2);
-    return status;
+    status
 }
 
 /// This function returns the current sigma threshold in mm
@@ -1275,7 +1277,7 @@ fn VL53L1X_GetSigmaThreshold(dev: u16, sigma: &mut u16) -> VL53L1X_ERROR {
 
     status |= VL53L1_RdWord(dev, RANGE_CONFIG__SIGMA_THRESH, &mut tmp);
     *sigma = tmp >> 2;
-    return status;
+    status
 }
 
 ///  This function performs the temperature calibration.
@@ -1296,7 +1298,7 @@ fn VL53L1X_StartTemperatureUpdate(dev: u16) -> VL53L1X_ERROR {
     status |= VL53L1X_StopRanging(dev);
     status |= VL53L1_WrByte(dev, VL53L1_VHV_CONFIG__TIMEOUT_MACROP_LOOP_BOUND, 0x09); /* two bounds VHV */
     status |= VL53L1_WrByte(dev, 0x0B, 0); /* start VHV from the previous temperature */
-    return status;
+    status
 }
 
 // Start of VL53L1X_calibration.c
@@ -1328,13 +1330,13 @@ fn VL53L1X_CalibrateOffset(dev: u16, TargetDistInMm: u16, offset: &mut i16) -> i
         }
         status |= VL53L1X_GetDistance(dev, &mut distance);
         status |= VL53L1X_ClearInterrupt(dev);
-        AverageDistance = AverageDistance + distance;
+        AverageDistance += distance;
     }
     status |= VL53L1X_StopRanging(dev);
-    AverageDistance = AverageDistance / 50;
+    AverageDistance /= 50;
     *offset = TargetDistInMm as i16 - AverageDistance as i16;
     status |= VL53L1_WrWord(dev, ALGO__PART_TO_PART_RANGE_OFFSET_MM, *offset as u16 * 4);
-    return status;
+    status
 }
 
 /**
@@ -1361,7 +1363,7 @@ fn VL53L1X_CalibrateXtalk(dev: u16, TargetDistInMm: u16, xtalk: &mut u16) -> i8 
 
     status |= VL53L1_WrWord(dev, 0x0016, 0);
     status |= VL53L1X_StartRanging(dev);
-    for i in 0..50 {
+    for _ in 0..50 {
         // for (i = 0; i < 50; i++) {
         tmp = 0;
         while tmp == 0 {
@@ -1370,9 +1372,9 @@ fn VL53L1X_CalibrateXtalk(dev: u16, TargetDistInMm: u16, xtalk: &mut u16) -> i8 
         status |= VL53L1X_GetSignalRate(dev, &mut sr);
         status |= VL53L1X_GetDistance(dev, &mut distance);
         status |= VL53L1X_ClearInterrupt(dev);
-        AverageDistance = AverageDistance + distance;
+        AverageDistance += distance;
         status = VL53L1X_GetSpadNb(dev, &mut spadNum);
-        AverageSpadNb = AverageSpadNb + spadNum;
+        AverageSpadNb += spadNum;
         AverageSignalRate = AverageSignalRate + sr;
     }
     status |= VL53L1X_StopRanging(dev);
@@ -1382,9 +1384,7 @@ fn VL53L1X_CalibrateXtalk(dev: u16, TargetDistInMm: u16, xtalk: &mut u16) -> i8 
     /* Calculate Xtalk value */
     calXtalk = (512 * (AverageSignalRate * (1 - (AverageDistance / TargetDistInMm)))
         / AverageSpadNb) as u16;
-    if calXtalk > 0xffff {
-        calXtalk = 0xffff;
-    }
+
     *xtalk = ((calXtalk * 1000) >> 9) as u16;
     status |= VL53L1_WrWord(dev, 0x0016, calXtalk as u16);
     return status as i8;

@@ -16,6 +16,7 @@ const GYRO_FULLSCALE: f32 = 34.90659; // 2,000 degrees/sec
 const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
 
 /// See Datasheet, Table 19.
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 #[repr(u8)]
 pub enum Reg {

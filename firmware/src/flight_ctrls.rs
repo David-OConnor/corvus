@@ -8,8 +8,6 @@
 
 use core::{
     f32::consts::TAU,
-    ops::{Add, DivAssign, Mul, MulAssign, Sub},
-    sync::atomic::{AtomicBool, Ordering},
 };
 
 use stm32_hal2::{
@@ -23,8 +21,8 @@ use defmt::println;
 use cmsis_dsp_sys as dsp_sys;
 
 use crate::{
-    control_interface::ChannelData, dshot, pid::PidState, safety::ArmStatus, util,
-    util::map_linear, CtrlCoeffGroup, Location, StateVolatile, UserCfg,
+    dshot, safety::ArmStatus, util,
+    util::map_linear, Location, StateVolatile,
 };
 
 // If the throttle signal is below this, set idle power.
@@ -33,7 +31,7 @@ const THROTTLE_IDLE_THRESH: f32 = 0.03;
 // Power at idle setting.
 const THROTTLE_IDLE_POWER: f32 = 0.03;
 // Max power setting.
-const THROTTLE_MAX_POWER: f32 = 1.;
+pub const THROTTLE_MAX_POWER: f32 = 1.;
 
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
@@ -230,8 +228,7 @@ impl Default for InputMap {
 
 #[derive(Default)]
 pub struct CommandState {
-    // pub pre_armed: ArmStatus,
-    pub arm_status: ArmStatus,
+    pub arm_status: ArmStatus, // todo: Why is this here?
     pub x: f32,
     pub y: f32,
     pub alt: f32, // m MSL
@@ -579,8 +576,8 @@ pub fn apply_throttle_idle(throttle: f32) -> f32 {
 /// todo: Assume level flight?
 /// // todo: come back to this later.
 fn estimate_rotor_angle(a_desired: f32, v_current: f32, ac_properties: &AircraftProperties) -> f32 {
-    let drag = ac_properties.drag_coeff * v_current; // todo
-    1. / ac_properties.thrust_coeff; // todo
+    // let drag = ac_properties.drag_coeff * v_current; // todo
+    // 1. / ac_properties.thrust_coeff; // todo
     0. // todo
 }
 

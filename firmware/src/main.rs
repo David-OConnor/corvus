@@ -15,7 +15,7 @@ use stm32_hal2::{
     self,
     adc::{Adc, AdcDevice},
     clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllSrc},
-    dma::{self, ChannelCfg, Circular, Dma, DmaChannel},
+    dma::{self, Dma, DmaChannel},
     flash::Flash,
     gpio::{self, Edge, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
@@ -75,6 +75,7 @@ mod safety;
 mod sensor_fusion;
 mod setup;
 mod util;
+mod imu_calibration;
 
 use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
@@ -88,8 +89,8 @@ use control_interface::{ChannelData, LinkStats};
 use protocols::{crsf, dshot, usb_cfg};
 
 use flight_ctrls::{
-    AutopilotStatus, AxisLocks, CommandState, CtrlInputs, InputMap, InputMode, Params, Rotor,
-    RotorMapping, RotorPosition, RotorPower, POWER_LUT,
+    AutopilotStatus, AxisLocks, CommandState, CtrlInputs, InputMap, InputMode, Params,
+    RotorMapping, RotorPosition, RotorPower,
 };
 
 use lin_alg::{Mat3, Vec3};
@@ -381,10 +382,6 @@ fn init_sensors(
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
     use super::*;
-    use crate::safety;
-    use crate::sensor_fusion::AhrsCalibration;
-    use cortex_m::peripheral::NVIC;
-    use stm32_hal2::dma::DmaInterrupt;
 
     // todo: Move vars from here to `local` as required.
     #[shared]
@@ -435,7 +432,7 @@ mod app {
         base_point: Location,
         command_state: CommandState,
         ahrs: Ahrs,
-        ahrs_calibration: AhrsCalibration,
+        imu_calibration: imu_calibration::ImuCalibration,
     }
 
     #[local]
@@ -562,7 +559,7 @@ mod app {
         };
 
         // We use I2C1 for offboard sensors: Magnetometer, GPS, and TOF sensor.
-        let mut i2c1 = I2c::new(dp.I2C1, i2c_tof_cfg.clone(), &clock_cfg);
+        let mut i2c1 = I2c::new(dp.I2C1, i2c_tof_cfg, &clock_cfg);
 
         // We use I2C for the TOF sensor.(?)
         let i2c_baro_cfg = I2cConfig {
@@ -604,8 +601,6 @@ mod app {
         // which is what we want.
         let mut uart3 = Usart::new(dp.USART3, 420_000, Default::default(), &clock_cfg);
         crsf::setup(&mut uart3, setup::CRSF_RX_CH, &mut dma); // Keep this channel in sync with `setup.rs`.
-
-        let mut buf = [0_u8; 400];
 
         // We use the RTC to assist with power use measurement.
         let rtc = Rtc::new(dp.RTC, Default::default());
@@ -740,7 +735,7 @@ mod app {
         let ahrs_settings = madgwick::Settings::default();
 
         // Note: Calibration and offsets ares handled handled by their defaults currently.
-        let ahrs_calibration = sensor_fusion::AhrsCalibration {
+        let imu_calibration = imu_calibration::ImuCalibration {
             gyro_misalignment: Mat3 {
                 data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
             },
@@ -800,12 +795,12 @@ mod app {
                 usb_serial,
                 flash_onboard,
                 power_used: 0.,
-                pid_deriv_filters: PidDerivFilters::new(),
-                imu_filters: ImuFilters::new(),
+                pid_deriv_filters: Default::default(),
+                imu_filters: Default::default(),
                 base_point,
                 command_state: Default::default(),
                 ahrs,
-                ahrs_calibration,
+                imu_calibration,
             },
             Local {
                 spi3,
@@ -1032,9 +1027,7 @@ mod app {
                     }
 
                     match input_mode {
-                        InputMode::Acro => {
-                            return;
-                        }
+                        InputMode::Acro => {}
                         _ => {
                             pid::run_attitude(
                                 params,
@@ -1074,7 +1067,7 @@ mod app {
                             }
                         }
                     }
-                },
+                }
             )
     }
 
@@ -1160,6 +1153,8 @@ mod app {
                     let mut imu_data = sensor_fusion::ImuReadings::from_buffer(unsafe {
                         &sensor_fusion::IMU_READINGS
                     });
+
+                    // todo: This is a good place to apply IMU calibration.
 
                     cx.shared.imu_filters.lock(|imu_filters| {
                         imu_filters.apply(&mut imu_data);
@@ -1408,9 +1403,9 @@ fn panic() -> ! {
     cortex_m::asm::udf()
 }
 
-/// Terminates the application and makes `probe-run` exit with exit-code = 0
-pub fn exit() -> ! {
-    loop {
-        cortex_m::asm::bkpt();
-    }
-}
+// /// Terminates the application and makes `probe-run` exit with exit-code = 0
+// pub fn exit() -> ! {
+//     loop {
+//         cortex_m::asm::bkpt();
+//     }
+// }

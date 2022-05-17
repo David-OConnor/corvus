@@ -4,6 +4,7 @@
 //! See the OneNote document for notes on how we handle the more complicated / cascaded control modes.
 //!
 //! [Some info on the PID terms, focused on BF](https://gist.github.com/exocode/90339d7f946ad5f83dd1cf29bf5df0dc)
+//! https://oscarliang.com/quadcopter-pid-explained-tuning/
 
 use core::f32::consts::TAU;
 
@@ -27,12 +28,28 @@ use crate::{
 };
 
 use defmt::println;
+use crate::flight_ctrls::THROTTLE_MAX_POWER;
 
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
 // todo: What should these be? Taken from an example.
-const INTEGRATOR_CLAMP_MIN: f32 = -250.;
-const INTEGRATOR_CLAMP_MAX: f32 = 250.;
+const INTEGRATOR_CLAMP_MIN: f32 = -10.;
+const INTEGRATOR_CLAMP_MAX: f32 = 10.;
+
+// "TPA" stands for Throttle PID attenuation - reduction in D term (or more) past a certain
+// throttle setting, linearly. This only applies to the rate loop.
+// https://github-wiki-see.page/m/betaflight/betaflight/wiki/PID-Tuning-Guide
+pub const TPA_MIN_ATTEN: f32 = 0.5; // At full throttle, D term is attenuated to this value.
+pub const TPA_BREAKPOINT: f32 = 0.3; // Start engaging TPA at this value.
+// `TPA_SLOPE` and `TPA_Y_INT` are cached calculations.
+const TPA_SLOPE: f32 = (TPA_MIN_ATTEN - 1.) / (THROTTLE_MAX_POWER - TPA_BREAKPOINT);
+const TPA_Y_INT: f32 = -(TPA_SLOPE * TPA_BREAKPOINT - 1.);
+
+/// Update the D term with throttle PID attenuation; linear falloff of the D term at a cutoff throttle
+/// setting. Multiple the D term by this function's output.
+fn tpa_adjustment(throttle: f32) -> f32 {
+    TPA_SLOPE * throttle + TPA_Y_INT
+}
 
 // These filter states are for the PID D term.
 static mut FILTER_STATE_ROLL_ATTITUDE: [f32; 4] = [0.; 4];
@@ -90,14 +107,33 @@ pub struct CtrlCoeffsPR {
     pid_deriv_lowpass_cutoff_attitude: LowpassCutoff,
 }
 
+
+// https://en.wikipedia.org/wiki/Ziegler%E2%80%93Nichols_method
+// The Ziegler–Nichols tuning method is a heuristic method of tuning a PID controller. It was developed
+// by John G. Ziegler and Nathaniel B. Nichols. It is performed by setting the I (integral) and D
+// (derivative) gains to zero. The "P" (proportional) gain, K p {\displaystyle K_{p}} K_{p} is
+// then increased (from zero) until it reaches the ultimate gain K u {\displaystyle K_{u}} K_{u}, at
+// which the output of the control loop has stable and consistent oscillations. K u {\displaystyle K_{u}}
+// K_{u} and the oscillation period T u {\displaystyle T_{u}} T_{u} are then used to set the P, I, and D
+// gains depending on the type of controller used and behaviour desired.
+
+
+// 0.02: No osc. 0.03: Osc. 0.04: Probably "Stable and consistent osc?" Hard to judge.
+const K_U_PITCH_ROLL: f32 = 0.025; // (kP at which oscillations continue, with no I or D term)
+const T_U_PITCH_ROLL: f32 = 0.3; // (oscillation period) // todo what should this be.
+
+// todo: This multiplier is a temp idea.
+const K_U_YAW: f32 = 3. * K_U_PITCH_ROLL; // (kP at which oscillations continue, with no I or D term)
+const T_U_YAW: f32 = 0.3; // (oscillation period) // todo what should this be.
+
 impl Default for CtrlCoeffsPR {
     fn default() -> Self {
         Self {
             // pid for controlling pitch and roll from commanded horizontal position
             // todo: Set these appropriately.
-            k_p_rate: 0.05,
-            k_i_rate: 0.05,
-            k_d_rate: 0.,
+            k_p_rate: 0.6 * K_U_PITCH_ROLL,
+            k_i_rate: 1.2 * K_U_PITCH_ROLL / T_U_PITCH_ROLL,
+            k_d_rate: 3. * K_U_PITCH_ROLL * T_U_PITCH_ROLL / 40.,
 
             // pid for controlling pitch and roll from commanded horizontal velocity
             k_p_attitude: 47.,
@@ -133,9 +169,9 @@ pub struct CtrlCoeffsYT {
 impl Default for CtrlCoeffsYT {
     fn default() -> Self {
         Self {
-            k_p_rate: 0.1,
-            k_i_rate: 0.05,
-            k_d_rate: 0.0,
+            k_p_rate: 0.6 * K_U_YAW,
+            k_i_rate: 1.2 * K_U_YAW / T_U_YAW,
+            k_d_rate: 3. * K_U_YAW * T_U_YAW / 40.,
 
             k_p_attitude: 0.1,
             k_i_attitude: 0.0,
@@ -221,8 +257,8 @@ pub struct PidDerivFilters {
     pub thrust: IirInstWrapper, // todo - do we need this?
 }
 
-impl PidDerivFilters {
-    pub fn new() -> Self {
+impl Default for PidDerivFilters {
+    fn default() -> Self {
         let mut result = Self {
             roll_attitude: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
@@ -315,7 +351,8 @@ fn calc_pid_error(
 
     // https://www.youtube.com/watch?v=zOByx3Izf5U
     let error_p = k_p * error;
-    let error_i = k_i * dt / 2. * (error + prev_pid.e) + prev_pid.i;
+    // For inegral term, use a midpoint formula, and use error.
+    let error_i = k_i * (error + prev_pid.e) / 2. * dt + prev_pid.i;
     // Derivative on measurement vice error, to avoid derivative kick.
     let error_d_prefilt = k_d * (measurement - prev_pid.measurement) / dt;
 
@@ -758,13 +795,21 @@ pub fn run_rate(
         _ => (),
     }
 
+    let manual_throttle = flight_ctrls::apply_throttle_idle(ch_data.throttle);
+
+    let tpa_scaler = if manual_throttle > TPA_BREAKPOINT {
+        tpa_adjustment(manual_throttle)
+    } else {
+        1.
+    };
+
     pid.pitch = calc_pid_error(
         rates_commanded.pitch,
         params.v_pitch,
         &pid.pitch,
         coeffs.pitch.k_p_rate,
         coeffs.pitch.k_i_rate,
-        coeffs.pitch.k_d_rate,
+        coeffs.pitch.k_d_rate * tpa_scaler,
         &mut filters.pitch_rate,
         dt,
     );
@@ -775,7 +820,7 @@ pub fn run_rate(
         &pid.roll,
         coeffs.roll.k_p_rate,
         coeffs.roll.k_i_rate,
-        coeffs.roll.k_d_rate,
+        coeffs.roll.k_d_rate * tpa_scaler,
         &mut filters.roll_rate,
         dt,
     );
@@ -786,7 +831,7 @@ pub fn run_rate(
         &pid.yaw,
         coeffs.yaw.k_p_rate,
         coeffs.yaw.k_i_rate,
-        coeffs.yaw.k_d_rate,
+        coeffs.yaw.k_d_rate * tpa_scaler,
         &mut filters.yaw_rate,
         dt,
     );
@@ -808,7 +853,7 @@ pub fn run_rate(
     println!("Yaw power: {:?}", yaw);
 
     println!("Pitch out: {:?}", pitch);
-    println!("roll out: {:?}", roll);
+    println!("Roll out: {:?}", roll);
     println!("PID Yaw out: {:?}", yaw);
 
     // todo: Work on this.
@@ -829,7 +874,7 @@ pub fn run_rate(
                 // input_map.calc_thrust_pwr(pid.thrust.out());
                 pid.thrust.out()
             } else {
-                flight_ctrls::apply_throttle_idle(ch_data.throttle)
+                manual_throttle
             }
         }
         InputMode::Attitude => ch_data.throttle,

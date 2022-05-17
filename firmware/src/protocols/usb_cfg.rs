@@ -24,7 +24,6 @@ cfg_if! {
 use num_enum::TryFromPrimitive; // Enum from integer
 
 use defmt::println;
-use stm32_hal2::gpio::Port::C;
 
 // Note: LUT is here, since it depends on the poly.
 static mut CRC_LUT: [u8; 256] = [0; 256];
@@ -36,7 +35,7 @@ const CONTROLS_SIZE: usize = 18; // + message type, payload len, and crc.
 const MAX_PAYLOAD_SIZE: usize = PARAMS_SIZE; // For Params.
 const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 2; // + message type, and crc.
 
-struct DecodeError {}
+struct _DecodeError {}
 
 pub fn init_crc() {
     util::crc_init(unsafe { &mut CRC_LUT }, CRC_POLY);
@@ -78,7 +77,7 @@ pub struct Packet {
     message_type: MsgType,
     // payload_size: usize,
     payload: [u8; MAX_PAYLOAD_SIZE], // todo?
-    crc: u8,
+    // crc: u8,
 }
 
 impl From<&Params> for [u8; PARAMS_SIZE] {
@@ -190,7 +189,7 @@ pub fn handle_rx(
             let response = Packet {
                 message_type: MsgType::Params,
                 payload: params.into(),
-                crc: 0,
+                // crc: 0,
             };
 
             let mut tx_buf: [u8; MAX_PACKET_SIZE] = response.into();

@@ -30,9 +30,8 @@ use num_enum::TryFromPrimitive; // Enum from integer
 
 use defmt::println;
 
-use stm32_hal2::dma::{Circular, DmaInterrupt};
 use stm32_hal2::{
-    dma::{ChannelCfg, Dma, DmaChannel},
+    dma::{ChannelCfg, Circular, Dma, DmaChannel},
     pac::{DMA1, USART3},
     usart::{Usart, UsartInterrupt},
 };
@@ -229,9 +228,10 @@ impl Packet {
             return Err(DecodeError {});
         }
 
-        for i in 0..payload_len {
-            payload[i] = buf[i + 3];
-        }
+        payload[..payload_len].copy_from_slice(&buf[3..(payload_len + 3)]);
+        // for i in 0..payload_len {
+        //     payload[i] = buf[i + 3];
+        // }
 
         let received_crc = buf[payload_len + 3];
 

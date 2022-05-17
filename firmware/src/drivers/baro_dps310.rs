@@ -62,7 +62,7 @@ impl Default for BaroCalPt {
 pub fn setup(i2c: &mut I2c<I2C2>) {
     // Set 16 x oversampling, and 128 measurements per second
     // todo: Balance oversampling between time and precision
-    i2c.write(ADDR, &[PRS_CFG, 0b0111_0100]);
+    i2c.write(ADDR, &[PRS_CFG, 0b0111_0100]).ok();
 
     // todo: Do more config!
 }

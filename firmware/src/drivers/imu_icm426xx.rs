@@ -22,6 +22,7 @@ const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
 // todo: Calibration
 
 /// See Datasheet, Section 13.1 (Note: This doesn't include all regs)
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 #[repr(u8)]
 pub enum Reg {

@@ -14,8 +14,6 @@
 //! The DSHOT protocol (DSHOT-300, DSHOT-600 etc) is determined by the `DSHOT_ARR_600` and `DSHOT_PSC_600` settings in the
 //! main crate; ie set a 600kHz countdown for DSHOT-600.
 
-use core::sync::atomic::AtomicBool;
-
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
@@ -85,54 +83,54 @@ static mut PAYLOAD_R3_4: [u16; 36] = [0; 36];
 #[repr(u16)]
 pub enum Command {
     /// Note: Motor Stop is perhaps not yet implemented.
-    MotorStop = 0,
-    Beacon1 = 1,
-    Beacon2 = 2,
-    Beacon3 = 3,
-    Beacon4 = 4,
-    Beacon5 = 5,
-    EscInfo = 6,
+    _MotorStop = 0,
+    _Beacon1 = 1,
+    _Beacon2 = 2,
+    _Beacon3 = 3,
+    _Beacon4 = 4,
+    _Beacon5 = 5,
+    _EscInfo = 6,
     /// SpinDir1 and 2 are forced normal and reversed. If you have the ESC set to reversed in the config,
     /// these will not reverse the motor direction, since it is already operating in reverse.
     SpinDir1 = 7, // 6x
     SpinDir2 = 8,   // 6x
     _3dModeOff = 9, // 6x
     _3dModeOn = 10, // 6x
-    SettingsRequest = 11,
+    _SettingsRequest = 11,
     SaveSettings = 12, // 6x, wait at least 35ms before next command.
     /// Normal and reversed with respect to configuration.
-    SpinDirNormal = 20, // 6x
-    SpinDirReversed = 21, // 6x
-    Led0On = 22,       // BLHeli32 only
-    Led1On = 23,       // BLHeli32 only
-    Led2On = 24,       // BLHeli32 only
-    Led3On = 25,       // BLHeli32 only
-    Led0Off = 26,      // BLHeli32 only
-    Led1Off = 27,      // BLHeli32 only
-    Led2Off = 28,      // BLHeli32 only
-    Led3Off = 29,      // BLHeli32 only
-    AudioStreamModeOnOff = 30, // KISS audio Stream mode on/Off
-    SilendModeOnOff = 31, // KISS silent Mode on/Off
+    _SpinDirNormal = 20, // 6x
+    _SpinDirReversed = 21, // 6x
+    _Led0On = 22,       // BLHeli32 only
+    _Led1On = 23,       // BLHeli32 only
+    _Led2On = 24,       // BLHeli32 only
+    _Led3On = 25,       // BLHeli32 only
+    _Led0Off = 26,      // BLHeli32 only
+    _Led1Off = 27,      // BLHeli32 only
+    _Led2Off = 28,      // BLHeli32 only
+    _Led3Off = 29,      // BLHeli32 only
+    _AudioStreamModeOnOff = 30, // KISS audio Stream mode on/Off
+    _SilendModeOnOff = 31, // KISS silent Mode on/Off
     /// Disables commands 42 to 47
-    TelemetryEnable = 32, // 6x
+    _TelemetryEnable = 32, // 6x
     /// Enables commands 42 to 47
-    TelemetryDisable = 33, // 6x
+    _TelemetryDisable = 33, // 6x
     /// Need 6x. Enables commands 42 to 47 and sends erpm if normal Dshot frame
-    ContinuousErpmTelemetry = 34, // 6x
+    _ContinuousErpmTelemetry = 34, // 6x
     /// Enables commands 42 to 47 and sends erpm period if normal Dshot frame
-    ContinuousErpmPeriodTelemetry = 35, // 6x
+    _ContinuousErpmPeriodTelemetry = 35, // 6x
     /// 1°C per LSB
-    TemperatureTelemetry = 42,
+    _TemperatureTelemetry = 42,
     /// 10mV per LSB, 40.95V max
-    VoltageTelemetry = 43,
+    _VoltageTelemetry = 43,
     /// 100mA per LSB, 409.5A max
-    CurrentTelemetry = 44,
+    _CurrentTelemetry = 44,
     /// 10mAh per LSB, 40.95Ah max
-    ConsumptionTelemetry = 45,
+    _ConsumptionTelemetry = 45,
     /// 100erpm per LSB, 409500erpm max
-    ErpmTelemetry = 46,
+    _ErpmTelemetry = 46,
     /// 16us per LSB, 65520us max TBD
-    ErpmPeriodTelemetry = 47,
+    _ErpmPeriodTelemetry = 47,
     // Max = 47, // todo: From Betaflight, but not consistent with the Brushlesswhoop article
 }
 
@@ -268,7 +266,7 @@ pub fn setup_payload(rotor: Rotor, cmd: CmdType) {
 
     // Compute the checksum
     let crc = (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F;
-    let mut packet = (packet << 4) | crc;
+    let packet = (packet << 4) | crc;
 
     let (payload, offset) = unsafe {
         match rotor {

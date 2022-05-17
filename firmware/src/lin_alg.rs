@@ -184,7 +184,7 @@ impl Quaternion {
     }
 
     /// Converts a Quaternion to Euler angles, in radians.
-    pub fn to_euler(&self) -> EulerAngle {
+    pub fn to_euler(self) -> EulerAngle {
         let half_minus_qy_squared = 0.5 - self.y * self.y; // calculate common terms to avoid repeated operations
 
         EulerAngle {
@@ -197,7 +197,7 @@ impl Quaternion {
 
     /// Converts a Quaternion to a rotation matrix
     #[rustfmt::skip]
-    pub fn to_matrix(&self) -> Mat3 {
+    pub fn to_matrix(self) -> Mat3 {
         let qwqw = self.w * self.w; // calculate common terms to avoid repeated operations
         let qwqx = self.w * self.x;
         let qwqy = self.w * self.y;
@@ -226,7 +226,7 @@ impl Quaternion {
     }
 
     /// Returns the normalised quaternion
-    pub fn to_normalized(&self) -> Self {
+    pub fn to_normalized(self) -> Self {
         // println!("Q w in mag fn: {}", self.w);
         // println!("Q mag: {}", self.magnitude());
         let mag_recip = 1. / self.magnitude();
