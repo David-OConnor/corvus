@@ -101,14 +101,14 @@ pub enum Command {
     /// Normal and reversed with respect to configuration.
     _SpinDirNormal = 20, // 6x
     _SpinDirReversed = 21, // 6x
-    _Led0On = 22,       // BLHeli32 only
-    _Led1On = 23,       // BLHeli32 only
-    _Led2On = 24,       // BLHeli32 only
-    _Led3On = 25,       // BLHeli32 only
-    _Led0Off = 26,      // BLHeli32 only
-    _Led1Off = 27,      // BLHeli32 only
-    _Led2Off = 28,      // BLHeli32 only
-    _Led3Off = 29,      // BLHeli32 only
+    _Led0On = 22,      // BLHeli32 only
+    _Led1On = 23,      // BLHeli32 only
+    _Led2On = 24,      // BLHeli32 only
+    _Led3On = 25,      // BLHeli32 only
+    _Led0Off = 26,     // BLHeli32 only
+    _Led1Off = 27,     // BLHeli32 only
+    _Led2Off = 28,     // BLHeli32 only
+    _Led3Off = 29,     // BLHeli32 only
     _AudioStreamModeOnOff = 30, // KISS audio Stream mode on/Off
     _SilendModeOnOff = 31, // KISS silent Mode on/Off
     /// Disables commands 42 to 47

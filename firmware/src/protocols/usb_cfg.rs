@@ -77,7 +77,7 @@ pub struct Packet {
     message_type: MsgType,
     // payload_size: usize,
     payload: [u8; MAX_PAYLOAD_SIZE], // todo?
-    // crc: u8,
+                                     // crc: u8,
 }
 
 impl From<&Params> for [u8; PARAMS_SIZE] {

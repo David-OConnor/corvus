@@ -67,6 +67,7 @@ mod lin_alg;
 mod madgwick;
 // mod osd;
 mod cfg_storage;
+mod imu_calibration;
 mod pid;
 mod pid_tuning;
 mod ppks;
@@ -75,7 +76,6 @@ mod safety;
 mod sensor_fusion;
 mod setup;
 mod util;
-mod imu_calibration;
 
 use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
@@ -923,8 +923,8 @@ mod app {
                     if *cx.local.update_loop_counter % 700 == 0 {
                         // todo temp
                         println!(
-                            "Accel: Ax {params.a_x}, Ay: {}, Az: {}",
-                            params.a_y, params.a_z
+                            "Accel: Ax {}, Ay: {}, Az: {}",
+                            params.a_x, params.a_y, params.a_z
                         );
 
                         println!(
@@ -1067,7 +1067,7 @@ mod app {
                             }
                         }
                     }
-                }
+                },
             )
     }
 

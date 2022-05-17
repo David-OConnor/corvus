@@ -27,22 +27,22 @@ use crate::{
     ArmStatus, RotorMapping, UserCfg, DT_ATTITUDE,
 };
 
+use crate::flight_ctrls::MAX_ROTOR_POWER;
 use defmt::println;
-use crate::flight_ctrls::THROTTLE_MAX_POWER;
 
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
 // todo: What should these be? Taken from an example.
-const INTEGRATOR_CLAMP_MIN: f32 = -10.;
-const INTEGRATOR_CLAMP_MAX: f32 = 10.;
+const INTEGRATOR_CLAMP_MIN: f32 = -20.;
+const INTEGRATOR_CLAMP_MAX: f32 = 20.;
 
 // "TPA" stands for Throttle PID attenuation - reduction in D term (or more) past a certain
 // throttle setting, linearly. This only applies to the rate loop.
 // https://github-wiki-see.page/m/betaflight/betaflight/wiki/PID-Tuning-Guide
 pub const TPA_MIN_ATTEN: f32 = 0.5; // At full throttle, D term is attenuated to this value.
 pub const TPA_BREAKPOINT: f32 = 0.3; // Start engaging TPA at this value.
-// `TPA_SLOPE` and `TPA_Y_INT` are cached calculations.
-const TPA_SLOPE: f32 = (TPA_MIN_ATTEN - 1.) / (THROTTLE_MAX_POWER - TPA_BREAKPOINT);
+                                     // `TPA_SLOPE` and `TPA_Y_INT` are cached calculations.
+const TPA_SLOPE: f32 = (TPA_MIN_ATTEN - 1.) / (MAX_ROTOR_POWER - TPA_BREAKPOINT);
 const TPA_Y_INT: f32 = -(TPA_SLOPE * TPA_BREAKPOINT - 1.);
 
 /// Update the D term with throttle PID attenuation; linear falloff of the D term at a cutoff throttle
@@ -107,7 +107,6 @@ pub struct CtrlCoeffsPR {
     pid_deriv_lowpass_cutoff_attitude: LowpassCutoff,
 }
 
-
 // https://en.wikipedia.org/wiki/Ziegler%E2%80%93Nichols_method
 // The Ziegler–Nichols tuning method is a heuristic method of tuning a PID controller. It was developed
 // by John G. Ziegler and Nathaniel B. Nichols. It is performed by setting the I (integral) and D
@@ -116,7 +115,6 @@ pub struct CtrlCoeffsPR {
 // which the output of the control loop has stable and consistent oscillations. K u {\displaystyle K_{u}}
 // K_{u} and the oscillation period T u {\displaystyle T_{u}} T_{u} are then used to set the P, I, and D
 // gains depending on the type of controller used and behaviour desired.
-
 
 // 0.02: No osc. 0.03: Osc. 0.04: Probably "Stable and consistent osc?" Hard to judge.
 const K_U_PITCH_ROLL: f32 = 0.025; // (kP at which oscillations continue, with no I or D term)
@@ -756,8 +754,12 @@ pub fn run_rate(
                 pitch: input_map.calc_pitch_rate(ch_data.pitch),
                 roll: input_map.calc_roll_rate(ch_data.roll),
                 yaw: input_map.calc_yaw_rate(ch_data.yaw),
-                thrust: flight_ctrls::power_from_throttle(ch_data.throttle, &power_interp_inst),
+                // todo: If you do a non-linear throttle-to-thrust map, put something like this back.
+                // thrust: flight_ctrls::power_from_throttle(ch_data.throttle, &power_interp_inst),
+                thrust: input_map.calc_manual_throttle(ch_data.throttle),
             };
+
+            println!("throttle command: {:?}", rates_commanded.thrust);
 
             if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
                 let dist = match alt_type {
@@ -795,7 +797,8 @@ pub fn run_rate(
         _ => (),
     }
 
-    let manual_throttle = flight_ctrls::apply_throttle_idle(ch_data.throttle);
+    // let manual_throttle = flight_ctrls::apply_throttle_idle(ch_data.throttle);
+    let manual_throttle = ch_data.throttle;
 
     let tpa_scaler = if manual_throttle > TPA_BREAKPOINT {
         tpa_adjustment(manual_throttle)
@@ -861,7 +864,7 @@ pub fn run_rate(
         InputMode::Acro => {
             if let Some((_, _)) = autopilot_status.alt_hold {
                 pid.thrust = calc_pid_error(
-                    input_map.calc_thrust(rates_commanded.thrust),
+                    rates_commanded.thrust,
                     params.v_z,
                     &pid.thrust,
                     coeffs.thrust.k_p_rate,

@@ -32,12 +32,7 @@ use stm32_hal2::{
     spi::Spi,
 };
 
-use crate::{
-    flight_ctrls::Params,
-    imu,
-    lin_alg::Vec3,
-    madgwick::Ahrs,
-};
+use crate::{flight_ctrls::Params, imu, lin_alg::Vec3, madgwick::Ahrs};
 
 // C file with impl of EKF for quaternion rotation:
 // https://github.com/pms67/EKF-Quaternion-Attitude-Estimation/blob/master/EKF.h

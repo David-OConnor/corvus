@@ -6,9 +6,7 @@
 
 // todo: Split up further
 
-use core::{
-    f32::consts::TAU,
-};
+use core::f32::consts::TAU;
 
 use stm32_hal2::{
     dma::Dma,
@@ -20,18 +18,22 @@ use defmt::println;
 
 use cmsis_dsp_sys as dsp_sys;
 
-use crate::{
-    dshot, safety::ArmStatus, util,
-    util::map_linear, Location, StateVolatile,
-};
+use crate::{dshot, safety::ArmStatus, util, util::map_linear, Location, StateVolatile};
 
-// If the throttle signal is below this, set idle power.
-const THROTTLE_IDLE_THRESH: f32 = 0.03;
+// Min power setting for any individual rotor at idle setting.
+const MIN_ROTOR_POWER: f32 = 0.03;
 
-// Power at idle setting.
-const THROTTLE_IDLE_POWER: f32 = 0.03;
-// Max power setting.
-pub const THROTTLE_MAX_POWER: f32 = 1.;
+// Max power setting for any individual rotor at idle setting.
+pub const MAX_ROTOR_POWER: f32 = 1.;
+
+// Our maneuverability clamps are different from normal throttle settings: They're used
+// to reduce the risk and severity of individual rotors clamping due to throttle settings that
+// are too high or too low. They reduce user throttle authority, but provide more predictable
+// responses when maneucvering near min and max throttle
+pub const THROTTLE_MAX_MNVR_CLAMP: f32 = 0.85;
+// todo: You should probably disable the min maneuver clamp when on the ground (how to check?)
+// and have it higher otherwise.
+pub const THROTTLE_MIN_MNVR_CLAMP: f32 = 0.06;
 
 // Don't execute the calibration procedure from below this altitude, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
@@ -48,7 +50,7 @@ const ROTOR_HALF_PAIR_DELTA_MAX: f32 = 0.25;
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
 const ROLL_IN_RNG: (f32, f32) = (-1., 1.);
 const YAW_IN_RNG: (f32, f32) = (-1., 1.);
-const THRUST_IN_RNG: (f32, f32) = (0., 1.);
+const THROTTLE_IN_RNG: (f32, f32) = (0., 1.);
 
 // Our output ranges for motor power.
 // const PITCH_PWR_RNG: (f32, f32) = (-1., 1.);
@@ -152,8 +154,8 @@ pub struct InputMap {
     roll_rate: (f32, f32),
     /// Yaw velocity commanded (Eg Acro mode)
     yaw_rate: (f32, f32),
-    /// Power level
-    power_level: (f32, f32),
+    /// Throttle setting, clamped to leave room for maneuvering near the limits.
+    throttle_clamped: (f32, f32),
     /// Pitch velocity commanded (Eg Attitude mode) // radians from vertical
     pitch_angle: (f32, f32),
     /// Pitch velocity commanded (Eg Attitude mode)
@@ -179,6 +181,9 @@ impl InputMap {
         map_linear(input, YAW_IN_RNG, self.yaw_rate)
     }
 
+    pub fn calc_manual_throttle(&self, input: f32) -> f32 {
+        map_linear(input, THROTTLE_IN_RNG, self.throttle_clamped)
+    }
     // /// Convert from radians/s to the range used to set motor power.
     // pub fn calc_pitch_rate_pwr(&self, input: f32) -> f32 {
     //     map_linear(input, self.pitch_rate, PITCH_PWR_RNG)
@@ -191,10 +196,10 @@ impl InputMap {
     // pub fn calc_yaw_rate_pwr(&self, input: f32) -> f32 {
     //     map_linear(input, self.yaw_rate, YAW_PWR_RNG)
     // }
-
-    pub fn calc_thrust(&self, input: f32) -> f32 {
-        map_linear(input, THRUST_IN_RNG, self.power_level)
-    }
+    //
+    // pub fn calc_thrust(&self, input: f32) -> f32 {
+    //     map_linear(input, THRUST_IN_RNG, self.throttle)
+    // }
 
     /// eg for attitude mode.
     pub fn calc_pitch_angle(&self, input: f32) -> f32 {
@@ -216,7 +221,7 @@ impl Default for InputMap {
             pitch_rate: (-10., 10.),
             roll_rate: (-10., 10.),
             yaw_rate: (-10., 10.),
-            power_level: (0., 1.),
+            throttle_clamped: (THROTTLE_MIN_MNVR_CLAMP, THROTTLE_MAX_MNVR_CLAMP),
             pitch_angle: (-TAU / 4., TAU / 4.),
             roll_angle: (-TAU / 4., TAU / 4.),
             yaw_angle: (0., TAU),
@@ -495,28 +500,28 @@ impl RotorPower {
         //     }
         // }
 
-        if self.front_left < THROTTLE_IDLE_POWER {
-            self.front_left = THROTTLE_IDLE_POWER
-        } else if self.front_left > THROTTLE_MAX_POWER {
-            self.front_left = THROTTLE_MAX_POWER;
+        if self.front_left < MIN_ROTOR_POWER {
+            self.front_left = MIN_ROTOR_POWER
+        } else if self.front_left > MAX_ROTOR_POWER {
+            self.front_left = MAX_ROTOR_POWER;
         }
 
-        if self.front_right < THROTTLE_IDLE_POWER {
-            self.front_right = THROTTLE_IDLE_POWER
-        } else if self.front_right > THROTTLE_MAX_POWER {
-            self.front_right = THROTTLE_MAX_POWER;
+        if self.front_right < MIN_ROTOR_POWER {
+            self.front_right = MIN_ROTOR_POWER
+        } else if self.front_right > MAX_ROTOR_POWER {
+            self.front_right = MAX_ROTOR_POWER;
         }
 
-        if self.aft_left < THROTTLE_IDLE_POWER {
-            self.aft_left = THROTTLE_IDLE_POWER
-        } else if self.aft_left > THROTTLE_MAX_POWER {
-            self.aft_left = THROTTLE_MAX_POWER;
+        if self.aft_left < MIN_ROTOR_POWER {
+            self.aft_left = MIN_ROTOR_POWER
+        } else if self.aft_left > MAX_ROTOR_POWER {
+            self.aft_left = MAX_ROTOR_POWER;
         }
 
-        if self.aft_right < THROTTLE_IDLE_POWER {
-            self.aft_right = THROTTLE_IDLE_POWER
-        } else if self.aft_right > THROTTLE_MAX_POWER {
-            self.aft_right = THROTTLE_MAX_POWER;
+        if self.aft_right < MIN_ROTOR_POWER {
+            self.aft_right = MIN_ROTOR_POWER
+        } else if self.aft_right > MAX_ROTOR_POWER {
+            self.aft_right = MAX_ROTOR_POWER;
         }
     }
 
@@ -560,14 +565,14 @@ impl RotorPower {
     }
 }
 
-/// Apply the throttle idle clamp. Generally for modes with manual power setting (?)
-pub fn apply_throttle_idle(throttle: f32) -> f32 {
-    if throttle < THROTTLE_IDLE_THRESH {
-        THROTTLE_IDLE_POWER
-    } else {
-        throttle
-    }
-}
+// /// Apply the throttle idle clamp. Generally for modes with manual power setting (?)
+// pub fn apply_throttle_idle(throttle: f32) -> f32 {
+//     if throttle < THROTTLE_IDLE_THRESH {
+//         MIN_ROTOR_POWER
+//     } else {
+//         throttle
+//     }
+// }
 
 // todo: DMA for timer? How?
 
