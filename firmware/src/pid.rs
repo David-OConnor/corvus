@@ -33,8 +33,8 @@ use defmt::println;
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
 // todo: What should these be? Taken from an example.
-const INTEGRATOR_CLAMP_MIN: f32 = -20.;
-const INTEGRATOR_CLAMP_MAX: f32 = 20.;
+const INTEGRATOR_CLAMP_MIN: f32 = -10.;
+const INTEGRATOR_CLAMP_MAX: f32 = 10.;
 
 // "TPA" stands for Throttle PID attenuation - reduction in D term (or more) past a certain
 // throttle setting, linearly. This only applies to the rate loop.
@@ -116,13 +116,13 @@ pub struct CtrlCoeffsPR {
 // K_{u} and the oscillation period T u {\displaystyle T_{u}} T_{u} are then used to set the P, I, and D
 // gains depending on the type of controller used and behaviour desired.
 
-// 0.02: No osc. 0.03: Osc. 0.04: Probably "Stable and consistent osc?" Hard to judge.
-const K_U_PITCH_ROLL: f32 = 0.025; // (kP at which oscillations continue, with no I or D term)
+// "Stable and consistent osc?" Hard to judge.
+const K_U_PITCH_ROLL: f32 = 0.04; // (kP at which oscillations continue, with no I or D term)
 const T_U_PITCH_ROLL: f32 = 0.3; // (oscillation period) // todo what should this be.
 
 // todo: This multiplier is a temp idea.
-const K_U_YAW: f32 = 3. * K_U_PITCH_ROLL; // (kP at which oscillations continue, with no I or D term)
-const T_U_YAW: f32 = 0.3; // (oscillation period) // todo what should this be.
+const K_U_YAW: f32 = 8. * K_U_PITCH_ROLL; // (kP at which oscillations continue, with no I or D term)
+const T_U_YAW: f32 = 0.2; // (oscillation period) // todo what should this be.
 
 impl Default for CtrlCoeffsPR {
     fn default() -> Self {

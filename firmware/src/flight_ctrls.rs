@@ -44,7 +44,7 @@ pub const LOST_LINK_TIMEOUT: f32 = 1.;
 // With maximum commanded pitch, yaw, or roll rate, add and subtract this value from
 // opposing rotors. Keep this relatively low, since thi scan add up from maneuvers on multiple
 // axes!
-const ROTOR_HALF_PAIR_DELTA_MAX: f32 = 0.25;
+const ROTOR_HALF_PAIR_DELTA_MAX: f32 = 0.15;
 
 // Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
