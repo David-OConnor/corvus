@@ -16,7 +16,7 @@ use stm32_hal2::{
     adc::{Adc, AdcDevice},
     clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllSrc},
     dma::{self, Dma, DmaChannel},
-    flash::Flash,
+    flash::{Bank, Flash},
     gpio::{self, Edge, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
     pac::{
@@ -107,7 +107,7 @@ use ppks::{Location, LocationType};
 
 // 512k flash. Page size 2kbyte. 72-bit data read (64 bits plus 8 ECC bits)
 // Each page is 8 rows of 256 bytes. 255 pages in main memory.
-const ONBOARD_FLASH_START_PAGE: usize = 160;
+const FLASH_CFG_PAGE: usize = 254;
 
 // Our DT timer speed, in Hz.
 const DT_TIM_FREQ: u32 = 200_000_000;
@@ -250,9 +250,6 @@ pub struct UserCfg {
     mapping_obstacles: bool,
     max_speed_hor: f32,
     max_speed_ver: f32,
-    /// It's common to arbitrarily wire motors to the ESC. Reverse each from its
-    /// default direction, as required.
-    motors_reversed: (bool, bool, bool, bool),
     /// Map motor connection number to position.
     motor_mapping: RotorMapping,
     baro_cal: baro::BaroCalPt,
@@ -279,14 +276,7 @@ impl Default for UserCfg {
             mapping_obstacles: false,
             max_speed_hor: 20.,
             max_speed_ver: 20.,
-            motors_reversed: (false, false, false, false),
-            motor_mapping: RotorMapping {
-                r1: RotorPosition::AftRight,
-                r2: RotorPosition::FrontRight,
-                r3: RotorPosition::AftLeft,
-                r4: RotorPosition::FrontLeft,
-                frontleft_aftright_dir: RotationDir::Clockwise,
-            },
+            motor_mapping: Default::default(),
             baro_cal: Default::default(),
             // Make sure to update this interp table if you change idle power.
             // todo: This LUT setup is backwards! You need to put thrust on a fixed spacing,
@@ -686,9 +676,6 @@ mod app {
         // todo: ID connected sensors etc by checking their device ID etc.
         let mut state_volatile = StateVolatile::default();
 
-        // Hard-coded for our test setup
-        user_cfg.motors_reversed = (true, false, false, false);
-
         cfg_if! {
             if #[cfg(feature = "g4")] {
                 let usb = Peripheral { regs: dp.USB };
@@ -715,13 +702,18 @@ mod app {
         let mut flash_onboard = Flash::new(dp.FLASH);
 
         // todo: Testing flash
-        // flash_onboard.unlock();
-        let mut flash_buf = [0; 5];
-        // let cfg_data = flash_onboard.read_to_buffer(ONBOARD_FLASH_START_PAGE, 0, &mut flash_buf);
+        let mut flash_buf = [0; 8];
+        // let cfg_data =
+        flash_onboard.read(Bank::B1, FLASH_CFG_PAGE, 0, &mut flash_buf);
+
+        // println!(
+        //     "mem val: {}",
+        //     flash_onboard.read(ONBOARD_FLASH_START_PAGE, 0)
+        // );
 
         println!("Flash Buf ( should be 1, 2, 3, 0, 0): {:?}", flash_buf);
-        // flash_onboard.erase_page(ONBOARD_FLASH_START_PAGE);
-        // flash_onboard.write_page(ONBOARD_FLASH_START_PAGE, &[1, 2, 3, 0, 0]);
+        // flash_onboard.erase_write_page(Bank::B1, ONBOARD_FLASH_START_PAGE, &[10, 11, 12, 13, 14, 15, 16, 17]).ok();
+        println!("Flash write complete");
 
         let mut params = Default::default();
 
@@ -877,8 +869,9 @@ mod app {
             cx.shared.velocities_commanded,
             cx.shared.attitudes_commanded,
             cx.shared.rates_commanded,
-            cx.shared.pid_velocity,
+            cx.shared.pid_rate,
             cx.shared.pid_attitude,
+            cx.shared.pid_velocity,
             cx.shared.pid_deriv_filters,
             cx.shared.power_used,
             cx.shared.input_mode,
@@ -901,8 +894,9 @@ mod app {
                  velocities_commanded,
                  attitudes_commanded,
                  rates_commanded,
-                 pid_velocity,
+                 pid_rate,
                  pid_attitude,
+                 pid_velocity,
                  filters,
                  power_used,
                  input_mode,
@@ -986,6 +980,9 @@ mod app {
                         control_channel_data.arm_status,
                         &mut command_state.arm_status,
                         control_channel_data.throttle,
+                        pid_rate,
+                        pid_attitude,
+                        pid_velocity,
                     );
 
                     if safety::LINK_LOST.load(Ordering::Acquire) {
@@ -1212,7 +1209,8 @@ mod app {
 
     // todo: Commented out USB ISR so we don't get the annoying beeps from PC on conn/dc
 
-    #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data], local = [], priority = 7)]
+    #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data, command_state,
+    user_cfg, rotor_timer_a, rotor_timer_b, dma], local = [], priority = 7)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
@@ -1221,24 +1219,50 @@ mod app {
             cx.shared.usb_serial,
             cx.shared.current_params,
             cx.shared.control_channel_data,
+            cx.shared.command_state,
+            cx.shared.user_cfg,
+            cx.shared.rotor_timer_a,
+            cx.shared.rotor_timer_b,
+            cx.shared.dma,
         )
-            .lock(|usb_dev, usb_serial, params, ch_data| {
-                if !usb_dev.poll(&mut [usb_serial]) {
-                    return;
-                }
+            .lock(
+                |usb_dev,
+                 usb_serial,
+                 params,
+                 ch_data,
+                 command_state,
+                 user_cfg,
+                 rotor_timer_a,
+                 rotor_timer_b,
+                 dma| {
+                    if !usb_dev.poll(&mut [usb_serial]) {
+                        return;
+                    }
 
-                let mut buf = [0u8; 8];
-                match usb_serial.read(&mut buf) {
-                    Ok(count) => {
-                        // usb_serial.write(&[1, 2, 3]).ok();
-                        // todo: Only pass params if needed?
-                        usb_cfg::handle_rx(usb_serial, &buf, count, params, ch_data);
+                    let mut buf = [0u8; 8];
+                    match usb_serial.read(&mut buf) {
+                        Ok(count) => {
+                            // usb_serial.write(&[1, 2, 3]).ok();
+                            // todo: Only pass params if needed?
+                            usb_cfg::handle_rx(
+                                usb_serial,
+                                &buf,
+                                count,
+                                params,
+                                ch_data,
+                                &mut command_state.arm_status,
+                                &mut user_cfg.motor_mapping,
+                                rotor_timer_a,
+                                rotor_timer_b,
+                                dma,
+                            );
+                        }
+                        Err(_) => {
+                            println!("Error reading USB signal from PC");
+                        }
                     }
-                    Err(_) => {
-                        println!("Error reading USB signal from PC");
-                    }
-                }
-            })
+                },
+            )
     }
 
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
@@ -1402,10 +1426,3 @@ mod app {
 fn panic() -> ! {
     cortex_m::asm::udf()
 }
-
-// /// Terminates the application and makes `probe-run` exit with exit-code = 0
-// pub fn exit() -> ! {
-//     loop {
-//         cortex_m::asm::bkpt();
-//     }
-// }

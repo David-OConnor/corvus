@@ -33,8 +33,8 @@ use defmt::println;
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
 // todo: What should these be? Taken from an example.
-const INTEGRATOR_CLAMP_MIN: f32 = -10.;
-const INTEGRATOR_CLAMP_MAX: f32 = 10.;
+const INTEGRATOR_CLAMP_MAX: f32 = 0.6;
+const INTEGRATOR_CLAMP_MIN: f32 = -INTEGRATOR_CLAMP_MAX;
 
 // "TPA" stands for Throttle PID attenuation - reduction in D term (or more) past a certain
 // throttle setting, linearly. This only applies to the rate loop.
@@ -117,11 +117,11 @@ pub struct CtrlCoeffsPR {
 // gains depending on the type of controller used and behaviour desired.
 
 // "Stable and consistent osc?" Hard to judge.
-const K_U_PITCH_ROLL: f32 = 0.04; // (kP at which oscillations continue, with no I or D term)
-const T_U_PITCH_ROLL: f32 = 0.3; // (oscillation period) // todo what should this be.
+const K_U_PITCH_ROLL: f32 = 0.3; // (kP at which oscillations continue, with no I or D term)
+const T_U_PITCH_ROLL: f32 = 0.25; // (oscillation period) // todo what should this be.
 
 // todo: This multiplier is a temp idea.
-const K_U_YAW: f32 = 8. * K_U_PITCH_ROLL; // (kP at which oscillations continue, with no I or D term)
+const K_U_YAW: f32 = 0.7 * K_U_PITCH_ROLL; // (kP at which oscillations continue, with no I or D term)
 const T_U_YAW: f32 = 0.2; // (oscillation period) // todo what should this be.
 
 impl Default for CtrlCoeffsPR {
@@ -130,7 +130,8 @@ impl Default for CtrlCoeffsPR {
             // pid for controlling pitch and roll from commanded horizontal position
             // todo: Set these appropriately.
             k_p_rate: 0.6 * K_U_PITCH_ROLL,
-            k_i_rate: 1.2 * K_U_PITCH_ROLL / T_U_PITCH_ROLL,
+            // k_i_rate: 1.2 * K_U_PITCH_ROLL / T_U_PITCH_ROLL,
+            k_i_rate: 0.5, // temp
             k_d_rate: 3. * K_U_PITCH_ROLL * T_U_PITCH_ROLL / 40.,
 
             // pid for controlling pitch and roll from commanded horizontal velocity
@@ -205,6 +206,16 @@ pub struct PidGroup {
     roll: PidState,
     yaw: PidState,
     thrust: PidState,
+}
+
+impl PidGroup {
+    /// Reset the interator term on all components.
+    pub fn reset_integrator(&mut self) {
+        self.pitch.i = 0.;
+        self.roll.i = 0.;
+        self.yaw.i = 0.;
+        self.thrust.i = 0.;
+    }
 }
 
 /// Proportional, Integral, Derivative error, for flight parameter control updates.

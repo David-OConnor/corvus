@@ -1,5 +1,5 @@
-//! Madgwick filter, for attaining an attitude platform from a 3-axis acceleratometer, gyro, and optionally
-//! magnetometer.
+//! AHRS fusion filter, for attaining an attitude platform from a 3-axis acceleratometer, gyro, and optionally
+//! magnetometer. Based on a variant by Madgwick (By, not the?)
 //! https://ahrs.readthedocs.io/en/latest/filters/madgwick.html:
 //!
 //! "This is an orientation filter applicable to IMUs consisting of tri-axial gyroscopes and accelerometers,
@@ -31,7 +31,7 @@ use super::lin_alg::{Quaternion, Vec3};
 
 use defmt::println;
 
-const G: f32 = 9.80665; // Gravity, in m/s^2
+// const G: f32 = 9.80665; // Gravity, in m/s^2
 
 // Cutoff frequency in Hz.
 const CUTOFF_FREQUENCY: f32 = 0.02;
@@ -84,9 +84,9 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            gain: 0.5,
-            accel_rejection: 0.1745,
-            magnetic_rejection: 0.3491,
+            gain: 50.,
+            accel_rejection: TAU / 4.,
+            magnetic_rejection: TAU / 4.,
             rejection_timeout: (5. * crate::IMU_UPDATE_RATE) as u32,
         }
     }

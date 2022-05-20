@@ -10,7 +10,18 @@
 // todo: Should we use this module and/or a similar structure for data exchange over RF,
 // todo: beyond the normal control info used by ELRS? (Eg sending a route, autopilot data etc)
 
-use crate::{control_interface::ChannelData, flight_ctrls::Params, util};
+use crate::{
+    control_interface::ChannelData,
+    dshot::{set_power_a, set_power_b},
+    flight_ctrls::{Motor, Params, RotorMapping, RotorPosition},
+    util, ArmStatus,
+};
+
+use stm32_hal2::{
+    dma::Dma,
+    pac::{DMA1, TIM2, TIM3},
+    timer::Timer,
+};
 
 use cfg_if::cfg_if;
 
@@ -58,6 +69,13 @@ pub enum MsgType {
     Controls = 4,
     /// Request controls data. (From PC)
     ReqControls = 5,
+    /// Arm all motors, for testing
+    ArmMotors = 6,
+    DisarmMotors = 7,
+    /// Start a specific motor
+    StartMotor = 8,
+    /// Stop a specific motor
+    StopMotor = 9,
 }
 
 impl MsgType {
@@ -69,6 +87,10 @@ impl MsgType {
             Self::Ack => 0,
             Self::Controls => CONTROLS_SIZE,
             Self::ReqControls => 0,
+            Self::ArmMotors => 0,
+            Self::DisarmMotors => 0,
+            Self::StartMotor => 1,
+            Self::StopMotor => 1,
         }
     }
 }
@@ -157,6 +179,11 @@ pub fn handle_rx(
     count: usize,
     params: &Params,
     controls: &ChannelData,
+    arm_status: &mut ArmStatus,
+    rotor_mapping: &mut RotorMapping,
+    rotor_timer_a: &mut Timer<TIM2>,
+    rotor_timer_b: &mut Timer<TIM3>,
+    dma: &mut Dma<DMA1>,
 ) {
     let rx_msg_type: MsgType = match data[0].try_into() {
         Ok(d) => d,
@@ -232,7 +259,53 @@ pub fn handle_rx(
             usb_serial.write(&tx_buf).ok();
         }
         MsgType::Controls => {}
-    }
+        MsgType::ArmMotors => {
+            // We use the same `ArmStatus` flag for testing motors in preflight as we do
+            // for flight.
+            *arm_status = ArmStatus::Armed;
+        }
+        MsgType::DisarmMotors => {
+            // We use the same `ArmStatus` flag for testing motors in preflight as we do
+            // for flight.
+            *arm_status = ArmStatus::Disarmed;
+        }
+        MsgType::StartMotor => {
+            let rotor_position = match data[1] {
+                // todo: This more robust approach won't work.
+                // RotorPosition::FrontLeft as u8 => RotorPosition::FrontLeft,
+                // RotorPosition::FrontRight as u8 => RotorPosition::FrontRight,
+                // RotorPosition::AftLeft as u8 => RotorPosition::AftLeft,
+                // RotorPosition::AftRight as u8 => RotorPosition::AftRight,
+                0 => RotorPosition::FrontLeft,
+                1 => RotorPosition::FrontRight,
+                2 => RotorPosition::AftLeft,
+                3 => RotorPosition::AftRight,
+                _ => panic!(),
+            };
 
-    usb_serial.write(&[1]).ok();
+            match rotor_mapping.motor_from_position(rotor_position) {
+                Motor::M1 => {
+                    set_power_a(Motor::M1, Motor::M2, 0.05, 0., rotor_timer_a, dma);
+                }
+                Motor::M2 => {
+                    set_power_a(Motor::M1, Motor::M2, 0.05, 0., rotor_timer_a, dma);
+                }
+                Motor::M3 => {
+                    set_power_b(Motor::M3, Motor::M4, 0.05, 0., rotor_timer_b, dma);
+                }
+                Motor::M4 => {
+                    set_power_b(Motor::M3, Motor::M4, 0.05, 0., rotor_timer_b, dma);
+                }
+            }
+        }
+        MsgType::StopMotor => {
+            let rotor_position = match data[1] {
+                0 => RotorPosition::FrontLeft,
+                1 => RotorPosition::FrontRight,
+                2 => RotorPosition::AftLeft,
+                3 => RotorPosition::AftRight,
+                _ => panic!(),
+            };
+        }
+    }
 }

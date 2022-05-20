@@ -26,6 +26,8 @@ const MIN_ROTOR_POWER: f32 = 0.03;
 // Max power setting for any individual rotor at idle setting.
 pub const MAX_ROTOR_POWER: f32 = 1.;
 
+// todo: Variabel/struct field found from cal routine that is power to hover.
+
 // Our maneuverability clamps are different from normal throttle settings: They're used
 // to reduce the risk and severity of individual rotors clamping due to throttle settings that
 // are too high or too low. They reduce user throttle authority, but provide more predictable
@@ -129,20 +131,22 @@ pub struct AxisLocks {
 /// Specify the rotor by its connection to the ESC. Includdes methods that get information regarding timer
 /// and DMA, per specific board setups, in `setup`.
 #[derive(Clone, Copy)]
-pub enum Rotor {
-    R1,
-    R2,
-    R3,
-    R4,
+pub enum Motor {
+    M1,
+    M2,
+    M3,
+    M4,
 }
 
 /// Specify the rotor by position. Used in power application code.
-#[derive(Clone, Copy)]
+/// repr(u8) is for use in Preflight.
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
 pub enum RotorPosition {
-    FrontLeft,
-    FrontRight,
-    AftLeft,
-    AftRight,
+    FrontLeft = 0,
+    FrontRight = 1,
+    AftLeft = 2,
+    AftRight = 3,
 }
 
 /// Maps control inputs (range 0. to 1. or -1. to 1.) to velocities, rotational velocities etc
@@ -402,15 +406,53 @@ pub enum RotationDir {
     CounterClockwise,
 }
 
-/// Map rotor positions to connection numbers to ESC. Positions are associated with flight controls;
+/// Map rotor positions to connection numbers to ESC, and motor directions. Positions are associated with flight controls;
 /// numbers are associated with motor control. Also allows configuring rotor direcction, using front-left,
 /// and aft-right rotors as our stake.
 pub struct RotorMapping {
-    pub r1: RotorPosition,
-    pub r2: RotorPosition,
-    pub r3: RotorPosition,
-    pub r4: RotorPosition,
+    pub m1: RotorPosition,
+    pub m2: RotorPosition,
+    pub m3: RotorPosition,
+    pub m4: RotorPosition,
+    /// It's common to arbitrarily wire motors to the ESC. Reverse each from its
+    /// default direction, as required.
+    pub m1_reversed: bool,
+    pub m2_reversed: bool,
+    pub m3_reversed: bool,
+    pub m4_reversed: bool,
     pub frontleft_aftright_dir: RotationDir,
+}
+
+impl Default for RotorMapping {
+    fn default() -> Self {
+        Self {
+            m1: RotorPosition::AftRight,
+            m2: RotorPosition::FrontRight,
+            m3: RotorPosition::AftLeft,
+            m4: RotorPosition::FrontLeft,
+            m1_reversed: false,
+            m2_reversed: false,
+            m3_reversed: false,
+            m4_reversed: false,
+            frontleft_aftright_dir: RotationDir::Clockwise,
+        }
+    }
+}
+
+impl RotorMapping {
+    pub fn motor_from_position(&self, position: RotorPosition) -> Motor {
+        // todo: This assumes each motor maps to exactly one position. We probably
+        // todo should have some constraint to enforce this.
+        if self.m1 == position {
+            Motor::M1
+        } else if self.m2 == position {
+            Motor::M2
+        } else if self.m3 == position {
+            Motor::M3
+        } else {
+            Motor::M4
+        }
+    }
 }
 
 /// Represents power levels for the rotors. These map from 0. to 1.; 0% to 100% power.
@@ -452,28 +494,28 @@ impl RotorPower {
     /// Convert rotor position to its associated power setting.
     fn by_rotor_num(&self, mapping: &RotorMapping) -> (f32, f32, f32, f32) {
         // todo: DRY
-        let p1 = match mapping.r1 {
+        let p1 = match mapping.m1 {
             RotorPosition::FrontLeft => self.front_left,
             RotorPosition::FrontRight => self.front_right,
             RotorPosition::AftLeft => self.aft_left,
             RotorPosition::AftRight => self.aft_right,
         };
 
-        let p2 = match mapping.r2 {
+        let p2 = match mapping.m2 {
             RotorPosition::FrontLeft => self.front_left,
             RotorPosition::FrontRight => self.front_right,
             RotorPosition::AftLeft => self.aft_left,
             RotorPosition::AftRight => self.aft_right,
         };
 
-        let p3 = match mapping.r3 {
+        let p3 = match mapping.m3 {
             RotorPosition::FrontLeft => self.front_left,
             RotorPosition::FrontRight => self.front_right,
             RotorPosition::AftLeft => self.aft_left,
             RotorPosition::AftRight => self.aft_right,
         };
 
-        let p4 = match mapping.r4 {
+        let p4 = match mapping.m4 {
             RotorPosition::FrontLeft => self.front_left,
             RotorPosition::FrontRight => self.front_right,
             RotorPosition::AftLeft => self.aft_left,
@@ -555,8 +597,8 @@ impl RotorPower {
 
         match arm_status {
             ArmStatus::Armed => {
-                dshot::set_power_a(Rotor::R1, Rotor::R2, p1, p2, rotor_timer_a, dma);
-                dshot::set_power_b(Rotor::R3, Rotor::R4, p3, p4, rotor_timer_b, dma);
+                dshot::set_power_a(Motor::M1, Motor::M2, p1, p2, rotor_timer_a, dma);
+                dshot::set_power_b(Motor::M3, Motor::M4, p3, p4, rotor_timer_b, dma);
             }
             ArmStatus::Disarmed => {
                 dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);

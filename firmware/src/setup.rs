@@ -3,7 +3,7 @@
 
 use cfg_if::cfg_if;
 
-use crate::flight_ctrls::Rotor;
+use crate::flight_ctrls::Motor;
 
 use stm32_hal2::{
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt},
@@ -17,14 +17,14 @@ pub const IMU_RX_CH: DmaChannel = DmaChannel::C2;
 pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
 pub const ELRS_RX_CH: DmaChannel = DmaChannel::C6;
 
-impl Rotor {
+impl Motor {
     // todo: Feature gate these methods based on board, as required.
     pub fn tim_channel(&self) -> TimChannel {
         match self {
-            Self::R1 => TimChannel::C1,
-            Self::R2 => TimChannel::C2,
-            Self::R3 => TimChannel::C3,
-            Self::R4 => TimChannel::C4,
+            Self::M1 => TimChannel::C1,
+            Self::M2 => TimChannel::C2,
+            Self::M3 => TimChannel::C3,
+            Self::M4 => TimChannel::C4,
         }
     }
 
@@ -32,20 +32,20 @@ impl Rotor {
     pub fn dma_input(&self) -> DmaInput {
         match self {
             // The DMA write isn't associated with a channel; using the Update even seems to work.
-            Self::R1 => DmaInput::Tim2Up,
-            Self::R2 => DmaInput::Tim2Up,
-            Self::R3 => DmaInput::Tim3Up,
-            Self::R4 => DmaInput::Tim3Up,
+            Self::M1 => DmaInput::Tim2Up,
+            Self::M2 => DmaInput::Tim2Up,
+            Self::M3 => DmaInput::Tim3Up,
+            Self::M4 => DmaInput::Tim3Up,
         }
     }
 
     /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
     pub fn dma_channel(&self) -> DmaChannel {
         match self {
-            Self::R1 => DmaChannel::C3,
-            Self::R2 => DmaChannel::C3,
-            Self::R3 => DmaChannel::C4,
-            Self::R4 => DmaChannel::C4,
+            Self::M1 => DmaChannel::C3,
+            Self::M2 => DmaChannel::C3,
+            Self::M3 => DmaChannel::C4,
+            Self::M4 => DmaChannel::C4,
         }
     }
 
@@ -174,10 +174,10 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     dma::mux(IMU_RX_CH, DmaInput::Spi1Rx, mux);
 
     // DSHOT, motors 1 and 2
-    dma::mux(Rotor::R1.dma_channel(), Rotor::R1.dma_input(), mux);
+    dma::mux(Motor::M1.dma_channel(), Motor::M1.dma_input(), mux);
 
     // DSHOT, motors 3 and 4
-    dma::mux(Rotor::R3.dma_channel(), Rotor::R3.dma_input(), mux);
+    dma::mux(Motor::M3.dma_channel(), Motor::M3.dma_input(), mux);
 
     // LoRa (ELRS)
     dma::mux(ELRS_RX_CH, DmaInput::Spi2Rx, mux);
@@ -197,8 +197,8 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     dma.enable_interrupt(IMU_RX_CH, DmaInterrupt::TransferComplete);
 
     // We use Dshot transfer-complete interrupts to disable the timer.
-    dma.enable_interrupt(Rotor::R1.dma_channel(), DmaInterrupt::TransferComplete);
-    dma.enable_interrupt(Rotor::R3.dma_channel(), DmaInterrupt::TransferComplete);
+    dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
+    dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
 
     // Process ELRS control data
     dma.enable_interrupt(ELRS_RX_CH, DmaInterrupt::TransferComplete);
