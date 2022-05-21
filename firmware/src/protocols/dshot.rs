@@ -290,7 +290,7 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
     // Note that the end stays 0-padded, since we init with 0s, and never change those values.
 }
 
-/// Set an individual rotor's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
+/// Set a rotor pair's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
 /// settings. `power` ranges from 0. to 1.
 pub fn set_power_a(
     rotor1: Motor,
@@ -300,9 +300,15 @@ pub fn set_power_a(
     timer: &mut Timer<TIM2>,
     dma: &mut Dma<DMA1>,
 ) {
-    // println!("P: {}", power1);
     setup_payload(rotor1, CmdType::Power(power1));
     setup_payload(rotor2, CmdType::Power(power2));
+
+    send_payload_a(timer, dma)
+}
+
+/// Set a single rotor's power. Used by preflight; not normal operations.
+pub fn set_power_single_a(rotor: Motor, power: f32, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
+    setup_payload(rotor, CmdType::Power(power));
 
     send_payload_a(timer, dma)
 }
@@ -319,6 +325,13 @@ pub fn set_power_b(
     setup_payload(rotor1, CmdType::Power(power1));
     setup_payload(rotor2, CmdType::Power(power2));
 
+    send_payload_b(timer, dma)
+}
+
+/// Set a single rotor's power. Used by preflight; not normal operations.
+pub fn set_power_single_b(rotor: Motor, power: f32, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
+    // todo DRY, as in much of this module.
+    setup_payload(rotor, CmdType::Power(power));
     send_payload_b(timer, dma)
 }
 

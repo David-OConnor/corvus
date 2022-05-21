@@ -12,8 +12,9 @@
 
 use crate::{
     control_interface::ChannelData,
-    dshot::{set_power_a, set_power_b},
+    dshot,
     flight_ctrls::{Motor, Params, RotorMapping, RotorPosition},
+    lin_alg::Quaternion,
     util, ArmStatus,
 };
 
@@ -40,11 +41,15 @@ use defmt::println;
 static mut CRC_LUT: [u8; 256] = [0; 256];
 const CRC_POLY: u8 = 0xab;
 
-const PARAMS_SIZE: usize = 76; // + message type, payload len, and crc.
+// const PARAMS_SIZE: usize = 76; // + message type, payload len, and crc.
+const ATTITUDE_SIZE: usize = 16; // + message type, payload len, and crc.
 const CONTROLS_SIZE: usize = 18; // + message type, payload len, and crc.
+const ATTITUDE_PACKET_SIZE: usize = 16; // + message type, payload len, and crc.
+const CONTROLS_PACKET_SIZE: usize = 18; // + message type, payload len, and crc.
 
-const MAX_PAYLOAD_SIZE: usize = PARAMS_SIZE; // For Params.
-const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 2; // + message type, and crc.
+// const MAX_PAYLOAD_SIZE: usize = PARAMS_SIZE; // For Params.
+// const MAX_PAYLOAD_SIZE: usize = CONTROLS_SIZE; // For Params.
+// const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 2; // + message type, and crc.
 
 struct _DecodeError {}
 
@@ -81,7 +86,8 @@ pub enum MsgType {
 impl MsgType {
     pub fn payload_size(&self) -> usize {
         match self {
-            Self::Params => PARAMS_SIZE,
+            // Self::Params => PARAMS_SIZE,
+            Self::Params => ATTITUDE_SIZE,
             Self::SetMotorDirs => 1, // Packed bits: motors 1-4, R-L. True = CW.
             Self::ReqParams => 0,
             Self::Ack => 0,
@@ -95,39 +101,56 @@ impl MsgType {
     }
 }
 
-pub struct Packet {
-    message_type: MsgType,
-    // payload_size: usize,
-    payload: [u8; MAX_PAYLOAD_SIZE], // todo?
-                                     // crc: u8,
-}
+// pub struct Packet {
+//     message_type: MsgType,
+//     // payload_size: usize,
+//     payload: [u8; MAX_PAYLOAD_SIZE], // todo?
+//                                      // crc: u8,
+// }
 
-impl From<&Params> for [u8; PARAMS_SIZE] {
-    /// 19 f32s x 4 = 76. In the order we have defined in the struct.
-    fn from(p: &Params) -> Self {
-        let mut result = [0; PARAMS_SIZE];
+// impl From<&Params> for [u8; PARAMS_SIZE] {
+//     /// 19 f32s x 4 = 76. In the order we have defined in the struct.
+//     fn from(p: &Params) -> Self {
+//         let mut result = [0; PARAMS_SIZE];
+//
+//         // todo: DRY
+//         result[0..4].clone_from_slice(&p.s_x.to_be_bytes());
+//         result[4..8].clone_from_slice(&p.s_y.to_be_bytes());
+//         result[8..12].clone_from_slice(&p.s_z_msl.to_be_bytes());
+//         result[12..16].clone_from_slice(&p.s_z_agl.to_be_bytes());
+//         result[16..20].clone_from_slice(&p.s_pitch.to_be_bytes());
+//         result[20..24].clone_from_slice(&p.s_roll.to_be_bytes());
+//         result[24..28].clone_from_slice(&p.s_yaw.to_be_bytes());
+//         result[28..32].clone_from_slice(&p.quaternion.to_be_bytes());
+//
+//         // todo: If you transmit all params again, set this back up for the offset squishing in quaternion
+//         // todo implies.
+//         result[28..32].clone_from_slice(&p.v_x.to_be_bytes());
+//         result[32..36].clone_from_slice(&p.v_y.to_be_bytes());
+//         result[36..40].clone_from_slice(&p.v_z.to_be_bytes());
+//         result[40..44].clone_from_slice(&p.v_pitch.to_be_bytes());
+//         result[44..48].clone_from_slice(&p.v_roll.to_be_bytes());
+//         result[48..52].clone_from_slice(&p.v_yaw.to_be_bytes());
+//         result[52..56].clone_from_slice(&p.a_x.to_be_bytes());
+//         result[56..60].clone_from_slice(&p.a_y.to_be_bytes());
+//         result[60..64].clone_from_slice(&p.a_z.to_be_bytes());
+//         result[64..68].clone_from_slice(&p.a_pitch.to_be_bytes());
+//         result[68..72].clone_from_slice(&p.a_roll.to_be_bytes());
+//         result[72..76].clone_from_slice(&p.a_yaw.to_be_bytes());
+//
+//         result
+//     }
+// }
 
-        // todo: DRY
-        result[0..4].clone_from_slice(&p.s_x.to_be_bytes());
-        result[4..8].clone_from_slice(&p.s_y.to_be_bytes());
-        result[8..12].clone_from_slice(&p.s_z_msl.to_be_bytes());
-        result[12..16].clone_from_slice(&p.s_z_agl.to_be_bytes());
-        result[16..20].clone_from_slice(&p.s_pitch.to_be_bytes());
-        result[20..24].clone_from_slice(&p.s_roll.to_be_bytes());
-        result[24..28].clone_from_slice(&p.s_yaw.to_be_bytes());
-        result[28..32].clone_from_slice(&p.v_x.to_be_bytes());
-        result[32..36].clone_from_slice(&p.v_y.to_be_bytes());
-        result[36..40].clone_from_slice(&p.v_z.to_be_bytes());
-        result[40..44].clone_from_slice(&p.v_pitch.to_be_bytes());
-        result[44..48].clone_from_slice(&p.v_roll.to_be_bytes());
-        result[48..52].clone_from_slice(&p.v_yaw.to_be_bytes());
-        result[52..56].clone_from_slice(&p.a_x.to_be_bytes());
-        result[56..60].clone_from_slice(&p.a_y.to_be_bytes());
-        result[60..64].clone_from_slice(&p.a_z.to_be_bytes());
-        result[64..68].clone_from_slice(&p.a_pitch.to_be_bytes());
-        result[68..72].clone_from_slice(&p.a_roll.to_be_bytes());
-        result[72..76].clone_from_slice(&p.a_yaw.to_be_bytes());
+impl From<Quaternion> for [u8; ATTITUDE_SIZE] {
+    /// 4 f32s = 76. In the order we have defined in the struct.
+    fn from(p: Quaternion) -> Self {
+        let mut result = [0; ATTITUDE_SIZE];
 
+        result[0..4].clone_from_slice(&p.w.to_be_bytes());
+        result[4..8].clone_from_slice(&p.x.to_be_bytes());
+        result[8..12].clone_from_slice(&p.y.to_be_bytes());
+        result[12..16].clone_from_slice(&p.z.to_be_bytes());
         result
     }
 }
@@ -149,35 +172,36 @@ impl From<&ChannelData> for [u8; CONTROLS_SIZE] {
     }
 }
 
-impl From<Packet> for [u8; MAX_PACKET_SIZE] {
-    fn from(p: Packet) -> Self {
-        let mut result = [0; MAX_PACKET_SIZE];
-
-        result[0] = p.message_type as u8;
-
-        for i in 0..p.message_type.payload_size() {
-            result[i + 1] = p.payload[i];
-        }
-
-        let crc = util::calc_crc(
-            unsafe { &CRC_LUT },
-            // Include everything except for the CRC bit itself.
-            &result[..p.message_type.payload_size() + 1],
-            p.message_type.payload_size() as u8 + 1,
-        );
-
-        result[p.message_type.payload_size() + 1] = crc;
-
-        result
-    }
-}
+// impl From<Packet> for [u8; MAX_PACKET_SIZE] {
+//     fn from(p: Packet) -> Self {
+//         let mut result = [0; MAX_PACKET_SIZE];
+//
+//         result[0] = p.message_type as u8;
+//
+//         for i in 0..p.message_type.payload_size() {
+//             result[i + 1] = p.payload[i];
+//         }
+//
+//         let crc = util::calc_crc(
+//             unsafe { &CRC_LUT },
+//             // Include everything except for the CRC bit itself.
+//             &result[..p.message_type.payload_size() + 1],
+//             p.message_type.payload_size() as u8 + 1,
+//         );
+//
+//         result[p.message_type.payload_size() + 1] = crc;
+//
+//         result
+//     }
+// }
 
 /// Handle incoming data from the PC
 pub fn handle_rx(
     usb_serial: &mut SerialPort<'static, UsbBusType>,
     data: &[u8],
     count: usize,
-    params: &Params,
+    // params: &Params,
+    attitude: Quaternion,
     controls: &ChannelData,
     arm_status: &mut ArmStatus,
     rotor_mapping: &mut RotorMapping,
@@ -204,8 +228,6 @@ pub fn handle_rx(
         // todo: return here.
     }
 
-    // return; // todo TS
-
     match rx_msg_type {
         MsgType::Params => {}
         MsgType::SetMotorDirs => {
@@ -213,13 +235,21 @@ pub fn handle_rx(
         }
         MsgType::ReqParams => {
             println!("Params requested...");
-            let response = Packet {
-                message_type: MsgType::Params,
-                payload: params.into(),
-                // crc: 0,
-            };
+            // let response = Packet {
+            //     message_type: MsgType::Params,
+            //     payload: attitude.into(),
+            // };
 
-            let mut tx_buf: [u8; MAX_PACKET_SIZE] = response.into();
+            // todo: We probably don't want to be creating a max packet size buf here.
+            // let mut tx_buf: [u8; ATTITUDE_PACKET_SIZE] = response.into();
+
+            let mut tx_buf = [0; ATTITUDE_PACKET_SIZE];
+            tx_buf[0] = MsgType::Params as u8;
+
+            let payload: [u8; ATTITUDE_SIZE] = attitude.into();
+            for i in 0..ATTITUDE_SIZE {
+                tx_buf[i + 1] = payload[i];
+            }
 
             let payload_size = MsgType::Params.payload_size();
             tx_buf[payload_size + 1] = util::calc_crc(
@@ -236,12 +266,11 @@ pub fn handle_rx(
             // let response = Packet {
             //     message_type: MsgType::Controls,
             //     payload: controls.into(),
-            //     crc: 0,
             // };
 
-            // todo: We probably don't want to be creaeting a max packet size buf here.
+            // todo: DRY with above.
             // let mut tx_buf: [u8; CONTROLS_SIZE + 2] = response.into();
-            let mut tx_buf = [0; CONTROLS_SIZE + 2];
+            let mut tx_buf = [0; CONTROLS_PACKET_SIZE];
             tx_buf[0] = MsgType::Controls as u8;
 
             let payload: [u8; CONTROLS_SIZE] = controls.into();
@@ -283,18 +312,21 @@ pub fn handle_rx(
                 _ => panic!(),
             };
 
+            // todo: Don't hard-code rotor power. Let it be user-selected.
+            let power = 0.05;
+
             match rotor_mapping.motor_from_position(rotor_position) {
                 Motor::M1 => {
-                    set_power_a(Motor::M1, Motor::M2, 0.05, 0., rotor_timer_a, dma);
+                    dshot::set_power_single_a(Motor::M1, power, rotor_timer_a, dma);
                 }
                 Motor::M2 => {
-                    set_power_a(Motor::M1, Motor::M2, 0.05, 0., rotor_timer_a, dma);
+                    dshot::set_power_single_a(Motor::M2, power, rotor_timer_a, dma);
                 }
                 Motor::M3 => {
-                    set_power_b(Motor::M3, Motor::M4, 0.05, 0., rotor_timer_b, dma);
+                    dshot::set_power_single_b(Motor::M3, power, rotor_timer_b, dma);
                 }
                 Motor::M4 => {
-                    set_power_b(Motor::M3, Motor::M4, 0.05, 0., rotor_timer_b, dma);
+                    dshot::set_power_single_b(Motor::M4, power, rotor_timer_b, dma);
                 }
             }
         }
@@ -306,6 +338,21 @@ pub fn handle_rx(
                 3 => RotorPosition::AftRight,
                 _ => panic!(),
             };
+
+            match rotor_mapping.motor_from_position(rotor_position) {
+                Motor::M1 => {
+                    dshot::set_power_single_a(Motor::M1, 0., rotor_timer_a, dma);
+                }
+                Motor::M2 => {
+                    dshot::set_power_single_a(Motor::M2, 0., rotor_timer_a, dma);
+                }
+                Motor::M3 => {
+                    dshot::set_power_single_b(Motor::M3, 0., rotor_timer_b, dma);
+                }
+                Motor::M4 => {
+                    dshot::set_power_single_b(Motor::M4, 0., rotor_timer_b, dma);
+                }
+            }
         }
     }
 }

@@ -14,6 +14,8 @@ use stm32_hal2::{
     timer::Timer,
 };
 
+use crate::lin_alg::Quaternion;
+
 use defmt::println;
 
 use cmsis_dsp_sys as dsp_sys;
@@ -378,6 +380,9 @@ pub struct Params {
     pub s_pitch: f32,
     pub s_roll: f32,
     pub s_yaw: f32,
+
+    /// Quaternion of the attitude.
+    pub quaternion: Quaternion,
 
     // todo: AHRS quaternion field, or leave that as part of the `AHRS` struct?
 

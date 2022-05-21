@@ -1170,16 +1170,16 @@ mod app {
                     // vice each IMU update.
                     sensor_fusion::update_get_attitude(ahrs, params);
 
-                    if let OperationMode::Preflight = state_volatile.op_mode {
-                        return;
-                    }
-
                     // Note: There is an arm status primary handler is in the `set_power` fn, but if we abort
                     // here without it being set, power will remain at whatever state was set at time
                     // of disarm. Alternatively, we could neither return nor stop motors here, and
                     // let `set_power` handle it.
                     if command_state.arm_status != ArmStatus::Armed {
                         dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
+                        return;
+                    }
+
+                    if let OperationMode::Preflight = state_volatile.op_mode {
                         return;
                     }
 
@@ -1248,7 +1248,8 @@ mod app {
                                 usb_serial,
                                 &buf,
                                 count,
-                                params,
+                                // params,
+                                params.quaternion,
                                 ch_data,
                                 &mut command_state.arm_status,
                                 &mut user_cfg.motor_mapping,

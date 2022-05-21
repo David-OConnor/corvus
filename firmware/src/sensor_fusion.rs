@@ -149,6 +149,7 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     params.s_roll = att_euler.pitch;
     params.s_pitch = att_euler.roll;
     params.s_yaw = att_euler.yaw;
+    params.quaternion = ahrs.quaternion;
 
     // params.s_roll = att_earth.x;
     // params.s_pitch = att_earth.y;

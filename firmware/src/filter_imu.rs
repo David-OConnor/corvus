@@ -16,27 +16,27 @@ static mut FILTER_STATE_GYRO_ROLL: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_GYRO_YAW: [f32; 4] = [0.; 4];
 
 // todo: What cutoffs to use? I think you're in the ballpark, but maybe a little higher.
-// filter_ = signal.iirfilter(1, 80, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
+// filter_ = signal.iirfilter(1, 150, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
 // coeffs = []
 // for row in filter_:
 //     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
 
 #[clippy::allow(excessive_precision)]
 static COEFFS_LP_ACCEL: [f32; 5] = [
-    0.03046874709125383,
-    0.03046874709125383,
+    0.05568893747361474,
+    0.05568893747361474,
     0.0,
-    0.9390625058174923,
+    0.8886221250527704,
     -0.0,
 ];
 
-// filter_ = signal.iirfilter(1, 400, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
+// filter_ = signal.iirfilter(1, 150, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
 #[clippy::allow(excessive_precision)]
 static COEFFS_LP_GYRO: [f32; 5] = [
-    0.03046874709125383,
-    0.03046874709125383,
+    0.05568893747361474,
+    0.05568893747361474,
     0.0,
-    0.9390625058174923,
+    0.8886221250527704,
     -0.0,
 ];
 

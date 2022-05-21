@@ -24,7 +24,7 @@ impl UserCfg {
         // let  data: [u8; 69] = self.into();
         let mut data = [0; 69];
 
-        flash.erase_write_page(Bank::B1, FLASH_CFG_PAGE, &data);
+        flash.erase_write_page(Bank::B1, FLASH_CFG_PAGE, &data).ok();
     }
     //
     // /// Load from flash memory
