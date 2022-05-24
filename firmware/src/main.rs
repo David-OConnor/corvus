@@ -1210,7 +1210,7 @@ mod app {
     // todo: Commented out USB ISR so we don't get the annoying beeps from PC on conn/dc
 
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data, command_state,
-    user_cfg, rotor_timer_a, rotor_timer_b, dma], local = [], priority = 7)]
+    user_cfg, state_volatile, rotor_timer_a, rotor_timer_b, dma], local = [], priority = 7)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
@@ -1221,6 +1221,7 @@ mod app {
             cx.shared.control_channel_data,
             cx.shared.command_state,
             cx.shared.user_cfg,
+            cx.shared.state_volatile,
             cx.shared.rotor_timer_a,
             cx.shared.rotor_timer_b,
             cx.shared.dma,
@@ -1232,6 +1233,7 @@ mod app {
                  ch_data,
                  command_state,
                  user_cfg,
+                 state_volatile,
                  rotor_timer_a,
                  rotor_timer_b,
                  dma| {
@@ -1253,6 +1255,7 @@ mod app {
                                 ch_data,
                                 &mut command_state.arm_status,
                                 &mut user_cfg.motor_mapping,
+                                &mut state_volatile.op_mode,
                                 rotor_timer_a,
                                 rotor_timer_b,
                                 dma,

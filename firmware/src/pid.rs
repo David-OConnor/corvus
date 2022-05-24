@@ -33,7 +33,7 @@ use defmt::println;
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
 // todo: What should these be? Taken from an example.
-const INTEGRATOR_CLAMP_MAX: f32 = 0.6;
+const INTEGRATOR_CLAMP_MAX: f32 = 0.3;
 const INTEGRATOR_CLAMP_MIN: f32 = -INTEGRATOR_CLAMP_MAX;
 
 // "TPA" stands for Throttle PID attenuation - reduction in D term (or more) past a certain
@@ -129,10 +129,21 @@ impl Default for CtrlCoeffsPR {
         Self {
             // pid for controlling pitch and roll from commanded horizontal position
             // todo: Set these appropriately.
-            k_p_rate: 0.6 * K_U_PITCH_ROLL,
-            // k_i_rate: 1.2 * K_U_PITCH_ROLL / T_U_PITCH_ROLL,
-            k_i_rate: 0.5, // temp
-            k_d_rate: 3. * K_U_PITCH_ROLL * T_U_PITCH_ROLL / 40.,
+            // k_p_rate: 0.6 * K_U_PITCH_ROLL,
+            // // k_i_rate: 1.2 * K_U_PITCH_ROLL / T_U_PITCH_ROLL,
+            // k_i_rate: 0.5, // temp
+            // k_d_rate: 3. * K_U_PITCH_ROLL * T_U_PITCH_ROLL / 40.,
+
+            // 2022-05-22 0.6: too high. 0.5: too high. 0.4: No noticible oscillations.
+            // tested with ROTOR_HALF_PAIR_DELTA_MAX: f32 = 0.15;
+            // 0.45 - oscillates. 0.43 - minor oscillations - this might be what we want to start with, or use as k_u.
+
+            // D with p = 0.43 and no i. 0.1: Motors go
+            // nuts. 0.01: Wobbles. 0.005: Feels pretty good? Maybe slight wobble?
+            // With P = 0.43 and D = 0.005 -> i = 0.01 - wonky?:
+            k_p_rate: 0.43,
+            k_i_rate: 0.005,
+            k_d_rate: 0.005,
 
             // pid for controlling pitch and roll from commanded horizontal velocity
             k_p_attitude: 47.,
@@ -168,9 +179,14 @@ pub struct CtrlCoeffsYT {
 impl Default for CtrlCoeffsYT {
     fn default() -> Self {
         Self {
-            k_p_rate: 0.6 * K_U_YAW,
-            k_i_rate: 1.2 * K_U_YAW / T_U_YAW,
-            k_d_rate: 3. * K_U_YAW * T_U_YAW / 40.,
+            // k_p_rate: 0.6 * K_U_YAW,
+            // k_i_rate: 1.2 * K_U_YAW / T_U_YAW,
+            // k_d_rate: 3. * K_U_YAW * T_U_YAW / 40.,
+
+            // 0.6: too low.
+            k_p_rate: 1.5,
+            k_i_rate: 0.,
+            k_d_rate: 0.,
 
             k_p_attitude: 0.1,
             k_i_attitude: 0.0,
@@ -239,11 +255,25 @@ pub struct PidState {
 
 impl PidState {
     /// Anti-windup integrator clamp
-    pub fn anti_windup_clamp(&mut self) {
-        if self.i > INTEGRATOR_CLAMP_MAX {
-            self.i = INTEGRATOR_CLAMP_MAX;
-        } else if self.i < INTEGRATOR_CLAMP_MIN {
-            self.i = INTEGRATOR_CLAMP_MIN;
+    pub fn anti_windup_clamp(&mut self, error_p: f32) {
+        //  Dynamic integrator clamping, from https://www.youtube.com/watch?v=zOByx3Izf5U
+
+        let lim_max_int = if INTEGRATOR_CLAMP_MAX > error_p {
+            lim_max - error_p
+        } else {
+            0.
+        };
+
+        let lim_min_int = if INTEGRATOR_CLAMP_MIN < error_p {
+            lim_min - error_p
+        } else {
+            0.
+        };
+
+        if self.i > lim_max_int {
+            self.i = lim_max_int;
+        } else if self.i < lim_min_int {
+            self.i = lim_min_int;
         }
     }
 
@@ -362,7 +392,9 @@ fn calc_pid_error(
     let error_p = k_p * error;
     // For inegral term, use a midpoint formula, and use error.
     let error_i = k_i * (error + prev_pid.e) / 2. * dt + prev_pid.i;
-    // Derivative on measurement vice error, to avoid derivative kick.
+
+    // Derivative on measurement vice error, to avoid derivative kick. Note that deriv-on-measurment
+    // can be considered smoother, while deriv-on-error can be considered more responsive.
     let error_d_prefilt = k_d * (measurement - prev_pid.measurement) / dt;
 
     let mut error_d = [0.];
@@ -381,7 +413,7 @@ fn calc_pid_error(
         d: error_d[0],
     };
 
-    result.anti_windup_clamp();
+    result.anti_windup_clamp(error_p);
 
     result
 }

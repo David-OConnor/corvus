@@ -15,7 +15,7 @@ use crate::{
     dshot,
     flight_ctrls::{Motor, Params, RotorMapping, RotorPosition},
     lin_alg::Quaternion,
-    util, ArmStatus,
+    util, ArmStatus, OperationMode,
 };
 
 use stm32_hal2::{
@@ -41,15 +41,13 @@ use defmt::println;
 static mut CRC_LUT: [u8; 256] = [0; 256];
 const CRC_POLY: u8 = 0xab;
 
-// const PARAMS_SIZE: usize = 76; // + message type, payload len, and crc.
-const ATTITUDE_SIZE: usize = 16; // + message type, payload len, and crc.
-const CONTROLS_SIZE: usize = 18; // + message type, payload len, and crc.
-const ATTITUDE_PACKET_SIZE: usize = 16; // + message type, payload len, and crc.
-const CONTROLS_PACKET_SIZE: usize = 18; // + message type, payload len, and crc.
+// const PARAMS_SIZE: usize = 76;
+const ATTITUDE_SIZE: usize = 16; // Payload size.
+const CONTROLS_SIZE: usize = 18;
 
-// const MAX_PAYLOAD_SIZE: usize = PARAMS_SIZE; // For Params.
-// const MAX_PAYLOAD_SIZE: usize = CONTROLS_SIZE; // For Params.
-// const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 2; // + message type, and crc.
+// Packet sizes are payload size + 2. Additional data are message type, and CRC.
+const ATTITUDE_PACKET_SIZE: usize = 18;
+const CONTROLS_PACKET_SIZE: usize = 20;
 
 struct _DecodeError {}
 
@@ -100,13 +98,6 @@ impl MsgType {
         }
     }
 }
-
-// pub struct Packet {
-//     message_type: MsgType,
-//     // payload_size: usize,
-//     payload: [u8; MAX_PAYLOAD_SIZE], // todo?
-//                                      // crc: u8,
-// }
 
 // impl From<&Params> for [u8; PARAMS_SIZE] {
 //     /// 19 f32s x 4 = 76. In the order we have defined in the struct.
@@ -172,29 +163,6 @@ impl From<&ChannelData> for [u8; CONTROLS_SIZE] {
     }
 }
 
-// impl From<Packet> for [u8; MAX_PACKET_SIZE] {
-//     fn from(p: Packet) -> Self {
-//         let mut result = [0; MAX_PACKET_SIZE];
-//
-//         result[0] = p.message_type as u8;
-//
-//         for i in 0..p.message_type.payload_size() {
-//             result[i + 1] = p.payload[i];
-//         }
-//
-//         let crc = util::calc_crc(
-//             unsafe { &CRC_LUT },
-//             // Include everything except for the CRC bit itself.
-//             &result[..p.message_type.payload_size() + 1],
-//             p.message_type.payload_size() as u8 + 1,
-//         );
-//
-//         result[p.message_type.payload_size() + 1] = crc;
-//
-//         result
-//     }
-// }
-
 /// Handle incoming data from the PC
 pub fn handle_rx(
     usb_serial: &mut SerialPort<'static, UsbBusType>,
@@ -205,6 +173,7 @@ pub fn handle_rx(
     controls: &ChannelData,
     arm_status: &mut ArmStatus,
     rotor_mapping: &mut RotorMapping,
+    op_mode: &mut OperationMode,
     rotor_timer_a: &mut Timer<TIM2>,
     rotor_timer_b: &mut Timer<TIM3>,
     dma: &mut Dma<DMA1>,
@@ -235,13 +204,10 @@ pub fn handle_rx(
         }
         MsgType::ReqParams => {
             println!("Params requested...");
-            // let response = Packet {
-            //     message_type: MsgType::Params,
-            //     payload: attitude.into(),
-            // };
 
-            // todo: We probably don't want to be creating a max packet size buf here.
-            // let mut tx_buf: [u8; ATTITUDE_PACKET_SIZE] = response.into();
+            // todo: current behavior is to set preflight at first params request, and never set
+            // todo it back. This could potentially be dangerous.
+            *op_mode = OperationMode::Preflight;
 
             let mut tx_buf = [0; ATTITUDE_PACKET_SIZE];
             tx_buf[0] = MsgType::Params as u8;
@@ -263,13 +229,8 @@ pub fn handle_rx(
         MsgType::Ack => {}
         MsgType::ReqControls => {
             println!("Controls requested...");
-            // let response = Packet {
-            //     message_type: MsgType::Controls,
-            //     payload: controls.into(),
-            // };
 
             // todo: DRY with above.
-            // let mut tx_buf: [u8; CONTROLS_SIZE + 2] = response.into();
             let mut tx_buf = [0; CONTROLS_PACKET_SIZE];
             tx_buf[0] = MsgType::Controls as u8;
 

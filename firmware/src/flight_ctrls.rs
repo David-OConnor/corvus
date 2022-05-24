@@ -34,12 +34,12 @@ pub const MAX_ROTOR_POWER: f32 = 1.;
 // to reduce the risk and severity of individual rotors clamping due to throttle settings that
 // are too high or too low. They reduce user throttle authority, but provide more predictable
 // responses when maneucvering near min and max throttle
-pub const THROTTLE_MAX_MNVR_CLAMP: f32 = 0.85;
+pub const THROTTLE_MAX_MNVR_CLAMP: f32 = 0.80;
 // todo: You should probably disable the min maneuver clamp when on the ground (how to check?)
 // and have it higher otherwise.
 pub const THROTTLE_MIN_MNVR_CLAMP: f32 = 0.06;
 
-// Don't execute the calibration procedure from below this altitude, eg for safety.
+// Don't execute the calibration procedure from below this altitude, in meters AGL, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
 
 // Time in seconds between subsequent data received before we execute lost-link procedures.
@@ -48,7 +48,7 @@ pub const LOST_LINK_TIMEOUT: f32 = 1.;
 // With maximum commanded pitch, yaw, or roll rate, add and subtract this value from
 // opposing rotors. Keep this relatively low, since thi scan add up from maneuvers on multiple
 // axes!
-const ROTOR_HALF_PAIR_DELTA_MAX: f32 = 0.15;
+// const ROTOR_HALF_PAIR_DELTA_MAX: f32 = 0.15;
 
 // Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
@@ -642,9 +642,9 @@ fn estimate_rotor_angle(a_desired: f32, v_current: f32, ac_properties: &Aircraft
 /// all motors is 100%. No individual power level is allowed to be above 1, or below our idle power
 /// setting.
 fn calc_rotor_powers(
-    pitch_setting: f32,
-    roll_setting: f32,
-    yaw_setting: f32,
+    pitch: f32,
+    roll: f32,
+    yaw: f32,
     throttle: f32,
     front_left_dir: RotationDir,
 ) -> RotorPower {
@@ -654,14 +654,15 @@ fn calc_rotor_powers(
     let mut aft_left = throttle;
     let mut aft_right = throttle;
 
-    // todo: This is probably where you need gains etc.
+    // let pitch_delta = ROTOR_HALF_PAIR_DELTA_MAX * pitch_setting;
+    // let roll_delta = ROTOR_HALF_PAIR_DELTA_MAX * roll_setting;
+    // let mut yaw_delta = ROTOR_HALF_PAIR_DELTA_MAX * yaw_setting;
 
-    // todo: Should you adjust how you scale this based on the measured
-    // todo rates? Maybe handle in PID.?
-
-    let pitch_delta = ROTOR_HALF_PAIR_DELTA_MAX * pitch_setting;
-    let roll_delta = ROTOR_HALF_PAIR_DELTA_MAX * roll_setting;
-    let mut yaw_delta = ROTOR_HALF_PAIR_DELTA_MAX * yaw_setting;
+    // Current setup: no gain/delta. Apply output from PID directly, but clamp so no individual
+    // rotor exceeds full or idle power.
+    let pitch_delta = pitch;
+    let roll_delta = roll;
+    let mut yaw_delta = yaw;
 
     // Nose down for positive pitch.
     front_left -= pitch_delta;
