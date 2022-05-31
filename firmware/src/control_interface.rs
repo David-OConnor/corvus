@@ -24,10 +24,41 @@
 //     Aux8(u8),
 // }
 
-use crate::{
-    flight_ctrls::{AltHoldSwitch, InputModeSwitch},
-    safety::ArmStatus,
-};
+use crate::safety::ArmStatus;
+
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// For the switch position. We interpret actual mode from this, and other data, like prescense of GPS.
+/// val is for passing over USB serial.
+pub enum AltHoldSwitch {
+    Disabled = 0,
+    EnabledMsl = 1,
+    EnabledAgl = 2,
+}
+
+impl Default for AltHoldSwitch {
+    fn default() -> Self {
+        Self::Disabled
+    }
+}
+
+// todo: Consider putting these mode switches in `control_interface`.
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// For the switch position. We interpret actual mode from this, and other data, like prescense of GPS.
+/// val is for passing over USB serial.
+pub enum InputModeSwitch {
+    /// Acro mode
+    Acro = 0,
+    /// Command if GPS is present; Attitude if not
+    AttitudeCommand = 1,
+}
+
+impl Default for InputModeSwitch {
+    fn default() -> Self {
+        Self::Acro
+    }
+}
 
 /// Represents data from all ELRS channels, including what channel it is, and the data passed.
 /// [ELRS FAQ](https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support)

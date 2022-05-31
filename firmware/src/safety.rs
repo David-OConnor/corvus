@@ -2,7 +2,7 @@
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use crate::{control_interface::ChannelData, flight_ctrls::InputMode, pid::PidGroup};
+use crate::{control_interface::ChannelData, flight_ctrls::quad::InputMode, pid::PidGroup};
 
 use defmt::println;
 

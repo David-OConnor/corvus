@@ -19,15 +19,15 @@ use cmsis_dsp_sys as dsp_sys;
 
 use crate::{
     control_interface::ChannelData,
-    flight_ctrls::{
-        self, AltType, AutopilotStatus, CommandState, CtrlInputs, InputMap, InputMode, Params,
-        POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED,
+    flight_ctrls::{self,
+        common::{AltType, AutopilotStatus, CommandState, CtrlInputs, InputMap, Params},
+        quad::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED},
     },
     util::IirInstWrapper,
     ArmStatus, RotorMapping, UserCfg, DT_ATTITUDE,
 };
 
-use crate::flight_ctrls::MAX_ROTOR_POWER;
+use crate::flight_ctrls::quad::MAX_ROTOR_POWER;
 use defmt::println;
 
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
@@ -141,9 +141,10 @@ impl Default for CtrlCoeffsPR {
             // D with p = 0.43 and no i. 0.1: Motors go
             // nuts. 0.01: Wobbles. 0.005: Feels pretty good? Maybe slight wobble?
             // With P = 0.43 and D = 0.005 -> i = 0.01 - wonky?:
-            k_p_rate: 0.43,
-            k_i_rate: 0.005,
-            k_d_rate: 0.005,
+            k_p_rate: 0.10,
+            // k_i_rate: 0.0010,
+            k_i_rate: 0.08,
+            k_d_rate: 0.0025,
 
             // pid for controlling pitch and roll from commanded horizontal velocity
             k_p_attitude: 47.,
@@ -182,10 +183,8 @@ impl Default for CtrlCoeffsYT {
             // k_p_rate: 0.6 * K_U_YAW,
             // k_i_rate: 1.2 * K_U_YAW / T_U_YAW,
             // k_d_rate: 3. * K_U_YAW * T_U_YAW / 40.,
-
-            // 0.6: too low.
-            k_p_rate: 1.5,
-            k_i_rate: 0.,
+            k_p_rate: 0.20,
+            k_i_rate: 0.01 * 0.,
             k_d_rate: 0.,
 
             k_p_attitude: 0.1,
@@ -259,13 +258,13 @@ impl PidState {
         //  Dynamic integrator clamping, from https://www.youtube.com/watch?v=zOByx3Izf5U
 
         let lim_max_int = if INTEGRATOR_CLAMP_MAX > error_p {
-            lim_max - error_p
+            INTEGRATOR_CLAMP_MAX - error_p
         } else {
             0.
         };
 
         let lim_min_int = if INTEGRATOR_CLAMP_MIN < error_p {
-            lim_min - error_p
+            INTEGRATOR_CLAMP_MIN - error_p
         } else {
             0.
         };
@@ -415,6 +414,8 @@ fn calc_pid_error(
 
     result.anti_windup_clamp(error_p);
 
+    // todo: Clamp output?
+
     result
 }
 
@@ -440,7 +441,7 @@ pub fn run_velocity(
         let dist_v = alt_msl_commanded - params.s_z_msl;
 
         // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-        let thrust = flight_ctrls::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.s_z_agl);
+        let thrust = flight_ctrls::quad::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.s_z_agl);
 
         // todo: DRY from alt_hold autopilot code.
 
@@ -464,7 +465,7 @@ pub fn run_velocity(
         };
         // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
         velocities_commanded.thrust =
-            flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
+            flight_ctrls::quad::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
     }
 
     match input_mode {
@@ -479,7 +480,7 @@ pub fn run_velocity(
                     pitch: 0.,
                     roll: 0.,
                     yaw: 0.,
-                    thrust: flight_ctrls::takeoff_speed(params.s_z_agl, cfg.max_speed_ver),
+                    thrust: flight_ctrls::quad::takeoff_speed(params.s_z_agl, cfg.max_speed_ver),
                 };
             }
             // AutopilotMode::Land => {
@@ -488,7 +489,7 @@ pub fn run_velocity(
                     pitch: 0.,
                     roll: 0.,
                     yaw: 0.,
-                    thrust: flight_ctrls::landing_speed(params.s_z_agl, cfg.max_speed_ver),
+                    thrust: flight_ctrls::quad::landing_speed(params.s_z_agl, cfg.max_speed_ver),
                 };
             }
         }
@@ -614,7 +615,7 @@ pub fn run_attitude(
         let dist_v = alt_msl_commanded - params.s_z_msl;
 
         // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-        let thrust = flight_ctrls::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.s_z_agl);
+        let thrust = flight_ctrls::quad::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.s_z_agl);
 
         // todo: DRY from alt_hold autopilot code.
 
@@ -638,7 +639,7 @@ pub fn run_attitude(
         };
         // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
         attitudes_commanded.thrust =
-            flight_ctrls::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
+            flight_ctrls::quad::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
     }
 
     match input_mode {
@@ -666,7 +667,7 @@ pub fn run_attitude(
                     pitch: 0.,
                     roll: 0.,
                     yaw: 0.,
-                    thrust: flight_ctrls::takeoff_speed(params.s_z_agl, cfg.max_speed_ver),
+                    thrust: flight_ctrls::quad::takeoff_speed(params.s_z_agl, cfg.max_speed_ver),
                 };
             }
             // AutopilotMode::Land => {
@@ -675,7 +676,7 @@ pub fn run_attitude(
                     pitch: 0.,
                     roll: 0.,
                     yaw: 0.,
-                    thrust: flight_ctrls::landing_speed(params.s_z_agl, cfg.max_speed_ver),
+                    thrust: flight_ctrls::quad::landing_speed(params.s_z_agl, cfg.max_speed_ver),
                 };
             }
         }
@@ -811,7 +812,7 @@ pub fn run_rate(
                 };
                 // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
                 rates_commanded.thrust =
-                    flight_ctrls::enroute_speed_ver(dist, max_speed_ver, params.s_z_agl);
+                    flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.s_z_agl);
             }
 
             if autopilot_status.yaw_assist {
@@ -927,7 +928,7 @@ pub fn run_rate(
         InputMode::Command => rates_commanded.thrust,
     };
 
-    flight_ctrls::apply_controls(
+    flight_ctrls::quad::apply_controls(
         pitch,
         roll,
         yaw,

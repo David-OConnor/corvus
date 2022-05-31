@@ -34,7 +34,7 @@ use defmt::println;
 
 use cfg_if::cfg_if;
 
-use crate::flight_ctrls::Motor;
+use crate::flight_ctrls::quad::Motor;
 
 // Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
 // so we can set duty cycle appropriately for DSHOT.

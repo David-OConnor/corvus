@@ -13,7 +13,9 @@
 use crate::{
     control_interface::ChannelData,
     dshot,
-    flight_ctrls::{Motor, Params, RotorMapping, RotorPosition},
+    flight_ctrls::{
+        quad::{Motor, RotorMapping, RotorPosition},
+    },
     lin_alg::Quaternion,
     util, ArmStatus, OperationMode,
 };

@@ -84,13 +84,13 @@ pub use drivers::imu_icm426xx as imu;
 // use drivers::imu_ism330dhcx as imu;
 use drivers::tof_vl53l1 as tof;
 
-use control_interface::{ChannelData, LinkStats};
+use control_interface::{ChannelData, InputModeSwitch, LinkStats};
 
 use protocols::{crsf, dshot, usb_cfg};
 
 use flight_ctrls::{
-    AutopilotStatus, AxisLocks, CommandState, CtrlInputs, InputMap, InputMode, Params,
-    RotorMapping, RotorPosition, RotorPower,
+    common::{AutopilotStatus, CommandState, CtrlInputs, InputMap, Params},
+    quad::{AxisLocks, InputMode, RotorMapping, RotorPosition, RotorPower, RotationDir},
 };
 
 use lin_alg::{Mat3, Vec3};
@@ -102,7 +102,6 @@ use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
 
 use madgwick::Ahrs;
 
-use crate::flight_ctrls::{InputModeSwitch, RotationDir};
 use ppks::{Location, LocationType};
 
 // 512k flash. Page size 2kbyte. 72-bit data read (64 bits plus 8 ECC bits)
@@ -646,7 +645,7 @@ mod app {
 
         let mut lost_link_timer = Timer::new_tim17(
             dp.TIM17,
-            1. / flight_ctrls::LOST_LINK_TIMEOUT,
+            1. / flight_ctrls::common::LOST_LINK_TIMEOUT,
             TimerConfig {
                 one_pulse_mode: true,
                 ..Default::default()
@@ -996,7 +995,7 @@ mod app {
                         return;
                     }
 
-                    flight_ctrls::handle_control_mode(
+                    flight_ctrls::quad::handle_control_mode(
                         control_channel_data.input_mode,
                         input_mode,
                         state_volatile,
