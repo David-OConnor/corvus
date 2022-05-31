@@ -19,7 +19,8 @@ use cmsis_dsp_sys as dsp_sys;
 
 use crate::{
     control_interface::ChannelData,
-    flight_ctrls::{self,
+    flight_ctrls::{
+        self,
         common::{AltType, AutopilotStatus, CommandState, CtrlInputs, InputMap, Params},
         quad::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED},
     },
@@ -141,9 +142,9 @@ impl Default for CtrlCoeffsPR {
             // D with p = 0.43 and no i. 0.1: Motors go
             // nuts. 0.01: Wobbles. 0.005: Feels pretty good? Maybe slight wobble?
             // With P = 0.43 and D = 0.005 -> i = 0.01 - wonky?:
-            k_p_rate: 0.10,
+            k_p_rate: 0.14,
             // k_i_rate: 0.0010,
-            k_i_rate: 0.08,
+            k_i_rate: 0.14,
             k_d_rate: 0.0025,
 
             // pid for controlling pitch and roll from commanded horizontal velocity
@@ -441,7 +442,8 @@ pub fn run_velocity(
         let dist_v = alt_msl_commanded - params.s_z_msl;
 
         // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-        let thrust = flight_ctrls::quad::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.s_z_agl);
+        let thrust =
+            flight_ctrls::quad::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.s_z_agl);
 
         // todo: DRY from alt_hold autopilot code.
 
@@ -615,7 +617,8 @@ pub fn run_attitude(
         let dist_v = alt_msl_commanded - params.s_z_msl;
 
         // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-        let thrust = flight_ctrls::quad::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.s_z_agl);
+        let thrust =
+            flight_ctrls::quad::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.s_z_agl);
 
         // todo: DRY from alt_hold autopilot code.
 

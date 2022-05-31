@@ -41,20 +41,20 @@ use crate::flight_ctrls::quad::Motor;
 // These are set for a 200MHz timer frequency.
 // (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period.
 
+pub const DSHOT_PSC_600: u16 = 0;
+
 cfg_if! {
     if #[cfg(feature = "h7")] {
-        pub const DSHOT_PSC_600: u32 = 0;
         pub const DSHOT_ARR_600: u32 = 332;
     } else if #[cfg(feature = "g4")] {
         // 170Mhz tim clock. Results in 600.707kHz.
-        pub const DSHOT_PSC_600: u16 = 0;
-        pub const DSHOT_ARR_600: u16 = 282;
+        pub const DSHOT_ARR_600: u32 = 282;
     }
 }
 
 // Duty cycle values (to be written to CCMRx), based on our ARR value. 0. = 0%. ARR = 100%.
-const DUTY_HIGH: u16 = DSHOT_ARR_600 * 3 / 4;
-const DUTY_LOW: u16 = DSHOT_ARR_600 * 3 / 8;
+const DUTY_HIGH: u32 = DSHOT_ARR_600 * 3 / 4;
+const DUTY_LOW: u32 = DSHOT_ARR_600 * 3 / 8;
 
 // We use this during config that requires multiple signals sent, eg setting. motor direction.
 // pub static PAUSE_AFTER_DSHOT: AtomicBool = AtomicBool::new(false);
@@ -284,7 +284,7 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
         // DSHOT uses MSB first alignment.
         // Values alternate in the buffer between the 2 registers we're editing, so
         // we interleave values here. (Each timer and DMA stream is associated with 2 channels).
-        payload[(15 - i) * 2 + offset] = val;
+        payload[(15 - i) * 2 + offset] = val as u16;
     }
 
     // Note that the end stays 0-padded, since we init with 0s, and never change those values.

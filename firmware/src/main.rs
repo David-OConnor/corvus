@@ -90,7 +90,7 @@ use protocols::{crsf, dshot, usb_cfg};
 
 use flight_ctrls::{
     common::{AutopilotStatus, CommandState, CtrlInputs, InputMap, Params},
-    quad::{AxisLocks, InputMode, RotorMapping, RotorPosition, RotorPower, RotationDir},
+    quad::{AxisLocks, InputMode, RotationDir, RotorMapping, RotorPosition, RotorPower},
 };
 
 use lin_alg::{Mat3, Vec3};

@@ -2,15 +2,9 @@
 
 use core::f32::consts::TAU;
 
-use crate::{
-    ppks::Location,
-    safety::ArmStatus,
-    lin_alg::Quaternion,
-    util::map_linear,
-};
+use crate::{lin_alg::Quaternion, ppks::Location, safety::ArmStatus, util::map_linear};
 
-
-use super::quad::{THROTTLE_MIN_MNVR_CLAMP, THROTTLE_MAX_MNVR_CLAMP};
+use super::quad::{THROTTLE_MAX_MNVR_CLAMP, THROTTLE_MIN_MNVR_CLAMP};
 
 // Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
@@ -68,22 +62,6 @@ impl InputMap {
     pub fn calc_manual_throttle(&self, input: f32) -> f32 {
         map_linear(input, THROTTLE_IN_RNG, self.throttle_clamped)
     }
-    // /// Convert from radians/s to the range used to set motor power.
-    // pub fn calc_pitch_rate_pwr(&self, input: f32) -> f32 {
-    //     map_linear(input, self.pitch_rate, PITCH_PWR_RNG)
-    // }
-    //
-    // pub fn calc_roll_rate_pwr(&self, input: f32) -> f32 {
-    //     map_linear(input, self.roll_rate, ROLL_PWR_RNG)
-    // }
-    //
-    // pub fn calc_yaw_rate_pwr(&self, input: f32) -> f32 {
-    //     map_linear(input, self.yaw_rate, YAW_PWR_RNG)
-    // }
-    //
-    // pub fn calc_thrust(&self, input: f32) -> f32 {
-    //     map_linear(input, THRUST_IN_RNG, self.throttle)
-    // }
 
     /// eg for attitude mode.
     pub fn calc_pitch_angle(&self, input: f32) -> f32 {

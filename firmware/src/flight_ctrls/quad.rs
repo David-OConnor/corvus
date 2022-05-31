@@ -12,8 +12,8 @@ use stm32_hal2::{
 };
 
 use crate::{
-    lin_alg::Quaternion,
-    dshot, safety::ArmStatus, util, StateVolatile, control_interface::InputModeSwitch,
+    control_interface::InputModeSwitch, dshot, lin_alg::Quaternion, safety::ArmStatus, util,
+    StateVolatile,
 };
 
 use super::common::Params;
@@ -209,8 +209,6 @@ impl RotorMapping {
 }
 
 /// Represents power levels for the rotors. These map from 0. to 1.; 0% to 100% power.
-/// Per our initial setup: R1 is aft left. R2 is front left. R3 is aft right. R4 is front right.
-// todo: Discrete levels perhaps, eg multiples of the integer PWM ARR values.
 #[derive(Default)]
 pub struct RotorPower {
     pub front_left: f32,
@@ -335,7 +333,7 @@ fn estimate_rotor_angle(a_desired: f32, v_current: f32, ac_properties: &Aircraft
 /// We split thihs out so we can call it a second time, in case of a clamp due to min or max power
 /// on a rotor.
 ///
-///  The ratios passed in params are on a scale between -1. and +1.
+/// The ratios passed in params are on a scale between -1. and +1.
 /// Throttle works differently - it's an overall scaler. If ratios are all 0, and power is 1., power for
 /// all motors is 100%. No individual power level is allowed to be above 1, or below our idle power
 /// setting.
@@ -410,17 +408,16 @@ fn calc_rotor_powers(
     }
 }
 
-/// Set rotor speed for all 4 rotors. We model pitch, roll, and yaw based on target angular rates
-/// in these areas. We modify power ratio between the appropriate propeller pairs to change these
+/// Set rotor speed for all 4 rotors. We model pitch, roll, and yaw based on target angular rates.
+/// We modify power ratio between the appropriate motor pairs to change these
 /// parameters.
 ///
 /// Basic model: For each axis, the starting power is throttle. We then increase or decrease opposing
 /// pair power up to a limit (Or absolute rotor power limit) based on the input commands.
 ///
-/// If a rotor exceeds min or max power settings, clamp it. --scale our angular rates uniformly until it's
-/// at the threshold, while keeping average power, and rotor symettry intact.--
+/// If a rotor exceeds min or max power settings, clamp it.
 ///
-/// Settings here are a scale of  (??) - they're not in real units like radians/s!
+/// Input deltas as on an abitrary scale based on PID output; they're not in real units like radians/s.
 pub fn apply_controls(
     pitch_delta: f32,
     roll_delta: f32,
@@ -441,13 +438,7 @@ pub fn apply_controls(
         mapping.frontleft_aftright_dir,
     );
 
-    // todo: For now, we'll to clamp instead of roll back the rate commanded.
     pwr.clamp_individual_rotors();
-
-    println!(
-        "Rotor powers - FL: {} FR: {} AL: {} AR: {}",
-        pwr.front_left, pwr.front_right, pwr.aft_left, pwr.aft_right
-    );
 
     pwr.set(mapping, rotor_tim_a, rotor_tim_b, arm_status, dma);
     *current_pwr = pwr;
