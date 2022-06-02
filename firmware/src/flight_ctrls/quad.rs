@@ -11,10 +11,7 @@ use stm32_hal2::{
     timer::Timer,
 };
 
-use crate::{
-    control_interface::InputModeSwitch, dshot, safety::ArmStatus, util,
-    StateVolatile,
-};
+use crate::{control_interface::InputModeSwitch, dshot, safety::ArmStatus, util, StateVolatile};
 
 use super::common::Params;
 

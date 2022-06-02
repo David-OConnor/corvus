@@ -31,6 +31,10 @@ use crate::{
 use crate::flight_ctrls::quad::MAX_ROTOR_POWER;
 use defmt::println;
 
+// todo: You need to take derivative of control inputs into account. For example, when sticks are moved,
+// todo: reduce I term, and/or add a "FF"-scaled term direction to PID output in dir of
+// todo the change etc
+
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
 // todo: What should these be? Taken from an example.

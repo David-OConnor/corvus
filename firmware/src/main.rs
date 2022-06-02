@@ -2,9 +2,7 @@
 #![no_std]
 #![allow(mixed_script_confusables)] // eg variable names that include greek letters.
 
-use core::{
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
-};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use cfg_if::cfg_if;
 
@@ -336,6 +334,7 @@ pub enum SwarmRole {
 /// and other initialization functions.
 fn init_sensors(
     params: &mut Params,
+    altimeter: &baro::Altimeter,
     base_pt: &mut Location,
     i2c1: &mut I2c<I2C1>,
     i2c2: &mut I2c<I2C2>,
@@ -368,8 +367,7 @@ fn init_sensors(
 
             *base_pt = Location::new(LocationType::LatLon, f.y, f.x, f.z);
 
-            let temp = 0.; // todo: Which sensor reads temp? The IMU?
-            baro::calibrate(f.z, temp, i2c2);
+            altiemter::calibrate(f.z, i2c2);
         }
         Err(_) => (), // todo
     }
@@ -566,22 +564,6 @@ mod app {
             ..Default::default()
         };
 
-        // We use I2C2 for the barometer.
-        let mut i2c2 = I2c::new(dp.I2C2, i2c_baro_cfg, &clock_cfg);
-
-        let altimeter = baro::Altimeter::new(user_cfg.altitude_cal);
-
-        println!("Pre altimeter setup");
-        altimeter.setup(&mut i2c2);
-        println!("Altimeter setup complete");
-
-        loop {
-            let pressure = altimeter.read(&mut i2c2);
-            println!("Pressure: {}", pressure);
-
-            delay.delay_ms(500);
-        }
-
         // We use UART2 for the OSD, for DJI, via the MSP protocol.
         let mut uart2 = Usart::new(dp.USART2, 115_200, Default::default(), &clock_cfg);
         // todo: DMA for OSD?
@@ -689,6 +671,30 @@ mod app {
 
         let mut user_cfg = UserCfg::default();
 
+        // We use I2C2 for the barometer.
+        let mut i2c2 = I2c::new(dp.I2C2, i2c_baro_cfg, &clock_cfg);
+
+        let altimeter = baro::Altimeter::new(&mut i2c2, user_cfg.altitude_cal);
+
+        println!("Pre altimeter setup");
+        altimeter.setup(&mut i2c2);
+        println!("Altimeter setup complete");
+
+        init_sensors(
+            &mut params,
+            &altimeter,
+            &mut base_point,
+            &mut i2c1,
+            &mut i2c2,
+        );
+
+        loop {
+            let pressure = altimeter.read(&mut i2c2);
+            println!("Pressure: {}", pressure);
+
+            delay.delay_ms(500);
+        }
+
         // todo: ID connected sensors etc by checking their device ID etc.
         let mut state_volatile = StateVolatile::default();
 
@@ -733,11 +739,7 @@ mod app {
 
         let mut params = Default::default();
 
-        // todo: Instead of a `Barometer` struct, perhaps store baro calibration elsewhere.
-        baro::setup(&mut i2c2);
-
         let mut base_point = Location::default();
-        init_sensors(&mut params, &mut base_point, &mut i2c1, &mut i2c2);
 
         // todo: Calibation proecedure, either in air or on ground.
         let ahrs_settings = madgwick::Settings::default();
