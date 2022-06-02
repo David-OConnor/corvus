@@ -71,7 +71,8 @@ pub struct AltitudeCalPt {
 }
 
 impl Default for AltitudeCalPt {
-    /// Standard temperature and pressure.
+    /// Standard temperature and pressure, at sea level. Note that in practice, we zero to launch elevation
+    /// instead of 0 MSL. ( todo: But as an adjustment for MSL, or with this model?)
     fn default() -> Self {
         Self {
             pressure: 101_325.,
@@ -111,7 +112,7 @@ impl Altimeter {
 
         // todo temp debug
         let mut prs_buf = [0; 10];
-        i2c.write_read(ADDR, &[PRS_CFG], &mut prs_buf);
+        i2c.write_read(ADDR, &[PRS_CFG], &mut prs_buf).ok();
         println!("PRS CFG REG: {:?}", prs_buf);
 
         // Load calibration data, factory-coded.
@@ -128,7 +129,7 @@ impl Altimeter {
 
         i2c.write_read(ADDR, &[COEF_1], &mut buf_a).ok();
 
-        let mut c1 = i16::from_be_bytes([buf_b[0] & 0xFFFF, buf_a[0]]) as i32;
+        let mut c1 = i16::from_be_bytes([buf_b[0] & 0xF, buf_a[0]]) as i32;
 
         i2c.write_read(ADDR, &[COEF_00_A], &mut buf_a).ok();
         i2c.write_read(ADDR, &[COEF_00_B], &mut buf_b).ok();
@@ -137,7 +138,7 @@ impl Altimeter {
 
         i2c.write_read(ADDR, &[COEF_10_A], &mut buf_a).ok();
         i2c.write_read(ADDR, &[COEF_10_B], &mut buf_b).ok();
-        let mut c10 = i32::from_be_bytes([0, buf_c[0] & 0xFFFF, buf_a[0], buf_b[0]]);
+        let mut c10 = i32::from_be_bytes([0, buf_c[0] & 0xF, buf_a[0], buf_b[0]]);
 
         i2c.write_read(ADDR, &[COEF_01_A], &mut buf_a).ok();
         i2c.write_read(ADDR, &[COEF_01_B], &mut buf_b).ok();
@@ -185,13 +186,8 @@ impl Altimeter {
         }
     }
 
-    pub fn setup(i2c: &mut I2c<I2C2>) {
-
-        // todo: Do more config!
-    }
-
-    pub fn calibrate(&self, altitude: f32, i2c: &mut I2c<I2C2>) -> AltitudeCalPt {
-        AltitudeCalPt {
+    pub fn calibrate(&mut self, altitude: f32, i2c: &mut I2c<I2C2>) {
+        self.altitude_cal = AltitudeCalPt {
             pressure: self.read_pressure(i2c),
             altitude,
             temp: self.read_temp(i2c),
@@ -205,29 +201,33 @@ impl Altimeter {
         let t_raw_sc = t_raw / K_T;
         let p_raw_sc = p_raw / K_P;
 
-        let cal = self.pressure_cal; // code shortener
+        let cal = &self.pressure_cal; // code shortener
 
         (cal.c00
             + p_raw_sc * (cal.c10 + p_raw_sc * (cal.c20 + p_raw_sc * cal.c30))
-            + t_raw_sc * c01
+            + t_raw_sc * cal.c01
             + t_raw_sc * p_raw_sc * (cal.c11 + p_raw_sc * cal.c21)) as f32
     }
 
     /// Datasheet, section 4.9.1
     fn temp_from_reading(&self, t_raw: i32) -> f32 {
         let t_raw_sc = t_raw / K_T;
-        (self.cal.c0 * 0.5 * self.cal.c1 * t_raw_sc) as f32
+        // (self.pressure_cal.c0 * 0.5 * self.pressure_call.c1 * t_raw_sc) as f32
+        // todo: Should we be doing these operations (Here and above in pressure-from_reading
+        // todo as floats, and storing the c vals as floats?
+
+        (self.pressure_cal.c0 / 2 * self.pressure_cal.c1 * t_raw_sc) as f32
     }
+
+    // todo: Given you use temp readings to feed into pressure, combine somehow to reduce reading
+    // todo and computation.
 
     /// Read atmospheric pressure, in kPa.
     pub fn read_pressure(&self, i2c: &mut I2c<I2C2>) -> f32 {
-        // let reading = i2c.write_read()
-
         // The Pressure Data registers contains the 24 bit (3 bytes) 2's complement pressure measurement value.
         // If the FIFO is enabled, the register will contain the FIFO pressure and/or temperature results. Otherwise, the
         // register contains the pressure measurement results and will not be cleared after read.
 
-        // todo: Do we need to do 3 separate reads here?
         let mut buf2 = [0];
         let mut buf1 = [0];
         let mut buf0 = [0];
@@ -235,13 +235,39 @@ impl Altimeter {
         i2c.write_read(ADDR, &[PSR_B1], &mut buf1).ok();
         i2c.write_read(ADDR, &[PSR_B0], &mut buf0).ok();
 
+        let mut p_raw = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
+        fix_i24_sign(&mut p_raw);
+
+        // todo: DRY with above and temp readings below, also does this twice if getting temp at same time.
+        i2c.write_read(ADDR, &[TMP_B2], &mut buf2).ok();
+        i2c.write_read(ADDR, &[TMP_B1], &mut buf1).ok();
+        i2c.write_read(ADDR, &[TMP_B0], &mut buf0).ok();
+
+        let mut t_raw = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
+        fix_i24_sign(&mut t_raw);
+
+        self.pressure_from_reading(p_raw, t_raw)
+    }
+
+    /// Read temperature, in °C.
+    pub fn read_temp(&self, i2c: &mut I2c<I2C2>) -> f32 {
+        // The Temperature Data registers contain the 24 bit (3 bytes) 2's complement temperature measurement value
+        // ( unless the FIFO is enabled, please see FIFO operation ) and will not be cleared after the read.
+
+        // todo: DRY with pressure read
+
+        let mut buf2 = [0];
+        let mut buf1 = [0];
+        let mut buf0 = [0];
+        i2c.write_read(ADDR, &[TMP_B2], &mut buf2).ok();
+        i2c.write_read(ADDR, &[TMP_B1], &mut buf1).ok();
+        i2c.write_read(ADDR, &[TMP_B0], &mut buf0).ok();
+
         let mut reading = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
         fix_i24_sign(&mut reading);
 
-        pressure_from_reading(reading)
+        self.temp_from_reading(reading)
     }
-
-    // todo: temp read fn, similar to pressure read.
 }
 
 /// Interpret pressure as altitude. Pressure is in kPa.

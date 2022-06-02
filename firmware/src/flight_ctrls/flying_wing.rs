@@ -2,7 +2,7 @@
 
 use stm32_hal2::{
     dma::Dma,
-    pac::{DMA1, TIM2},
+    pac::{DMA1, TIM2, TIM3},
     timer::{TimChannel, Timer},
 };
 
@@ -49,11 +49,17 @@ pub struct ControlSurfaceSettings {
 
 impl ControlSurfaceSettings {
     /// Send this command to cause power to be applied to the motor and servos.
-    pub fn set(&mut self, servo_tim: &mut Timer<TIM2>, arm_status: ArmStatus, dma: &mut Dma<DMA1>) {
+    pub fn set(
+        &mut self,
+        motor_tim: &mut Timer<TIM2>,
+        servo_tim: &mut Timer<TIM3>,
+        arm_status: ArmStatus,
+        dma: &mut Dma<DMA1>,
+    ) {
         // M2 isn't used here, but keeps our API similar to Quad.
         match arm_status {
             ArmStatus::Armed => {
-                dshot::set_power_a(Motor::M1, Motor::M2, self.motor, 0., servo_tim, dma);
+                dshot::set_power_a(Motor::M1, Motor::M2, self.motor, 0., motor_tim, dma);
                 servo_tim.set_duty(
                     TimChannel::C1,
                     util::map_linear(
@@ -72,7 +78,7 @@ impl ControlSurfaceSettings {
                 );
             }
             ArmStatus::Disarmed => {
-                dshot::set_power_a(Motor::M1, Motor::M2, 0., 0., servo_tim, dma);
+                dshot::set_power_a(Motor::M1, Motor::M2, 0., 0., motor_tim, dma);
                 servo_tim.set_duty(TimChannel::C1, ARR / 2);
                 servo_tim.set_duty(TimChannel::C2, ARR / 2);
             }
@@ -93,7 +99,8 @@ pub fn apply_controls(
     pitch_delta: f32,
     roll_delta: f32,
     throttle: f32,
-    servo_tim: &mut Timer<TIM2>,
+    motor_tim: &mut Timer<TIM2>,
+    servo_tim: &mut Timer<TIM3>,
     arm_status: ArmStatus,
     dma: &mut Dma<DMA1>,
 ) {
@@ -114,5 +121,5 @@ pub fn apply_controls(
         elevon_right,
     };
 
-    settings.set(servo_tim, arm_status, dma);
+    settings.set(motor_tim, servo_tim, arm_status, dma);
 }

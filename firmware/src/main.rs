@@ -334,7 +334,7 @@ pub enum SwarmRole {
 /// and other initialization functions.
 fn init_sensors(
     params: &mut Params,
-    altimeter: &baro::Altimeter,
+    altimeter: &mut baro::Altimeter,
     base_pt: &mut Location,
     i2c1: &mut I2c<I2C1>,
     i2c2: &mut I2c<I2C2>,
@@ -367,7 +367,7 @@ fn init_sensors(
 
             *base_pt = Location::new(LocationType::LatLon, f.y, f.x, f.z);
 
-            altiemter::calibrate(f.z, i2c2);
+            altimeter.calibrate(f.z, i2c2);
         }
         Err(_) => (), // todo
     }
@@ -379,7 +379,6 @@ fn init_sensors(
 mod app {
     use super::*;
 
-    // todo: Move vars from here to `local` as required.
     #[shared]
     struct Shared {
         // profile: FlightProfile,
@@ -674,26 +673,10 @@ mod app {
         // We use I2C2 for the barometer.
         let mut i2c2 = I2c::new(dp.I2C2, i2c_baro_cfg, &clock_cfg);
 
-        let altimeter = baro::Altimeter::new(&mut i2c2, user_cfg.altitude_cal);
-
         println!("Pre altimeter setup");
-        altimeter.setup(&mut i2c2);
+        // We populate the cal point in `init_sensors`.
+        let mut altimeter = baro::Altimeter::new(&mut i2c2, Default::default());
         println!("Altimeter setup complete");
-
-        init_sensors(
-            &mut params,
-            &altimeter,
-            &mut base_point,
-            &mut i2c1,
-            &mut i2c2,
-        );
-
-        loop {
-            let pressure = altimeter.read(&mut i2c2);
-            println!("Pressure: {}", pressure);
-
-            delay.delay_ms(500);
-        }
 
         // todo: ID connected sensors etc by checking their device ID etc.
         let mut state_volatile = StateVolatile::default();
@@ -740,6 +723,23 @@ mod app {
         let mut params = Default::default();
 
         let mut base_point = Location::default();
+
+        // todo: For params, consider raw readings without DMA. Currently you're just passign in the
+        // todo default; not going to cut it.?
+        init_sensors(
+            &mut params,
+            &mut altimeter,
+            &mut base_point,
+            &mut i2c1,
+            &mut i2c2,
+        );
+
+        loop {
+            let pressure = altimeter.read_pressure(&mut i2c2);
+            println!("Pressure: {}", pressure);
+
+            delay.delay_ms(500);
+        }
 
         // todo: Calibation proecedure, either in air or on ground.
         let ahrs_settings = madgwick::Settings::default();
@@ -983,9 +983,7 @@ mod app {
                         // todo: Eg log rparamsto flash etc.
                     }
 
-                    unsafe {
-                        *cx.local.update_loop_counter += 1;
-                    };
+                    *cx.local.update_loop_counter += 1;
 
                     safety::handle_arm_status(
                         cx.local.arm_signals_received,

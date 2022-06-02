@@ -131,44 +131,27 @@ impl ImuFilters {
         let mut v_roll = [0.];
         let mut v_yaw = [0.];
 
-        unsafe {
-            dsp_api::biquad_cascade_df1_f32(
-                &mut self.accel_x.inner,
-                &[data.a_x],
-                &mut a_x,
-                block_size,
-            );
-            dsp_api::biquad_cascade_df1_f32(
-                &mut self.accel_y.inner,
-                &[data.a_y],
-                &mut a_y,
-                block_size,
-            );
-            dsp_api::biquad_cascade_df1_f32(
-                &mut self.accel_z.inner,
-                &[data.a_z],
-                &mut a_z,
-                block_size,
-            );
-            dsp_api::biquad_cascade_df1_f32(
-                &mut self.gyro_pitch.inner,
-                &[data.v_pitch],
-                &mut v_pitch,
-                block_size,
-            );
-            dsp_api::biquad_cascade_df1_f32(
-                &mut self.gyro_roll.inner,
-                &[data.v_roll],
-                &mut v_roll,
-                block_size,
-            );
-            dsp_api::biquad_cascade_df1_f32(
-                &mut self.gyro_yaw.inner,
-                &[data.v_yaw],
-                &mut v_yaw,
-                block_size,
-            );
-        }
+        dsp_api::biquad_cascade_df1_f32(&mut self.accel_x.inner, &[data.a_x], &mut a_x, block_size);
+        dsp_api::biquad_cascade_df1_f32(&mut self.accel_y.inner, &[data.a_y], &mut a_y, block_size);
+        dsp_api::biquad_cascade_df1_f32(&mut self.accel_z.inner, &[data.a_z], &mut a_z, block_size);
+        dsp_api::biquad_cascade_df1_f32(
+            &mut self.gyro_pitch.inner,
+            &[data.v_pitch],
+            &mut v_pitch,
+            block_size,
+        );
+        dsp_api::biquad_cascade_df1_f32(
+            &mut self.gyro_roll.inner,
+            &[data.v_roll],
+            &mut v_roll,
+            block_size,
+        );
+        dsp_api::biquad_cascade_df1_f32(
+            &mut self.gyro_yaw.inner,
+            &[data.v_yaw],
+            &mut v_yaw,
+            block_size,
+        );
 
         data.a_x = a_x[0];
         data.a_y = a_y[0];

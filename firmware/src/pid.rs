@@ -404,7 +404,7 @@ fn calc_pid_error(
     //     set_pt, measurement, error, error_p, error_i, error_d[0]
     // );
 
-    let mut reuslt = PidState {
+    let mut result = PidState {
         measurement,
         e: error,
         p: error_p,
