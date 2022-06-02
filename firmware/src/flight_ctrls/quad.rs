@@ -12,7 +12,7 @@ use stm32_hal2::{
 };
 
 use crate::{
-    control_interface::InputModeSwitch, dshot, lin_alg::Quaternion, safety::ArmStatus, util,
+    control_interface::InputModeSwitch, dshot, safety::ArmStatus, util,
     StateVolatile,
 };
 
@@ -41,7 +41,7 @@ pub const THROTTLE_MIN_MNVR_CLAMP: f32 = 0.06;
 
 // Even if PID output for a given axis is higher than this, don't allow more than this
 // half-pair-delta between rotor power levels.
-const ROTOR_HALF_DELTA_CLAMP: f32 = 0.15;
+const ROTOR_HALF_DELTA_CLAMP: f32 = 0.30;
 
 // Don't execute the calibration procedure from below this altitude, in meters AGL, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
@@ -79,7 +79,7 @@ impl AircraftProperties {
     /// Calculate the power level required, applied to each rotor, to maintain level flight
     /// at a given MSL altitude. (Alt is in meters)
     pub fn level_pwr(&self, alt: f32) -> f32 {
-        return 0.1; // todo
+        0.1 // todo
     }
 }
 

@@ -391,7 +391,7 @@ fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
 }
 
 /// Configure the PWM to be active low, used for bidirectional DSHOT
-pub fn enable_bidirectional(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
+pub fn _enable_bidirectional(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
     timer_a.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveHigh);
     timer_a.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveHigh);
     timer_b.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveHigh);
@@ -405,7 +405,7 @@ pub fn enable_bidirectional(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>
 }
 
 /// Configure the PWM to be active high, used for unidirectional DSHOT
-pub fn disable_bidirectional(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
+pub fn _disable_bidirectional(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
     timer_a.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveLow);
     timer_a.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveLow);
     timer_b.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveLow);

@@ -21,7 +21,7 @@ static mut FILTER_STATE_GYRO_YAW: [f32; 4] = [0.; 4];
 // for row in filter_:
 //     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
 
-#[clippy::allow(excessive_precision)]
+#[allow(clippy::excessive_precision)]
 static COEFFS_LP_ACCEL: [f32; 5] = [
     0.10583178270745373,
     0.10583178270745373,
@@ -30,8 +30,7 @@ static COEFFS_LP_ACCEL: [f32; 5] = [
     -0.0,
 ];
 
-// filter_ = signal.iirfilter(1, 300, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
-#[clippy::allow(excessive_precision)]
+#[allow(clippy::excessive_precision)]
 static COEFFS_LP_GYRO: [f32; 5] = [
     0.10583178270745373,
     0.10583178270745373,

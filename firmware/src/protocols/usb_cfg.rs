@@ -37,12 +37,15 @@ use num_enum::TryFromPrimitive; // Enum from integer
 
 use defmt::println;
 
+const F32_BYTES: usize = 4;
+
 // Note: LUT is here, since it depends on the poly.
 static mut CRC_LUT: [u8; 256] = [0; 256];
 const CRC_POLY: u8 = 0xab;
 
 // const PARAMS_SIZE: usize = 76;
-const ATTITUDE_SIZE: usize = 16; // Payload size.
+const QUATERNION_SIZE: usize = F32_BYTES * 4; // Quaternion (4x4 + altimeter)
+const PARAMS_SIZE: usize = QUATERNION_SIZE + 4; //
 const CONTROLS_SIZE: usize = 18;
 
 // Packet sizes are payload size + 2. Additional data are message type, and CRC.
@@ -85,7 +88,7 @@ impl MsgType {
     pub fn payload_size(&self) -> usize {
         match self {
             // Self::Params => PARAMS_SIZE,
-            Self::Params => ATTITUDE_SIZE,
+            Self::Params => PARAMS_SIZE,
             Self::SetMotorDirs => 1, // Packed bits: motors 1-4, R-L. True = CW.
             Self::ReqParams => 0,
             Self::Ack => 0,
@@ -133,10 +136,10 @@ impl MsgType {
 //     }
 // }
 
-impl From<Quaternion> for [u8; ATTITUDE_SIZE] {
+impl From<Quaternion> for [u8; QUATERNION_SIZE] {
     /// 4 f32s = 76. In the order we have defined in the struct.
     fn from(p: Quaternion) -> Self {
-        let mut result = [0; ATTITUDE_SIZE];
+        let mut result = [0; QUATERNION_SIZE];
 
         result[0..4].clone_from_slice(&p.w.to_be_bytes());
         result[4..8].clone_from_slice(&p.x.to_be_bytes());
@@ -170,6 +173,7 @@ pub fn handle_rx(
     count: usize,
     // params: &Params,
     attitude: Quaternion,
+    altimeter: f32,
     controls: &ChannelData,
     arm_status: &mut ArmStatus,
     rotor_mapping: &mut RotorMapping,
@@ -212,9 +216,13 @@ pub fn handle_rx(
             let mut tx_buf = [0; ATTITUDE_PACKET_SIZE];
             tx_buf[0] = MsgType::Params as u8;
 
-            let payload: [u8; ATTITUDE_SIZE] = attitude.into();
-            for i in 0..ATTITUDE_SIZE {
-                tx_buf[i + 1] = payload[i];
+            let quat_buf: [u8; QUATERNION_SIZE] = attitude.into();
+
+            tx_buf[1..(QUATERNION_SIZE + 1)].copy_from_slice(&quat_buf);
+
+            let altimeter_bytes = altimeter.to_be_bytes();
+            for i in 0..4 {
+                tx_buf[i + 1 + QUATERNION_SIZE] = altimeter_bytes[i];
             }
 
             let payload_size = MsgType::Params.payload_size();
@@ -235,9 +243,8 @@ pub fn handle_rx(
             tx_buf[0] = MsgType::Controls as u8;
 
             let payload: [u8; CONTROLS_SIZE] = controls.into();
-            for i in 0..CONTROLS_SIZE {
-                tx_buf[i + 1] = payload[i];
-            }
+
+            tx_buf[1..(CONTROLS_SIZE + 1)].copy_from_slice(&payload);
 
             let payload_size = MsgType::Controls.payload_size();
             tx_buf[payload_size + 1] = util::calc_crc(

@@ -116,9 +116,9 @@ impl Vec3 {
     }
 
     /// Returns the normalised version of the vector
-    pub fn to_normalized(&self) -> Self {
+    pub fn to_normalized(self) -> Self {
         let mag_recip = 1. / self.magnitude();
-        *self * mag_recip
+        self * mag_recip
     }
 }
 

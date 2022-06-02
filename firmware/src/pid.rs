@@ -34,7 +34,7 @@ use defmt::println;
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
 // todo: What should these be? Taken from an example.
-const INTEGRATOR_CLAMP_MAX: f32 = 0.3;
+const INTEGRATOR_CLAMP_MAX: f32 = 0.5;
 const INTEGRATOR_CLAMP_MIN: f32 = -INTEGRATOR_CLAMP_MAX;
 
 // "TPA" stands for Throttle PID attenuation - reduction in D term (or more) past a certain
@@ -69,6 +69,7 @@ static mut FILTER_STATE_THRUST: [f32; 4] = [0.; 4];
 //     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
 
 // todo: Diff coeffs for diff diff parts, as required.
+#[allow(clippy::excessive_precision)]
 static COEFFS_D: [f32; 5] = [
     0.037804754170896473,
     0.037804754170896473,
@@ -108,49 +109,43 @@ pub struct CtrlCoeffsPR {
     pid_deriv_lowpass_cutoff_attitude: LowpassCutoff,
 }
 
-// https://en.wikipedia.org/wiki/Ziegler%E2%80%93Nichols_method
-// The Ziegler–Nichols tuning method is a heuristic method of tuning a PID controller. It was developed
-// by John G. Ziegler and Nathaniel B. Nichols. It is performed by setting the I (integral) and D
-// (derivative) gains to zero. The "P" (proportional) gain, K p {\displaystyle K_{p}} K_{p} is
-// then increased (from zero) until it reaches the ultimate gain K u {\displaystyle K_{u}} K_{u}, at
-// which the output of the control loop has stable and consistent oscillations. K u {\displaystyle K_{u}}
-// K_{u} and the oscillation period T u {\displaystyle T_{u}} T_{u} are then used to set the P, I, and D
-// gains depending on the type of controller used and behaviour desired.
-
-// "Stable and consistent osc?" Hard to judge.
-const K_U_PITCH_ROLL: f32 = 0.3; // (kP at which oscillations continue, with no I or D term)
-const T_U_PITCH_ROLL: f32 = 0.25; // (oscillation period) // todo what should this be.
-
-// todo: This multiplier is a temp idea.
-const K_U_YAW: f32 = 0.7 * K_U_PITCH_ROLL; // (kP at which oscillations continue, with no I or D term)
-const T_U_YAW: f32 = 0.2; // (oscillation period) // todo what should this be.
-
 impl Default for CtrlCoeffsPR {
     fn default() -> Self {
         Self {
-            // pid for controlling pitch and roll from commanded horizontal position
-            // todo: Set these appropriately.
-            // k_p_rate: 0.6 * K_U_PITCH_ROLL,
-            // // k_i_rate: 1.2 * K_U_PITCH_ROLL / T_U_PITCH_ROLL,
-            // k_i_rate: 0.5, // temp
-            // k_d_rate: 3. * K_U_PITCH_ROLL * T_U_PITCH_ROLL / 40.,
-
-            // 2022-05-22 0.6: too high. 0.5: too high. 0.4: No noticible oscillations.
-            // tested with ROTOR_HALF_PAIR_DELTA_MAX: f32 = 0.15;
-            // 0.45 - oscillates. 0.43 - minor oscillations - this might be what we want to start with, or use as k_u.
-
-            // D with p = 0.43 and no i. 0.1: Motors go
-            // nuts. 0.01: Wobbles. 0.005: Feels pretty good? Maybe slight wobble?
-            // With P = 0.43 and D = 0.005 -> i = 0.01 - wonky?:
-            k_p_rate: 0.14,
+            k_p_rate: 0.17,
             // k_i_rate: 0.0010,
-            k_i_rate: 0.14,
-            k_d_rate: 0.0025,
+            k_i_rate: 0.15,
+            k_d_rate: 0.0028,
 
             // pid for controlling pitch and roll from commanded horizontal velocity
             k_p_attitude: 47.,
             k_i_attitude: 84.,
             k_d_attitude: 34.,
+
+            // PID for controlling pitch and roll rate directly (eg Acro)
+            k_p_velocity: 0.1,
+            k_i_velocity: 0.,
+            // k_d_velocity: 0.,
+            pid_deriv_lowpass_cutoff_rate: LowpassCutoff::H1k,
+            pid_deriv_lowpass_cutoff_attitude: LowpassCutoff::H1k,
+        }
+    }
+}
+
+impl CtrlCoeffsPR {
+    pub fn default_flying_wing() -> Self {
+        Self {
+            k_p_rate: 0.14,
+            // k_i_rate: 0.0010,
+            k_i_rate: 0.14,
+            k_d_rate: 0.01,
+
+            // Attitude not used.
+
+            // pid for controlling pitch and roll from commanded horizontal velocity
+            k_p_attitude: 0.,
+            k_i_attitude: 0.,
+            k_d_attitude: 0.,
 
             // PID for controlling pitch and roll rate directly (eg Acro)
             k_p_velocity: 0.1,
@@ -405,7 +400,7 @@ fn calc_pid_error(
     //     set_pt, measurement, error, error_p, error_i, error_d[0]
     // );
 
-    let mut result = PidState {
+    let mut reuslt = PidState {
         measurement,
         e: error,
         p: error_p,
@@ -752,7 +747,7 @@ pub fn run_rate(
     params: &Params,
     input_mode: InputMode,
     autopilot_status: &AutopilotStatus,
-    cfg: &UserCfg,
+    // cfg: &UserCfg,
     ch_data: &ChannelData,
     rates_commanded: &mut CtrlInputs,
     pid: &mut PidGroup,

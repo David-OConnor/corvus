@@ -3,7 +3,6 @@
 #![allow(mixed_script_confusables)] // eg variable names that include greek letters.
 
 use core::{
-    f32::consts::TAU,
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
@@ -229,29 +228,38 @@ impl Default for StateVolatile {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum AircraftType {
+    /// Angry bumblebee
+    Quadcopter,
+    /// Baby B-2
+    FlyingWing,
+}
+
 /// User-configurable settings. These get saved to and loaded from internal flash.
 pub struct UserCfg {
+    aircraft_type: AircraftType,
     /// Set a ceiling the aircraft won't exceed. Defaults to 400' (Legal limit in US for drones).
     /// In meters.
     ceiling: Option<f32>,
     /// In Attitude and related control modes, max pitch angle (from straight up), ie
     /// full speed, without going horizontal or further.
-    max_angle: f32, // radians
+    // max_angle: f32, // radians
     max_velocity: f32, // m/s
     idle_pwr: f32,
-    /// These input ranges map raw output from a manual controller to full scale range of our control scheme.
-    /// (min, max). Set using an initial calibration / setup procedure.
-    pitch_input_range: (f32, f32),
-    roll_input_range: (f32, f32),
-    yaw_input_range: (f32, f32),
-    throttle_input_range: (f32, f32),
+    // /// These input ranges map raw output from a manual controller to full scale range of our control scheme.
+    // /// (min, max). Set using an initial calibration / setup procedure.
+    // pitch_input_range: (f32, f32),
+    // roll_input_range: (f32, f32),
+    // yaw_input_range: (f32, f32),
+    // throttle_input_range: (f32, f32),
     /// Is the aircraft continuously collecting data on obstacles, and storing it to external flash?
     mapping_obstacles: bool,
     max_speed_hor: f32,
     max_speed_ver: f32,
     /// Map motor connection number to position.
     motor_mapping: RotorMapping,
-    baro_cal: baro::BaroCalPt,
+    altitude_cal: baro::AltitudeCalPt,
     // Note that this inst includes idle power.
     // todo: We want to store this inst, but RTIC doesn't like it not being sync. Maybe static mut.
     // todo. For now, lives in the acro PID fn lol.
@@ -261,22 +269,23 @@ pub struct UserCfg {
 impl Default for UserCfg {
     fn default() -> Self {
         Self {
+            aircraft_type: AircraftType::Quadcopter,
             ceiling: Some(122.),
             // todo: Do we want max angle and vel here? Do we use them, vice settings in InpuMap?
-            max_angle: TAU * 0.22,
+            // max_angle: TAU * 0.22,
             max_velocity: 30., // todo: raise?
             // Note: Idle power now handled in `power_interp_inst`
             idle_pwr: 0.02, // scale of 0 to 1.
             // todo: Find apt value for these
-            pitch_input_range: (0., 1.),
-            roll_input_range: (0., 1.),
-            yaw_input_range: (0., 1.),
-            throttle_input_range: (0., 1.),
+            // pitch_input_range: (0., 1.),
+            // roll_input_range: (0., 1.),
+            // yaw_input_range: (0., 1.),
+            // throttle_input_range: (0., 1.),
             mapping_obstacles: false,
             max_speed_hor: 20.,
             max_speed_ver: 20.,
             motor_mapping: Default::default(),
-            baro_cal: Default::default(),
+            altitude_cal: Default::default(),
             // Make sure to update this interp table if you change idle power.
             // todo: This LUT setup is backwards! You need to put thrust on a fixed spacing,
             // todo, and throttle as dynamic (y)!
@@ -401,6 +410,7 @@ mod app {
         cs_elrs: Pin,
         i2c1: I2c<I2C1>,
         i2c2: I2c<I2C2>,
+        altimeter: baro::Altimeter,
         uart3: Usart<USART3>, // for ELRS over CRSF.
         flash_onboard: Flash,
         // rtc: Rtc,
@@ -559,11 +569,18 @@ mod app {
         // We use I2C2 for the barometer.
         let mut i2c2 = I2c::new(dp.I2C2, i2c_baro_cfg, &clock_cfg);
 
-        // println!("Pre altimeter setup");
-        baro::setup(&mut i2c2);
-        // println!("Altimeter setup complete");
-        let pressure = baro::read(&mut i2c2);
-        println!("Pressure: {}", pressure);
+        let altimeter = baro::Altimeter::new(user_cfg.altitude_cal);
+
+        println!("Pre altimeter setup");
+        altimeter.setup(&mut i2c2);
+        println!("Altimeter setup complete");
+
+        loop {
+            let pressure = altimeter.read(&mut i2c2);
+            println!("Pressure: {}", pressure);
+
+            delay.delay_ms(500);
+        }
 
         // We use UART2 for the OSD, for DJI, via the MSP protocol.
         let mut uart2 = Usart::new(dp.USART2, 115_200, Default::default(), &clock_cfg);
@@ -681,7 +698,7 @@ mod app {
 
                 unsafe { USB_BUS = Some(UsbBus::new(usb)) };
 
-                let usb_serial = SerialPort::new(unsafe { &USB_BUS.as_ref().unwrap() });
+                let usb_serial = SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
 
                 let usb_dev = UsbDeviceBuilder::new(unsafe { USB_BUS.as_ref().unwrap() }, UsbVidPid(0x16c0, 0x27dd))
                     .manufacturer("Anyleaf")
@@ -773,6 +790,7 @@ mod app {
                 cs_elrs,
                 i2c1,
                 i2c2,
+                altimeter,
                 uart3,
                 // rtc,
                 update_timer,
@@ -847,7 +865,7 @@ mod app {
     shared = [current_params, input_map, current_pwr,
     velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
-    dma, rotor_timer_a, rotor_timer_b, ahrs, axis_locks, control_channel_data, control_link_stats,
+    ahrs, axis_locks, control_channel_data, control_link_stats,
     lost_link_timer, state_volatile,
     ],
     local = [arm_signals_received, disarm_signals_received, update_loop_counter],
@@ -877,9 +895,6 @@ mod app {
             cx.shared.autopilot_status,
             cx.shared.user_cfg,
             cx.shared.command_state,
-            cx.shared.rotor_timer_a,
-            cx.shared.rotor_timer_b,
-            cx.shared.dma,
             cx.shared.ctrl_coeffs,
             cx.shared.lost_link_timer,
             cx.shared.state_volatile,
@@ -902,9 +917,6 @@ mod app {
                  autopilot_status,
                  cfg,
                  command_state,
-                 rotor_timer_a,
-                 rotor_timer_b,
-                 dma,
                  coeffs,
                  lost_link_timer,
                  state_volatile| {
@@ -1186,7 +1198,7 @@ mod app {
                         params,
                         *input_mode,
                         autopilot_status,
-                        cfg,
+                        // cfg,
                         control_channel_data,
                         rates_commanded,
                         pid_inner,
@@ -1251,6 +1263,7 @@ mod app {
                                 count,
                                 // params,
                                 params.quaternion,
+                                params.s_z_msl,
                                 ch_data,
                                 &mut command_state.arm_status,
                                 &mut user_cfg.motor_mapping,

@@ -77,8 +77,8 @@ impl InputMap {
     }
 }
 
-// todo: Default for quad and default for fixed?
 impl Default for InputMap {
+    // tood: move deafult impls to their respective moudles (quad, flying wing)?
     fn default() -> Self {
         Self {
             pitch_rate: (-10., 10.),
@@ -88,6 +88,22 @@ impl Default for InputMap {
             pitch_angle: (-TAU / 4., TAU / 4.),
             roll_angle: (-TAU / 4., TAU / 4.),
             yaw_angle: (0., TAU),
+            alt_commanded_offset_msl: (0., 100.),
+            alt_commanded_agl: (0.5, 8.),
+        }
+    }
+}
+
+impl InputMap {
+    pub fn default_flying_wing() -> Self {
+        Self {
+            pitch_rate: (-6., 6.),
+            roll_rate: (-6., 6.),
+            yaw_rate: (-0., 0.), // N/A
+            throttle_clamped: (0., 0.), // N/A
+            pitch_angle: (0., 0.), // N/A
+            roll_angle: (0., 0.), // N/A
+            yaw_angle: (0., 0.), // N/A
             alt_commanded_offset_msl: (0., 100.),
             alt_commanded_agl: (0.5, 8.),
         }

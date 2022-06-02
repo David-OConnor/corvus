@@ -106,6 +106,8 @@ pub fn apply_controls(
     elevon_left -= roll_delta * ROLL_COEFF;
     elevon_right += roll_delta * ROLL_COEFF;
 
+    // todo: Clamp both elevons in both directions.
+
     let mut settings = ControlSurfaceSettings {
         motor: throttle,
         elevon_left,
