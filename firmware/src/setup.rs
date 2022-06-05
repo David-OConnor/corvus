@@ -3,7 +3,7 @@
 
 use cfg_if::cfg_if;
 
-use crate::flight_ctrls::quad::Motor;
+use crate::flight_ctrls::{flying_wing::ServoWing, quad::Motor};
 
 use stm32_hal2::{
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt},
@@ -58,6 +58,15 @@ impl Motor {
             TimChannel::C2 => 13, // CCR2 (starting with CCR1, burst len 2)
             TimChannel::C3 => 15, // CCR3
             TimChannel::C4 => 15, // CCR4 (starting with CCR3, burst len 2)
+        }
+    }
+}
+
+impl ServoWing {
+    pub fn tim_channel(&self) -> TimChannel {
+        match self {
+            Self::S1 => TimChannel::C3,
+            Self::S2 => TimChannel::C4,
         }
     }
 }

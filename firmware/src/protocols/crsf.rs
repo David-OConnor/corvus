@@ -391,8 +391,9 @@ pub fn handle_packet(
         }
     }
     if !start_i_found {
-        println!("Can't find starting position in payload; skipping");
-        println!("RX buf: {:?}", unsafe { RX_BUFFER });
+        // todo: BIT flag.
+        // println!("Can't find starting position in payload; skipping");
+        // println!("RX buf: {:?}", unsafe { RX_BUFFER });
         return None;
     }
 

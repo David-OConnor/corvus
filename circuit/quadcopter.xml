@@ -2,7 +2,7 @@
 <export version="E">
   <design>
     <source>C:\Users\david\code\Anyleaf\quadcopter\circuit\quadcopter.kicad_sch</source>
-    <date>20-Apr-22 08:11:50</date>
+    <date>05-Jun-22 10:21:14</date>
     <tool>Eeschema (6.0.0)</tool>
     <sheet number="1" name="/" tstamps="/">
       <title_block>
@@ -469,132 +469,6 @@
       <sheetpath names="/" tstamps="/"/>
       <tstamps>250faabf-dbbf-4aaa-b6bb-0c8419c948e4</tstamps>
     </comp>
-    <comp ref="H1">
-      <value>MountingHole</value>
-      <footprint>MountingHole:MountingHole_3.2mm_M3</footprint>
-      <libsource lib="Mechanical" part="MountingHole" description="Mounting Hole without connection"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>8c5bf34d-5d87-42b3-a5c2-7318fe8244f6</tstamps>
-    </comp>
-    <comp ref="H2">
-      <value>MountingHole</value>
-      <footprint>MountingHole:MountingHole_3.2mm_M3</footprint>
-      <libsource lib="Mechanical" part="MountingHole" description="Mounting Hole without connection"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>d4db385c-f37a-4ef1-b929-e86153f49455</tstamps>
-    </comp>
-    <comp ref="H3">
-      <value>MountingHole</value>
-      <footprint>MountingHole:MountingHole_3.2mm_M3</footprint>
-      <libsource lib="Mechanical" part="MountingHole" description="Mounting Hole without connection"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>b8301ec2-3419-4cbd-bf0b-f9b241ceccfc</tstamps>
-    </comp>
-    <comp ref="H4">
-      <value>MountingHole</value>
-      <footprint>MountingHole:MountingHole_3.2mm_M3</footprint>
-      <libsource lib="Mechanical" part="MountingHole" description="Mounting Hole without connection"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>b8077c53-92ae-4607-937a-cbaaec3997f5</tstamps>
-    </comp>
-    <comp ref="H5">
-      <value>MountingHole</value>
-      <footprint>MountingHole:MountingHole_3.2mm_M3</footprint>
-      <libsource lib="Mechanical" part="MountingHole" description="Mounting Hole without connection"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>39b6795b-9c2f-4c03-9c39-d12694bf2227</tstamps>
-    </comp>
-    <comp ref="H6">
-      <value>MountingHole</value>
-      <footprint>MountingHole:MountingHole_3.2mm_M3</footprint>
-      <libsource lib="Mechanical" part="MountingHole" description="Mounting Hole without connection"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>a3f684f0-7d6b-42cb-86cb-05273e5595c8</tstamps>
-    </comp>
-    <comp ref="H7">
-      <value>MountingHole</value>
-      <footprint>MountingHole:MountingHole_3.2mm_M3</footprint>
-      <libsource lib="Mechanical" part="MountingHole" description="Mounting Hole without connection"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>2ef62f58-5273-44bc-acff-281b2a7290f1</tstamps>
-    </comp>
-    <comp ref="H8">
-      <value>MountingHole</value>
-      <footprint>MountingHole:MountingHole_3.2mm_M3</footprint>
-      <libsource lib="Mechanical" part="MountingHole" description="Mounting Hole without connection"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>377c4616-0b5e-4c7f-b042-300b685cd4cb</tstamps>
-    </comp>
-    <comp ref="H9">
-      <value>MountingHole_Pad</value>
-      <footprint>Anyleaf_Shared:Mouse bites_7mm</footprint>
-      <libsource lib="Mechanical" part="MountingHole_Pad" description="Mounting Hole with connection"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>c7e176e5-b593-426d-809b-ada2372b18d3</tstamps>
-    </comp>
-    <comp ref="H10">
-      <value>MountingHole_Pad</value>
-      <footprint>Anyleaf_Shared:Mouse bites_7mm</footprint>
-      <libsource lib="Mechanical" part="MountingHole_Pad" description="Mounting Hole with connection"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>dd089902-bbfe-4cea-809e-35e40e02ff14</tstamps>
-    </comp>
-    <comp ref="H11">
-      <value>MountingHole_Pad</value>
-      <footprint>Anyleaf_Shared:Mouse bites_7mm</footprint>
-      <libsource lib="Mechanical" part="MountingHole_Pad" description="Mounting Hole with connection"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>2d85402c-ea71-41ef-8f57-f9abe0116f2e</tstamps>
-    </comp>
-    <comp ref="H12">
-      <value>MountingHole_Pad</value>
-      <footprint>Anyleaf_Shared:Mouse bites_7mm</footprint>
-      <libsource lib="Mechanical" part="MountingHole_Pad" description="Mounting Hole with connection"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>a3f8609a-1e59-464b-a327-10ab6acf3810</tstamps>
-    </comp>
-    <comp ref="J1">
-      <value>Conn_01x01_Female</value>
-      <footprint>TestPoint:TestPoint_Pad_1.0x1.0mm</footprint>
-      <libsource lib="Connector" part="Conn_01x01_Female" description="Generic connector, single row, 01x01, script generated (kicad-library-utils/schlib/autogen/connector/)"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>fc067d28-c733-40f6-b8c5-4825805f86ed</tstamps>
-    </comp>
-    <comp ref="J2">
-      <value>Conn_01x01_Female</value>
-      <footprint>TestPoint:TestPoint_Pad_1.0x1.0mm</footprint>
-      <libsource lib="Connector" part="Conn_01x01_Female" description="Generic connector, single row, 01x01, script generated (kicad-library-utils/schlib/autogen/connector/)"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>64291556-bd34-44eb-beed-a64b87cdc86e</tstamps>
-    </comp>
     <comp ref="J3">
       <value>Conn_01x01_Female</value>
       <footprint>TestPoint:TestPoint_Pad_1.5x1.5mm</footprint>
@@ -665,6 +539,24 @@
       <sheetpath names="/" tstamps="/"/>
       <tstamps>26fbc2ea-db39-49cd-8423-c76a689f9e1d</tstamps>
     </comp>
+    <comp ref="J11">
+      <value>Conn_01x04_Male</value>
+      <footprint>Connector_JST:JST_SH_SM04B-SRSS-TB_1x04-1MP_P1.00mm_Horizontal</footprint>
+      <libsource lib="Connector" part="Conn_01x04_Male" description="Generic connector, single row, 01x04, script generated (kicad-library-utils/schlib/autogen/connector/)"/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>b87f51e9-1d1e-4148-b0a0-ddf733ebd027</tstamps>
+    </comp>
+    <comp ref="J12">
+      <value>Conn_01x04_Male</value>
+      <footprint>Anyleaf_Shared:JST PH staggered for 1x04 2mm</footprint>
+      <libsource lib="Connector" part="Conn_01x04_Male" description="Generic connector, single row, 01x04, script generated (kicad-library-utils/schlib/autogen/connector/)"/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>034b5ea6-0b9b-428c-b907-e61e423c99e3</tstamps>
+    </comp>
     <comp ref="J13">
       <value>Conn_01x01_Female</value>
       <footprint>TestPoint:TestPoint_Pad_1.5x1.5mm</footprint>
@@ -673,15 +565,6 @@
       <property name="Sheetfile" value="quadcopter.kicad_sch"/>
       <sheetpath names="/" tstamps="/"/>
       <tstamps>1edce6e8-5566-4f48-a815-55320214f73c</tstamps>
-    </comp>
-    <comp ref="J15">
-      <value>Conn_01x01_Female</value>
-      <footprint>TestPoint:TestPoint_Pad_2.0x2.0mm</footprint>
-      <libsource lib="Connector" part="Conn_01x01_Female" description="Generic connector, single row, 01x01, script generated (kicad-library-utils/schlib/autogen/connector/)"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>d32841be-9a4b-4362-b20b-204fa1db9f9d</tstamps>
     </comp>
     <comp ref="J16">
       <value>Conn_01x01_Female</value>
@@ -836,15 +719,6 @@
       <sheetpath names="/" tstamps="/"/>
       <tstamps>dd80b212-e93c-470d-ab6d-d3520e80d1d9</tstamps>
     </comp>
-    <comp ref="J34">
-      <value>Conn_01x01_Female</value>
-      <footprint>TestPoint:TestPoint_Pad_1.0x1.0mm</footprint>
-      <libsource lib="Connector" part="Conn_01x01_Female" description="Generic connector, single row, 01x01, script generated (kicad-library-utils/schlib/autogen/connector/)"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>c0e2e86f-65cb-4308-aa85-5ef918c2f2ae</tstamps>
-    </comp>
     <comp ref="J37">
       <value>Conn_01x01_Female</value>
       <footprint>TestPoint:TestPoint_Pad_1.5x1.5mm</footprint>
@@ -907,15 +781,6 @@
       <property name="Sheetfile" value="quadcopter.kicad_sch"/>
       <sheetpath names="/" tstamps="/"/>
       <tstamps>edba147b-ad48-4087-95c9-b431acfd970c</tstamps>
-    </comp>
-    <comp ref="J46">
-      <value>Conn_01x01_Female</value>
-      <footprint>TestPoint:TestPoint_Pad_2.0x2.0mm</footprint>
-      <libsource lib="Connector" part="Conn_01x01_Female" description="Generic connector, single row, 01x01, script generated (kicad-library-utils/schlib/autogen/connector/)"/>
-      <property name="Sheetname" value=""/>
-      <property name="Sheetfile" value="quadcopter.kicad_sch"/>
-      <sheetpath names="/" tstamps="/"/>
-      <tstamps>4c60dbfb-837d-475c-ae88-20b42a090b2d</tstamps>
     </comp>
     <comp ref="J47">
       <value>Conn_01x01_Female</value>
@@ -1084,13 +949,13 @@
       <tstamps>402421a6-21e5-4ac5-9d39-81a47761bf83</tstamps>
     </comp>
     <comp ref="R12">
-      <value>1k</value>
+      <value>3.3k</value>
       <footprint>Resistor_SMD:R_0402_1005Metric</footprint>
       <fields>
-        <field name="LCSC">C25741</field>
+        <field name="LCSC">C25890</field>
       </fields>
       <libsource lib="Device" part="R" description="Resistor"/>
-      <property name="LCSC" value="C25741"/>
+      <property name="LCSC" value="C25890"/>
       <property name="Sheetname" value=""/>
       <property name="Sheetfile" value="quadcopter.kicad_sch"/>
       <sheetpath names="/" tstamps="/"/>
@@ -1326,7 +1191,7 @@
     </comp>
     <comp ref="Y2">
       <value>52Mhz, 12pF</value>
-      <footprint>Crystal:Crystal_SMD_2016-4Pin_2.0x1.6mm</footprint>
+      <footprint>Crystal:Crystal_SMD_3225-4Pin_3.2x2.5mm</footprint>
       <datasheet>https://au.mouser.com/datasheet/2/115/DIOD_S_A0003100872_1-2542169.pdf</datasheet>
       <fields>
         <field name="Digikey">FL520WFMT1TR-ND</field>
@@ -1537,6 +1402,24 @@
       </fields>
       <pins>
         <pin num="1" name="Pin_1" type="passive"/>
+      </pins>
+    </libpart>
+    <libpart lib="Connector" part="Conn_01x04_Male">
+      <description>Generic connector, single row, 01x04, script generated (kicad-library-utils/schlib/autogen/connector/)</description>
+      <docs>~</docs>
+      <footprints>
+        <fp>Connector*:*_1x??_*</fp>
+      </footprints>
+      <fields>
+        <field name="Reference">J</field>
+        <field name="Value">Conn_01x04_Male</field>
+        <field name="Datasheet">~</field>
+      </fields>
+      <pins>
+        <pin num="1" name="Pin_1" type="passive"/>
+        <pin num="2" name="Pin_2" type="passive"/>
+        <pin num="3" name="Pin_3" type="passive"/>
+        <pin num="4" name="Pin_4" type="passive"/>
       </pins>
     </libpart>
     <libpart lib="Connector" part="Conn_01x06_Male">
@@ -1926,6 +1809,7 @@
       <node ref="C30" pin="2" pintype="passive"/>
       <node ref="C5" pin="1" pintype="passive"/>
       <node ref="C8" pin="2" pintype="passive"/>
+      <node ref="J11" pin="4" pinfunction="Pin_4" pintype="passive"/>
       <node ref="J30" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="J32" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="L1" pin="1" pinfunction="1" pintype="passive"/>
@@ -2082,102 +1966,112 @@
     </net>
     <net code="29" name="/NRST">
       <node ref="C18" pin="2" pintype="passive"/>
-      <node ref="J34" pin="1" pinfunction="Pin_1" pintype="passive"/>
+      <node ref="J12" pin="4" pinfunction="Pin_4" pintype="passive"/>
       <node ref="U1" pin="7" pinfunction="PG10-NRST" pintype="bidirectional"/>
     </net>
-    <net code="30" name="/SCK_1">
+    <net code="30" name="/OSC_IN">
+      <node ref="C6" pin="2" pintype="passive"/>
+      <node ref="U1" pin="5" pinfunction="PF0-OSC_IN" pintype="bidirectional"/>
+      <node ref="Y1" pin="1" pinfunction="1" pintype="passive"/>
+    </net>
+    <net code="31" name="/OSC_OUT">
+      <node ref="C9" pin="2" pintype="passive"/>
+      <node ref="U1" pin="6" pinfunction="PF1-OSC_OUT" pintype="bidirectional"/>
+      <node ref="Y1" pin="3" pinfunction="3" pintype="passive"/>
+    </net>
+    <net code="32" name="/SCK_1">
       <node ref="U1" pin="13" pinfunction="PA5" pintype="bidirectional"/>
       <node ref="U2" pin="13" pinfunction="AP_SCLK" pintype="input"/>
     </net>
-    <net code="31" name="/SCK_2">
+    <net code="33" name="/SCK_2">
       <node ref="U1" pin="26" pinfunction="PB13" pintype="bidirectional"/>
       <node ref="U7" pin="6" pinfunction="CLK" pintype="input"/>
     </net>
-    <net code="32" name="/SCK_3">
+    <net code="34" name="/SCK_3">
       <node ref="U1" pin="41" pinfunction="PB3" pintype="bidirectional"/>
       <node ref="U8" pin="18" pinfunction="SCK_RTSN" pintype="input"/>
     </net>
-    <net code="33" name="/SCL1">
-      <node ref="J15" pin="1" pinfunction="Pin_1" pintype="passive"/>
+    <net code="35" name="/SCL1">
+      <node ref="J11" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="U1" pin="38" pinfunction="PA15" pintype="bidirectional"/>
     </net>
-    <net code="34" name="/SCL2">
+    <net code="36" name="/SCL2">
       <node ref="J49" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="U1" pin="31" pinfunction="PA9" pintype="bidirectional"/>
       <node ref="U3" pin="4" pinfunction="SCK" pintype="input"/>
     </net>
-    <net code="35" name="/SDA1">
-      <node ref="J46" pin="1" pinfunction="Pin_1" pintype="passive"/>
+    <net code="37" name="/SDA1">
+      <node ref="J11" pin="2" pinfunction="Pin_2" pintype="passive"/>
       <node ref="U1" pin="47" pinfunction="PB9" pintype="bidirectional"/>
     </net>
-    <net code="36" name="/SDA2">
+    <net code="38" name="/SDA2">
       <node ref="J50" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="U1" pin="30" pinfunction="PA8" pintype="bidirectional"/>
       <node ref="U3" pin="3" pinfunction="SDI" pintype="bidirectional"/>
     </net>
-    <net code="37" name="/SWCLK">
-      <node ref="J2" pin="1" pinfunction="Pin_1" pintype="passive"/>
+    <net code="39" name="/SWCLK">
+      <node ref="J12" pin="3" pinfunction="Pin_3" pintype="passive"/>
       <node ref="U1" pin="37" pinfunction="PA14" pintype="bidirectional"/>
     </net>
-    <net code="38" name="/SWDIO">
-      <node ref="J1" pin="1" pinfunction="Pin_1" pintype="passive"/>
+    <net code="40" name="/SWDIO">
+      <node ref="J12" pin="2" pinfunction="Pin_2" pintype="passive"/>
       <node ref="U1" pin="36" pinfunction="PA13" pintype="bidirectional"/>
     </net>
-    <net code="39" name="/UART1_RX">
+    <net code="41" name="/UART1_RX">
       <node ref="J4" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="J45" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="U1" pin="45" pinfunction="PB7" pintype="bidirectional"/>
     </net>
-    <net code="40" name="/UART1_TX">
+    <net code="42" name="/UART1_TX">
       <node ref="J44" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="U1" pin="44" pinfunction="PB6" pintype="bidirectional"/>
     </net>
-    <net code="41" name="/UART2_RX">
+    <net code="43" name="/UART2_RX">
       <node ref="J28" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="U1" pin="11" pinfunction="PA3" pintype="bidirectional"/>
     </net>
-    <net code="42" name="/UART2_TX">
+    <net code="44" name="/UART2_TX">
       <node ref="J13" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="U1" pin="10" pinfunction="PA2" pintype="bidirectional"/>
     </net>
-    <net code="43" name="/UART3_RX">
+    <net code="45" name="/UART3_RX">
       <node ref="J19" pin="7" pinfunction="Pin_7" pintype="passive"/>
       <node ref="J22" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="J41" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="U1" pin="24" pinfunction="PB11" pintype="bidirectional"/>
     </net>
-    <net code="44" name="/UART3_TX">
+    <net code="46" name="/UART3_TX">
       <node ref="J40" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="U1" pin="22" pinfunction="PB10" pintype="bidirectional"/>
     </net>
-    <net code="45" name="/UART4_RX">
+    <net code="47" name="/UART4_RX">
       <node ref="J43" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="U1" pin="40" pinfunction="PC11" pintype="bidirectional"/>
     </net>
-    <net code="46" name="/UART4_TX">
+    <net code="48" name="/UART4_TX">
       <node ref="J42" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="U1" pin="39" pinfunction="PC10" pintype="bidirectional"/>
     </net>
-    <net code="47" name="/USB_DN">
+    <net code="49" name="/USB_DN">
       <node ref="R4" pin="2" pintype="passive"/>
       <node ref="U1" pin="33" pinfunction="PA11" pintype="bidirectional"/>
     </net>
-    <net code="48" name="/USB_DP">
+    <net code="50" name="/USB_DP">
       <node ref="R5" pin="2" pintype="passive"/>
       <node ref="U1" pin="34" pinfunction="PA12" pintype="bidirectional"/>
     </net>
-    <net code="49" name="/V_DCC">
+    <net code="51" name="/V_DCC">
       <node ref="C26" pin="1" pintype="passive"/>
       <node ref="C28" pin="2" pintype="passive"/>
       <node ref="L3" pin="1" pinfunction="1" pintype="passive"/>
       <node ref="U8" pin="12" pinfunction="DCC_FB" pintype="power_out"/>
       <node ref="U8" pin="2" pinfunction="VDD_IN" pintype="power_in"/>
     </net>
-    <net code="50" name="/V_DCC2">
+    <net code="52" name="/V_DCC2">
       <node ref="L3" pin="2" pinfunction="2" pintype="passive"/>
       <node ref="U8" pin="14" pinfunction="DCC_SW" pintype="power_out"/>
     </net>
-    <net code="51" name="GND">
+    <net code="53" name="GND">
       <node ref="C1" pin="1" pintype="passive"/>
       <node ref="C10" pin="1" pintype="passive"/>
       <node ref="C11" pin="1" pintype="passive"/>
@@ -2208,6 +2102,8 @@
       <node ref="D2" pin="2" pinfunction="A" pintype="passive"/>
       <node ref="D3" pin="1" pinfunction="K" pintype="passive"/>
       <node ref="J10" pin="1" pinfunction="Pin_1" pintype="passive"/>
+      <node ref="J11" pin="3" pinfunction="Pin_3" pintype="passive"/>
+      <node ref="J12" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="J17" pin="1" pinfunction="Pin_1" pintype="passive"/>
       <node ref="J18" pin="A1" pinfunction="GND" pintype="passive"/>
       <node ref="J18" pin="A12" pinfunction="GND" pintype="passive"/>
@@ -2253,16 +2149,6 @@
       <node ref="Y1" pin="4" pinfunction="4" pintype="passive"/>
       <node ref="Y2" pin="2" pinfunction="2" pintype="passive"/>
       <node ref="Y2" pin="4" pinfunction="4" pintype="passive"/>
-    </net>
-    <net code="52" name="Net-(C6-Pad2)">
-      <node ref="C6" pin="2" pintype="passive"/>
-      <node ref="U1" pin="5" pinfunction="PF0-OSC_IN" pintype="bidirectional"/>
-      <node ref="Y1" pin="1" pinfunction="1" pintype="passive"/>
-    </net>
-    <net code="53" name="Net-(C9-Pad2)">
-      <node ref="C9" pin="2" pintype="passive"/>
-      <node ref="U1" pin="6" pinfunction="PF1-OSC_OUT" pintype="bidirectional"/>
-      <node ref="Y1" pin="3" pinfunction="3" pintype="passive"/>
     </net>
     <net code="54" name="Net-(C19-Pad2)">
       <node ref="C19" pin="2" pintype="passive"/>
@@ -2336,18 +2222,6 @@
     <net code="70" name="Net-(U8-Pad6)">
       <node ref="U8" pin="6" pinfunction="XTB" pintype="bidirectional"/>
       <node ref="Y2" pin="3" pinfunction="3" pintype="passive"/>
-    </net>
-    <net code="71" name="unconnected-(H9-Pad1)">
-      <node ref="H9" pin="1" pinfunction="1" pintype="input"/>
-    </net>
-    <net code="72" name="unconnected-(H10-Pad1)">
-      <node ref="H10" pin="1" pinfunction="1" pintype="input"/>
-    </net>
-    <net code="73" name="unconnected-(H11-Pad1)">
-      <node ref="H11" pin="1" pinfunction="1" pintype="input"/>
-    </net>
-    <net code="74" name="unconnected-(H12-Pad1)">
-      <node ref="H12" pin="1" pinfunction="1" pintype="input"/>
     </net>
     <net code="75" name="unconnected-(J18-PadA8)">
       <node ref="J18" pin="A8" pinfunction="SBU1" pintype="bidirectional"/>

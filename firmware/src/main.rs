@@ -21,7 +21,7 @@ use stm32_hal2::{
     },
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
-    timer::{Timer, TimerConfig, TimerInterrupt},
+    timer::{OutputCompare, TimChannel, Timer, TimerConfig, TimerInterrupt},
     usart::{Usart, UsartInterrupt},
 };
 
@@ -90,6 +90,7 @@ use protocols::{crsf, dshot, usb_cfg};
 
 use flight_ctrls::{
     common::{AutopilotStatus, CommandState, CtrlInputs, InputMap, Params},
+    flying_wing::ServoWingMapping,
     quad::{AxisLocks, InputMode, RotationDir, RotorMapping, RotorPosition, RotorPower},
 };
 
@@ -161,6 +162,8 @@ static CRSF_RX_IN_PROG: AtomicBool = AtomicBool::new(false);
 // todo: Panic button that recovers the aircraft if you get spacial D etc.
 
 // todo: For fixed wing: make inner loop 500Hz. Figure out the best way to do it
+
+// todo: Bit flags that display as diff colored LEDs, and OSD items
 
 /// Data dump from Hypershield on Matrix:
 /// You typically don't change the PID gains during flight. They are often tuned experimentally by
@@ -260,8 +263,10 @@ pub struct UserCfg {
     mapping_obstacles: bool,
     max_speed_hor: f32,
     max_speed_ver: f32,
-    /// Map motor connection number to position.
+    /// Map motor connection number to position. For quadcopters.
     motor_mapping: RotorMapping,
+    /// For flying wing.
+    servo_wing_mapping: ServoWingMapping,
     // altitude_cal: AltitudeCalPt,
     // Note that this inst includes idle power.
     // todo: We want to store this inst, but RTIC doesn't like it not being sync. Maybe static mut.
@@ -288,6 +293,7 @@ impl Default for UserCfg {
             max_speed_hor: 20.,
             max_speed_ver: 20.,
             motor_mapping: Default::default(),
+            servo_wing_mapping: Default::default(),
             // altitude_cal: Default::default(),
             // Make sure to update this interp table if you change idle power.
             // todo: This LUT setup is backwards! You need to put thrust on a fixed spacing,
@@ -384,6 +390,8 @@ fn init_sensors(
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
     use super::*;
+    use crate::flight_ctrls::flying_wing;
+    use crate::flight_ctrls::flying_wing::ServoWing;
 
     #[shared]
     struct Shared {
@@ -644,6 +652,26 @@ mod app {
 
                 let mut rotor_timer_b = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
             }
+        }
+
+        // todo: Testing servos
+        flying_wing::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
+
+        // todo: Test this with teh control settings struct once motor is in.
+
+        rotor_timer_b.enable();
+        loop {
+            flying_wing::set_elevon_posit(ServoWing::S1, 0., &mut rotor_timer_b);
+            flying_wing::set_elevon_posit(ServoWing::S2, 0., &mut rotor_timer_b);
+            delay.delay_ms(2000);
+
+            flying_wing::set_elevon_posit(ServoWing::S1, 0.5, &mut rotor_timer_b);
+            flying_wing::set_elevon_posit(ServoWing::S2, 0.5, &mut rotor_timer_b);
+            delay.delay_ms(2000);
+
+            flying_wing::set_elevon_posit(ServoWing::S1, 1., &mut rotor_timer_b);
+            flying_wing::set_elevon_posit(ServoWing::S2, 1., &mut rotor_timer_b);
+            delay.delay_ms(2000);
         }
 
         dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
@@ -949,15 +977,15 @@ mod app {
                     // Debug loop.
                     if *cx.local.update_loop_i % 700 == 0 {
                         println!("Loop");
-                        // println!(
-                        //     "Accel: Ax {}, Ay: {}, Az: {}",
-                        //     params.a_x, params.a_y, params.a_z
-                        // );
-                        //
-                        // println!(
-                        //     "Gyro: roll {}, pitch: {}, yaw: {}",
-                        //     params.v_roll, params.v_pitch, params.v_yaw
-                        // );
+                        println!(
+                            "Accel: Ax {}, Ay: {}, Az: {}",
+                            params.a_x, params.a_y, params.a_z
+                        );
+
+                        println!(
+                            "Gyro: roll {}, pitch: {}, yaw: {}",
+                            params.v_roll, params.v_pitch, params.v_yaw
+                        );
                         //
                         // println!(
                         //     "Attitude: roll {}, pitch: {}, yaw: {}\n",

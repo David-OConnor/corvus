@@ -5,7 +5,7 @@
 use stm32_hal2::{
     dma::Dma,
     pac::{DMA1, TIM2, TIM3},
-    timer::{TimChannel, Timer},
+    timer::{OutputCompare, TimChannel, Timer, TimerInterrupt},
 };
 
 use crate::{
@@ -29,23 +29,98 @@ const ELEVON_MAX: f32 = 1.;
 // pitch coeffecient of 1.
 const ROLL_COEFF: f32 = 1.;
 
+// These pulse durations are in seconds, and correspond to nuetral, and full scale deflections.
+// todo: Probably should be in a user config.
+const ELEVON_PULSE_DUR_NEUTRAL: f32 = 0.0015; // In seconds. With this pulse dir, cervo is centered.
+const ELEVON_PULSE_DUR_FULL_DOWN: f32 = 0.001; // In seconds. With this pulse dir, cervo is centered.
+const ELEVON_PULSE_DUR_FULL_UP: f32 = 0.002; // In seconds. With this pulse dir, cervo is centered.
+
 cfg_if! {
     if #[cfg(feature = "h7")] {
         pub const PSC: u16 = 0; // todo
         pub const ARR: u32 = 332; // todo
     } else if #[cfg(feature = "g4")] {
-        // 170Mhz tim clock. Results in 200Hz.
+        // 170Mhz tim clock. Results in 500Hz.
         // (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period
-        pub const PSC: u16 = 15;
-        pub const ARR: u32 = 53_124;
+        pub const PSC: u16 = 6;
+        pub const ARR: u32 = 48_570;
     }
 }
 
-// High and low correspond to 2ms, and 1ms pulse width respsectively. (Period of 200Hz is 5ms)
+// High and low correspond to 2ms, and 1ms pulse width respsectively. (Period of 500Hz is 2ms)
 // const DUTY_HIGH: u32 = ARR / 5 * 2;
 // const DUTY_LOW: u32 = ARR / 5;
-const DUTY_HIGH: f32 = (ARR / 5 * 2) as f32;
-const DUTY_LOW: f32 = (ARR / 5) as f32;
+// We don't use full ARR for max high, since that would be full high the whole time.
+const SERVO_DUTY_HIGH: f32 = (ARR - 60) as f32;
+const SERVO_DUTY_LOW: f32 = (ARR / 2) as f32;
+
+/// Sets the position of an elevon
+pub fn set_elevon_posit(elevon: ServoWing, position: f32, servo_timer: &mut Timer<TIM3>) {
+    let duty_arr = util::map_linear(
+        position,
+        (ELEVON_MIN, ELEVON_MAX),
+        (SERVO_DUTY_LOW, SERVO_DUTY_HIGH),
+    ) as u32;
+    servo_timer.set_duty(elevon.tim_channel(), duty_arr);
+}
+
+/// See also: `dshot::setup_timers`.
+pub fn setup_timers(motor_timer: &mut Timer<TIM2>, servo_timer: &mut Timer<TIM3>) {
+    motor_timer.set_prescaler(dshot::DSHOT_PSC_600);
+    motor_timer.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
+    servo_timer.set_prescaler(PSC);
+    servo_timer.set_auto_reload(ARR);
+
+    motor_timer.enable_interrupt(TimerInterrupt::UpdateDma);
+
+    // Arbitrary duty cycle set, since we'll override it with DMA bursts.
+    motor_timer.enable_pwm_output(Motor::M1.tim_channel(), OutputCompare::Pwm1, 0.);
+    servo_timer.enable_pwm_output(ServoWing::S1.tim_channel(), OutputCompare::Pwm1, 0.);
+    servo_timer.enable_pwm_output(ServoWing::S2.tim_channel(), OutputCompare::Pwm1, 0.);
+}
+
+/// Equivalent of `Motor` for quadcopters.
+#[derive(Clone, Copy)]
+pub enum ServoWing {
+    S1,
+    S2,
+}
+
+/// Specify the wing associated with a servo. Equivalent of `RotorPosition` for quadcopters.
+/// repr(u8) is for use in Preflight.
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+pub enum ServoWingPosition {
+    Left = 0,
+    Right = 1,
+}
+
+/// Equivalent of `RotorMapping` for quadcopters.
+pub struct ServoWingMapping {
+    pub s1: ServoWingPosition,
+    pub s2: ServoWingPosition,
+}
+
+impl Default for ServoWingMapping {
+    fn default() -> Self {
+        Self {
+            s1: ServoWingPosition::Left,
+            s2: ServoWingPosition::Right,
+        }
+    }
+}
+
+impl ServoWingMapping {
+    pub fn servo_from_position(&self, position: ServoWingPosition) -> ServoWing {
+        // todo: This assumes each servo maps to exactly one position. We probably
+        // todo should have some constraint to enforce this.
+        if self.s1 == position {
+            ServoWing::S1
+        } else {
+            ServoWing::S2
+        }
+    }
+}
 
 /// Represents control settings for the motor, and elevons. Equivalent API to `quad::RotorPower`.
 /// Positive elevon value means pointed up relative to its hinge point.
@@ -69,22 +144,10 @@ impl ControlSurfaceSettings {
         match arm_status {
             ArmStatus::Armed => {
                 dshot::set_power_a(Motor::M1, Motor::M2, self.motor, 0., motor_tim, dma);
-                servo_tim.set_duty(
-                    TimChannel::C1,
-                    util::map_linear(
-                        self.elevon_left,
-                        (ELEVON_MIN, ELEVON_MAX),
-                        (DUTY_LOW, DUTY_HIGH),
-                    ) as u32,
-                );
-                servo_tim.set_duty(
-                    TimChannel::C2,
-                    util::map_linear(
-                        self.elevon_right,
-                        (ELEVON_MIN, ELEVON_MAX),
-                        (DUTY_LOW, DUTY_HIGH),
-                    ) as u32,
-                );
+
+                // todo: Apply to left and right wing by mapping etc! Here or upstream.
+                set_elevon_posit(ServoWing::S1, self.elevon_left, servo_tim);
+                set_elevon_posit(ServoWing::S2, self.elevon_right, servo_tim);
             }
             ArmStatus::Disarmed => {
                 dshot::set_power_a(Motor::M1, Motor::M2, 0., 0., motor_tim, dma);
