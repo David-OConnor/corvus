@@ -5,9 +5,16 @@
 //!
 //! Note that both this and the ICM-42605 IMU read temperature.
 
+use crate::{
+    atmos_model::{AltitudeCalPt, POINT_0, POINT_1},
+    util,
+};
+
 use stm32_hal2::{i2c::I2c, pac::I2C2};
 
 use defmt::println;
+
+use num_traits::Float; // power.
 
 // The sensor's address is 0x77 (if SDO pin is left floating or pulled-up to VDDIO) or 0x76 (if the SDO pin is
 // pulled-down to GND).
@@ -57,65 +64,86 @@ const K_T: i32 = 1_040_384; // 64x oversample
                             // todo: 128 times for even more precision?
                             // todo: Result shift (bit 2 and 3 address 0x09, for use with this setting)
 
-/// Fix the sign on signed 24 bit integers, represented as `i32`.
-fn fix_i24_sign(val: &mut i32) {
-    *val = (*val << 8) >> 8;
-}
-
-/// Used to map pressure to altitude. Can use a single point, in conjunction with a standard
-/// atmosphere model.
-pub struct AltitudeCalPt {
-    pressure: f32, // Pa
-    altitude: f32, // MSL, via GPS, in meters
-    temp: f32,     // C
-}
-
-impl Default for AltitudeCalPt {
-    /// Standard temperature and pressure, at sea level. Note that in practice, we zero to launch elevation
-    /// instead of 0 MSL. ( todo: But as an adjustment for MSL, or with this model?)
-    fn default() -> Self {
-        Self {
-            pressure: 101_325.,
-            altitude: 0.,
-            temp: 15.,
-        }
-    }
+/// Fix the sign on signed 24 bit integers, represented as `i32`. (Here, we use this for pressure
+/// and temp readings)
+fn fix_int_sign(val: &mut i32, num_bits: u8) {
+    let diff = 32 - num_bits as i32;
+    *val = (*val << diff) >> diff;
 }
 
 /// Calibration coefficients, read from factory-assigned registers.
 /// 2's complement numbers.
-struct PressureCal {
+#[derive(Default)]
+struct HardwareCoeffCal {
     // todo: These values have varying numbers of bits, but we use them with 24-bit readings.
     c0: i32,
     c1: i32,
     c00: i32,
     c10: i32,
-    c20: i32,
-    c30: i32,
     c01: i32,
     c11: i32,
+    c20: i32,
+    c30: i32,
     c21: i32,
 }
 
+/// Represents an Altimeter, storing several types of calibration values. Of note, this is mostly hardware-agnostic,
+/// but is in this hardware-specific module due to the factory-stored calibration coeffs.
 pub struct Altimeter {
-    altitude_cal: AltitudeCalPt,
-    pressure_cal: PressureCal,
+    /// Calibration point taken during initialization; used to interpret pressure readings
+    /// as pseudo-AGL. This point's altitude field must be 0.
+    ground_cal: AltitudeCalPt,
+    /// Calibration point taken during initialization; Stores measured pressure and temperature
+    /// at the GPS's reported MSL alt.
+    gps_cal_init: Option<AltitudeCalPt>,
+    gps_cal_air: Option<AltitudeCalPt>,
+    hardware_coeff_cal: HardwareCoeffCal,
 }
+
+// todo: Consider adding a second and/or 3rd gps cal point based on GPS reporting.
 
 impl Altimeter {
     /// Configure settings, including pressure mreasurement rate, and return an instance.
     /// And load calibration data.
-    pub fn new(i2c: &mut I2c<I2C2>, altitude_cal: AltitudeCalPt) -> Self {
-        // Set 16 x oversampling, and 128 measurements per second
-        // todo: Balance oversampling between time and precision
-        i2c.write(ADDR, &[PRS_CFG, 0b0111_0100]).ok();
+    pub fn new(i2c: &mut I2c<I2C2>) -> Self {
+        // todo temp
+        return Self {
+            ground_cal: Default::default(),
+            gps_cal_init: None,
+            gps_cal_air: None,
+            hardware_coeff_cal: Default::default(),
+        };
+
+        // Set 64x oversampling, and 128 measurements per second, for both temp and pres.
+        i2c.write(ADDR, &[PRS_CFG, 0b0111_0110]).ok();
+        i2c.write(ADDR, &[TMP_CFG, 0b0111_0110]).ok();
+
+        // Continuous pressure and temp measurement in background mode.
+        i2c.write(ADDR, &[MEAS_CFG, 0b0000_0111]).ok();
+
+        // Enable pressure and temp bit-shift due to our high sampling rate.
+        // No interrupts enabled.
+        i2c.write(ADDR, &[CFG_REG, 0b0000_1100]).ok();
 
         // todo temp debug
-        let mut prs_buf = [0; 10];
+        let mut prs_buf = [0];
         i2c.write_read(ADDR, &[PRS_CFG], &mut prs_buf).ok();
-        println!("PRS CFG REG: {:?}", prs_buf);
+        println!("PRS CFG REG: {:b}", prs_buf[0]);
+
+        i2c.write_read(ADDR, &[MEAS_CFG], &mut prs_buf).ok();
+        println!("Meas REG: {:b}", prs_buf[0]);
 
         // Load calibration data, factory-coded.
+        // Wait until the coefficients are ready to read. Also, wait until readings are ready
+        // here as well.
+        loop {
+            let mut buf = [0];
+            i2c.write_read(ADDR, &[MEAS_CFG], &mut buf).ok();
+            if (buf[0] & 0b1100_0000) == 0b1100_0000 {
+                break;
+            }
+        }
+
         let mut buf_a = [0];
         let mut buf_b = [0];
         let mut buf_c = [0];
@@ -160,38 +188,51 @@ impl Altimeter {
         i2c.write_read(ADDR, &[COEF_30_B], &mut buf_b).ok();
         let mut c30 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
 
-        fix_i24_sign(&mut c0);
-        fix_i24_sign(&mut c1);
-        fix_i24_sign(&mut c00);
-        fix_i24_sign(&mut c10);
-        fix_i24_sign(&mut c20);
-        fix_i24_sign(&mut c30);
-        fix_i24_sign(&mut c01);
-        fix_i24_sign(&mut c11);
-        fix_i24_sign(&mut c21);
+        // c0 and c1 are 12 bits. c00 and c10 are 20 bits. The rest are 16.
+        // All are 2's complement.
+        fix_int_sign(&mut c0, 12);
+        fix_int_sign(&mut c1, 12);
+        fix_int_sign(&mut c00, 20);
+        fix_int_sign(&mut c10, 20);
+
+        // println!("C0 {} C1 {} C10 {} C20 {} C30 {} C01 {} C11 {} C21 {} C30 {}", c0, c1, c10, c20, c30, c01, c11, c21, c30);
 
         Self {
-            altitude_cal,
-            pressure_cal: PressureCal {
+            ground_cal: Default::default(),
+            gps_cal_init: None,
+            gps_cal_air: None,
+            hardware_coeff_cal: HardwareCoeffCal {
                 c0,
                 c1,
                 c00,
                 c10,
-                c20,
-                c30,
                 c01,
                 c11,
+                c20,
                 c21,
+                c30,
             },
         }
     }
 
-    pub fn calibrate(&mut self, altitude: f32, i2c: &mut I2c<I2C2>) {
-        self.altitude_cal = AltitudeCalPt {
-            pressure: self.read_pressure(i2c),
-            altitude,
-            temp: self.read_temp(i2c),
-        }
+    pub fn calibrate(&mut self, gps_alt: Option<f32>, i2c: &mut I2c<I2C2>) {
+        let pressure = self.read_pressure(i2c);
+        let temp = self.read_temp(i2c);
+
+        self.ground_cal = AltitudeCalPt {
+            pressure,
+            altitude: 0.,
+            temp,
+        };
+
+        self.gps_cal_air = match gps_alt {
+            Some(alt_msl) => Some(AltitudeCalPt {
+                pressure,
+                altitude: alt_msl,
+                temp,
+            }),
+            None => None,
+        };
     }
 
     /// Apply compensation values from calibration coefficients to the pressure reading.
@@ -201,7 +242,7 @@ impl Altimeter {
         let t_raw_sc = t_raw / K_T;
         let p_raw_sc = p_raw / K_P;
 
-        let cal = &self.pressure_cal; // code shortener
+        let cal = &self.hardware_coeff_cal; // code shortener
 
         (cal.c00
             + p_raw_sc * (cal.c10 + p_raw_sc * (cal.c20 + p_raw_sc * cal.c30))
@@ -216,7 +257,7 @@ impl Altimeter {
         // todo: Should we be doing these operations (Here and above in pressure-from_reading
         // todo as floats, and storing the c vals as floats?
 
-        (self.pressure_cal.c0 / 2 * self.pressure_cal.c1 * t_raw_sc) as f32
+        (self.hardware_coeff_cal.c0 / 2 * self.hardware_coeff_cal.c1 * t_raw_sc) as f32
     }
 
     // todo: Given you use temp readings to feed into pressure, combine somehow to reduce reading
@@ -236,7 +277,7 @@ impl Altimeter {
         i2c.write_read(ADDR, &[PSR_B0], &mut buf0).ok();
 
         let mut p_raw = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
-        fix_i24_sign(&mut p_raw);
+        fix_int_sign(&mut p_raw, 24);
 
         // todo: DRY with above and temp readings below, also does this twice if getting temp at same time.
         i2c.write_read(ADDR, &[TMP_B2], &mut buf2).ok();
@@ -244,7 +285,7 @@ impl Altimeter {
         i2c.write_read(ADDR, &[TMP_B0], &mut buf0).ok();
 
         let mut t_raw = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
-        fix_i24_sign(&mut t_raw);
+        fix_int_sign(&mut t_raw, 24);
 
         self.pressure_from_reading(p_raw, t_raw)
     }
@@ -264,17 +305,35 @@ impl Altimeter {
         i2c.write_read(ADDR, &[TMP_B0], &mut buf0).ok();
 
         let mut reading = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
-        fix_i24_sign(&mut reading);
+        fix_int_sign(&mut reading, 24);
 
         self.temp_from_reading(reading)
     }
-}
 
-/// Interpret pressure as altitude. Pressure is in kPa.
-pub fn pressure_to_alt(pressure: f32) -> f32 {
-    // todo: If you use more than one baro driver, move this outside this module; it's a general fn.
-    // P = 101.29 * (((T + 273.1))/288.08)^5.256   (in kPa)
-    // T = 150.4 - .00649h
+    /// Estimate altitude MSL from pressure and temperature. Pressure is in Pa; temp is in K.
+    /// Uses a linear map between 2 pointers: Either from the standard atmosphere model, or from
+    /// GPS points, if available.
+    /// https://en.wikipedia.org/wiki/Barometric_formula
+    /// https://physics.stackexchange.com/questions/333475/how-to-calculate-altitude-from-current-temperature-and-pressure
+    pub fn estimate_altitude_msl(&self, pressure: f32, temp: f32) -> f32 {
+        // P = 101.29 * ((temp)/288.08)^5.256   (in kPa)
+        // T = 150.4 - .00649h
 
-    0.
+        let (point_0, point_1) = if self.gps_cal_init.is_some() && self.gps_cal_air.is_some() {
+            (
+                self.gps_cal_init.as_ref().unwrap(),
+                self.gps_cal_air.as_ref().unwrap(),
+            )
+        } else {
+            (&POINT_0, &POINT_1)
+        };
+
+        (((POINT_0.pressure / pressure).powf(1. / 5.257) - 1.) * temp) / 0.00649
+
+        // log_lapse_rate(P/POINT_0.pressure) = (POINT_0.temp + (alt - POINT_0.altitude) * )
+
+        // todo: Temp compensate!
+        // todo: You probably want a non-linear, eg exponential model.
+        // util::map_linear(pressure, (point_0.pressure, POINT_1.pressure), (point_0.altitude, point_1.altitude))
+    }
 }

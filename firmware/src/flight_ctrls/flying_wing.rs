@@ -1,5 +1,7 @@
 //! This module contains flight control code for flying-wing aircraft.
 
+// todo: For wing, consider lowering your main loop frequency to whatever the min servo update frequency is.
+
 use stm32_hal2::{
     dma::Dma,
     pac::{DMA1, TIM2, TIM3},
@@ -13,6 +15,9 @@ use crate::{
     util,
 };
 
+// todo: We're going to assume the servos operate off pulse width, with frequency between 40 and 200hz.
+// todo: Unable to find DS for the specific servos used here.
+
 use cfg_if::cfg_if;
 
 use defmt::println;
@@ -24,19 +29,23 @@ const ELEVON_MAX: f32 = 1.;
 // pitch coeffecient of 1.
 const ROLL_COEFF: f32 = 1.;
 
-pub const PSC: u16 = 0;
-
 cfg_if! {
     if #[cfg(feature = "h7")] {
+        pub const PSC: u16 = 0; // todo
         pub const ARR: u32 = 332; // todo
     } else if #[cfg(feature = "g4")] {
-        // 170Mhz tim clock. Results in _Hz.
-        pub const ARR: u32 = 282; // todo
+        // 170Mhz tim clock. Results in 200Hz.
+        // (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period
+        pub const PSC: u16 = 15;
+        pub const ARR: u32 = 53_124;
     }
 }
 
-const DUTY_HIGH: f32 = ARR as f32;
-const DUTY_LOW: f32 = 0.;
+// High and low correspond to 2ms, and 1ms pulse width respsectively. (Period of 200Hz is 5ms)
+// const DUTY_HIGH: u32 = ARR / 5 * 2;
+// const DUTY_LOW: u32 = ARR / 5;
+const DUTY_HIGH: f32 = (ARR / 5 * 2) as f32;
+const DUTY_LOW: f32 = (ARR / 5) as f32;
 
 /// Represents control settings for the motor, and elevons. Equivalent API to `quad::RotorPower`.
 /// Positive elevon value means pointed up relative to its hinge point.

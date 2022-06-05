@@ -56,6 +56,7 @@ use crate::{
 use defmt_rtt as _; // global logger
 use panic_probe as _;
 
+mod atmos_model;
 mod control_interface;
 mod drivers;
 mod filter_imu;
@@ -80,6 +81,8 @@ use drivers::gps_x as gps;
 pub use drivers::imu_icm426xx as imu;
 // use drivers::imu_ism330dhcx as imu;
 use drivers::tof_vl53l1 as tof;
+
+use atmos_model::AltitudeCalPt;
 
 use control_interface::{ChannelData, InputModeSwitch, LinkStats};
 
@@ -138,7 +141,7 @@ const DIRECT_AUTOPILOT_MAX_RNG: f32 = 500.;
 // We use `LOOP_I` to manage sequencing the velocity-update PID from within the attitude-update PID
 // loop.
 const VELOCITY_ATTITUDE_UPDATE_RATIO: usize = 4;
-static LOOP_I: AtomicUsize = AtomicUsize::new(0);
+const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500Hz; apt for servos.
 
 // We use this to make sure a received char equal to the FC destination value (eg as part
 // of channel data) doesn't interrupt our data receive.
@@ -156,6 +159,8 @@ static CRSF_RX_IN_PROG: AtomicBool = AtomicBool::new(false);
 // manages directions etc. (?) look up prior art re quads and inner/outer loops.
 
 // todo: Panic button that recovers the aircraft if you get spacial D etc.
+
+// todo: For fixed wing: make inner loop 500Hz. Figure out the best way to do it
 
 /// Data dump from Hypershield on Matrix:
 /// You typically don't change the PID gains during flight. They are often tuned experimentally by
@@ -226,7 +231,7 @@ impl Default for StateVolatile {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum AircraftType {
     /// Angry bumblebee
     Quadcopter,
@@ -257,7 +262,7 @@ pub struct UserCfg {
     max_speed_ver: f32,
     /// Map motor connection number to position.
     motor_mapping: RotorMapping,
-    altitude_cal: baro::AltitudeCalPt,
+    // altitude_cal: AltitudeCalPt,
     // Note that this inst includes idle power.
     // todo: We want to store this inst, but RTIC doesn't like it not being sync. Maybe static mut.
     // todo. For now, lives in the acro PID fn lol.
@@ -283,7 +288,7 @@ impl Default for UserCfg {
             max_speed_hor: 20.,
             max_speed_ver: 20.,
             motor_mapping: Default::default(),
-            altitude_cal: Default::default(),
+            // altitude_cal: Default::default(),
             // Make sure to update this interp table if you change idle power.
             // todo: This LUT setup is backwards! You need to put thrust on a fixed spacing,
             // todo, and throttle as dynamic (y)!
@@ -367,11 +372,12 @@ fn init_sensors(
 
             *base_pt = Location::new(LocationType::LatLon, f.y, f.x, f.z);
 
-            altimeter.calibrate(f.z, i2c2);
+            altimeter.calibrate(Some(f.z), i2c2);
         }
-        Err(_) => (), // todo
+        Err(_) => {
+            altimeter.calibrate(None, i2c2);
+        }
     }
-
     // todo: Use Rel0 location type if unable to get fix.
 }
 
@@ -438,7 +444,8 @@ mod app {
         disarm_signals_received: u8,
         /// We use this counter to subdivide the main loop into longer intervals,
         /// for various tasks like logging, and outer loops.
-        update_loop_counter: usize,
+        update_loop_i: usize,
+        fixed_wing_rate_loop_i: usize,
     }
 
     #[init]
@@ -670,12 +677,11 @@ mod app {
 
         let mut user_cfg = UserCfg::default();
 
-        // We use I2C2 for the barometer.
+        // We use I2C2 for the barometer / altimeter.
         let mut i2c2 = I2c::new(dp.I2C2, i2c_baro_cfg, &clock_cfg);
 
-        println!("Pre altimeter setup");
-        // We populate the cal point in `init_sensors`.
-        let mut altimeter = baro::Altimeter::new(&mut i2c2, Default::default());
+        let mut altimeter = baro::Altimeter::new(&mut i2c2);
+
         println!("Altimeter setup complete");
 
         // todo: ID connected sensors etc by checking their device ID etc.
@@ -734,12 +740,15 @@ mod app {
             &mut i2c2,
         );
 
-        loop {
-            let pressure = altimeter.read_pressure(&mut i2c2);
-            println!("Pressure: {}", pressure);
-
-            delay.delay_ms(500);
-        }
+        // loop {
+        //     let pressure = altimeter.read_pressure(&mut i2c2);
+        //     println!("Pressure: {}", pressure);
+        //
+        //     let temp = altimeter.read_temp(&mut i2c2);
+        //     println!("Temp: {}", temp);
+        //
+        //     delay.delay_ms(500);
+        // }
 
         // todo: Calibation proecedure, either in air or on ground.
         let ahrs_settings = madgwick::Settings::default();
@@ -817,7 +826,8 @@ mod app {
                 spi3,
                 arm_signals_received: 0,
                 disarm_signals_received: 0,
-                update_loop_counter: 0,
+                update_loop_i: 0,
+                fixed_wing_rate_loop_i: 0,
             },
             init::Monotonics(),
         )
@@ -868,9 +878,9 @@ mod app {
     velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
     ahrs, axis_locks, control_channel_data, control_link_stats,
-    lost_link_timer, state_volatile,
+    lost_link_timer, altimeter, i2c2, state_volatile,
     ],
-    local = [arm_signals_received, disarm_signals_received, update_loop_counter],
+    local = [arm_signals_received, disarm_signals_received, update_loop_i],
 
     priority = 2
     )]
@@ -899,6 +909,8 @@ mod app {
             cx.shared.command_state,
             cx.shared.ctrl_coeffs,
             cx.shared.lost_link_timer,
+            cx.shared.altimeter,
+            cx.shared.i2c2,
             cx.shared.state_volatile,
         )
             .lock(
@@ -921,42 +933,50 @@ mod app {
                  command_state,
                  coeffs,
                  lost_link_timer,
+                 altimeter,
+                 i2c2,
                  state_volatile| {
                     if let OperationMode::Preflight = state_volatile.op_mode {
                         return;
                     }
 
+                    // Update barometric altitude
+                    // todo: Put back.
+                    // let pressure = altimeter.read_pressure(i2c2);
+                    // let temp = altimeter.read_temp(i2c2);
+                    // params.s_z_msl = altimeter.estimate_altitude_msl(pressure, temp);
+
                     // Debug loop.
-                    if *cx.local.update_loop_counter % 700 == 0 {
-                        // todo temp
-                        println!(
-                            "Accel: Ax {}, Ay: {}, Az: {}",
-                            params.a_x, params.a_y, params.a_z
-                        );
-
-                        println!(
-                            "Gyro: roll {}, pitch: {}, yaw: {}",
-                            params.v_roll, params.v_pitch, params.v_yaw
-                        );
-
-                        println!(
-                            "Attitude: roll {}, pitch: {}, yaw: {}\n",
-                            params.s_roll, params.s_pitch, params.s_yaw
-                        );
-
-                        println!(
-                            "Controls: Pitch: {} Roll: {} Yaw: {} Throttle: {}",
-                            control_channel_data.pitch,
-                            control_channel_data.roll,
-                            control_channel_data.yaw,
-                            control_channel_data.throttle
-                        );
-
-                        println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
-                        println!(
-                            "Input mode sw: {:?}",
-                            control_channel_data.input_mode == InputModeSwitch::Acro
-                        );
+                    if *cx.local.update_loop_i % 700 == 0 {
+                        println!("Loop");
+                        // println!(
+                        //     "Accel: Ax {}, Ay: {}, Az: {}",
+                        //     params.a_x, params.a_y, params.a_z
+                        // );
+                        //
+                        // println!(
+                        //     "Gyro: roll {}, pitch: {}, yaw: {}",
+                        //     params.v_roll, params.v_pitch, params.v_yaw
+                        // );
+                        //
+                        // println!(
+                        //     "Attitude: roll {}, pitch: {}, yaw: {}\n",
+                        //     params.s_roll, params.s_pitch, params.s_yaw
+                        // );
+                        //
+                        // println!(
+                        //     "Controls: Pitch: {} Roll: {} Yaw: {} Throttle: {}",
+                        //     control_channel_data.pitch,
+                        //     control_channel_data.roll,
+                        //     control_channel_data.yaw,
+                        //     control_channel_data.throttle
+                        // );
+                        //
+                        // println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
+                        // println!(
+                        //     "Input mode sw: {:?}",
+                        //     control_channel_data.input_mode == InputModeSwitch::Acro
+                        // );
 
                         // println!("AHRS Q: {} {} {} {}",
                         //      ahrs.quaternion.w,
@@ -979,11 +999,11 @@ mod app {
                         // );
                     }
 
-                    if *cx.local.update_loop_counter % LOGGING_UPDATE_RATIO == 0 {
+                    if *cx.local.update_loop_i % LOGGING_UPDATE_RATIO == 0 {
                         // todo: Eg log rparamsto flash etc.
                     }
 
-                    *cx.local.update_loop_counter += 1;
+                    *cx.local.update_loop_i += 1;
 
                     safety::handle_arm_status(
                         cx.local.arm_signals_received,
@@ -1053,10 +1073,7 @@ mod app {
                             );
 
                             if input_mode == &InputMode::Command {
-                                if LOOP_I.fetch_add(1, Ordering::Relaxed)
-                                    % VELOCITY_ATTITUDE_UPDATE_RATIO
-                                    == 0
-                                {
+                                if *cx.local.update_loop_i % VELOCITY_ATTITUDE_UPDATE_RATIO == 0 {
                                     pid::run_velocity(
                                         params,
                                         control_channel_data,
@@ -1091,7 +1108,7 @@ mod app {
 
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, input_mode, control_channel_data, input_map, autopilot_status,
     rates_commanded, pid_rate, pid_deriv_filters, imu_filters, current_pwr, ctrl_coeffs, command_state, cs_imu, user_cfg,
-    rotor_timer_a, rotor_timer_b, ahrs, state_volatile], priority = 5)]
+    rotor_timer_a, rotor_timer_b, ahrs, state_volatile], local = [fixed_wing_rate_loop_i], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
@@ -1192,6 +1209,15 @@ mod app {
 
                     if let OperationMode::Preflight = state_volatile.op_mode {
                         return;
+                    }
+
+                    // Our fixed-wing update rate is limited by the servos, so we only run this
+                    // 1 out of 16 IMU updates.
+                    if cfg.aircraft_type == AircraftType::FlyingWing {
+                        *cx.local.fixed_wing_rate_loop_i += 1;
+                        if *cx.local.fixed_wing_rate_loop_i % FIXED_WING_RATE_UPDATE_RATIO != 0 {
+                            return;
+                        }
                     }
 
                     pid::run_rate(

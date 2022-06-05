@@ -116,10 +116,10 @@ pub struct CtrlCoeffsPR {
 impl Default for CtrlCoeffsPR {
     fn default() -> Self {
         Self {
-            k_p_rate: 0.17,
+            k_p_rate: 0.18,
             // k_i_rate: 0.0010,
-            k_i_rate: 0.15,
-            k_d_rate: 0.0028,
+            k_i_rate: 0.19,
+            k_d_rate: 0.0030,
 
             // pid for controlling pitch and roll from commanded horizontal velocity
             k_p_attitude: 47.,

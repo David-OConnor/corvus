@@ -364,7 +364,6 @@ fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
     // Note that timer enabling is handled by `write_dma_burst`.
 }
 
-// todo: DRY again. Trait?
 /// Send the stored payload for timer B. (2 channels)
 fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     let payload = unsafe { &PAYLOAD_R3_4 };
