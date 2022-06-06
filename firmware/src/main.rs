@@ -1227,35 +1227,56 @@ mod app {
 
                     // Our fixed-wing update rate is limited by the servos, so we only run this
                     // 1 out of 16 IMU updates.
-                    if cfg.aircraft_type == AircraftType::FlyingWing {
-                        *cx.local.fixed_wing_rate_loop_i += 1;
-                        if *cx.local.fixed_wing_rate_loop_i % FIXED_WING_RATE_UPDATE_RATIO != 0 {
-                            return;
+                    match cfg.aircraft_type {
+                        AircraftType::Quadcopter => {
+                            pid::run_rate(
+                                params,
+                                *input_mode,
+                                autopilot_status,
+                                // cfg,
+                                control_channel_data,
+                                rates_commanded,
+                                pid_inner,
+                                filters,
+                                current_pwr,
+                                &cfg.motor_mapping,
+                                rotor_timer_a,
+                                rotor_timer_b,
+                                dma,
+                                coeffs,
+                                cfg.max_speed_ver,
+                                input_map,
+                                command_state.arm_status,
+                                DT_IMU,
+                            );
                         }
+                        AircraftType::FlyingWing => {
+                            *cx.local.fixed_wing_rate_loop_i += 1;
+                            if *cx.local.fixed_wing_rate_loop_i % FIXED_WING_RATE_UPDATE_RATIO == 0
+                            {
+                                rotor_timer_b.enable();
 
-                        rotor_timer_b.enable();
+                                pid::run_rate_flying_wing(
+                                    params,
+                                    *input_mode,
+                                    autopilot_status,
+                                    // cfg,
+                                    control_channel_data,
+                                    rates_commanded,
+                                    pid_inner,
+                                    filters,
+                                    &cfg.servo_wing_mapping,
+                                    rotor_timer_a,
+                                    rotor_timer_b,
+                                    dma,
+                                    coeffs,
+                                    input_map,
+                                    command_state.arm_status,
+                                    DT_IMU * FIXED_WING_RATE_UPDATE_RATIO,
+                                );
+                            }
+                        }
                     }
-
-                    pid::run_rate(
-                        params,
-                        *input_mode,
-                        autopilot_status,
-                        // cfg,
-                        control_channel_data,
-                        rates_commanded,
-                        pid_inner,
-                        filters,
-                        current_pwr,
-                        &cfg.motor_mapping,
-                        rotor_timer_a,
-                        rotor_timer_b,
-                        dma,
-                        coeffs,
-                        cfg.max_speed_ver,
-                        input_map,
-                        command_state.arm_status,
-                        DT_IMU,
-                    );
                 },
             );
     }

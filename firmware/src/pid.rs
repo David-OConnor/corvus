@@ -25,7 +25,7 @@ use crate::{
         quad::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED},
     },
     util::IirInstWrapper,
-    ArmStatus, RotorMapping, UserCfg, DT_ATTITUDE,
+    ArmStatus, RotorMapping, ServoWingMapping, UserCfg, DT_ATTITUDE,
 };
 
 use crate::flight_ctrls::quad::MAX_ROTOR_POWER;
@@ -940,6 +940,162 @@ pub fn run_rate(
         rotor_timer_a,
         rotor_timer_b,
         arm_status,
+        dma,
+    );
+}
+
+pub fn run_rate_flying_wing(
+    params: &Params,
+    input_mode: InputMode,
+    autopilot_status: &AutopilotStatus,
+    ch_data: &ChannelData,
+    rates_commanded: &mut CtrlInputs,
+    pid: &mut PidGroup,
+    filters: &mut PidDerivFilters,
+    rotor_mapping: &ServoWingMapping,
+    motor_timer: &mut Timer<TIM2>,
+    servo_timer: &mut Timer<TIM3>,
+    dma: &mut Dma<DMA1>,
+    coeffs: &CtrlCoeffGroup,
+    input_map: &InputMap,
+    arm_status: ArmStatus,
+    dt: f32,
+) {
+    match input_mode {
+        InputMode::Acro => {
+            // todo: Power interp not yet implemented.
+            let power_interp_inst = dsp_sys::arm_linear_interp_instance_f32 {
+                nValues: 11,
+                x1: 0.,
+                xSpacing: 0.1,
+                pYData: [
+                    // Idle power.
+                    0.02, // Make sure this matches the above.
+                    POWER_LUT[0],
+                    POWER_LUT[1],
+                    POWER_LUT[2],
+                    POWER_LUT[3],
+                    POWER_LUT[4],
+                    POWER_LUT[5],
+                    POWER_LUT[6],
+                    POWER_LUT[7],
+                    POWER_LUT[8],
+                    POWER_LUT[9],
+                ]
+                .as_mut_ptr(),
+            };
+
+            // todo: It pitch or roll stick is neutral, hold that attitude (quaternion)
+
+            // Note: We may not need to modify the `rates_commanded` resource in place here; we don't
+            // use it upstream.
+            // Map the manual input rates (eg -1. to +1. etc) to real units, eg randians/s.
+            *rates_commanded = CtrlInputs {
+                pitch: input_map.calc_pitch_rate(ch_data.pitch),
+                roll: input_map.calc_roll_rate(ch_data.roll),
+                yaw: input_map.calc_yaw_rate(ch_data.yaw),
+                // todo: If you do a non-linear throttle-to-thrust map, put something like this back.
+                // thrust: flight_ctrls::power_from_throttle(ch_data.throttle, &power_interp_inst),
+                thrust: input_map.calc_manual_throttle(ch_data.throttle),
+            };
+
+            println!("throttle command: {:?}", rates_commanded.thrust);
+
+            if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
+                let dist = match alt_type {
+                    AltType::Msl => alt_commanded - params.s_z_msl,
+                    AltType::Agl => alt_commanded - params.s_z_agl,
+                };
+                // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
+                rates_commanded.thrust =
+                    flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.s_z_agl);
+            }
+
+            if autopilot_status.yaw_assist {
+                // Blend manual inputs with the autocorrection factor. If there are no manual inputs,
+                // this autopilot mode should neutralize all sideslip.
+                let hor_dir = 0.; // radians
+                let hor_speed = 0.; // m/s
+
+                let yaw_correction_factor = ((hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
+
+                if hor_speed > YAW_ASSIST_MIN_SPEED {
+                    rates_commanded.yaw += yaw_correction_factor;
+                }
+            } else if autopilot_status.roll_assist {
+                // todo!
+                let hor_dir = 0.; // radians
+                let hor_speed = 0.; // m/s
+
+                let roll_correction_factor = (-(hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
+
+                if hor_speed > YAW_ASSIST_MIN_SPEED {
+                    rates_commanded.yaw += roll_correction_factor;
+                }
+            }
+        }
+        _ => (),
+    }
+
+    // let manual_throttle = flight_ctrls::apply_throttle_idle(ch_data.throttle);
+    let manual_throttle = ch_data.throttle;
+
+    pid.pitch = calc_pid_error(
+        rates_commanded.pitch,
+        params.v_pitch,
+        &pid.pitch,
+        coeffs.pitch.k_p_rate,
+        coeffs.pitch.k_i_rate,
+        coeffs.pitch.k_d_rate * tpa_scaler,
+        &mut filters.pitch_rate,
+        dt,
+    );
+
+    pid.roll = calc_pid_error(
+        rates_commanded.roll,
+        params.v_roll,
+        &pid.roll,
+        coeffs.roll.k_p_rate,
+        coeffs.roll.k_i_rate,
+        coeffs.roll.k_d_rate * tpa_scaler,
+        &mut filters.roll_rate,
+        dt,
+    );
+
+    pid.yaw = calc_pid_error(
+        rates_commanded.yaw,
+        params.v_yaw,
+        &pid.yaw,
+        coeffs.yaw.k_p_rate,
+        coeffs.yaw.k_i_rate,
+        coeffs.yaw.k_d_rate * tpa_scaler,
+        &mut filters.yaw_rate,
+        dt,
+    );
+
+    let pitch = pid.pitch.out();
+    let roll = pid.roll.out();
+    let yaw = pid.yaw.out();
+    //
+    // println!("\nYaw rate measured: {:?}", params.v_yaw);
+    // println!("Yaw rate commanded: {:?}", rates_commanded.yaw);
+    // println!("Yaw power: {:?}", yaw);
+    //
+    // println!("Pitch out: {:?}", pitch);
+    // println!("Roll out: {:?}", roll);
+    // println!("PID Yaw out: {:?}", yaw);
+
+    // todo: Work on this.
+    let throttle = manual_throttle;
+
+    flight_ctrls::flying_wing::apply_controls(
+        pitch,
+        roll,
+        throttle,
+        motor_timer,
+        servo_timer,
+        arm_status,
+        mapping,
         dma,
     );
 }
