@@ -90,7 +90,7 @@ use protocols::{crsf, dshot, usb_cfg};
 
 use flight_ctrls::{
     common::{AutopilotStatus, CommandState, CtrlInputs, InputMap, Params},
-    flying_wing::ServoWingMapping,
+    flying_wing::{self, ServoWingMapping},
     quad::{AxisLocks, InputMode, RotationDir, RotorMapping, RotorPosition, RotorPower},
 };
 
@@ -390,8 +390,6 @@ fn init_sensors(
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
     use super::*;
-    use crate::flight_ctrls::flying_wing;
-    use crate::flight_ctrls::flying_wing::ServoWing;
 
     #[shared]
     struct Shared {
@@ -503,7 +501,6 @@ mod app {
 
         // Set up pins with appropriate modes.
         setup::setup_pins();
-        // loop {} // todo temp!
 
         let mut dma = Dma::new(dp.DMA1);
         #[cfg(feature = "g4")]
@@ -654,28 +651,6 @@ mod app {
             }
         }
 
-        // todo: Testing servos
-        flying_wing::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
-
-        // todo: Test this with teh control settings struct once motor is in.
-
-        rotor_timer_b.enable();
-        loop {
-            flying_wing::set_elevon_posit(ServoWing::S1, 0., &mut rotor_timer_b);
-            flying_wing::set_elevon_posit(ServoWing::S2, 0., &mut rotor_timer_b);
-            delay.delay_ms(2000);
-
-            flying_wing::set_elevon_posit(ServoWing::S1, 0.5, &mut rotor_timer_b);
-            flying_wing::set_elevon_posit(ServoWing::S2, 0.5, &mut rotor_timer_b);
-            delay.delay_ms(2000);
-
-            flying_wing::set_elevon_posit(ServoWing::S1, 1., &mut rotor_timer_b);
-            flying_wing::set_elevon_posit(ServoWing::S2, 1., &mut rotor_timer_b);
-            delay.delay_ms(2000);
-        }
-
-        dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
-
         let mut lost_link_timer = Timer::new_tim17(
             dp.TIM17,
             1. / flight_ctrls::common::LOST_LINK_TIMEOUT,
@@ -704,6 +679,17 @@ mod app {
         // &clock_cfg);
 
         let mut user_cfg = UserCfg::default();
+
+        user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
+
+        match user_cfg.aircraft_type {
+            AircraftType::Quadcopter => {
+                dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
+            }
+            AircraftType::FlyingWing => {
+                flying_wing::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
+            }
+        }
 
         // We use I2C2 for the barometer / altimeter.
         let mut i2c2 = I2c::new(dp.I2C2, i2c_baro_cfg, &clock_cfg);
@@ -1246,6 +1232,8 @@ mod app {
                         if *cx.local.fixed_wing_rate_loop_i % FIXED_WING_RATE_UPDATE_RATIO != 0 {
                             return;
                         }
+
+                        rotor_timer_b.enable();
                     }
 
                     pid::run_rate(
@@ -1328,7 +1316,7 @@ mod app {
                             );
                         }
                         Err(_) => {
-                            println!("Error reading USB signal from PC");
+                            // println!("Error reading USB signal from PC");
                         }
                     }
                 },
@@ -1374,6 +1362,26 @@ mod app {
         }
         gpio::set_low(Port::B, 0);
         gpio::set_low(Port::B, 1);
+    }
+
+    #[task(binds = TIM3, shared = [rotor_timer_b], priority = 6)]
+    /// We use this for fixed wing, to disable the timer after each pulse. We don't enable this interrupt
+    /// on quadcopters.
+    fn servo_isr(mut cx: servo_isr::Context) {
+        cx.shared.rotor_timer_b.lock(|timer| {
+            timer.clear_interrupt(TimerInterrupt::Update);
+            timer.disable();
+        });
+
+        // Set to Output pin, low. Maybe overkill?
+        // unsafe {
+        //     (*pac::GPIOB::ptr()).moder.modify(|_, w| {
+        //         w.moder0().bits(0b01);
+        //         w.moder1().bits(0b01)
+        //     });
+        // }
+        // gpio::set_low(Port::B, 0);
+        // gpio::set_low(Port::B, 1);
     }
 
     // #[task(binds = TIM4, shared = [elrs_timer], priority = 4)]

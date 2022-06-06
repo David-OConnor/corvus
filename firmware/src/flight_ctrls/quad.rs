@@ -293,7 +293,7 @@ impl RotorPower {
 
     /// Send this power command to the rotors
     pub fn set(
-        &mut self,
+        &self,
         mapping: &RotorMapping,
         rotor_timer_a: &mut Timer<TIM2>,
         rotor_timer_b: &mut Timer<TIM3>,
