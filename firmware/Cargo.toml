@@ -40,7 +40,7 @@ num_enum = { version = "0.5.7", default_features = false }
 mercury-g4 = ["g4"]
 mercury-h7 = ["h7"]
 g4 = ["stm32-hal2/g4rt", "stm32-hal2/g491", "stm32-hal2/usb", "stm32-usbd"]
-h7 = ["stm32-hal2/h7rt", "stm32-hal2/h743"]
+h7 = ["stm32-hal2/h7rt", "stm32-hal2/h735"]
 
 default = ["mercury-g4"]
 

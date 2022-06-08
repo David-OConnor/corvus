@@ -207,14 +207,14 @@ impl RotorMapping {
 
 /// Represents power levels for the rotors. These map from 0. to 1.; 0% to 100% power.
 #[derive(Default)]
-pub struct RotorPower {
+pub struct MotorPower {
     pub front_left: f32,
     pub front_right: f32,
     pub aft_left: f32,
     pub aft_right: f32,
 }
 
-impl RotorPower {
+impl MotorPower {
     /// Convert rotor position to its associated power setting.
     fn by_rotor_num(&self, mapping: &RotorMapping) -> (f32, f32, f32, f32) {
         // todo: DRY
@@ -340,7 +340,7 @@ fn calc_rotor_powers(
     mut yaw_half_delta: f32,
     throttle: f32,
     front_left_dir: RotationDir,
-) -> RotorPower {
+) -> MotorPower {
     // Clamp the output of our PIDs to respect maximum rotor pair power deltas.
 
     if pitch_half_delta > ROTOR_HALF_DELTA_CLAMP {
@@ -397,7 +397,7 @@ fn calc_rotor_powers(
     aft_left -= yaw_half_delta;
     aft_right += yaw_half_delta;
 
-    RotorPower {
+    MotorPower {
         front_left,
         front_right,
         aft_left,
@@ -414,14 +414,14 @@ fn calc_rotor_powers(
 ///
 /// If a rotor exceeds min or max power settings, clamp it.
 ///
-/// Input deltas as on an abitrary scale based on PID output; they're not in real units like radians/s.
+/// Input deltas units are half-power-delta.  based on PID output; they're not in real units like radians/s.
 pub fn apply_controls(
     pitch_delta: f32,
     roll_delta: f32,
     yaw_delta: f32,
     throttle: f32,
     mapping: &RotorMapping,
-    current_pwr: &mut RotorPower,
+    current_pwr: &mut MotorPower,
     rotor_tim_a: &mut Timer<TIM2>,
     rotor_tim_b: &mut Timer<TIM3>,
     arm_status: ArmStatus,

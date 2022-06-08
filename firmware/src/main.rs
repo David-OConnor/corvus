@@ -73,7 +73,10 @@ mod protocols;
 mod safety;
 mod sensor_fusion;
 mod setup;
+mod state;
 mod util;
+
+use control_interface::{ChannelData, InputModeSwitch, LinkStats};
 
 use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
@@ -84,26 +87,22 @@ use drivers::tof_vl53l1 as tof;
 
 use atmos_model::AltitudeCalPt;
 
-use control_interface::{ChannelData, InputModeSwitch, LinkStats};
+use madgwick::Ahrs;
 
-use protocols::{crsf, dshot, usb_cfg};
+use filter_imu::ImuFilters;
 
 use flight_ctrls::{
     common::{AutopilotStatus, CommandState, CtrlInputs, InputMap, Params},
-    flying_wing::{self, ServoWingMapping},
-    quad::{AxisLocks, InputMode, RotationDir, RotorMapping, RotorPosition, RotorPower},
+    flying_wing::{self, ControlPositions, ServoWingMapping},
+    quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
 
 use lin_alg::{Mat3, Vec3};
-
-use safety::ArmStatus;
-
-use filter_imu::ImuFilters;
 use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
-
-use madgwick::Ahrs;
-
 use ppks::{Location, LocationType};
+use protocols::{crsf, dshot, usb_cfg};
+use safety::ArmStatus;
+use state::{AircraftType, OperationMode, StateVolatile, UserCfg};
 
 // 512k flash. Page size 2kbyte. 72-bit data read (64 bits plus 8 ECC bits)
 // Each page is 8 rows of 256 bytes. 255 pages in main memory.
@@ -202,134 +201,6 @@ static CRSF_RX_IN_PROG: AtomicBool = AtomicBool::new(false);
 /// todo: Movable camera that moves with head motion.
 /// - Ir cam to find or avoid people
 
-#[derive(Clone, Copy)]
-pub enum OperationMode {
-    /// Eg flying
-    Normal,
-    /// Plugged into a PC to verify motors, IMU readings, control readings etc, and adjust settings
-    Preflight,
-}
-
-/// State that doesn't get saved to flash.
-pub struct StateVolatile {
-    op_mode: OperationMode,
-    input_mode_switch: InputModeSwitch,
-    /// The GPS module is connected. Detected on init.
-    gps_attached: bool,
-    /// The time-of-flight sensor module is connected. Detected on init.
-    tof_attached: bool,
-    // FOr now, we use "link lost" to include never having been connected.
-    // connected_to_controller: bool,
-}
-
-impl Default for StateVolatile {
-    fn default() -> Self {
-        Self {
-            op_mode: OperationMode::Normal,
-            input_mode_switch: InputModeSwitch::Acro,
-            gps_attached: false,
-            tof_attached: false,
-            // connected_to_controller: false,
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum AircraftType {
-    /// Angry bumblebee
-    Quadcopter,
-    /// Baby B-2
-    FlyingWing,
-}
-
-/// User-configurable settings. These get saved to and loaded from internal flash.
-pub struct UserCfg {
-    aircraft_type: AircraftType,
-    /// Set a ceiling the aircraft won't exceed. Defaults to 400' (Legal limit in US for drones).
-    /// In meters.
-    ceiling: Option<f32>,
-    /// In Attitude and related control modes, max pitch angle (from straight up), ie
-    /// full speed, without going horizontal or further.
-    // max_angle: f32, // radians
-    max_velocity: f32, // m/s
-    idle_pwr: f32,
-    // /// These input ranges map raw output from a manual controller to full scale range of our control scheme.
-    // /// (min, max). Set using an initial calibration / setup procedure.
-    // pitch_input_range: (f32, f32),
-    // roll_input_range: (f32, f32),
-    // yaw_input_range: (f32, f32),
-    // throttle_input_range: (f32, f32),
-    /// Is the aircraft continuously collecting data on obstacles, and storing it to external flash?
-    mapping_obstacles: bool,
-    max_speed_hor: f32,
-    max_speed_ver: f32,
-    /// Map motor connection number to position. For quadcopters.
-    motor_mapping: RotorMapping,
-    /// For flying wing.
-    servo_wing_mapping: ServoWingMapping,
-    // altitude_cal: AltitudeCalPt,
-    // Note that this inst includes idle power.
-    // todo: We want to store this inst, but RTIC doesn't like it not being sync. Maybe static mut.
-    // todo. For now, lives in the acro PID fn lol.
-    // power_interp_inst: dsp_sys::arm_linear_interp_instance_f32,
-}
-
-impl Default for UserCfg {
-    fn default() -> Self {
-        Self {
-            aircraft_type: AircraftType::Quadcopter,
-            ceiling: Some(122.),
-            // todo: Do we want max angle and vel here? Do we use them, vice settings in InpuMap?
-            // max_angle: TAU * 0.22,
-            max_velocity: 30., // todo: raise?
-            // Note: Idle power now handled in `power_interp_inst`
-            idle_pwr: 0.02, // scale of 0 to 1.
-            // todo: Find apt value for these
-            // pitch_input_range: (0., 1.),
-            // roll_input_range: (0., 1.),
-            // yaw_input_range: (0., 1.),
-            // throttle_input_range: (0., 1.),
-            mapping_obstacles: false,
-            max_speed_hor: 20.,
-            max_speed_ver: 20.,
-            motor_mapping: Default::default(),
-            servo_wing_mapping: Default::default(),
-            // altitude_cal: Default::default(),
-            // Make sure to update this interp table if you change idle power.
-            // todo: This LUT setup is backwards! You need to put thrust on a fixed spacing,
-            // todo, and throttle as dynamic (y)!
-            // power_interp_inst: dsp_sys::arm_linear_interp_instance_f32 {
-            //     nValues: 11,
-            //     x1: 0.,
-            //     xSpacing: 0.1,
-            //     pYData: [
-            //         // Idle power.
-            //         0.02, // Make sure this matches the above.
-            //         POWER_LUT[0],
-            //         POWER_LUT[1],
-            //         POWER_LUT[2],
-            //         POWER_LUT[3],
-            //         POWER_LUT[4],
-            //         POWER_LUT[5],
-            //         POWER_LUT[6],
-            //         POWER_LUT[7],
-            //         POWER_LUT[8],
-            //         POWER_LUT[9],
-            //         POWER_LUT[10],
-            //     ].as_mut_ptr()
-            // },
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-/// Role in a swarm of drones
-pub enum SwarmRole {
-    Queen,
-    Worker(u16),    // id
-    PersonFollower, // When your queen is human.
-}
-
 // pub enum FlightProfile {
 //     /// On ground, with rotors at 0. to 1., with 0. being off, and 1. being 1:1 lift-to-weight
 //     OnGround,
@@ -410,8 +281,6 @@ mod app {
         control_channel_data: ChannelData,
         control_link_stats: LinkStats,
         // manual_inputs: CtrlInputs,
-        axis_locks: AxisLocks,
-        current_pwr: RotorPower,
         dma: Dma<DMA1>,
         spi1: Spi<SPI1>,
         spi2: Spi<SPI2>,
@@ -461,21 +330,15 @@ mod app {
         // Set up microcontroller peripherals
         let mut dp = pac::Peripherals::take().unwrap();
 
-        #[cfg(feature = "h7")]
-        SupplyConfig::DirectSmps.setup(&mut dp.PWR, VoltageLevel::V2_5);
-
-        // todo: Range 1 boost mode on G4!!
         let clock_cfg = Clocks {
-            // Config for 480Mhz full speed:
+            // Config for 550Mhz full speed:
             #[cfg(feature = "h7")]
             pll_src: PllSrc::Hse(16_000_000),
             #[cfg(feature = "g4")]
             input_src: InputSrc::Pll(PllSrc::Hse(16_000_000)),
-            // vos_range: VosRange::VOS0, // Note: This may use extra power. todo: Put back!
             #[cfg(feature = "h7")]
             pll1: PllCfg {
-                divm: 4, // To compensate with 8Mhz HSE instead of 64Mhz HSI
-                // divn: 480,// todo: Put back! No longer working??
+                divm: 4, // To compensate with 16Mhz HSE instead of 64Mhz HSI // todo
                 ..Default::default()
             },
             hsi48_on: true,
@@ -485,13 +348,12 @@ mod app {
             ..Default::default()
         };
 
+        // todo: Make sur eyou set up vos0 etc as requaired for 550Mhz H7.
+
         clock_cfg.setup().unwrap();
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         clocks::enable_crs(CrsSyncSrc::Usb);
-
-        // (We don't need the debug workaround, since we don't use low power modes.)
-        // debug_workaround();
 
         // Improves performance, at a cost of slightly increased power use.
         cp.SCB.invalidate_icache();
@@ -680,7 +542,7 @@ mod app {
 
         let mut user_cfg = UserCfg::default();
 
-        user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
+        // user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
 
         match user_cfg.aircraft_type {
             AircraftType::Quadcopter => {
@@ -724,6 +586,9 @@ mod app {
 
         // todo: DMA for voltage ADC (?)
 
+        // todo: Note that you may need to either increment the flash page offset, or cycle flash pages, to
+        // todo avoid wear on a given sector from erasing each time. Note that you can still probably get 10k
+        // todo erase/write cycles per sector, so this is low priority.
         let mut flash_onboard = Flash::new(dp.FLASH);
 
         // todo: Testing flash
@@ -806,8 +671,6 @@ mod app {
                 control_channel_data: Default::default(),
                 control_link_stats: Default::default(),
                 // manual_inputs: Default::default(),
-                axis_locks: Default::default(),
-                current_pwr: Default::default(),
                 dma,
                 spi1,
                 spi2,
@@ -888,10 +751,10 @@ mod app {
     // todo: Remove rotor timers, spi, and dma from this ISR; we only use it for tresting DSHOT
     #[task(
     binds = TIM1_BRK_TIM15,
-    shared = [current_params, input_map, current_pwr,
+    shared = [current_params, input_map,
     velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
-    ahrs, axis_locks, control_channel_data, control_link_stats,
+    ahrs, control_channel_data, control_link_stats,
     lost_link_timer, altimeter, i2c2, state_volatile,
     ],
     local = [arm_signals_received, disarm_signals_received, update_loop_i],
@@ -908,7 +771,6 @@ mod app {
             cx.shared.ahrs,
             cx.shared.control_channel_data,
             cx.shared.input_map,
-            cx.shared.current_pwr,
             cx.shared.velocities_commanded,
             cx.shared.attitudes_commanded,
             cx.shared.rates_commanded,
@@ -932,7 +794,6 @@ mod app {
                  ahrs,
                  control_channel_data,
                  input_map,
-                 current_pwr,
                  velocities_commanded,
                  attitudes_commanded,
                  rates_commanded,
@@ -1121,7 +982,7 @@ mod app {
     }
 
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, input_mode, control_channel_data, input_map, autopilot_status,
-    rates_commanded, pid_rate, pid_deriv_filters, imu_filters, current_pwr, ctrl_coeffs, command_state, cs_imu, user_cfg,
+    rates_commanded, pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, command_state, cs_imu, user_cfg,
     rotor_timer_a, rotor_timer_b, ahrs, state_volatile], local = [fixed_wing_rate_loop_i], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
@@ -1142,7 +1003,6 @@ mod app {
             cx.shared.rates_commanded,
             cx.shared.pid_rate,
             cx.shared.pid_deriv_filters,
-            cx.shared.current_pwr,
             cx.shared.rotor_timer_a,
             cx.shared.rotor_timer_b,
             cx.shared.dma,
@@ -1162,7 +1022,6 @@ mod app {
                  rates_commanded,
                  pid_inner,
                  filters,
-                 current_pwr,
                  rotor_timer_a,
                  rotor_timer_b,
                  dma,
@@ -1238,7 +1097,7 @@ mod app {
                                 rates_commanded,
                                 pid_inner,
                                 filters,
-                                current_pwr,
+                                &mut state_volatile.current_pwr,
                                 &cfg.motor_mapping,
                                 rotor_timer_a,
                                 rotor_timer_b,
@@ -1272,7 +1131,7 @@ mod app {
                                     coeffs,
                                     input_map,
                                     command_state.arm_status,
-                                    DT_IMU * FIXED_WING_RATE_UPDATE_RATIO,
+                                    DT_IMU * FIXED_WING_RATE_UPDATE_RATIO as f32,
                                 );
                             }
                         }

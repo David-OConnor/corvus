@@ -38,7 +38,7 @@ use defmt::println;
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
 // todo: What should these be? Taken from an example.
-const INTEGRATOR_CLAMP_MAX: f32 = 0.5;
+const INTEGRATOR_CLAMP_MAX: f32 = 0.17;
 const INTEGRATOR_CLAMP_MIN: f32 = -INTEGRATOR_CLAMP_MAX;
 
 // "TPA" stands for Throttle PID attenuation - reduction in D term (or more) past a certain
@@ -116,9 +116,9 @@ pub struct CtrlCoeffsPR {
 impl Default for CtrlCoeffsPR {
     fn default() -> Self {
         Self {
-            k_p_rate: 0.18,
+            k_p_rate: 0.12,
             // k_i_rate: 0.0010,
-            k_i_rate: 0.19,
+            k_i_rate: 0.20,
             k_d_rate: 0.0030,
 
             // pid for controlling pitch and roll from commanded horizontal velocity
@@ -389,7 +389,8 @@ fn calc_pid_error(
 
     // https://www.youtube.com/watch?v=zOByx3Izf5U
     let error_p = k_p * error;
-    // For inegral term, use a midpoint formula, and use error.
+
+    // For inegral term, use a midpoint formula, and use error, vice measurement.
     let error_i = k_i * (error + prev_pid.e) / 2. * dt + prev_pid.i;
 
     // Derivative on measurement vice error, to avoid derivative kick. Note that deriv-on-measurment
@@ -756,7 +757,7 @@ pub fn run_rate(
     rates_commanded: &mut CtrlInputs,
     pid: &mut PidGroup,
     filters: &mut PidDerivFilters,
-    current_pwr: &mut crate::RotorPower,
+    current_pwr: &mut crate::MotorPower,
     rotor_mapping: &RotorMapping,
     rotor_timer_a: &mut Timer<TIM2>,
     rotor_timer_b: &mut Timer<TIM3>,
@@ -952,7 +953,7 @@ pub fn run_rate_flying_wing(
     rates_commanded: &mut CtrlInputs,
     pid: &mut PidGroup,
     filters: &mut PidDerivFilters,
-    rotor_mapping: &ServoWingMapping,
+    mapping: &ServoWingMapping,
     motor_timer: &mut Timer<TIM2>,
     servo_timer: &mut Timer<TIM3>,
     dma: &mut Dma<DMA1>,
@@ -1007,8 +1008,7 @@ pub fn run_rate_flying_wing(
                     AltType::Agl => alt_commanded - params.s_z_agl,
                 };
                 // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-                rates_commanded.thrust =
-                    flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.s_z_agl);
+                rates_commanded.thrust = 0.; // todo
             }
 
             if autopilot_status.yaw_assist {
@@ -1046,7 +1046,7 @@ pub fn run_rate_flying_wing(
         &pid.pitch,
         coeffs.pitch.k_p_rate,
         coeffs.pitch.k_i_rate,
-        coeffs.pitch.k_d_rate * tpa_scaler,
+        coeffs.pitch.k_d_rate,
         &mut filters.pitch_rate,
         dt,
     );
@@ -1057,7 +1057,7 @@ pub fn run_rate_flying_wing(
         &pid.roll,
         coeffs.roll.k_p_rate,
         coeffs.roll.k_i_rate,
-        coeffs.roll.k_d_rate * tpa_scaler,
+        coeffs.roll.k_d_rate,
         &mut filters.roll_rate,
         dt,
     );
@@ -1068,7 +1068,7 @@ pub fn run_rate_flying_wing(
         &pid.yaw,
         coeffs.yaw.k_p_rate,
         coeffs.yaw.k_i_rate,
-        coeffs.yaw.k_d_rate * tpa_scaler,
+        coeffs.yaw.k_d_rate,
         &mut filters.yaw_rate,
         dt,
     );

@@ -15,7 +15,9 @@ use crate::{
     dshot,
     flight_ctrls::quad::{Motor, RotorMapping, RotorPosition},
     lin_alg::Quaternion,
-    util, ArmStatus, OperationMode,
+    safety::ArmStatus,
+    state::OperationMode,
+    util,
 };
 
 use stm32_hal2::{

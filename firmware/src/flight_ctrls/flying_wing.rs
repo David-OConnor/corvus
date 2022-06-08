@@ -147,13 +147,13 @@ impl ServoWingMapping {
 /// Represents control settings for the motor, and elevons. Equivalent API to `quad::RotorPower`.
 /// Positive elevon value means pointed up relative to its hinge point.
 #[derive(Default)]
-pub struct ControlSurfaceSettings {
+pub struct ControlPositions {
     pub motor: f32,
     pub elevon_left: f32,
     pub elevon_right: f32,
 }
 
-impl ControlSurfaceSettings {
+impl ControlPositions {
     /// Send this command to cause power to be applied to the motor and servos.
     pub fn set(
         &self,
@@ -213,11 +213,61 @@ pub fn apply_controls(
 
     // todo: Clamp both elevons in both directions.
 
-    let mut settings = ControlSurfaceSettings {
+    let mut posits = ControlPositions {
         motor: throttle,
         elevon_left,
         elevon_right,
     };
 
-    settings.set(motor_tim, servo_tim, arm_status, mapping, dma);
+    posits.set(motor_tim, servo_tim, arm_status, mapping, dma);
+}
+
+/// For a target pitch and roll rate, estimate the control positions required. Note that `throttle`
+/// in `ctrl_positions` output is unused. Rates are in rad/s. Airspeed is indicated AS in m/s. Throttle is on a
+/// scale of 0. to 1.
+/// todo: Using power setting as a standin for airspeed for now, if we don't have a GPS or pitot.
+/// todo: In the future use power as a permanent standin if these aren't equipped.
+fn estimate_ctrl_posits(
+    pitch_rate: f32,
+    roll_rate: f32,
+    airspeed: Option<f32>,
+    throttle: f32,
+) -> ControlPositions {
+    let mut center = 0.;
+    let mut diff = 0.; // positive diff = left wing up.
+
+    // todo: Placeholder
+    let pitch_const = 0.1;
+    let roll_const = 0.1;
+
+    // todo: Clean up DRY once the dust settles on this fn.
+
+    match airspeed {
+        Some(speed) => {
+            center = pitch_const * pitch_rate / speed;
+            diff = roll_const * roll_rate / speed;
+        }
+        None => {
+            center = pitch_const * pitch_rate / throttle;
+            diff = roll_const * roll_rate / throttle;
+        }
+    }
+
+    // todo: DRY from apply_ctrls!
+    let mut elevon_left = 0.;
+    let mut elevon_right = 0.;
+
+    elevon_left += center;
+    elevon_right += center;
+
+    elevon_left -= diff * ROLL_COEFF;
+    elevon_right += diff * ROLL_COEFF;
+
+    // todo: Clamp both elevons in both directions.
+
+    ControlPositions {
+        motor: throttle,
+        elevon_left,
+        elevon_right,
+    }
 }
