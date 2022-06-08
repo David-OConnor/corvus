@@ -1,701 +1,953 @@
-164035896295595
-Capacitor_SMD
-CP_Elec_3x5.3
-SMT capacitor, aluminium electrolytic, 3x5.3, Cornell Dubilier Electronics 
-Capacitor Electrolytic
+223088823460092
+Package_BGA
+Analog_BGA-28_4.0x6.25mm_Layout4x7_P0.8mm_Ball0.45mm_Pad0.4
+Analog BGA-28 4.0mm x 6.25mm package, pitch 0.4mm pad, based on https://www.analog.com/media/en/technical-documentation/data-sheets/8063fa.pdf
+BGA 28 0.8
 0
-2
-2
-Capacitor_SMD
-CP_Elec_3x5.4
-SMD capacitor, aluminum electrolytic, Nichicon, 3.0x5.4mm
-capacitor electrolytic
+28
+28
+Package_BGA
+BGA-9_1.6x1.6mm_Layout3x3_P0.5mm
+BGA-9, http://www.ti.com/lit/ds/symlink/bq27421-g1.pdf
+BGA-9
 0
-2
-2
-Capacitor_SMD
-CP_Elec_4x3
-SMD capacitor, aluminum electrolytic, Nichicon, 4.0x3mm
-capacitor electrolytic
+9
+9
+Package_BGA
+BGA-16_1.92x1.92mm_Layout4x4_P0.5mm
+BGA-16, http://www.st.com/content/ccc/resource/technical/document/datasheet/group2/bc/cd/62/9e/8f/30/47/69/CD00151267/files/CD00151267.pdf/jcr:content/translations/en.CD00151267.pdf
+BGA-16
 0
-2
-2
-Capacitor_SMD
-CP_Elec_4x3.9
-SMD capacitor, aluminum electrolytic, Nichicon, 4.0x3.9mm
-capacitor electrolytic
+16
+16
+Package_BGA
+BGA-25_6.35x6.35mm_Layout5x5_P1.27mm
+BGA-25, http://cds.linear.com/docs/en/datasheet/4624fc.pdf
+BGA-25 uModule
 0
-2
-2
-Capacitor_SMD
-CP_Elec_4x4.5
-SMD capacitor, aluminum electrolytic, Nichicon, 4.0x4.5mm
-capacitor electrolytic
+25
+25
+Package_BGA
+BGA-36_3.396x3.466mm_Layout6x6_P0.4mm_Ball0.25mm_Pad0.2mm_NSMD
+Altera V36, https://www.altera.com/content/dam/altera-www/global/en_US/pdfs/literature/packaging/04r00486-00.pdf
+Altera BGA-36 V36 VBGA
 0
-2
-2
-Capacitor_SMD
-CP_Elec_4x5.3
-SMD capacitor, aluminum electrolytic, Vishay, 4.0x5.3mm
-capacitor electrolytic
+36
+36
+Package_BGA
+BGA-48_8.0x9.0mm_Layout6x8_P0.8mm
+BGA-48 - pitch 0.8 mm
+BGA-48
 0
-2
-2
-Capacitor_SMD
-CP_Elec_4x5.4
-SMD capacitor, aluminum electrolytic, Panasonic A5 / Nichicon, 4.0x5.4mm
-capacitor electrolytic
+48
+48
+Package_BGA
+BGA-64_9.0x9.0mm_Layout10x10_P0.8mm
+BGA-64, 10x10 raster, 9x9mm package, pitch 0.8mm
+BGA-64
 0
-2
-2
-Capacitor_SMD
-CP_Elec_4x5.7
-SMD capacitor, aluminum electrolytic, United Chemi-Con, 4.0x5.7mm
-capacitor electrolytic
+64
+64
+Package_BGA
+BGA-68_5.0x5.0mm_Layout9x9_P0.5mm_Ball0.3mm_Pad0.25mm_NSMD
+Altera MBGA-68, https://www.altera.com/content/dam/altera-www/global/en_US/pdfs/literature/packaging/04r00344-01.pdf
+Altera BGA-68 M68 MBGA
 0
-2
-2
-Capacitor_SMD
-CP_Elec_4x5.8
-SMD capacitor, aluminum electrolytic, Panasonic, 4.0x5.8mm
-capacitor electrolytic
+68
+68
+Package_BGA
+BGA-81_4.496x4.377mm_Layout9x9_P0.4mm_Ball0.25mm_Pad0.2mm_NSMD
+Altera V81, https://www.altera.com/content/dam/altera-www/global/en_US/pdfs/literature/packaging/04r00478-01.pdf
+Altera VBGA V81 BGA-81
 0
-2
-2
-Capacitor_SMD
-CP_Elec_5x3
-SMD capacitor, aluminum electrolytic, Nichicon, 5.0x3.0mm
-capacitor electrolytic
+81
+81
+Package_BGA
+BGA-90_8.0x13.0mm_Layout2x3x15_P0.8mm
+BGA-90, http://www.issi.com/WW/pdf/42-45S32800J.pdf
+BGA-90
 0
-2
-2
-Capacitor_SMD
-CP_Elec_5x3.9
-SMD capacitor, aluminum electrolytic, Nichicon, 5.0x3.9mm
-capacitor electrolytic
+90
+90
+Package_BGA
+BGA-96_9.0x13.0mm_Layout2x3x16_P0.8mm
+BGA-96, http://www.mouser.com/ds/2/198/43-46TR16640B-81280BL-706483.pdf
+BGA-96
 0
-2
-2
-Capacitor_SMD
-CP_Elec_5x4.4
-SMD capacitor, aluminum electrolytic, Panasonic B45, 5.0x4.4mm
-capacitor electrolytic
+96
+96
+Package_BGA
+BGA-100_6.0x6.0mm_Layout11x11_P0.5mm_Ball0.3mm_Pad0.25mm_NSMD
+Altera MBGA-100, https://www.altera.com/content/dam/altera-www/global/en_US/pdfs/literature/packaging/04r00345-01.pdf
+Altera BGA-100 M100 MBGA
 0
-2
-2
-Capacitor_SMD
-CP_Elec_5x4.5
-SMD capacitor, aluminum electrolytic, Nichicon, 5.0x4.5mm
-capacitor electrolytic
+100
+100
+Package_BGA
+BGA-100_11.0x11.0mm_Layout10x10_P1.0mm_Ball0.5mm_Pad0.4mm_NSMD
+BGA-100, https://www.altera.com/content/dam/altera-www/global/en_US/pdfs/literature/packaging/04r00223-02.pdf
+BGA-100
 0
-2
-2
-Capacitor_SMD
-CP_Elec_5x5.3
-SMD capacitor, aluminum electrolytic, Nichicon, 5.0x5.3mm
-capacitor electrolytic
+100
+100
+Package_BGA
+BGA-121_9.0x9.0mm_Layout11x11_P0.8mm_Ball0.4mm_Pad0.35mm_NSMD
+121-ball, 0.8mm BGA (based on http://www.latticesemi.com/view_document?document_id=213)
+BGA 0.8mm 9mm 121
 0
-2
-2
-Capacitor_SMD
-CP_Elec_5x5.4
-SMD capacitor, aluminum electrolytic, Nichicon, 5.0x5.4mm
-capacitor electrolytic
+121
+121
+Package_BGA
+BGA-121_12.0x12.0mm_Layout11x11_P1.0mm
+BGA-121, http://cds.linear.com/docs/en/packaging/05081891_A_bga121.pdf
+BGA-121
 0
-2
-2
-Capacitor_SMD
-CP_Elec_5x5.7
-SMD capacitor, aluminum electrolytic, United Chemi-Con, 5.0x5.7mm
-capacitor electrolytic
+121
+121
+Package_BGA
+BGA-132_12x18mm_Layout11x17_P1.0mm
+BGA-132 11x17 12x18mm 1.0pitch
+BGA-132
 0
-2
-2
-Capacitor_SMD
-CP_Elec_5x5.8
-SMD capacitor, aluminum electrolytic, Panasonic, 5.0x5.8mm
-capacitor electrolytic
+132
+132
+Package_BGA
+BGA-144_7.0x7.0mm_Layout13x13_P0.5mm_Ball0.3mm_Pad0.25mm_NSMD
+Altera MBGA-144, https://www.altera.com/content/dam/altera-www/global/en_US/pdfs/literature/packaging/04r00346-00.pdf
+Altera BGA-144 M144 MBGA
 0
-2
-2
-Capacitor_SMD
-CP_Elec_5x5.9
-SMD capacitor, aluminum electrolytic, Panasonic B6, 5.0x5.9mm
-capacitor electrolytic
+144
+144
+Package_BGA
+BGA-144_13.0x13.0mm_Layout12x12_P1.0mm
+BGA-144, http://www.topline.tv/drawings/pdf/BGA%201,0mm%20pitch/LBGA144T1.0-DC128.pdf
+BGA-144
 0
-2
-2
-Capacitor_SMD
-CP_Elec_6.3x3
-SMD capacitor, aluminum electrolytic, Nichicon, 6.3x3.0mm
-capacitor electrolytic
+144
+144
+Package_BGA
+BGA-152_14x18mm_Layout13x17_P0.5mm
+BGA-152_14x18mm_Layout13x17_P0.5mm
+VBGA-152
 0
-2
-2
-Capacitor_SMD
-CP_Elec_6.3x3.9
-SMD capacitor, aluminum electrolytic, Nichicon, 6.3x3.9mm
-capacitor electrolytic
+152
+152
+Package_BGA
+BGA-153_8.0x8.0mm_Layout15x15_P0.5mm_Ball0.3mm_Pad0.25mm_NSMD
+Altera MBGA-153, https://www.altera.com/content/dam/altera-www/global/en_US/pdfs/literature/packaging/04r00471-00.pdf
+Altera BGA-153 M153 MBGA
 0
-2
-2
-Capacitor_SMD
-CP_Elec_6.3x4.5
-SMD capacitor, aluminum electrolytic, Nichicon, 6.3x4.5mm
-capacitor electrolytic
+153
+153
+Package_BGA
+BGA-169_11.0x11.0mm_Layout13x13_P0.8mm_Ball0.5mm_Pad0.4mm_NSMD
+Altera U169, https://www.altera.com/content/dam/altera-www/global/en_US/pdfs/literature/packaging/04r00470-01.pdf
+Altera UBGA U169 BGA-169
 0
-2
-2
-Capacitor_SMD
-CP_Elec_6.3x4.9
-SMD capacitor, aluminum electrolytic, Panasonic C5, 6.3x4.9mm
-capacitor electrolytic
+169
+169
+Package_BGA
+BGA-200_10.0x14.5mm_Layout12x22_P0.80x0.65mm
+BGA-200, 14.5x10.0mm, 200 Ball, 12x22 Layout, 0.8x0.65mm Pitch, http://www.issi.com/WW/pdf/43-46LQ32256A-AL.pdf
+BGA 200 0.8x0.65
 0
-2
-2
-Capacitor_SMD
-CP_Elec_6.3x5.2
-SMD capacitor, aluminum electrolytic, United Chemi-Con, 6.3x5.2mm
-capacitor electrolytic
+200
+200
+Package_BGA
+BGA-256_11.0x11.0mm_Layout20x20_P0.5mm_Ball0.3mm_Pad0.25mm_NSMD
+Altera MBGA-256, https://www.altera.com/content/dam/altera-www/global/en_US/pdfs/literature/packaging/04r00348-01.pdf
+Altera BGA-256 M256 MBGA
 0
-2
-2
-Capacitor_SMD
-CP_Elec_6.3x5.3
-SMD capacitor, aluminum electrolytic, Cornell Dubilier, 6.3x5.3mm
-capacitor electrolytic
+256
+256
+Package_BGA
+BGA-256_14.0x14.0mm_Layout16x16_P0.8mm_Ball0.45mm_Pad0.32mm_NSMD
+BGA-256, dimensions: https://www.xilinx.com/support/documentation/package_specs/ft256.pdf, design rules: https://www.xilinx.com/support/documentation/user_guides/ug1099-bga-device-design-rules.pdf
+BGA-256
 0
-2
-2
-Capacitor_SMD
-CP_Elec_6.3x5.4
-SMD capacitor, aluminum electrolytic, Panasonic C55, 6.3x5.4mm
-capacitor electrolytic
+256
+256
+Package_BGA
+BGA-256_17.0x17.0mm_Layout16x16_P1.0mm_Ball0.5mm_Pad0.4mm_NSMD
+BGA-256, dimensions: https://www.xilinx.com/support/documentation/package_specs/ft256.pdf, design rules: https://www.xilinx.com/support/documentation/user_guides/ug1099-bga-device-design-rules.pdf
+BGA-256
 0
-2
-2
-Capacitor_SMD
-CP_Elec_6.3x5.4_Nichicon
-SMD capacitor, aluminum electrolytic, Nichicon, 6.3x5.4mm
-capacitor electrolytic
+256
+256
+Package_BGA
+BGA-324_15.0x15.0mm_Layout18x18_P0.8mm_Ball0.5mm_Pad0.4mm_NSMD
+Altera U324, https://www.altera.com/content/dam/altera-www/global/en_US/pdfs/literature/packaging/04r00474-02.pdf
+Altera UBGA U324 BGA-324
 0
-2
-2
-Capacitor_SMD
-CP_Elec_6.3x5.7
-SMD capacitor, aluminum electrolytic, United Chemi-Con, 6.3x5.7mm
-capacitor electrolytic
+324
+324
+Package_BGA
+BGA-324_19.0x19.0mm_Layout18x18_P1.0mm_Ball0.5mm_Pad0.4mm_NSMD
+BGA-324, https://www.altera.com/content/dam/altera-www/global/en_US/pdfs/literature/packaging/04r00233-03.pdf
+BGA-324
 0
-2
-2
-Capacitor_SMD
-CP_Elec_6.3x5.8
-SMD capacitor, aluminum electrolytic, Nichicon, 6.3x5.8mm
-capacitor electrolytic
+324
+324
+Package_BGA
+BGA-352_35.0x35.0mm_Layout26x26_P1.27mm
+BGA-352, https://www.fujitsu.com/downloads/MICRO/fma/pdfmcu/b352p05.pdf
+BGA-352
 0
-2
-2
-Capacitor_SMD
-CP_Elec_6.3x5.9
-SMD capacitor, aluminum electrolytic, Panasonic C6, 6.3x5.9mm
-capacitor electrolytic
+352
+352
+Package_BGA
+BGA-400_21.0x21.0mm_Layout20x20_P1.0mm
+BGA-400, https://www.xilinx.com/support/documentation/package_specs/fg400.pdf
+BGA-400
 0
-2
-2
-Capacitor_SMD
-CP_Elec_6.3x7.7
-SMD capacitor, aluminum electrolytic, Nichicon, 6.3x7.7mm
-capacitor electrolytic
+400
+400
+Package_BGA
+BGA-484_23.0x23.0mm_Layout22x22_P1.0mm
+BGA-484, https://www.xilinx.com/support/documentation/package_specs/fg484.pdf
+BGA-484
 0
-2
-2
-Capacitor_SMD
-CP_Elec_6.3x9.9
-SMD capacitor, aluminum electrolytic, Panasonic C10, 6.3x9.9mm
-capacitor electrolytic
+484
+484
+Package_BGA
+BGA-624_21.0x21.0mm_Layout25x25_P0.8mm
+BGA-624, 25x25 grid, 21x21mm package, pitch 0.8mm; https://www.nxp.com/docs/en/package-information/SOT1529-1.pdf
+BGA 624 0.8
 0
-2
-2
-Capacitor_SMD
-CP_Elec_8x5.4
-SMD capacitor, aluminum electrolytic, Nichicon, 8.0x5.4mm
-capacitor electrolytic
+624
+624
+Package_BGA
+BGA-625_21.0x21.0mm_Layout25x25_P0.8mm
+BGA-625
+BGA-625
 0
-2
-2
-Capacitor_SMD
-CP_Elec_8x6.2
-SMD capacitor, aluminum electrolytic, Nichicon, 8.0x6.2mm
-capacitor electrolytic
+625
+625
+Package_BGA
+BGA-672_27.0x27.0mm_Layout26x26_P1.0mm_Ball0.6mm_Pad0.5mm_NSMD
+Altera BGA-672, https://www.altera.com/content/dam/altera-www/global/en_US/pdfs/literature/packaging/04r00472-00.pdf
+Altera BGA-672 F672 FBGA
 0
-2
-2
-Capacitor_SMD
-CP_Elec_8x6.5
-SMD capacitor, aluminum electrolytic, Rubycon, 8.0x6.5mm
-capacitor electrolytic
+672
+672
+Package_BGA
+BGA-676_27.0x27.0mm_Layout26x26_P1.0mm_Ball0.6mm_Pad0.5mm_NSMD
+XILINX BGA-676, https://www.xilinx.com/support/documentation/package_specs/fg676.pdf
+XILINX BGA-676 FG676/FGG676
 0
-2
-2
-Capacitor_SMD
-CP_Elec_8x6.7
-SMD capacitor, aluminum electrolytic, United Chemi-Con, 8.0x6.7mm
-capacitor electrolytic
+676
+676
+Package_BGA
+BGA-1023_33.0x33.0mm_Layout32x32_P1.0mm
+BGA-1023
+BGA-1023
 0
-2
-2
-Capacitor_SMD
-CP_Elec_8x6.9
-SMD capacitor, aluminum electrolytic, Panasonic E7, 8.0x6.9mm
-capacitor electrolytic
+1023
+1023
+Package_BGA
+BGA-1156_35.0x35.0mm_Layout34x34_P1.0mm
+BGA-1156
+BGA-1156
 0
-2
-2
-Capacitor_SMD
-CP_Elec_8x10
-SMD capacitor, aluminum electrolytic, Nichicon, 8.0x10mm
-capacitor electrolytic
+1156
+1156
+Package_BGA
+BGA-1295_37.5x37.5mm_Layout36x36_P1.0mm
+BGA-1295
+BGA-1295
 0
-2
-2
-Capacitor_SMD
-CP_Elec_8x10.5
-SMD capacitor, aluminum electrolytic, Vishay 0810, 8.0x10.5mm, http://www.vishay.com/docs/28395/150crz.pdf
-capacitor electrolytic
+1295
+1295
+Package_BGA
+FB-BGA-484_23.0x23.0mm_Layout22x22_P1.0mm
+Xilinx FB-484, https://www.xilinx.com/support/documentation/user_guides/ug1099-bga-device-design-rules.pdf
+FB-BGA-484
 0
-2
-2
-Capacitor_SMD
-CP_Elec_8x11.9
-SMD capacitor, aluminum electrolytic, Panasonic E12, 8.0x11.9mm
-capacitor electrolytic
+484
+484
+Package_BGA
+FBGA-78_7.5x11mm_Layout2x3x13_P0.8mm
+FBGA-78, https://www.skhynix.com/product/filedata/fileDownload.do?seq=7687
+FBGA-78
 0
-2
-2
-Capacitor_SMD
-CP_Elec_10x7.7
-SMD capacitor, aluminum electrolytic, Nichicon, 10.0x7.7mm
-capacitor electrolytic
+78
+78
+Package_BGA
+Fujitsu_WLP-15_2.28x3.092mm_Layout3x5_P0.4mm
+WLP-15, 3x5 raster, 2.28x3.092mm package, pitch 0.4mm; http://www.fujitsu.com/global/documents/products/devices/semiconductor/fram/lineup/MB85RS1MT-DS501-00022-7v0-E.pdf
+BGA 8 0.4
 0
-2
-2
-Capacitor_SMD
-CP_Elec_10x7.9
-SMD capacitor, aluminum electrolytic, Panasonic F8, 10.0x7.9mm
-capacitor electrolytic
+8
+8
+Package_BGA
+Infineon_LFBGA-292_17x17mm_Layout20x20_P0.8mm_Ball0.5mm_Pad0.35
+Infineon LFBGA-292, 0.35mm pad, 17.0x17.0mm, 292 Ball, 20x20 Layout, 0.8mm Pitch, https://www.infineon.com/cms/en/product/packages/PG-LFBGA/PG-LFBGA-292-11/
+BGA 292 0.8
 0
-2
-2
-Capacitor_SMD
-CP_Elec_10x10
-SMD capacitor, aluminum electrolytic, Nichicon, 10.0x10.0mm
-capacitor electrolytic
+292
+292
+Package_BGA
+LFBGA-100_10x10mm_Layout10x10_P0.8mm
+LFBGA-100, 10x10 raster, 10x10mm package, pitch 0.8mm; see section 6.3 of http://www.st.com/resource/en/datasheet/stm32f103tb.pdf
+BGA 100 0.8
 0
-2
-2
-Capacitor_SMD
-CP_Elec_10x10.5
-SMD capacitor, aluminum electrolytic, Vishay 1010, 10.0x10.5mm, http://www.vishay.com/docs/28395/150crz.pdf
-capacitor electrolytic
+100
+100
+Package_BGA
+LFBGA-144_10x10mm_Layout12x12_P0.8mm
+LFBGA-144, 12x12 raster, 10x10mm package, pitch 0.8mm; see section 6.1 of http://www.st.com/resource/en/datasheet/stm32f103ze.pdf
+BGA 144 0.8
 0
-2
-2
-Capacitor_SMD
-CP_Elec_10x12.5
-SMD capacitor, aluminum electrolytic, Vishay 1012, 10.0x12.5mm, http://www.vishay.com/docs/28395/150crz.pdf
-capacitor electrolytic
+144
+144
+Package_BGA
+LFBGA-169_16x12mm_Layout28x14_P0.5mm_Ball0.3_Pad0.3mm_NSMD
+https://4donline.ihs.com/images/VipMasterIC/IC/SGST/SGSTS20279/SGSTS20279-1.pdf?hkey=EF798316E3902B6ED9A73243A3159BB0
+eMMC Flash LFBGA169
 0
-2
-2
-Capacitor_SMD
-CP_Elec_10x12.6
-SMD capacitor, aluminum electrolytic, Panasonic F12, 10.0x12.6mm
-capacitor electrolytic
+169
+169
+Package_BGA
+Lattice_caBGA-381_17.0x17.0mm_Layout20x20_P0.8mm_Ball0.4mm_Pad0.4mm_NSMD
+Lattice caBGA-381 footprint for ECP5 FPGAs, based on http://www.latticesemi.com/view_document?document_id=213
+BGA 381 0.8
 0
-2
-2
-Capacitor_SMD
-CP_Elec_10x14.3
-SMD capacitor, aluminum electrolytic, Vishay 1014, 10.0x14.3mm, http://www.vishay.com/docs/28395/150crz.pdf
-capacitor electrolytic
+381
+381
+Package_BGA
+Lattice_caBGA-381_17.0x17.0mm_Layout20x20_P0.8mm_Ball0.4mm_Pad0.6mm_SMD
+Lattice caBGA-381 footprint for ECP5 FPGAs, based on http://www.latticesemi.com/view_document?document_id=213
+BGA 381 0.8
 0
-2
-2
-Capacitor_SMD
-CP_Elec_16x17.5
-SMD capacitor, aluminum electrolytic, Vishay 1616, 16.0x17.5mm, http://www.vishay.com/docs/28395/150crz.pdf
-capacitor electrolytic
+381
+381
+Package_BGA
+Lattice_caBGA-756_27.0x27.0mm_Layout32x32_P0.8mm
+Lattice caBGA-756, ECP5 FPGAs, 27.0x27.0mm, 756 Ball, 32x32 Layout, 0.8mm Pitch, http://www.latticesemi.com/view_document?document_id=213
+BGA 756 0.8
 0
-2
-2
-Capacitor_SMD
-CP_Elec_16x22
-SMD capacitor, aluminum electrolytic, Vishay 1621, 16.0x22.0mm, http://www.vishay.com/docs/28395/150crz.pdf
-capacitor electrolytic
+756
+756
+Package_BGA
+Linear_BGA-133_15.0x15.0mm_Layout12x12_P1.27mm
+Analog Devices (Linear Tech), 133-pin BGA uModule, 15.0x15.0x4.92mm, https://www.analog.com/media/en/technical-documentation/data-sheets/4637fc.pdf
+133 pin bga
 0
-2
-2
-Capacitor_SMD
-CP_Elec_18x17.5
-SMD capacitor, aluminum electrolytic, Vishay 1816, 18.0x17.5mm, http://www.vishay.com/docs/28395/150crz.pdf
-capacitor electrolytic
+134
+134
+Package_BGA
+Maxim_WLP-9_1.595x1.415_Layout3x3_P0.4mm_Ball0.27mm_Pad0.25mm_NSMD
+Maxim_WLP-9 W91C1+1 https://pdfserv.maximintegrated.com/package_dwgs/21-0459.PDF
+Maxim_WLP-9
 0
-2
-2
-Capacitor_SMD
-CP_Elec_18x22
-SMD capacitor, aluminum electrolytic, Vishay 1821, 18.0x22.0mm, http://www.vishay.com/docs/28395/150crz.pdf
-capacitor electrolytic
+9
+9
+Package_BGA
+Maxim_WLP-12
+Maxim_WLP-12 W121B2+1 http://pdfserv.maximintegrated.com/package_dwgs/21-0009.PDF
+Maxim_WLP-12
 0
-2
-2
-Capacitor_SMD
-C_0201_0603Metric
-Capacitor SMD 0201 (0603 Metric), square (rectangular) end terminal, IPC_7351 nominal, (Body size source: https://www.vishay.com/docs/20052/crcw0201e3.pdf), generated with kicad-footprint-generator
-capacitor
+12
+12
+Package_BGA
+Microchip_TFBGA-196_11x11mm_Layout14x14_P0.75mm_SMD
+TFBGA-196, 11.0x11.0mm, 196 Ball, 14x14 Layout, 0.75mm Pitch, http://ww1.microchip.com/downloads/en/DeviceDoc/SAMA5D2-Series-Data-Sheet-DS60001476C.pdf#page=2956
+BGA 196 0.75
+0
+196
+196
+Package_BGA
+ST_uTFBGA-36_3.6x3.6mm_Layout6x6_P0.5mm
+ST uTFBGA-36, 0.25mm pad, 3.6x3.6mm, 36 Ball, 6x6 Layout, 0.5mm Pitch, https://www.st.com/resource/en/datasheet/stulpi01a.pdf
+BGA 36 0.5
+0
+36
+36
+Package_BGA
+TFBGA-64_5x5mm_Layout8x8_P0.5mm
+TFBGA-64, 8x8 raster, 5x5mm package, pitch 0.5mm; see section 6.3 of http://www.st.com/resource/en/datasheet/stm32f100v8.pdf
+BGA 64 0.5
+0
+64
+64
+Package_BGA
+TFBGA-100_8x8mm_Layout10x10_P0.8mm
+TFBGA-100, 10x10 raster, 8x8mm package, pitch 0.8mm; see section 6.2 of http://www.st.com/resource/en/datasheet/stm32f746zg.pdf
+BGA 100 0.8
+0
+100
+100
+Package_BGA
+TFBGA-100_9.0x9.0mm_Layout10x10_P0.8mm
+TFBGA-100, 10x10, 9x9mm package, pitch 0.8mm
+TFBGA-100
+0
+100
+100
+Package_BGA
+TFBGA-121_10x10mm_Layout11x11_P0.8mm
+TFBGA-121, 11x11 raster, 10x10mm package, pitch 0.8mm; http://ww1.microchip.com/downloads/en/PackagingSpec/00000049BQ.pdf#p495
+BGA 121 0.8
+0
+121
+121
+Package_BGA
+TFBGA-216_13x13mm_Layout15x15_P0.8mm
+TFBGA-216, 15x15 raster, 13x13mm package, pitch 0.8mm; see section 6.8 of http://www.st.com/resource/en/datasheet/stm32f746zg.pdf
+BGA 216 0.8
+0
+216
+216
+Package_BGA
+TFBGA-265_14x14mm_Layout17x17_P0.8mm
+TFBGA-265, 17x17 raster, 14x14mm package, pitch 0.8mm; see section 7.8 of http://www.st.com/resource/en/datasheet/DM00387108.pdf
+BGA 265 0.8
+0
+265
+265
+Package_BGA
+Texas_DSBGA-5_0.822x1.116mm_Layout2x1x2_P0.4mm
+Texas Instruments, DSBGA, 0.822x1.116mm, 5 bump 2x1x2 array, NSMD pad definition (http://www.ti.com/lit/ds/symlink/opa330.pdf, http://www.ti.com/lit/an/snva009ag/snva009ag.pdf)
+Texas Instruments DSBGA BGA YFF S-XBGA-N5
+0
+10
+5
+Package_BGA
+Texas_DSBGA-6_0.9x1.4mm_Layout2x3_P0.5mm
+Texas Instruments, DSBGA, 0.9x1.4mm, 6 bump 2x3 (perimeter) array, NSMD pad definition (http://www.ti.com/lit/ds/symlink/ts5a3159a.pdf)
+Texas Instruments DSBGA BGA YZP R-XBGA-N6
+0
+12
+6
+Package_BGA
+Texas_DSBGA-8_0.9x1.9mm_Layout2x4_P0.5mm
+Texas Instruments, DSBGA, 0.9x1.9mm, 8 bump 2x4 (perimeter) array, NSMD pad definition (http://www.ti.com/lit/ds/symlink/txb0102.pdf, http://www.ti.com/lit/an/snva009ag/snva009ag.pdf)
+Texas Instruments DSBGA BGA YZP R-XBGA-N8
+0
+16
+8
+Package_BGA
+Texas_DSBGA-8_1.43x1.41mm_Layout3x3_P0.5mm
+Texas Instruments, DSBGA, 1.43x1.41mm, 8 bump 3x3 (perimeter) array, NSMD pad definition (http://www.ti.com/lit/ds/symlink/lmc555.pdf, http://www.ti.com/lit/an/snva009ag/snva009ag.pdf)
+Texas Instruments DSBGA BGA YZP R-XBGA-N8
+0
+16
+8
+Package_BGA
+Texas_DSBGA-8_1.5195x1.5195mm_Layout3x3_P0.5mm
+Texas Instruments, DSBGA, 1.5195x1.5195x0.600mm, 8 ball 3x3 area grid, YZR pad definition (http://www.ti.com/lit/ml/mxbg270/mxbg270.pdf)
+BGA 8 0.5
+0
+8
+8
+Package_BGA
+Texas_DSBGA-9_1.4715x1.4715mm_Layout3x3_P0.5mm
+Texas Instruments, DSBGA, 1.4715x1.4715mm, 9 bump 3x3 array, NSMD pad definition (http://www.ti.com/lit/ds/symlink/lm4990.pdf, http://www.ti.com/lit/an/snva009ag/snva009ag.pdf)
+Texas Instruments DSBGA BGA YZR0009
+0
+18
+9
+Package_BGA
+Texas_DSBGA-10_1.36x1.86mm_Layout3x4_P0.5mm
+Texas Instruments, DSBGA, 1.36x1.86mm, 10 bump 3x4 (perimeter) array, NSMD pad definition (http://www.ti.com/lit/ds/symlink/txs0104e.pdf, http://www.ti.com/lit/an/snva009ag/snva009ag.pdf)
+Texas Instruments DSBGA BGA
+0
+20
+10
+Package_BGA
+Texas_DSBGA-12_1.36x1.86mm_Layout3x4_P0.5mm
+Texas Instruments, DSBGA, 1.36x1.86mm, 12 bump 3x4 (area) array, NSMD pad definition (http://www.ti.com/lit/ds/symlink/txs0104e.pdf, http://www.ti.com/lit/an/snva009ag/snva009ag.pdf)
+Texas Instruments DSBGA BGA
+0
+24
+12
+Package_BGA
+Texas_DSBGA-28_1.9x3.0mm_Layout4x7_P0.4mm
+Texas Instruments, DSBGA, 3.0x1.9x0.625mm, 28 ball 7x4 area grid, NSMD pad definition (http://www.ti.com/lit/ds/symlink/bq51050b.pdf, http://www.ti.com/lit/an/snva009ag/snva009ag.pdf)
+BGA 28 0.4
+0
+28
+28
+Package_BGA
+Texas_DSBGA-49_3.33x3.488mm_Layout7x7_P0.4mm
+Texas Instruments, DSBGA, 3.33x3.488x0.625mm, 49 ball 7x7 area grid, NSMD pad definition (http://www.ti.com/lit/ds/symlink/msp430f2234.pdf, http://www.ti.com/lit/an/snva009ag/snva009ag.pdf)
+texas dsbga 49
+0
+49
+49
+Package_BGA
+Texas_DSBGA-64_3.415x3.535mm_Layout8x8_P0.4mm
+Texas Instruments, DSBGA, 3.415x3.535x0.625mm, 64 ball 8x8 area grid, NSMD pad definition (http://www.ti.com/lit/ds/slas718g/slas718g.pdf, http://www.ti.com/lit/an/snva009ag/snva009ag.pdf)
+texas dsbga 64
+0
+64
+64
+Package_BGA
+Texas_MicroStar_Junior_BGA-12_2.0x2.5mm_Layout4x3_P0.5mm
+Texas Instruments, BGA Microstar Junior, 2x2.5mm, 12 bump 4x3 grid, NSMD pad definition (http://www.ti.com/lit/ds/symlink/txb0104.pdf, http://www.ti.com/lit/wp/ssyz015b/ssyz015b.pdf)
+Texas_Junior_BGA-12
+0
+12
+12
+Package_BGA
+Texas_MicroStar_Junior_BGA-80_5.0x5.0mm_Layout9x9_P0.5mm
+Texas Instruments, BGA Microstar Junior, 5x5mm, 80 ball 9x9 grid, NSMD pad definition (http://www.ti.com/lit/ds/symlink/tlv320aic23b.pdf, http://www.ti.com/lit/wp/ssyz015b/ssyz015b.pdf)
+Texas_Junior_BGA-80
+0
+80
+80
+Package_BGA
+Texas_MicroStar_Junior_BGA-113_7.0x7.0mm_Layout12x12_P0.5mm
+Texas Instruments, BGA Microstar Junior, 7x7mm, 113 ball 12x12 grid, NSMD pad definition (http://www.ti.com/lit/ml/mpbg674/mpbg674.pdf, http://www.ti.com/lit/wp/ssyz015b/ssyz015b.pdf)
+Texas_Junior_BGA-113
+0
+113
+113
+Package_BGA
+UCBGA-36_2.5x2.5mm_Layout6x6_P0.4mm
+UCBGA-36, 6x6 raster, 2.5x2.5mm package, pitch 0.4mm; https://www.latticesemi.com/view_document?document_id=213
+BGA 36 0.4
+0
+36
+36
+Package_BGA
+UCBGA-49_3x3mm_Layout7x7_P0.4mm
+UCBGA-49, 7x7 raster, 3x3mm package, pitch 0.4mm; https://www.latticesemi.com/view_document?document_id=213
+BGA 49 0.4
+0
+49
+49
+Package_BGA
+UCBGA-81_4x4mm_Layout9x9_P0.4mm
+UCBGA-81, 9x9 raster, 4x4mm package, pitch 0.4mm; https://www.latticesemi.com/view_document?document_id=213
+BGA 81 0.4
+0
+81
+81
+Package_BGA
+UFBGA-15_3.0x3.0mm_Layout4x4_P0.65mm
+UFBGA-15, 4x4, 3x3mm package, pitch 0.65mm
+UFBGA-15
+0
+15
+15
+Package_BGA
+UFBGA-32_4.0x4.0mm_Layout6x6_P0.5mm
+UFBGA-32, 6x6, 4x4mm package, pitch 0.5mm
+UFBGA-32
+0
+32
+32
+Package_BGA
+UFBGA-64_5x5mm_Layout8x8_P0.5mm
+UFBGA-64, 8x8 raster, 5x5mm package, pitch 0.5mm; see section 7.1 of http://www.st.com/resource/en/datasheet/stm32f051t8.pdf
+BGA 64 0.5
+0
+64
+64
+Package_BGA
+UFBGA-100_7x7mm_Layout12x12_P0.5mm
+UFBGA-100, 12x12 raster, 7x7mm package, pitch 0.5mm; see section 7.1 of http://www.st.com/resource/en/datasheet/stm32f103tb.pdf
+BGA 100 0.5
+0
+100
+100
+Package_BGA
+UFBGA-132_7x7mm_Layout12x12_P0.5mm
+UFBGA-132, 12x12 raster, 7x7mm package, pitch 0.5mm; see section 7.4 of http://www.st.com/resource/en/datasheet/stm32l152zc.pdf
+BGA 132 0.5
+0
+132
+132
+Package_BGA
+UFBGA-132_7x7mm_P0.5mm
+UFBGA 132 Pins, 0.5mm Pitch, 0.3mm Ball, http://www.st.com/resource/en/datasheet/stm32l486qg.pdf
+ufbga bga small-pitch
+0
+132
+132
+Package_BGA
+UFBGA-144_7x7mm_Layout12x12_P0.5mm
+UFBGA-144, 12x12 raster, 7x7mm package, pitch 0.5mm; see section 7.4 of http://www.st.com/resource/en/datasheet/stm32f446ze.pdf
+BGA 144 0.5
+0
+144
+144
+Package_BGA
+UFBGA-144_10x10mm_Layout12x12_P0.8mm
+UFBGA-144, 12x12 raster, 10x10mm package, pitch 0.8mm; see section 7.5 of http://www.st.com/resource/en/datasheet/stm32f446ze.pdf
+BGA 144 0.8
+0
+144
+144
+Package_BGA
+UFBGA-169_7x7mm_Layout13x13_P0.5mm
+UFBGA-169, 13x13 raster, 7x7mm package, pitch 0.5mm; see section 7.6 of http://www.st.com/resource/en/datasheet/stm32f429ng.pdf
+BGA 169 0.5
+0
+169
+169
+Package_BGA
+UFBGA-201_10x10mm_Layout15x15_P0.65mm
+UFBGA-201, 15x15 raster, 10x10mm package, pitch 0.65mm; see section 7.6 of http://www.st.com/resource/en/datasheet/stm32f207vg.pdf
+BGA 201 0.65
+0
+201
+201
+Package_BGA
+VFBGA-49_5.0x5.0mm_Layout7x7_P0.65mm
+VFBGA-49, 7x7, 5x5mm package, pitch 0.65mm
+VFBGA-49
+0
+49
+49
+Package_BGA
+VFBGA-86_6x6mm_Layout10x10_P0.55mm_Ball0.25mm_Pad0.2mm
+VFBGA-86, 6.0x6.0mm, 86 Ball, 10x10 Layout, 0.55mm Pitch, https://www.dialog-semiconductor.com/sites/default/files/da1469x_datasheet_3v1.pdf#page=740
+BGA 86 0.55
+0
+86
+86
+Package_BGA
+VFBGA-100_7.0x7.0mm_Layout10x10_P0.65mm
+VFBGA-100, 10x10, 7x7mm package, pitch 0.65mm
+VFBGA-100
+0
+100
+100
+Package_BGA
+WLP-4_0.73x0.73mm_Layout2x2_P0.35mm_Ball0.22mm_Pad0.2mm_NSMD
+WLP-4, 2x2 raster, 0.73x0.73mm package, pitch 0.35mm; https://datasheets.maximintegrated.com/en/ds/MAX40200.pdf
+BGA 4 0.35
 0
 4
-2
-Capacitor_SMD
-C_0201_0603Metric_Pad0.64x0.40mm_HandSolder
-Capacitor SMD 0201 (0603 Metric), square (rectangular) end terminal, IPC_7351 nominal with elongated pad for handsoldering. (Body size source: https://www.vishay.com/docs/20052/crcw0201e3.pdf), generated with kicad-footprint-generator
-capacitor handsolder
+4
+Package_BGA
+WLP-4_0.83x0.83mm_P0.4mm
+WLP-4_0.83x0.83mm_P0.4mm https://pdfserv.maximintegrated.com/package_dwgs/21-100107.PDF, https://www.maximintegrated.com/en/app-notes/index.mvp/id/1891
+WLP-4
 0
 4
-2
-Capacitor_SMD
-C_0402_1005Metric
-Capacitor SMD 0402 (1005 Metric), square (rectangular) end terminal, IPC_7351 nominal, (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator
-capacitor
-0
-2
-2
-Capacitor_SMD
-C_0402_1005Metric_Pad0.74x0.62mm_HandSolder
-Capacitor SMD 0402 (1005 Metric), square (rectangular) end terminal, IPC_7351 nominal with elongated pad for handsoldering. (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator
-capacitor handsolder
-0
-2
-2
-Capacitor_SMD
-C_0504_1310Metric
-Capacitor SMD 0504 (1310 Metric), square (rectangular) end terminal, IPC_7351 nominal, (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator
-capacitor
-0
-2
-2
-Capacitor_SMD
-C_0504_1310Metric_Pad0.83x1.28mm_HandSolder
-Capacitor SMD 0504 (1310 Metric), square (rectangular) end terminal, IPC_7351 nominal with elongated pad for handsoldering. (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator
-capacitor handsolder
-0
-2
-2
-Capacitor_SMD
-C_0603_1608Metric
-Capacitor SMD 0603 (1608 Metric), square (rectangular) end terminal, IPC_7351 nominal, (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator
-capacitor
-0
-2
-2
-Capacitor_SMD
-C_0603_1608Metric_Pad1.08x0.95mm_HandSolder
-Capacitor SMD 0603 (1608 Metric), square (rectangular) end terminal, IPC_7351 nominal with elongated pad for handsoldering. (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator
-capacitor handsolder
-0
-2
-2
-Capacitor_SMD
-C_0805_2012Metric
-Capacitor SMD 0805 (2012 Metric), square (rectangular) end terminal, IPC_7351 nominal, (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf, https://docs.google.com/spreadsheets/d/1BsfQQcO9C6DZCsRaXUlFlo91Tg2WpOkGARC1WS5S8t0/edit?usp=sharing), generated with kicad-footprint-generator
-capacitor
-0
-2
-2
-Capacitor_SMD
-C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-Capacitor SMD 0805 (2012 Metric), square (rectangular) end terminal, IPC_7351 nominal with elongated pad for handsoldering. (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf, https://docs.google.com/spreadsheets/d/1BsfQQcO9C6DZCsRaXUlFlo91Tg2WpOkGARC1WS5S8t0/edit?usp=sharing), generated with kicad-footprint-generator
-capacitor handsolder
-0
-2
-2
-Capacitor_SMD
-C_01005_0402Metric
-Capacitor SMD 01005 (0402 Metric), square (rectangular) end terminal, IPC_7351 nominal, (Body size source: http://www.vishay.com/docs/20056/crcw01005e3.pdf), generated with kicad-footprint-generator
-capacitor
+4
+Package_BGA
+WLP-4_0.86x0.86mm_P0.4mm
+WLP-4_0.86x0.86mm_P0.4mm https://pdfserv.maximintegrated.com/package_dwgs/21-0612.PDF, https://www.maximintegrated.com/en/app-notes/index.mvp/id/1891
+WLP-4
 0
 4
-2
-Capacitor_SMD
-C_01005_0402Metric_Pad0.57x0.30mm_HandSolder
-Capacitor SMD 01005 (0402 Metric), square (rectangular) end terminal, IPC_7351 nominal with elongated pad for handsoldering. (Body size source: http://www.vishay.com/docs/20056/crcw01005e3.pdf), generated with kicad-footprint-generator
-capacitor handsolder
-0
 4
-2
-Capacitor_SMD
-C_1206_3216Metric
-Capacitor SMD 1206 (3216 Metric), square (rectangular) end terminal, IPC_7351 nominal, (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator
-capacitor
+Package_BGA
+WLP-9_1.448x1.468mm_Layout3x3_P0.4mm_Ball0.27mm_Pad0.25mm
+WLP-9, 1.448x1.468mm, 9 Ball, 3x3 Layout, 0.4mm Pitch, https://pdfserv.maximintegrated.com/package_dwgs/21-100168.PDF
+BGA 9 0.4
 0
-2
-2
-Capacitor_SMD
-C_1206_3216Metric_Pad1.33x1.80mm_HandSolder
-Capacitor SMD 1206 (3216 Metric), square (rectangular) end terminal, IPC_7351 nominal with elongated pad for handsoldering. (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator
-capacitor handsolder
+9
+9
+Package_BGA
+XBGA-121_10x10mm_Layout11x11_P0.8mm
+XBGA-121, 11x11 raster, 10x10mm package, pitch 0.6mm; http://ww1.microchip.com/downloads/en/DeviceDoc/39969b.pdf
+BGA 121 0.8
 0
-2
-2
-Capacitor_SMD
-C_1210_3225Metric
-Capacitor SMD 1210 (3225 Metric), square (rectangular) end terminal, IPC_7351 nominal, (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator
-capacitor
+121
+121
+Package_BGA
+XFBGA-36_3.5x3.5mm_Layout6x6_P0.5mm
+XFBGA-36, https://www.nxp.com/docs/en/package-information/SOT1555-1.pdf
+XFBGA-36
 0
-2
-2
-Capacitor_SMD
-C_1210_3225Metric_Pad1.33x2.70mm_HandSolder
-Capacitor SMD 1210 (3225 Metric), square (rectangular) end terminal, IPC_7351 nominal with elongated pad for handsoldering. (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator
-capacitor handsolder
+36
+36
+Package_BGA
+XFBGA-64_5.0x5.0mm_Layout8x8_P0.5mm
+XFBGA-64, https://www.nxp.com/docs/en/package-information/SOT1555-1.pdf
+XFBGA-64
 0
-2
-2
-Capacitor_SMD
-C_1812_4532Metric
-Capacitor SMD 1812 (4532 Metric), square (rectangular) end terminal, IPC_7351 nominal, (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator
-capacitor
+64
+64
+Package_BGA
+XFBGA-121_8x8mm_Layout11x11_P0.65mm
+XFBGA-121, https://www.nxp.com/docs/en/package-information/SOT1533-1.pdf
+XFBGA-121
 0
-2
-2
-Capacitor_SMD
-C_1812_4532Metric_Pad1.57x3.40mm_HandSolder
-Capacitor SMD 1812 (4532 Metric), square (rectangular) end terminal, IPC_7351 nominal with elongated pad for handsoldering. (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator
-capacitor handsolder
+121
+121
+Package_BGA
+Xilinx_CLG225
+Zynq-7000 BGA, 15x15 grid, 13x13mm package, 0.8mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug865-Zynq-7000-Pkg-Pinout.pdf#page=77, NSMD pad definition Appendix A
+BGA 225 0.8 CLG225
 0
-2
-2
-Capacitor_SMD
-C_1825_4564Metric
-Capacitor SMD 1825 (4564 Metric), square (rectangular) end terminal, IPC_7351 nominal, (Body size from: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator
-capacitor
+225
+225
+Package_BGA
+Xilinx_CLG400
+Zynq-7000 BGA, 20x20 grid, 17x17mm package, 0.8mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug865-Zynq-7000-Pkg-Pinout.pdf#page=78, NSMD pad definition Appendix A
+BGA 400 0.8 CLG400 CL400
 0
-2
-2
-Capacitor_SMD
-C_1825_4564Metric_Pad1.57x6.80mm_HandSolder
-Capacitor SMD 1825 (4564 Metric), square (rectangular) end terminal, IPC_7351 nominal with elongated pad for handsoldering. (Body size from: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator
-capacitor handsolder
+400
+400
+Package_BGA
+Xilinx_CLG484_CLG485
+Zynq-7000 BGA, 22x22 grid, 19x19mm package, 0.8mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug865-Zynq-7000-Pkg-Pinout.pdf#page=79, NSMD pad definition Appendix A
+BGA 484 0.8 CLG484 CL484 CLG485 CL485
 0
-2
-2
-Capacitor_SMD
-C_2220_5650Metric
-Capacitor SMD 2220 (5650 Metric), square (rectangular) end terminal, IPC_7351 nominal, (Body size from: http://datasheets.avx.com/AVX-HV_MLCC.pdf), generated with kicad-footprint-generator
-capacitor
+484
+484
+Package_BGA
+Xilinx_CPG236
+Artix-7 BGA, 19x19 grid, 10x10mm package, 0.5mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=266, NSMD pad definition Appendix A
+BGA 238 0.5 CP236 CPG236
 0
-2
-2
-Capacitor_SMD
-C_2220_5650Metric_Pad1.97x5.40mm_HandSolder
-Capacitor SMD 2220 (5650 Metric), square (rectangular) end terminal, IPC_7351 nominal with elongated pad for handsoldering. (Body size from: http://datasheets.avx.com/AVX-HV_MLCC.pdf), generated with kicad-footprint-generator
-capacitor handsolder
+238
+238
+Package_BGA
+Xilinx_CPG238
+Artix-7 BGA, 19x19 grid, 10x10mm package, 0.5mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=267, NSMD pad definition Appendix A
+BGA 238 0.5 CPG238
 0
-2
-2
-Capacitor_SMD
-C_2225_5664Metric
-Capacitor SMD 2225 (5664 Metric), square (rectangular) end terminal, IPC_7351 nominal, (Body size from: http://datasheets.avx.com/AVX-HV_MLCC.pdf), generated with kicad-footprint-generator
-capacitor
+238
+238
+Package_BGA
+Xilinx_CPGA196
+Spartan-7 BGA, 14x14 grid, 8x8mm package, 0.5mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=260, NSMD pad definition Appendix A
+BGA 196 0.5 CPGA196
 0
-2
-2
-Capacitor_SMD
-C_2225_5664Metric_Pad1.80x6.60mm_HandSolder
-Capacitor SMD 2225 (5664 Metric), square (rectangular) end terminal, IPC_7351 nominal with elongated pad for handsoldering. (Body size from: http://datasheets.avx.com/AVX-HV_MLCC.pdf), generated with kicad-footprint-generator
-capacitor handsolder
+196
+196
+Package_BGA
+Xilinx_CSG324
+Artix-7 BGA, 18x18 grid, 15x15mm package, 0.8mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=268, NSMD pad definition Appendix A
+BGA 324 0.8 CS324 CSG324
 0
-2
-2
-Capacitor_SMD
-C_3640_9110Metric
-Capacitor SMD 3640 (9110 Metric), square (rectangular) end terminal, IPC_7351 nominal, (Body size from: http://datasheets.avx.com/AVX-HV_MLCC.pdf), generated with kicad-footprint-generator
-capacitor
+324
+324
+Package_BGA
+Xilinx_CSG325
+Artix-7 BGA, 18x18 grid, 15x15mm package, 0.8mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=268, NSMD pad definition Appendix A
+BGA 324 0.8 CS325 CSG235
 0
-2
-2
-Capacitor_SMD
-C_3640_9110Metric_Pad2.10x10.45mm_HandSolder
-Capacitor SMD 3640 (9110 Metric), square (rectangular) end terminal, IPC_7351 nominal with elongated pad for handsoldering. (Body size from: http://datasheets.avx.com/AVX-HV_MLCC.pdf), generated with kicad-footprint-generator
-capacitor handsolder
+324
+324
+Package_BGA
+Xilinx_CSGA225
+Spartan-7 BGA, 15x15 grid, 13x13mm package, 0.8mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=262, NSMD pad definition Appendix A
+BGA 225 0.8 CSGA225
 0
-2
-2
-Capacitor_SMD
-C_Elec_3x5.4
-SMD capacitor, aluminum electrolytic nonpolar, 3.0x5.4mm
-capacitor electrolyic nonpolar
+225
+225
+Package_BGA
+Xilinx_CSGA324
+Spartan-7 BGA, 18x18 grid, 15x15mm package, 0.8mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=263, NSMD pad definition Appendix A
+BGA 324 0.8 CSGA324
 0
-2
-2
-Capacitor_SMD
-C_Elec_4x5.4
-SMD capacitor, aluminum electrolytic nonpolar, 4.0x5.4mm
-capacitor electrolyic nonpolar
+324
+324
+Package_BGA
+Xilinx_FBG484
+Artix-7, Kintex-7 and Zynq-7000 BGA, 22x22 grid, 23x23mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=271, ttps://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=281, https://www.xilinx.com/support/documentation/user_guides/ug865-Zynq-7000-Pkg-Pinout.pdf#page=82, NSMD pad definition Appendix A
+BGA 484 1 FB484 FBG484 FBV484
 0
-2
-2
-Capacitor_SMD
-C_Elec_4x5.8
-SMD capacitor, aluminum electrolytic nonpolar, 4.0x5.8mm
-capacitor electrolyic nonpolar
+484
+484
+Package_BGA
+Xilinx_FBG676
+Artix-7, Kintex-7 and Zynq-7000 BGA, 26x26 grid, 27x27mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=273, https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=284, https://www.xilinx.com/support/documentation/user_guides/ug865-Zynq-7000-Pkg-Pinout.pdf#page=84, NSMD pad definition Appendix A
+BGA 676 1 FB676 FBG676 FBV676
 0
-2
-2
-Capacitor_SMD
-C_Elec_5x5.4
-SMD capacitor, aluminum electrolytic nonpolar, 5.0x5.4mm
-capacitor electrolyic nonpolar
+676
+676
+Package_BGA
+Xilinx_FBG900
+Kintex-7 BGA, 30x30 grid, 31x31mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=289, NSMD pad definition Appendix A
+BGA 900 1 FB900 FBG900 FBV900
 0
-2
-2
-Capacitor_SMD
-C_Elec_5x5.8
-SMD capacitor, aluminum electrolytic nonpolar, 5.0x5.8mm
-capacitor electrolyic nonpolar
+900
+900
+Package_BGA
+Xilinx_FFG676
+Kintex-7 and Zynq-7000 BGA, 26x26 grid, 27x27mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=292, https://www.xilinx.com/support/documentation/user_guides/ug865-Zynq-7000-Pkg-Pinout.pdf#page=88, NSMD pad definition Appendix A
+BGA 676 1 FF676 FFG676 FFV676
 0
-2
-2
-Capacitor_SMD
-C_Elec_6.3x5.4
-SMD capacitor, aluminum electrolytic nonpolar, 6.3x5.4mm
-capacitor electrolyic nonpolar
+676
+676
+Package_BGA
+Xilinx_FFG900_FFG901
+Kintex-7 and Zynq-7000 BGA, 30x30 grid, 31x31mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=294, https://www.xilinx.com/support/documentation/user_guides/ug865-Zynq-7000-Pkg-Pinout.pdf#page=90, NSMD pad definition Appendix A
+BGA 900 1 FF900 FFG900 FFV900 FF901 FFG901 FFV901
 0
-2
-2
-Capacitor_SMD
-C_Elec_6.3x5.8
-SMD capacitor, aluminum electrolytic nonpolar, 6.3x5.8mm
-capacitor electrolyic nonpolar
+900
+900
+Package_BGA
+Xilinx_FFG1156
+Artix-7, Kintex-7 and Zynq-7000 BGA, 34x34 grid, 35x35mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=277, https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=296, https://www.xilinx.com/support/documentation/user_guides/ug865-Zynq-7000-Pkg-Pinout.pdf#page=91, NSMD pad definition Appendix A
+BGA 1156 1 FF1156 FFG1156 FFV1156
 0
-2
-2
-Capacitor_SMD
-C_Elec_6.3x7.7
-SMD capacitor, aluminum electrolytic nonpolar, 6.3x7.7mm
-capacitor electrolyic nonpolar
+1156
+1156
+Package_BGA
+Xilinx_FFG1157_FFG1158
+Virtex-7 BGA, 34x34 grid, 35x35mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=299, NSMD pad definition Appendix A
+BGA 1156 1 FF1157 FFG1157 FFV1157 FF1158 FFG1158 FFV1158
 0
-2
-2
-Capacitor_SMD
-C_Elec_8x5.4
-SMD capacitor, aluminum electrolytic nonpolar, 8.0x5.4mm
-capacitor electrolyic nonpolar
+1156
+1156
+Package_BGA
+Xilinx_FFG1761
+Virtex-7 BGA, 42x42 grid, 42.5x42.5mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=300, NSMD pad definition Appendix A
+BGA 1760 1 FF1761 FFG1761
 0
-2
-2
-Capacitor_SMD
-C_Elec_8x6.2
-SMD capacitor, aluminum electrolytic nonpolar, 8.0x6.2mm
-capacitor electrolyic nonpolar
+1760
+1760
+Package_BGA
+Xilinx_FFG1926_FFG1927_FFG1928_FFG1930
+Virtex-7 BGA, 44x44 grid, 45x45mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=303, NSMD pad definition Appendix A
+BGA 1924 1 FF1926 FFG1926 FF1927 FFG1927 FFV1927 FF1928 FFG1928 FF1930 FFG1930
 0
-2
-2
-Capacitor_SMD
-C_Elec_8x10.2
-SMD capacitor, aluminum electrolytic nonpolar, 8.0x10.2mm
-capacitor electrolyic nonpolar
+1924
+1924
+Package_BGA
+Xilinx_FFV1761
+Virtex-7 BGA, 42x42 grid, 42.5x42.5mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=301, NSMD pad definition Appendix A
+BGA 1760 1 FFV1761
 0
-2
-2
-Capacitor_SMD
-C_Elec_10x10.2
-SMD capacitor, aluminum electrolytic nonpolar, 10.0x10.2mm
-capacitor electrolyic nonpolar
+1760
+1760
+Package_BGA
+Xilinx_FGG484
+Artix-7 BGA, 22x22 grid, 23x23mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=275, NSMD pad definition Appendix A
+BGA 484 1 FG484 FGG484
 0
-2
-2
-Capacitor_SMD
-C_Trimmer_Murata_TZB4-A
-trimmer capacitor SMD horizontal, http://www.murata.com/~/media/webrenewal/support/library/catalog/products/capacitor/trimmer/t13e.ashx?la=en-gb
- Murata TZB4 TZB4-A
+484
+484
+Package_BGA
+Xilinx_FGG676
+Artix-7 BGA, 26x26 grid, 27x27mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=276, NSMD pad definition Appendix A
+BGA 676 1 FG676 FGG676
 0
-2
-2
-Capacitor_SMD
-C_Trimmer_Murata_TZB4-B
-trimmer capacitor SMD horizontal, http://www.murata.com/~/media/webrenewal/support/library/catalog/products/capacitor/trimmer/t13e.ashx?la=en-gb
- Murata TZB4 TZB4-A
+676
+676
+Package_BGA
+Xilinx_FGGA484
+Spartan-7 BGA, 22x22 grid, 23x23mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=264, NSMD pad definition Appendix A
+BGA 484 1 FGGA484
 0
-2
-2
-Capacitor_SMD
-C_Trimmer_Murata_TZC3
-trimmer capacitor SMD horizontal, http://www.murata.com/~/media/webrenewal/support/library/catalog/products/capacitor/trimmer/t13e.ashx?la=en-gb
- Murata TZC3
+484
+484
+Package_BGA
+Xilinx_FGGA676
+Spartan-7 BGA, 26x26 grid, 27x27mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=265, NSMD pad definition Appendix A
+BGA 676 1 FGGA676
 0
-2
-2
-Capacitor_SMD
-C_Trimmer_Murata_TZR1
-trimmer capacitor SMD horizontal, http://www.murata.com/~/media/webrenewal/support/library/catalog/products/capacitor/trimmer/t13e.ashx?la=en-gb
- Murata TZR1
+676
+676
+Package_BGA
+Xilinx_FHG1761
+Virtex-7 BGA, 42x42 grid, 45x45mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=302, NSMD pad definition Appendix A
+BGA 1760 1 FH1761 FHG1761
 0
-2
-2
-Capacitor_SMD
-C_Trimmer_Murata_TZW4
-trimmer capacitor SMD horizontal, http://www.murata.com/~/media/webrenewal/support/library/catalog/products/capacitor/trimmer/t13e.ashx?la=en-gb
- Murata TZW4
+1760
+1760
+Package_BGA
+Xilinx_FLG1925_FLG1926_FLG1928_FLG1930
+Virtex-7 BGA, 44x44 grid, 45x45mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=304, NSMD pad definition Appendix A
+BGA 1924 1 FL1925 FLG1925 FL1926 FLG1926 FL1928 FLG1928 FL1930 FLG1930
 0
-2
-2
-Capacitor_SMD
-C_Trimmer_Murata_TZY2
-trimmer capacitor SMD horizontal, http://www.murata.com/~/media/webrenewal/support/library/catalog/products/capacitor/trimmer/t13e.ashx?la=en-gb
- Murata TZY2
+1924
+1924
+Package_BGA
+Xilinx_FTG256
+Artix-7 BGA, 16x16 grid, 17x17mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=269, NSMD pad definition Appendix A
+BGA 256 1 FT256 FTG256
 0
-2
-2
-Capacitor_SMD
-C_Trimmer_Sprague-Goodman_SGC3
-trimmer capacitor SMD horizontal, http://media.wix.com/ugd/d86717_38d9821e12823a7aa9cef38c6c2a73cc.pdf
- Sprague Goodman SGC3
+256
+256
+Package_BGA
+Xilinx_FTGB196
+Spartan-7 BGA, 14x14 grid, 15x15mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=261, NSMD pad definition Appendix A
+BGA 196 1 FTGB196
 0
-2
-2
-Capacitor_SMD
-C_Trimmer_Voltronics_JN
-trimmer capacitor SMD horizontal, http://www.knowlescapacitors.com/File%20Library/Voltronics/English/GlobalNavigation/Products/Trimmer%20Capacitors/CerChipTrimCap.pdf
- Voltronics JN
+196
+196
+Package_BGA
+Xilinx_RB484
+Artix-7 and Zynq-7000 BGA, 22x22 grid, 23x23mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=278, https://www.xilinx.com/support/documentation/user_guides/ug865-Zynq-7000-Pkg-Pinout.pdf#page=92, NSMD pad definition Appendix A
+BGA 484 1 RB484
 0
-2
-2
-Capacitor_SMD
-C_Trimmer_Voltronics_JQ
-trimmer capacitor SMD horizontal, http://www.knowlescapacitors.com/File%20Library/Voltronics/English/GlobalNavigation/Products/Trimmer%20Capacitors/CerChipTrimCap.pdf
- Voltronics JQ
+484
+484
+Package_BGA
+Xilinx_RB676
+Artix-7 BGA, 26x26 grid, 27x27mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=280, NSMD pad definition Appendix A
+BGA 676 1 RB676
 0
-2
-2
-Capacitor_SMD
-C_Trimmer_Voltronics_JR
-trimmer capacitor SMD horizontal, http://www.knowlescapacitors.com/File%20Library/Voltronics/English/GlobalNavigation/Products/Trimmer%20Capacitors/CerChipTrimCap.pdf
- Voltronics JR
+676
+676
+Package_BGA
+Xilinx_RF676
+Kintex-7 BGA, 26x26 grid, 27x27mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=297, NSMD pad definition Appendix A
+BGA 676 1 RF676
 0
-2
-2
-Capacitor_SMD
-C_Trimmer_Voltronics_JV
-trimmer capacitor SMD horizontal, http://www.knowlescapacitors.com/File%20Library/Voltronics/English/GlobalNavigation/Products/Trimmer%20Capacitors/CerChipTrimCap.pdf
- Voltronics JV
+676
+676
+Package_BGA
+Xilinx_RF900
+Kintex-7 and Zynq-7000 BGA, 30x30 grid, 31x31mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=298, https://www.xilinx.com/support/documentation/user_guides/ug865-Zynq-7000-Pkg-Pinout.pdf#page=94, NSMD pad definition Appendix A
+BGA 900 1 RF900
 0
-2
-2
-Capacitor_SMD
-C_Trimmer_Voltronics_JZ
-trimmer capacitor SMD horizontal, http://www.knowlescapacitors.com/File%20Library/Voltronics/English/GlobalNavigation/Products/Trimmer%20Capacitors/CerChipTrimCap.pdf
- Voltronics JR
+900
+900
+Package_BGA
+Xilinx_RF1156
+Zynq-7000 BGA, 34x34 grid, 35x35mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug865-Zynq-7000-Pkg-Pinout.pdf#page=95, NSMD pad definition Appendix A
+BGA 1156 1 RF1156
 0
-2
-2
+1156
+1156
+Package_BGA
+Xilinx_RF1157_RF1158
+Virtex-7 BGA, 34x34 grid, 35x35mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=305, NSMD pad definition Appendix A
+BGA 1156 1 RF1157 RF1158
+0
+1156
+1156
+Package_BGA
+Xilinx_RF1761
+Virtex-7 BGA, 42x42 grid, 42.5x42.5mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=306, NSMD pad definition Appendix A
+BGA 1760 1 RF1761
+0
+1760
+1760
+Package_BGA
+Xilinx_RF1930
+Virtex-7 BGA, 44x44 grid, 45x45mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=307, NSMD pad definition Appendix A
+BGA 1924 1 RF1930
+0
+1924
+1924
+Package_BGA
+Xilinx_RFG676
+Zynq-7000 BGA, 26x26 grid, 27x27mm package, 1mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug865-Zynq-7000-Pkg-Pinout.pdf#page=93, NSMD pad definition Appendix A
+BGA 676 1 RF676 RFG676
+0
+676
+676
+Package_BGA
+Xilinx_RS484
+Artix-7 BGA, 22x22 grid, 19x19mm package, 0.8mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=279, NSMD pad definition Appendix A
+BGA 484 0.8 RS484
+0
+484
+484
+Package_BGA
+Xilinx_SBG484
+Artix-7 BGA, 22x22 grid, 19x19mm package, 0.8mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug475_7Series_Pkg_Pinout.pdf#page=270, NSMD pad definition Appendix A
+BGA 484 0.8 SB484 SBG484 SBV484
+0
+484
+484
+Package_BGA
+Xilinx_SBG485
+Zynq-7000 BGA, 22x22 grid, 19x19mm package, 0.8mm pitch; https://www.xilinx.com/support/documentation/user_guides/ug865-Zynq-7000-Pkg-Pinout.pdf#page=80, NSMD pad definition Appendix A
+BGA 484 0.8 SBG485 SBV485
+0
+484
+484

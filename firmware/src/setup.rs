@@ -30,12 +30,23 @@ impl Motor {
 
     /// Dma input channel. This should be in line with `tim_channel`.
     pub fn dma_input(&self) -> DmaInput {
-        match self {
-            // The DMA write isn't associated with a channel; using the Update even seems to work.
-            Self::M1 => DmaInput::Tim2Up,
-            Self::M2 => DmaInput::Tim2Up,
-            Self::M3 => DmaInput::Tim3Up,
-            Self::M4 => DmaInput::Tim3Up,
+        cfg_if! {
+            if #[cfg(feature = "h7")] {
+                match self {
+                    Self::M1 => DmaInput::Tim3Up,
+                    Self::M2 => DmaInput::Tim3Up,
+                    Self::M3 => DmaInput::Tim3Up,
+                    Self::M4 => DmaInput::Tim3Up,
+                }
+            } else {
+                match self {
+                    // The DMA write isn't associated with a channel; using the Update even seems to work.
+                    Self::M1 => DmaInput::Tim2Up,
+                    Self::M2 => DmaInput::Tim2Up,
+                    Self::M3 => DmaInput::Tim3Up,
+                    Self::M4 => DmaInput::Tim3Up,
+                }
+            }
         }
     }
 
@@ -78,10 +89,19 @@ pub fn setup_pins() {
             // todo
         } else if #[cfg(feature = "mercury-g4")] {
             // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
-            let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(1)); // Tim2 ch1
-            let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(1)); // Tim2 ch2
-            let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
-            let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
+            cfg_if! {
+                if #[cfg(feature = "h7")] {
+                    let mut rotor1 = Pin::new(Port::C, 6, PinMode::Alt(2)); // Tim3 ch1
+                    let mut rotor2 = Pin::new(Port::C, 7, PinMode::Alt(2)); // Tim3 ch2
+                    let mut rotor3 = Pin::new(Port::C, 8, PinMode::Alt(2)); // Tim3 ch3
+                    let mut rotor4 = Pin::new(Port::C, 9, PinMode::Alt(2)); // Tim3 ch4
+                } else {
+                    let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(1)); // Tim2 ch1
+                    let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(1)); // Tim2 ch2
+                    let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
+                    let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
+                }
+            }
 
             rotor1.output_speed(OutputSpeed::High);
             rotor2.output_speed(OutputSpeed::High);
@@ -182,10 +202,11 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     dma::mux(IMU_TX_CH, DmaInput::Spi1Tx, mux);
     dma::mux(IMU_RX_CH, DmaInput::Spi1Rx, mux);
 
-    // DSHOT, motors 1 and 2
+    // DSHOT, motors 1 and 2 (all 4 for H7)
     dma::mux(Motor::M1.dma_channel(), Motor::M1.dma_input(), mux);
 
     // DSHOT, motors 3 and 4
+    #[cfg(not(feature = "h7"))]
     dma::mux(Motor::M3.dma_channel(), Motor::M3.dma_input(), mux);
 
     // LoRa (ELRS)
@@ -207,6 +228,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
 
     // We use Dshot transfer-complete interrupts to disable the timer.
     dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
+    #[cfg(not(feature = "h7"))]
     dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
 
     // Process ELRS control data

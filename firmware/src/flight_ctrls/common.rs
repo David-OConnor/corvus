@@ -4,7 +4,10 @@ use core::f32::consts::TAU;
 
 use crate::{lin_alg::Quaternion, ppks::Location, safety::ArmStatus, util::map_linear};
 
-use super::quad::{THROTTLE_MAX_MNVR_CLAMP, THROTTLE_MIN_MNVR_CLAMP};
+use super::{
+    flying_wing::ControlPositions,
+    quad::{MotorPower, THROTTLE_MAX_MNVR_CLAMP, THROTTLE_MIN_MNVR_CLAMP},
+};
 
 // Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
@@ -180,10 +183,10 @@ pub struct CtrlInputs {
     pub thrust: f32,
 }
 
-/// Represents a first-order status of the drone. todo: What grid/reference are we using?
+/// Aircraft flight parameters, at a given instant. Pitch and roll rates are in the aircraft's
+/// frame of reference.
 #[derive(Default)]
 pub struct Params {
-    // todo: Do we want to use this full struct, or store multiple (3+) instantaneous ones?
     pub s_x: f32,
     pub s_y: f32,
     // Note that we only need to specify MSL vs AGL for position; velocity and accel should
@@ -217,4 +220,20 @@ pub struct Params {
     pub a_pitch: f32,
     pub a_roll: f32,
     pub a_yaw: f32,
+}
+
+/// Stores data on how the aircraft has performed in various recent flight conditions.
+/// This data is used to estimate control surface positions or rotor power in response
+/// to a change in commanded parameters. Rates are in rad/s.
+pub struct ResponseDataPt {
+    /// Forward airspeed
+    pub airspeed: f32,
+    // todo: Options for these, or an enum?
+    pub motor_power: MotorPower,
+    pub control_posits: ControlPositions,
+
+    // todo: If you need more, consider using `Params`.
+    pub pitch_rate: f32,
+    pub roll_rate: f32,
+    pub yaw_rate: f32,
 }

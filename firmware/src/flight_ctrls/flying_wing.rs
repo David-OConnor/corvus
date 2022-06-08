@@ -4,7 +4,7 @@
 
 use stm32_hal2::{
     dma::Dma,
-    pac::{DMA1, TIM2, TIM3},
+    pac::{self, DMA1, TIM2, TIM3},
     timer::{OutputCompare, TimChannel, Timer, TimerInterrupt},
 };
 
@@ -79,6 +79,8 @@ pub fn set_elevon_posit(
 
 /// See also: `dshot::setup_timers`.
 pub fn setup_timers(motor_timer: &mut Timer<TIM2>, servo_timer: &mut Timer<TIM3>) {
+    // todo: On H7, use TIM8 for the servos.
+
     motor_timer.set_prescaler(dshot::DSHOT_PSC_600);
     motor_timer.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
     servo_timer.set_prescaler(PSC);
@@ -94,6 +96,16 @@ pub fn setup_timers(motor_timer: &mut Timer<TIM2>, servo_timer: &mut Timer<TIM3>
 
     // PAC, since our HAL currently only sets this on `new`.
     servo_timer.regs.cr1.modify(|_, w| w.opm().set_bit());
+
+    // Set servo pins to pull-down, to make sure they don't send an errant pulse that triggers a
+    // movement out-of-range of the control surfaces.
+    // todo: #1: Don't hard-code these pins. #2: Consider if this is helping and/or sufficient.
+    unsafe {
+        (*pac::GPIOB::ptr()).pupdr.modify(|_, w| {
+            w.pupdr0().bits(0b10);
+            w.pupdr1().bits(0b10)
+        });
+    }
 }
 
 /// Equivalent of `Motor` for quadcopters.

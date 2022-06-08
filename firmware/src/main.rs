@@ -418,7 +418,11 @@ mod app {
         // We use SPI3 for flash. // todo: Find max speed and supported modes.
         let spi3 = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
 
-        let mut cs_flash = Pin::new(Port::C, 6, PinMode::Output);
+        #[cfg(feature = "h7")]
+        let flash_pin = 10;
+        #[cfg(not(feature = "h7"))]
+        let flash_pin = 6;
+        let mut cs_flash = Pin::new(Port::C, flash_pin, PinMode::Output);
         cs_flash.set_high();
 
         // We use I2C for the TOF sensor.(?)
@@ -1227,6 +1231,8 @@ mod app {
     #[task(binds = DMA1_CH4, shared = [rotor_timer_b], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_b(mut cx: dshot_isr_b::Context) {
+        // todo: Feature-gate this out on H7 or something? Not used.
+
         unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit()) }
 
         cx.shared.rotor_timer_b.lock(|timer| {

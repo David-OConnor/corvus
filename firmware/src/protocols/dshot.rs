@@ -68,9 +68,16 @@ pub const REPEAT_COMMAND_COUNT: u32 = 10; // todo: Set back to 6 once sorted out
 // DMA buffers for each rotor. 16-bit data. Note that
 // rotors 1/2 and 3/4 share a timer, so we can use the same DMA stream with them. Data for the 2
 // channels are interleaved.
-// Len 36, since last 2 entries will be 0. Required to prevent extra pulses. (Not sure exactly why)
-static mut PAYLOAD_R1_2: [u16; 36] = [0; 36];
-static mut PAYLOAD_R3_4: [u16; 36] = [0; 36];
+// Len 36, since last 2 entries will be 0 per channel. Required to prevent extra pulses. (Not sure exactly why)
+
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        static mut PAYLOAD: [u16; 72] = [0; 72];
+    } else if #[cfg(feature = "g4")] {
+        static mut PAYLOAD_R1_2: [u16; 36] = [0; 36];
+        static mut PAYLOAD_R3_4: [u16; 36] = [0; 36];
+    }
+}
 
 /// Possible DSHOT commands (ie, DSHOT values 0 - 47). Does not include power settings.
 /// [Special commands section](https://brushlesswhoop.com/dshot-and-bidirectional-dshot/)
@@ -139,6 +146,21 @@ pub enum CmdType {
     Power(f32),
 }
 
+#[cfg(feature = "h7")]
+pub fn setup_timers(timer: &mut Timer<TIM3>) {
+    timer.set_prescaler(DSHOT_PSC_600);
+    timer.set_auto_reload(DSHOT_ARR_600 as u32);
+
+    timer.enable_interrupt(TimerInterrupt::UpdateDma);
+
+    // Arbitrary duty cycle set, since we'll override it with DMA bursts.
+    timer.enable_pwm_output(Motor::M1.tim_channel(), OutputCompare::Pwm1, 0.);
+    timer.enable_pwm_output(Motor::M2.tim_channel(), OutputCompare::Pwm1, 0.);
+    timer.enable_pwm_output(Motor::M3.tim_channel(), OutputCompare::Pwm1, 0.);
+    timer.enable_pwm_output(Motor::M4.tim_channel(), OutputCompare::Pwm1, 0.);
+}
+
+#[cfg(not(feature = "h7"))]
 pub fn setup_timers(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
     timer_a.set_prescaler(DSHOT_PSC_600);
     timer_a.set_auto_reload(DSHOT_ARR_600 as u32);
@@ -155,6 +177,24 @@ pub fn setup_timers(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
     timer_b.enable_pwm_output(Motor::M4.tim_channel(), OutputCompare::Pwm1, 0.);
 }
 
+#[cfg(feature = "h7")]
+pub fn stop_all(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
+    // Note that the stop command (Command 0) is currently not implemented, so set throttles to 0.
+    set_power(
+        Motor::M1,
+        Motor::M2,
+        Motor::M3,
+        Motor::M4,
+        0.,
+        0.,
+        0.,
+        0.,
+        timer,
+        dma,
+    );
+}
+
+#[cfg(not(feature = "h7"))]
 /// Stop all motors, by setting their power to 0. Note that the Motor Stop command may not
 /// be implemented, and this approach gets the job done. Run this at program init, so the ESC
 /// get its required zero-throttle setting, generally required by ESC firmware to complete
@@ -165,6 +205,7 @@ pub fn stop_all(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>, dma: &mut 
     set_power_b(Motor::M3, Motor::M4, 0., 0., timer_b, dma);
 }
 
+// todo: H7 variant of setup_motor_dir
 /// Set up the direction for each motor, in accordance with user config.
 pub fn setup_motor_dir(
     motors_reversed: (bool, bool, bool, bool),
@@ -268,14 +309,20 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
     let crc = (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F;
     let packet = (packet << 4) | crc;
 
-    let (payload, offset) = unsafe {
-        match rotor {
-            Motor::M1 => (&mut PAYLOAD_R1_2, 0),
-            Motor::M2 => (&mut PAYLOAD_R1_2, 1),
-            Motor::M3 => (&mut PAYLOAD_R3_4, 0),
-            Motor::M4 => (&mut PAYLOAD_R3_4, 1),
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            let (payload_offset) = unsafe { &mut PAYLOAD };
+        } else {
+            let (payload, offset) = unsafe {
+                match rotor {
+                    Motor::M1 => (&mut PAYLOAD_R1_2, 0),
+                    Motor::M2 => (&mut PAYLOAD_R1_2, 1),
+                    Motor::M3 => (&mut PAYLOAD_R3_4, 0),
+                    Motor::M4 => (&mut PAYLOAD_R3_4, 1),
+                }
+            }
         }
-    };
+    }
 
     // Create a DMA payload of 16 timer CCR (duty) settings, each for one bit of our data word.
     for i in 0..16 {
@@ -290,6 +337,35 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
     // Note that the end stays 0-padded, since we init with 0s, and never change those values.
 }
 
+#[cfg(feature = "h7")]
+pub fn set_power(
+    rotor1: Motor,
+    rotor2: Motor,
+    rotor3: Motor,
+    rotor4: Motor,
+    power1: f32,
+    power2: f32,
+    power3: f32,
+    power4: f32,
+    timer: &mut Timer<TIM2>,
+    dma: &mut Dma<DMA1>,
+) {
+    setup_payload(rotor1, CmdType::Power(power1));
+    setup_payload(rotor2, CmdType::Power(power2));
+    setup_payload(rotor3, CmdType::Power(power3));
+    setup_payload(rotor4, CmdType::Power(power4));
+
+    send_payload(timer, dma)
+}
+
+#[cfg(feature = "h7")]
+pub fn set_power_single(rotor: Motor, power: f32, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
+    setup_payload(rotor, CmdType::Power(power));
+
+    send_payload(timer, dma)
+}
+
+#[cfg(not(feature = "h7"))]
 /// Set a rotor pair's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
 /// settings. `power` ranges from 0. to 1.
 pub fn set_power_a(
@@ -306,6 +382,7 @@ pub fn set_power_a(
     send_payload_a(timer, dma)
 }
 
+#[cfg(not(feature = "h7"))]
 /// Set a single rotor's power. Used by preflight; not normal operations.
 pub fn set_power_single_a(rotor: Motor, power: f32, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
     setup_payload(rotor, CmdType::Power(power));
@@ -313,6 +390,7 @@ pub fn set_power_single_a(rotor: Motor, power: f32, timer: &mut Timer<TIM2>, dma
     send_payload_a(timer, dma)
 }
 
+#[cfg(not(feature = "h7"))]
 // todo: DRY due to type issue. Use a trait?
 pub fn set_power_b(
     rotor1: Motor,
@@ -328,6 +406,7 @@ pub fn set_power_b(
     send_payload_b(timer, dma)
 }
 
+#[cfg(not(feature = "h7"))]
 /// Set a single rotor's power. Used by preflight; not normal operations.
 pub fn set_power_single_b(rotor: Motor, power: f32, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     // todo DRY, as in much of this module.
@@ -335,6 +414,38 @@ pub fn set_power_single_b(rotor: Motor, power: f32, timer: &mut Timer<TIM3>, dma
     send_payload_b(timer, dma)
 }
 
+#[cfg(feature = "h7")]
+fn send_payload(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
+    let payload = unsafe { &PAYLOAD };
+
+    // The previous transfer should already be complete, but just in case.
+    dma.stop(Motor::M1.dma_channel());
+
+    // Set back to alternate function.
+    unsafe {
+        (*pac::GPIOC::ptr()).moder.modify(|_, w| {
+            w.moder6().bits(0b10);
+            w.moder7().bits(0b10);
+            w.moder8().bits(0b10);
+            w.moder9().bits(0b10)
+        });
+    }
+
+    unsafe {
+        timer.write_dma_burst(
+            payload,
+            Motor::M1.base_addr_offset(),
+            4, // Burst len of 4, since we're updating 4 channels.
+            Motor::M1.dma_channel(),
+            Default::default(),
+            dma,
+            true,
+        );
+    }
+    // Note that timer enabling is handled by `write_dma_burst`.
+}
+
+#[cfg(not(feature = "h7"))]
 /// Send the stored payload for timer A. (2 channels).
 fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
     let payload = unsafe { &PAYLOAD_R1_2 };
@@ -364,6 +475,7 @@ fn send_payload_a(timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
     // Note that timer enabling is handled by `write_dma_burst`.
 }
 
+#[cfg(not(feature = "h7"))]
 /// Send the stored payload for timer B. (2 channels)
 fn send_payload_b(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     let payload = unsafe { &PAYLOAD_R3_4 };

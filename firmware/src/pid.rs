@@ -67,6 +67,11 @@ static mut FILTER_STATE_YAW_RATE: [f32; 4] = [0.; 4];
 
 static mut FILTER_STATE_THRUST: [f32; 4] = [0.; 4];
 
+// todo temp: BF constants, for use with BF code translation while figuring this uot
+const BF_P: f32 = 10.;
+const BF_I: f32 = 10.;
+const BF_D: f32 = 10.;
+
 // filter_ = signal.iirfilter(1, 100, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
 // coeffs = []
 // for row in filter_:
