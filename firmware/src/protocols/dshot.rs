@@ -311,7 +311,14 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
 
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            let (payload_offset) = unsafe { &mut PAYLOAD };
+            let (payload, offset) = unsafe {
+                match rotor {
+                    Motor::M1 => (&mut PAYLOAD, 0),
+                    Motor::M2 => (&mut PAYLOAD, 1),
+                    Motor::M3 => (&mut PAYLOAD, 2),
+                    Motor::M4 => (&mut PAYLOAD, 3),
+                }
+            };
         } else {
             let (payload, offset) = unsafe {
                 match rotor {
@@ -320,7 +327,7 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
                     Motor::M3 => (&mut PAYLOAD_R3_4, 0),
                     Motor::M4 => (&mut PAYLOAD_R3_4, 1),
                 }
-            }
+            };
         }
     }
 

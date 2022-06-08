@@ -5,6 +5,7 @@ use cfg_if::cfg_if;
 
 use crate::flight_ctrls::{flying_wing::ServoWing, quad::Motor};
 
+use stm32_hal2::gpio::Port::A;
 use stm32_hal2::{
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
@@ -16,6 +17,10 @@ pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
 pub const IMU_RX_CH: DmaChannel = DmaChannel::C2;
 pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
 pub const ELRS_RX_CH: DmaChannel = DmaChannel::C6;
+pub const BATT_CURR_ADC_CH: DmaChannel = DmaChannel::C6; // todo: Note: Sharing ELRS/CRSF.
+
+pub const BATT_ADC_CH: u8 = 17;
+pub const CURR_ADC_CH: u8 = 12;
 
 impl Motor {
     // todo: Feature gate these methods based on board, as required.
@@ -210,13 +215,15 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     dma::mux(Motor::M3.dma_channel(), Motor::M3.dma_input(), mux);
 
     // LoRa (ELRS)
-    dma::mux(ELRS_RX_CH, DmaInput::Spi2Rx, mux);
+    // dma::mux(ELRS_RX_CH, DmaInput::Spi2Rx, mux);
 
     // CRSF (ELRS backup)
     dma::mux(CRSF_RX_CH, DmaInput::Usart3Rx, mux);
     // Note: If we run out of DMA channels, consider removing the CRSF transmit channel;
     // we only have it set up to respond to pings, and that's probably unecessary.
     // dma::mux(DmaChannel::C8, DmaInput::Usart3Tx, mux);
+
+    dma::mux(BATT_CURR_ADC_CH, DmaInput::Adc2, mux);
 
     // TOF sensor
     // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx, &mut dp.DMAMUX);

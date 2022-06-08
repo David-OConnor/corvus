@@ -10,14 +10,15 @@ use cortex_m::{self, asm, delay::Delay};
 
 use stm32_hal2::{
     self,
-    adc::{Adc, AdcDevice},
+    adc::{self, Adc, AdcConfig, AdcDevice},
     clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllSrc},
-    dma::{self, Dma, DmaChannel},
+    dma::{self, ChannelCfg, Dma, DmaChannel},
     flash::{Bank, Flash},
     gpio::{self, Edge, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
     pac::{
-        self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM16, TIM17, TIM2, TIM3, TIM4, USART3,
+        self, ADC2, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM16, TIM17, TIM2, TIM3, TIM4,
+        USART3,
     },
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
@@ -128,6 +129,13 @@ const LOGGING_UPDATE_RATIO: usize = 100;
 const DT_IMU: f32 = 1. / IMU_UPDATE_RATE;
 const DT_ATTITUDE: f32 = 1. / UPDATE_RATE_ATTITUDE;
 const DT_VELOCITY: f32 = 1. / UPDATE_RATE_VELOCITY;
+
+static mut ADC_READ_BUF: [u16; 2] = [0; 2];
+
+// These values correspond to how much the voltage divider on these ADC pins reduces the input
+// voltage. Multiply by these values to get the true readings.
+pub const ADC_BATT_DIVISION: f32 = 15.;
+pub const ADC_CURR_DIVISION: f32 = 15.;
 
 /// Block RX reception of packets coming in at a faster rate then this. This prevents external
 /// sources from interfering with other parts of the application by taking too much time.
@@ -291,6 +299,7 @@ mod app {
         altimeter: baro::Altimeter,
         uart3: Usart<USART3>, // for ELRS over CRSF.
         flash_onboard: Flash,
+        batt_curr_adc: Adc<ADC2>,
         // rtc: Rtc,
         update_timer: Timer<TIM15>,
         rf_limiter_timer: Timer<TIM16>,
@@ -471,7 +480,32 @@ mod app {
         let rtc = Rtc::new(dp.RTC, Default::default());
 
         // We use the ADC to measure battery voltage.
-        let batt_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, Default::default(), &clock_cfg);
+        let adc_cfg = AdcConfig {
+            operation_mode: adc::OperationMode::Continuous,
+            ..Default::default()
+        };
+
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+
+        // With continuous reads, we can set a long sample time.
+        batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
+        batt_curr_adc.set_sample_time(setup::CURR_ADC_CH, adc::SampleTime::T601);
+
+        // Note: With this circular DMA approach, we discard the large majority of readings,
+        // but shouldn't have consequences other than higher power use, compared to commanding
+        // conversions when needed.
+        unsafe {
+            batt_curr_adc.read_dma(
+                &mut ADC_READ_BUF,
+                &[setup::BATT_ADC_CH, setup::CURR_ADC_CH],
+                setup::BATT_CURR_ADC_CH,
+                ChannelCfg {
+                    circular: dma::Circular::Enabled,
+                    ..Default::default()
+                },
+                &mut dma,
+            );
+        }
 
         // Set rate to UPDATE_RATE_ATTITUDE; the slower velocity-update timer will run once
         // every few of these updates.
@@ -684,6 +718,7 @@ mod app {
                 i2c2,
                 altimeter,
                 uart3,
+                batt_curr_adc,
                 // rtc,
                 update_timer,
                 rf_limiter_timer,
@@ -759,7 +794,7 @@ mod app {
     velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
     ahrs, control_channel_data, control_link_stats,
-    lost_link_timer, altimeter, i2c2, state_volatile,
+    lost_link_timer, altimeter, i2c2, state_volatile, batt_curr_adc,
     ],
     local = [arm_signals_received, disarm_signals_received, update_loop_i],
 
@@ -792,6 +827,7 @@ mod app {
             cx.shared.altimeter,
             cx.shared.i2c2,
             cx.shared.state_volatile,
+            cx.shared.batt_curr_adc,
         )
             .lock(
                 |params,
@@ -814,7 +850,8 @@ mod app {
                  lost_link_timer,
                  altimeter,
                  i2c2,
-                 state_volatile| {
+                 state_volatile,
+                 adc| {
                     if let OperationMode::Preflight = state_volatile.op_mode {
                         return;
                     }
@@ -825,9 +862,19 @@ mod app {
                     // let temp = altimeter.read_temp(i2c2);
                     // params.s_z_msl = altimeter.estimate_altitude_msl(pressure, temp);
 
+                    // todo: For these ADC readings, consider A: DMA. B: Not getting this data every update.
+
                     // Debug loop.
                     if *cx.local.update_loop_i % 700 == 0 {
-                        println!("Loop");
+                        println!("Batt curr ADC buf {:?}", unsafe { ADC_READ_BUF });
+
+                        let batt_v =
+                            adc.reading_to_voltage(unsafe { ADC_READ_BUF }[0]) * ADC_BATT_DIVISION;
+                        let curr_v =
+                            adc.reading_to_voltage(unsafe { ADC_READ_BUF }[1]) * ADC_CURR_DIVISION;
+
+                        println!("Batt V: {} Curr V: {}", batt_v, curr_v);
+
                         println!(
                             "Accel: Ax {}, Ay: {}, Az: {}",
                             params.a_x, params.a_y, params.a_z
