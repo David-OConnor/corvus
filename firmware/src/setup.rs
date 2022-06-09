@@ -95,7 +95,7 @@ pub fn setup_pins() {
         } else if #[cfg(feature = "mercury-g4")] {
             // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
             cfg_if! {
-                if #[cfg(feature = "h7")] {
+                if #[cfg(feature = "mercury-h7")] {
                     let mut rotor1 = Pin::new(Port::C, 6, PinMode::Alt(2)); // Tim3 ch1
                     let mut rotor2 = Pin::new(Port::C, 7, PinMode::Alt(2)); // Tim3 ch2
                     let mut rotor3 = Pin::new(Port::C, 8, PinMode::Alt(2)); // Tim3 ch3
@@ -161,7 +161,11 @@ pub fn setup_pins() {
 
             // Used to trigger a PID update based on new IMU data.
             // We assume here the interrupt config uses default settings active low, push pull, pulsed.
+            #[cfg(feature = "mercury-h7")]
+            let mut imu_interrupt = Pin::new(Port::B, 12, PinMode::Input);
+            #[cfg(feature = "mercury-g4")]
             let mut imu_interrupt = Pin::new(Port::C, 4, PinMode::Input);
+
             imu_interrupt.output_type(OutputType::OpenDrain);
             imu_interrupt.pull(Pull::Up);
             imu_interrupt.enable_interrupt(Edge::Falling);

@@ -134,8 +134,8 @@ static mut ADC_READ_BUF: [u16; 2] = [0; 2];
 
 // These values correspond to how much the voltage divider on these ADC pins reduces the input
 // voltage. Multiply by these values to get the true readings.
-pub const ADC_BATT_DIVISION: f32 = 15.;
-pub const ADC_CURR_DIVISION: f32 = 15.;
+pub const ADC_BATT_DIVISION: f32 = 11.;
+pub const ADC_CURR_DIVISION: f32 = 11.;
 
 /// Block RX reception of packets coming in at a faster rate then this. This prevents external
 /// sources from interfering with other parts of the application by taking too much time.
@@ -401,7 +401,7 @@ mod app {
         let mut spi1 = Spi::new(dp.SPI1, imu_spi_cfg, imu_baud_div);
 
         #[cfg(feature = "mercury-h7")]
-        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+        let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
         #[cfg(feature = "mercury-g4")]
         let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
@@ -479,7 +479,7 @@ mod app {
         // We use the RTC to assist with power use measurement.
         let rtc = Rtc::new(dp.RTC, Default::default());
 
-        // We use the ADC to measure battery voltage.
+        // We use the ADC to measure battery voltage and ESC current.
         let adc_cfg = AdcConfig {
             operation_mode: adc::OperationMode::Continuous,
             ..Default::default()
@@ -487,11 +487,11 @@ mod app {
 
         let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
-        // With continuous reads, we can set a long sample time.
+        // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
         batt_curr_adc.set_sample_time(setup::CURR_ADC_CH, adc::SampleTime::T601);
 
-        // Note: With this circular DMA approach, we discard the large majority of readings,
+        // Note: With this circular DMA approach, we discard many readings,
         // but shouldn't have consequences other than higher power use, compared to commanding
         // conversions when needed.
         unsafe {
@@ -866,8 +866,6 @@ mod app {
 
                     // Debug loop.
                     if *cx.local.update_loop_i % 700 == 0 {
-                        println!("Batt curr ADC buf {:?}", unsafe { ADC_READ_BUF });
-
                         let batt_v =
                             adc.reading_to_voltage(unsafe { ADC_READ_BUF }[0]) * ADC_BATT_DIVISION;
                         let curr_v =
@@ -1194,7 +1192,7 @@ mod app {
     // todo: Commented out USB ISR so we don't get the annoying beeps from PC on conn/dc
 
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data, command_state,
-    user_cfg, state_volatile, rotor_timer_a, rotor_timer_b, dma], local = [], priority = 7)]
+    user_cfg, state_volatile, rotor_timer_a, rotor_timer_b, batt_curr_adc, dma], local = [], priority = 7)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
@@ -1208,6 +1206,7 @@ mod app {
             cx.shared.state_volatile,
             cx.shared.rotor_timer_a,
             cx.shared.rotor_timer_b,
+            cx.shared.batt_curr_adc,
             cx.shared.dma,
         )
             .lock(
@@ -1220,6 +1219,7 @@ mod app {
                  state_volatile,
                  rotor_timer_a,
                  rotor_timer_b,
+                 adc,
                  dma| {
                     if !usb_dev.poll(&mut [usb_serial]) {
                         return;
@@ -1243,6 +1243,7 @@ mod app {
                                 &mut state_volatile.op_mode,
                                 rotor_timer_a,
                                 rotor_timer_b,
+                                adc,
                                 dma,
                             );
                         }

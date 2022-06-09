@@ -200,7 +200,7 @@ impl Ahrs {
         self.accelerometer_ignored = true;
         if !accel_data.is_zero() {
             // Enter acceleration recovery state if acceleration rejection times out
-            if self.accel_rejection_timer >= self.settings.rejection_timeout {
+            if self.accel_rejection_timer > self.settings.rejection_timeout {
                 let quaternion = self.quaternion;
                 self.reset();
                 self.quaternion = quaternion;
@@ -234,7 +234,7 @@ impl Ahrs {
         if !mag_data.is_zero() {
             // Set to compass heading if magnetic rejection times out
             self.mag_rejection_timeout = false;
-            if self.mag_rejection_timer >= self.settings.rejection_timeout {
+            if self.mag_rejection_timer > self.settings.rejection_timeout {
                 self.set_heading(compass_calc_heading(half_gravity, mag_data));
                 self.mag_rejection_timer = 0;
                 self.mag_rejection_timeout = true;

@@ -21,8 +21,9 @@ use crate::{
 };
 
 use stm32_hal2::{
+    adc::Adc,
     dma::Dma,
-    pac::{DMA1, TIM2, TIM3},
+    pac::{ADC2, DMA1, TIM2, TIM3},
     timer::Timer,
 };
 
@@ -45,14 +46,13 @@ const F32_BYTES: usize = 4;
 static mut CRC_LUT: [u8; 256] = [0; 256];
 const CRC_POLY: u8 = 0xab;
 
-// const PARAMS_SIZE: usize = 76;
-const QUATERNION_SIZE: usize = F32_BYTES * 4; // Quaternion (4x4 + altimeter)
-const PARAMS_SIZE: usize = QUATERNION_SIZE + 4; //
+const QUATERNION_SIZE: usize = F32_BYTES * 4; // Quaternion (4x4 + altimeter + voltage reading + current reading)
+const PARAMS_SIZE: usize = QUATERNION_SIZE + 4 * 3; //
 const CONTROLS_SIZE: usize = 18;
 
 // Packet sizes are payload size + 2. Additional data are message type, and CRC.
-const ATTITUDE_PACKET_SIZE: usize = 18;
-const CONTROLS_PACKET_SIZE: usize = 20;
+const PARAMS_PACKET_SIZE: usize = PARAMS_SIZE + 2;
+const CONTROLS_PACKET_SIZE: usize = CONTROLS_SIZE + 2;
 
 struct _DecodeError {}
 
@@ -182,6 +182,7 @@ pub fn handle_rx(
     op_mode: &mut OperationMode,
     rotor_timer_a: &mut Timer<TIM2>,
     rotor_timer_b: &mut Timer<TIM3>,
+    adc: &Adc<ADC2>,
     dma: &mut Dma<DMA1>,
 ) {
     let rx_msg_type: MsgType = match data[0].try_into() {
@@ -215,7 +216,7 @@ pub fn handle_rx(
             // todo it back. This could potentially be dangerous.
             *op_mode = OperationMode::Preflight;
 
-            let mut tx_buf = [0; ATTITUDE_PACKET_SIZE];
+            let mut tx_buf = [0; PARAMS_PACKET_SIZE];
             tx_buf[0] = MsgType::Params as u8;
 
             let quat_buf: [u8; QUATERNION_SIZE] = attitude.into();
@@ -225,6 +226,21 @@ pub fn handle_rx(
             let altimeter_bytes = altimeter.to_be_bytes();
             for i in 0..4 {
                 tx_buf[i + 1 + QUATERNION_SIZE] = altimeter_bytes[i];
+            }
+
+            // todo: A lot of tough-to-read-and-maintain code in this section!
+            // todo: Better way?
+
+            let batt_v = adc.reading_to_voltage(unsafe { crate::ADC_READ_BUF }[0]) * crate::ADC_BATT_DIVISION;
+            let curr = adc.reading_to_voltage(unsafe { crate::ADC_READ_BUF }[1]) * crate::ADC_CURR_DIVISION;
+
+            let batt_bytes = batt_v.to_be_bytes();
+            let curr_bytes = curr.to_be_bytes();
+            for i in 0..4 {
+                tx_buf[i + 1 + QUATERNION_SIZE + 4] = batt_bytes[i];
+            }
+            for i in 0..4 {
+                tx_buf[i + 1 + QUATERNION_SIZE + 8] = curr_bytes[i];
             }
 
             let payload_size = MsgType::Params.payload_size();
