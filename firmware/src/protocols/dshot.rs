@@ -354,7 +354,7 @@ pub fn set_power(
     power2: f32,
     power3: f32,
     power4: f32,
-    timer: &mut Timer<TIM2>,
+    timer: &mut Timer<TIM3>,
     dma: &mut Dma<DMA1>,
 ) {
     setup_payload(rotor1, CmdType::Power(power1));
@@ -373,6 +373,14 @@ pub fn set_power_single(rotor: Motor, power: f32, timer: &mut Timer<TIM3>, dma: 
 }
 
 #[cfg(not(feature = "h7"))]
+/// Set a single rotor's power. Used by preflight; not normal operations.
+pub fn set_power_single_a(rotor: Motor, power: f32, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
+    setup_payload(rotor, CmdType::Power(power));
+
+    send_payload_a(timer, dma)
+}
+
+// #[cfg(not(feature = "h7"))]
 /// Set a rotor pair's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
 /// settings. `power` ranges from 0. to 1.
 pub fn set_power_a(
@@ -385,14 +393,6 @@ pub fn set_power_a(
 ) {
     setup_payload(rotor1, CmdType::Power(power1));
     setup_payload(rotor2, CmdType::Power(power2));
-
-    send_payload_a(timer, dma)
-}
-
-#[cfg(not(feature = "h7"))]
-/// Set a single rotor's power. Used by preflight; not normal operations.
-pub fn set_power_single_a(rotor: Motor, power: f32, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
-    setup_payload(rotor, CmdType::Power(power));
 
     send_payload_a(timer, dma)
 }

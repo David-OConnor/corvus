@@ -308,6 +308,9 @@ impl MotorPower {
                 dshot::set_power_b(Motor::M3, Motor::M4, p3, p4, rotor_timer_b, dma);
             }
             ArmStatus::Disarmed => {
+                #[cfg(feature = "h7")]
+                dshot::stop_all(rotor_timer_a, dma);
+                #[cfg(feature = "g4")]
                 dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
             }
         }

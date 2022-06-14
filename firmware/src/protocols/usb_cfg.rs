@@ -231,8 +231,10 @@ pub fn handle_rx(
             // todo: A lot of tough-to-read-and-maintain code in this section!
             // todo: Better way?
 
-            let batt_v = adc.reading_to_voltage(unsafe { crate::ADC_READ_BUF }[0]) * crate::ADC_BATT_DIVISION;
-            let curr = adc.reading_to_voltage(unsafe { crate::ADC_READ_BUF }[1]) * crate::ADC_CURR_DIVISION;
+            let batt_v = adc.reading_to_voltage(unsafe { crate::ADC_READ_BUF }[0])
+                * crate::ADC_BATT_DIVISION;
+            let curr = adc.reading_to_voltage(unsafe { crate::ADC_READ_BUF }[1])
+                * crate::ADC_CURR_DIVISION;
 
             let batt_bytes = batt_v.to_be_bytes();
             let curr_bytes = curr.to_be_bytes();

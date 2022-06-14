@@ -9,9 +9,14 @@ use stm32_hal2::gpio::Port::A;
 use stm32_hal2::{
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
-    pac::{DMA1, DMAMUX},
+    pac::DMA1,
     timer::TimChannel,
 };
+
+#[cfg(feature = "g4")]
+use pac::DMAMUX;
+#[cfg(feature = "h7")]
+use pac::DMAMUX1 as DMAMUX;
 
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
 pub const IMU_RX_CH: DmaChannel = DmaChannel::C2;

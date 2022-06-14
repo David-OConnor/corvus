@@ -24,7 +24,12 @@ impl UserCfg {
         // let  data: [u8; 69] = self.into();
         let mut data = [0; 69];
 
+        #[cfg(feature = "h7")]
         flash.erase_write_page(Bank::B1, FLASH_CFG_PAGE, &data).ok();
+        #[cfg(feature = "g4")]
+        flash
+            .erase_write_sector(Bank::B1, FLASH_CFG_PAGE, &data)
+            .ok();
     }
     //
     // /// Load from flash memory

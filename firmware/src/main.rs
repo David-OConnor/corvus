@@ -11,7 +11,7 @@ use cortex_m::{self, asm, delay::Delay};
 use stm32_hal2::{
     self,
     adc::{self, Adc, AdcConfig, AdcDevice},
-    clocks::{self, Clk48Src, Clocks, CrsSyncSrc, InputSrc, PllSrc},
+    clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
     dma::{self, ChannelCfg, Dma, DmaChannel},
     flash::{Bank, Flash},
     gpio::{self, Edge, Pin, PinMode, Port},
@@ -49,10 +49,7 @@ cfg_if! {
 }
 
 #[cfg(feature = "h7")]
-use crate::{
-    clocks::VosRange,
-    power::{SupplyConfig, VoltageLevel},
-};
+use crate::clocks::VosRange;
 
 use defmt_rtt as _; // global logger
 use panic_probe as _;
@@ -351,7 +348,10 @@ mod app {
                 ..Default::default()
             },
             hsi48_on: true,
-            clk48_src: Clk48Src::Hsi48,
+            #[cfg(feature = "h7")]
+            usb_src: clocks::UsSrc::Hsi48,
+            #[cfg(feature = "g4")]
+            clk48_src: rcc::Clk48Src::Hsi48,
             #[cfg(feature = "g4")]
             boost_mode: true, // Required for speeds > 150Mhz.
             ..Default::default()
@@ -362,6 +362,9 @@ mod app {
         clock_cfg.setup().unwrap();
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
+        #[cfg(feature = "h7")]
+        clocks::enable_crs(CrsSyncSrc::OtgHs);
+        #[cfg(feature = "g4")]
         clocks::enable_crs(CrsSyncSrc::Usb);
 
         // Improves performance, at a cost of slightly increased power use.
@@ -377,6 +380,9 @@ mod app {
         #[cfg(feature = "g4")]
         dma::enable_mux1();
 
+        #[cfg(feature = "h7")]
+        setup::setup_dma(&mut dma, &mut dp.DMAMUX1);
+        #[cfg(feature = "g4")]
         setup::setup_dma(&mut dma, &mut dp.DMAMUX);
 
         // We use SPI1 for the IMU
@@ -587,6 +593,23 @@ mod app {
                 flying_wing::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
             }
         }
+
+        // todo temp
+        println!("A");
+        flying_wing::set_elevon_posit(
+            flying_wing::ServoWing::S1,
+            0.75,
+            &user_cfg.servo_wing_mapping,
+            &mut rotor_timer_b,
+        );
+        flying_wing::set_elevon_posit(
+            flying_wing::ServoWing::S2,
+            0.75,
+            &user_cfg.servo_wing_mapping,
+            &mut rotor_timer_b,
+        );
+        println!("B");
+        loop {}
 
         // We use I2C2 for the barometer / altimeter.
         let mut i2c2 = I2c::new(dp.I2C2, i2c_baro_cfg, &clock_cfg);

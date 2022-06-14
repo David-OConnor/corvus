@@ -51,7 +51,7 @@ const SERVO_DUTY_HIGH: f32 = (ARR * 3 / 4) as f32;
 // const SERVO_DUTY_LOW: f32 = (ARR / 2) as f32; // todo: Thi sis our 1ms=low value.
 const SERVO_DUTY_LOW: f32 = (ARR / 4) as f32;
 
-/// Sets the position of an elevon
+/// Sets the physical position of an elevon; commands a servo movement.
 pub fn set_elevon_posit(
     elevon: ServoWing,
     position: f32,
@@ -182,6 +182,9 @@ impl ControlPositions {
         // M2 isn't used here, but keeps our API similar to Quad.
         match arm_status {
             ArmStatus::Armed => {
+                // #[cfg(feature = "h7")]
+                // dshot::set_power_a(Motor::M1, Motor::M2, self.motor, 0., motor_tim, dma);
+                // #[cfg(feature = "g4")]
                 dshot::set_power_a(Motor::M1, Motor::M2, self.motor, 0., motor_tim, dma);
 
                 // todo: Apply to left and right wing by mapping etc! Here or upstream.
