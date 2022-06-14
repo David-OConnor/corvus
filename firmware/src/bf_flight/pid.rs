@@ -3,7 +3,11 @@
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
 
-//! https://github.com/betaflight/betaflight/blob/master/src/main/flight/pid.c
+//! https://github.com/betaflight/betaflight/blob/master/src/main/flight/pid.c (and pid.h)
+
+use core::mem;
+
+const EPS: f32 = 0.000001; // c uses float == 0 comparison?
 
 /*
  * This file is part of Cleanflight and Betaflight.
@@ -25,19 +29,20 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
+
 // todo types
-const MAX_PID_PROCESS_DENOM       16;
-const PID_CONTROLLER_BETAFLIGHT   1;
+const MAX_PID_PROCESS_DENOM: u16 =        16;
+const PID_CONTROLLER_BETAFLIGHT: u16 =    1;
 const PID_MIXER_SCALING  : f32 =         1000.0;
 const PID_SERVO_MIXER_SCALING : f32 =    0.7;
-const PIDSUM_LIMIT                500;
-const PIDSUM_LIMIT_YAW            400;
-const PIDSUM_LIMIT_MIN            100;
-const PIDSUM_LIMIT_MAX            1000;
+const PIDSUM_LIMIT: u16 =                 500;
+const PIDSUM_LIMIT_YAW: u16 =             400;
+const PIDSUM_LIMIT_MIN: u16 =             100;
+const PIDSUM_LIMIT_MAX: u16 =            1000;
 
-const PID_GAIN_MAX 250;
-const F_GAIN_MAX 1000;
-const D_MIN_GAIN_MAX 250;
+const PID_GAIN_MAX: u16 = 250;
+const F_GAIN_MAX: u16 =  1000;
+const D_MIN_GAIN_MAX: u16 =  250;
 
 // Scaling factors for Pids for better tunable range in configurator for betaflight pid controller. The scaling is based on legacy pid controller or previous float
 const PTERM_SCALE: f32 = 0.032029;
@@ -135,469 +140,316 @@ enum feedforwardAveraging {
     FEEDFORWARD_AVERAGING_4_POINT,
 }
 
-const MAX_PROFILE_NAME_LENGTH 8u
+const MAX_PROFILE_NAME_LENGTH: u8 = 0;
 
 struct pidProfile {
-    uint16_t yaw_lowpass_hz,                // Additional yaw filter when yaw axis too noisy
-    uint16_t dterm_lpf1_static_hz,          // Static Dterm lowpass 1 filter cutoff value in hz
-    uint16_t dterm_notch_hz,                // Biquad dterm notch hz
-    uint16_t dterm_notch_cutoff,            // Biquad dterm notch low cutoff
+    yaw_lowpass_hz: u16,                // Additional yaw filter when yaw axis too noisy
+    dterm_lpf1_static_hz: u16,          // Static Dterm lowpass 1 filter cutoff value in hz
+    dterm_notch_hz: u16,                // Biquad dterm notch hz
+    dterm_notch_cutoff: u16,             // Biquad dterm notch low cutoff
 
-    pidf_t  pid[PID_ITEM_COUNT],
+    pid[pidf; PID_ITEM_COUNT],
 
-    uint8_t dterm_lpf1_type,                // Filter type for dterm lowpass 1
-    uint8_t itermWindupPointPercent,        // iterm windup threshold, percent motor saturation
-    uint16_t pidSumLimit,
-    uint16_t pidSumLimitYaw,
-    uint8_t pidAtMinThrottle,               // Disable/Enable pids on zero throttle. Normally even without airmode P and D would be active.
-    uint8_t levelAngleLimit,                // Max angle in degrees in level mode
+    dterm_lpf1_type: u8,                // Filter type for dterm lowpass 1
+    itermWindupPointPercent: u8,        // iterm windup threshold, percent motor saturation
+    pidSumLimit: u16, 
+    pidSumLimitYaw: u16, 
+    pidAtMinThrottle: u8,               // Disable/Enable pids on zero throttle. Normally even without airmode P and D would be active.
+    levelAngleLimit: u8,                // Max angle in degrees in level mode
 
-    uint8_t horizon_tilt_effect,            // inclination factor for Horizon mode
-    uint8_t horizon_tilt_expert_mode,       // OFF or ON
+    horizon_tilt_effect: u8,            // inclination factor for Horizon mode
+    horizon_tilt_expert_mode: u8,       // OFF or ON
 
     // Betaflight PID controller parameters
-    uint8_t  antiGravityMode,             // type of anti gravity method
-    uint16_t itermThrottleThreshold,        // max allowed throttle delta before iterm accelerated in ms
-    uint16_t itermAcceleratorGain,          // Iterm Accelerator Gain when itermThrottlethreshold is hit
-    uint16_t yawRateAccelLimit,             // yaw accel limiter for deg/sec/ms
-    uint16_t rateAccelLimit,                // accel limiter roll/pitch deg/sec/ms
-    uint16_t crash_dthreshold,              // dterm crash value
-    uint16_t crash_gthreshold,              // gyro crash value
-    uint16_t crash_setpoint_threshold,      // setpoint must be below this value to detect crash, so flips and rolls are not interpreted as crashes
-    uint16_t crash_time,                    // ms
-    uint16_t crash_delay,                   // ms
-    uint8_t crash_recovery_angle,           // degrees
-    uint8_t crash_recovery_rate,            // degree/second
-    uint16_t crash_limit_yaw,               // limits yaw errorRate, so crashes don't cause huge throttle increase
-    uint16_t itermLimit,
-    uint16_t dterm_lpf2_static_hz,          // Static Dterm lowpass 2 filter cutoff value in hz
-    uint8_t crash_recovery,                 // off, on, on and beeps when it is in crash recovery mode
-    uint8_t throttle_boost,                 // how much should throttle be boosted during transient changes 0-100, 100 adds 10x hpf filtered throttle
-    uint8_t throttle_boost_cutoff,          // Which cutoff frequency to use for throttle boost. higher cutoffs keep the boost on for shorter. Specified in hz.
-    uint8_t iterm_rotation,                 // rotates iterm to translate world errors to local coordinate system
-    uint8_t iterm_relax_type,               // Specifies type of relax algorithm
-    uint8_t iterm_relax_cutoff,             // This cutoff frequency specifies a low pass filter which predicts average response of the quad to setpoint
-    uint8_t iterm_relax,                    // Enable iterm suppression during stick input
-    uint8_t acro_trainer_angle_limit,       // Acro trainer roll/pitch angle limit in degrees
-    uint8_t acro_trainer_debug_axis,        // The axis for which record debugging values are captured 0=roll, 1=pitch
-    uint8_t acro_trainer_gain,              // The strength of the limiting. Raising may reduce overshoot but also lead to oscillation around the angle limit
-    uint16_t acro_trainer_lookahead_ms,     // The lookahead window in milliseconds used to reduce overshoot
-    uint8_t abs_control_gain,               // How strongly should the absolute accumulated error be corrected for
-    uint8_t abs_control_limit,              // Limit to the correction
-    uint8_t abs_control_error_limit,        // Limit to the accumulated error
-    uint8_t abs_control_cutoff,             // Cutoff frequency for path estimation in abs control
-    uint8_t dterm_lpf2_type,                // Filter type for 2nd dterm lowpass
-    uint16_t dterm_lpf1_dyn_min_hz,         // Dterm lowpass filter 1 min hz when in dynamic mode
-    uint16_t dterm_lpf1_dyn_max_hz,         // Dterm lowpass filter 1 max hz when in dynamic mode
-    uint8_t launchControlMode,              // Whether launch control is limited to pitch only (launch stand or top-mount) or all axes (on battery)
-    uint8_t launchControlThrottlePercent,   // Throttle percentage to trigger launch for launch control
-    uint8_t launchControlAngleLimit,        // Optional launch control angle limit (requires ACC)
-    uint8_t launchControlGain,              // Iterm gain used while launch control is active
-    uint8_t launchControlAllowTriggerReset, // Controls trigger behavior and whether the trigger can be reset
-    uint8_t use_integrated_yaw,             // Selects whether the yaw pidsum should integrated
-    uint8_t integrated_yaw_relax,           // Specifies how much integrated yaw should be reduced to offset the drag based yaw component
-    uint8_t thrustLinearization,            // Compensation factor for pid linearization
-    uint8_t d_min[XYZ_AXIS_COUNT],          // Minimum D value on each axis
-    uint8_t d_min_gain,                     // Gain factor for amount of gyro / setpoint activity required to boost D
-    uint8_t d_min_advance,                  // Percentage multiplier for setpoint input to boost algorithm
-    uint8_t motor_output_limit,             // Upper limit of the motor output (percent)
-    int8_t auto_profile_cell_count,         // Cell count for this profile to be used with if auto PID profile switching is used
-    uint8_t transient_throttle_limit,       // Maximum DC component of throttle change to mix into throttle to prevent airmode mirroring noise
-    char profileName[MAX_PROFILE_NAME_LENGTH + 1], // Descriptive name for profile
+     antiGravityMode: u8,             // type of anti gravity method
+    itermThrottleThreshold: u16,         // max allowed throttle delta before iterm accelerated in ms
+    itermAcceleratorGain: u16,           // Iterm Accelerator Gain when itermThrottlethreshold is hit
+    yawRateAccelLimit: u16,              // yaw accel limiter for deg/sec/ms
+    rateAccelLimit: u16,                // accel limiter roll/pitch deg/sec/ms
+    crash_dthreshold: u16,               // dterm crash value
+    crash_gthreshold: u16,               // gyro crash value
+    crash_setpoint_threshold: u16,       // setpoint must be below this value to detect crash, so flips and rolls are not interpreted as crashes
+    crash_time: u16,                   // ms
+    crash_delay: u16,                  // ms
+    crash_recovery_angle,           // degrees
+    crash_recovery_rate,            // degree/second
+    crash_limit_yaw: u16,             // limits yaw errorRate, so crashes don't cause huge throttle increase
+    itermLimit: u16, 
+    dterm_lpf2_static_hz: u16,          // Static Dterm lowpass 2 filter cutoff value in hz
+    crash_recovery: u8,                 // off, on, on and beeps when it is in crash recovery mode
+    throttle_boost: u8,                 // how much should throttle be boosted during transient changes 0-100, 100 adds 10x hpf filtered throttle
+    throttle_boost_cutoff: u8,          // Which cutoff frequency to use for throttle boost. higher cutoffs keep the boost on for shorter. Specified in hz.
+    iterm_rotation: u8,                 // rotates iterm to translate world errors to local coordinate system
+    iterm_relax_type: u8,               // Specifies type of relax algorithm
+    iterm_relax_cutoff: u8,             // This cutoff frequency specifies a low pass filter which predicts average response of the quad to setpoint
+    iterm_relax: u8,                    // Enable iterm suppression during stick input
+    acro_trainer_angle_limit: u8,       // Acro trainer roll/pitch angle limit in degrees
+    acro_trainer_debug_axis: u8,        // The axis for which record debugging values are captured 0=roll, 1=pitch
+    acro_trainer_gain: u8,              // The strength of the limiting. Raising may reduce overshoot but also lead to oscillation around the angle limit
+    acro_trainer_lookahead_ms: u16,      // The lookahead window in milliseconds used to reduce overshoot
+    abs_control_gain: u8,               // How strongly should the absolute accumulated error be corrected for
+    abs_control_limit: u8,              // Limit to the correction
+    abs_control_error_limit: u8,        // Limit to the accumulated error
+    abs_control_cutoff: u8,             // Cutoff frequency for path estimation in abs control
+    dterm_lpf2_type: u8,                // Filter type for 2nd dterm lowpass
+    dterm_lpf1_dyn_min_hz: u16,          // Dterm lowpass filter 1 min hz when in dynamic mode
+    dterm_lpf1_dyn_max_hz: u16,          // Dterm lowpass filter 1 max hz when in dynamic mode
+    launchControlMode: u8,              // Whether launch control is limited to pitch only (launch stand or top-mount) or all axes (on battery)
+    launchControlThrottlePercent: u8,   // Throttle percentage to trigger launch for launch control
+    launchControlAngleLimit: u8,        // Optional launch control angle limit (requires ACC)
+    launchControlGain: u8,              // Iterm gain used while launch control is active
+    launchControlAllowTriggerReset: u8, // Controls trigger behavior and whether the trigger can be reset
+    use_integrated_yaw: u8,             // Selects whether the yaw pidsum should integrated
+    integrated_yaw_relax: u8,           // Specifies how much integrated yaw should be reduced to offset the drag based yaw component
+    thrustLinearization,            // Compensation factor for pid linearization
+    d_min[XYZ_AXIS_COUNT]: u8,          // Minimum D value on each axis
+    d_min_gain: u8,                     // Gain factor for amount of gyro / setpoint activity required to boost D
+    d_min_advance: u8,                  // Percentage multiplier for setpoint input to boost algorithm
+    motor_output_limit: u8,             // Upper limit of the motor output (percent)
+    auto_profile_cell_count: i8,         // Cell count for this profile to be used with if auto PID profile switching is used
+    transient_throttle_limit: u8,       // Maximum DC component of throttle change to mix into throttle to prevent airmode mirroring noise
+    profileName: [u8; MAX_PROFILE_NAME_LENGTH + 1], // Descriptive name for profile
 
-    uint8_t dyn_idle_min_rpm,                   // minimum motor speed enforced by the dynamic idle controller
-    uint8_t dyn_idle_p_gain,                // P gain during active control of rpm
-    uint8_t dyn_idle_i_gain,                // I gain during active control of rpm
-    uint8_t dyn_idle_d_gain,                // D gain for corrections around rapid changes in rpm
-    uint8_t dyn_idle_max_increase,          // limit on maximum possible increase in motor idle drive during active control
+    dyn_idle_min_rpm: u8,                   // minimum motor speed enforced by the dynamic idle controller
+    dyn_idle_p_gain: u8,                // P gain during active control of rpm
+    dyn_idle_i_gain: u8,                // I gain during active control of rpm
+    dyn_idle_d_gain: u8,                // D gain for corrections around rapid changes in rpm
+    dyn_idle_max_increase: u8,          // limit on maximum possible increase in motor idle drive during active control
 
-    uint8_t feedforward_transition,         // Feedforward attenuation around centre sticks
-    uint8_t feedforward_averaging,          // Number of packets to average when averaging is on
-    uint8_t feedforward_smooth_factor,      // Amount of lowpass type smoothing for feedforward steps
-    uint8_t feedforward_jitter_factor,      // Number of RC steps below which to attenuate feedforward
-    uint8_t feedforward_boost,              // amount of setpoint acceleration to add to feedforward, 10 means 100% added
-    uint8_t feedforward_max_rate_limit,     // Maximum setpoint rate percentage for feedforward
+    feedforward_transition: u8,         // Feedforward attenuation around centre sticks
+    feedforward_averaging: u8,          // Number of packets to average when averaging is on
+    feedforward_smooth_factor: u8,      // Amount of lowpass type smoothing for feedforward steps
+    feedforward_jitter_factor: u8,      // Number of RC steps below which to attenuate feedforward
+    feedforward_boost: u8,              // amount of setpoint acceleration to add to feedforward, 10 means 100% added
+    feedforward_max_rate_limit: u8,     // Maximum setpoint rate percentage for feedforward
 
-    uint8_t dterm_lpf1_dyn_expo,            // set the curve for dynamic dterm lowpass filter
-    uint8_t level_race_mode,                // NFE race mode - when true pitch setpoint calculation is gyro based in level mode
-    uint8_t vbat_sag_compensation,          // Reduce motor output by this percentage of the maximum compensation amount
+    dterm_lpf1_dyn_expo: u8,            // set the curve for dynamic dterm lowpass filter
+    level_race_mode: u8,                // NFE race mode - when true pitch setpoint calculation is gyro based in level mode
+    vbat_sag_compensation: u8,          // Reduce motor output by this percentage of the maximum compensation amount
 
-    uint8_t simplified_pids_mode,
-    uint8_t simplified_master_multiplier,
-    uint8_t simplified_roll_pitch_ratio,
-    uint8_t simplified_i_gain,
-    uint8_t simplified_d_gain,
-    uint8_t simplified_pi_gain,
-    uint8_t simplified_dmin_ratio,
-    uint8_t simplified_feedforward_gain,
-    uint8_t simplified_dterm_filter,
-    uint8_t simplified_dterm_filter_multiplier,
-    uint8_t simplified_pitch_pi_gain,
+    simplified_pids_mode: u8,
+    simplified_master_multiplier: u8,
+    simplified_roll_pitch_ratio: u8,
+    simplified_i_gain: u8,
+    simplified_d_gain: u8,
+    simplified_pi_gain: u8,
+    simplified_dmin_ratio: u8,
+    simplified_feedforward_gain: u8,
+    simplified_dterm_filter: u8,
+    simplified_dterm_filter_multiplier: u8,
+    simplified_pitch_pi_gain: u8,
 }
 
 PG_DECLARE_ARRAY(pidProfile_t, PID_PROFILE_COUNT, pidProfiles);
 
-typedef struct pidConfig_s {
-    uint8_t pid_process_denom;              // Processing denominator for PID controller vs gyro sampling rate
-    uint8_t runaway_takeoff_prevention;          // off, on - enables pidsum runaway disarm logic
-    uint16_t runaway_takeoff_deactivate_delay;   // delay in ms for "in-flight" conditions before deactivation (successful flight)
-    uint8_t runaway_takeoff_deactivate_throttle; // minimum throttle percent required during deactivation phase
-} pidConfig_t;
+struct pidConfig {
+    pid_process_denom: u8,             // Processing denominator for PID controller vs gyro sampling rate
+    runaway_takeoff_prevention: u8,         // off, on - enables pidsum runaway disarm logic
+    runaway_takeoff_deactivate_delay: u16,   // delay in ms for "in-flight" conditions before deactivation (successful flight)
+    runaway_takeoff_deactivate_throttle: u8, // minimum throttle percent required during deactivation phase
+}
 
-PG_DECLARE(pidConfig_t, pidConfig);
+// PG_DECLARE(pidConfig_t, pidConfig);
 
 union rollAndPitchTrims_u;
 void pidController(const pidProfile_t *pidProfile, timeUs_t currentTimeUs);
 
-typedef struct pidAxisData_s {
-    float P;
-    float I;
-    float D;
-    float F;
+struct pidAxisData {
+    P: f32,
+    I: f32,
+    D: f32,
+    F: f32,
 
-    float Sum;
-} pidAxisData_t;
+    Sum: f32,
+}
 
-typedef union dtermLowpass_u {
-    pt1Filter_t pt1Filter;
-    biquadFilter_t biquadFilter;
-    pt2Filter_t pt2Filter;
-    pt3Filter_t pt3Filter;
-} dtermLowpass_t;
+// #[repr(C)]
+// union dtermLowpass {
+//     pt1Filter_t pt1Filter;
+//     biquadFilter_t biquadFilter;
+//     pt2Filter_t pt2Filter;
+//     pt3Filter_t pt3Filter;
+// }
 
-typedef struct pidCoefficient_s {
-    float Kp;
-    float Ki;
-    float Kd;
-    float Kf;
-} pidCoefficient_t;
+struct pidCoefficient {
+    Kp: f32,
+    Ki: f32,
+    Kd: f32,
+    Kf: f32,
+}
 
-typedef struct pidRuntime_s {
-    float dT;
-    float pidFrequency;
-    bool pidStabilisationEnabled;
-    float previousPidSetpoint[XYZ_AXIS_COUNT];
-    filterApplyFnPtr dtermNotchApplyFn;
-    biquadFilter_t dtermNotch[XYZ_AXIS_COUNT];
-    filterApplyFnPtr dtermLowpassApplyFn;
-    dtermLowpass_t dtermLowpass[XYZ_AXIS_COUNT];
+struct pidRuntime {
+    dT: f32,
+    pidFrequency: f32,
+    pidStabilisationEnabled: bool,
+    previousPidSetpoint: [f32; XYZ_AXIS_COUNT],
+    dtermNotchApplyFn: filterApplyFnPtr,
+    dtermNotch: [biquadFilter; XYZ_AXIS_COUNT];
+    dtermLowpassApplyFn: filterApplyFnPtr,
+    dtermLowpass: [dtermLowpass; XYZ_AXIS_COUNT];
     filterApplyFnPtr dtermLowpass2ApplyFn;
-    dtermLowpass_t dtermLowpass2[XYZ_AXIS_COUNT];
-    filterApplyFnPtr ptermYawLowpassApplyFn;
-    pt1Filter_t ptermYawLowpass;
-    bool antiGravityEnabled;
-    uint8_t antiGravityMode;
-    pt1Filter_t antiGravityThrottleLpf;
-    pt1Filter_t antiGravitySmoothLpf;
-    float antiGravityOsdCutoff;
-    float antiGravityThrottleHpf;
-    float antiGravityPBoost;
-    float itermAccelerator;
-    uint16_t itermAcceleratorGain;
-    pidCoefficient_t pidCoefficient[XYZ_AXIS_COUNT];
-    float levelGain;
-    float horizonGain;
-    float horizonTransition;
-    float horizonCutoffDegrees;
-    float horizonFactorRatio;
-    uint8_t horizonTiltExpertMode;
-    float maxVelocity[XYZ_AXIS_COUNT];
-    float itermWindupPointInv;
-    bool inCrashRecoveryMode;
-    timeUs_t crashDetectedAtUs;
-    timeDelta_t crashTimeLimitUs;
-    timeDelta_t crashTimeDelayUs;
-    int32_t crashRecoveryAngleDeciDegrees;
-    float crashRecoveryRate;
-    float crashGyroThreshold;
-    float crashDtermThreshold;
-    float crashSetpointThreshold;
-    float crashLimitYaw;
-    float itermLimit;
-    bool itermRotation;
-    bool zeroThrottleItermReset;
-    bool levelRaceMode;
-    float tpaFactor;
+    dtermLowpass2: [dtermLowpass; XYZ_AXIS_COUNT];
+    ptermYawLowpassApplyFn: filterApplyFnPtr,
+    ptermYawLowpass: pt1Filter,
+    antiGravityEnabled: bool,
+    antiGravityMode: u8,
+    antiGravityThrottleLpf: pt1Filter,
+    antiGravitySmoothLpf: Pt1Filter,
+    antiGravityOsdCutoff: f32,
+    antiGravityThrottleHpf: f32,
+    antiGravityPBoost: f32,
+    itermAccelerator: f32,
+    itermAcceleratorGain: u16,
+    pidCoefficient: [pidCoefficient; XYZ_AXIS_COUNT];
+    levelGain: f32,
+    horizonGain: f32,
+    horizonTransition: f32,
+    horizonCutoffDegrees: f32,
+    horizonFactorRatio: f32,
+    horizonTiltExpertMode: u8,
+    maxVelocity: [f32; XYZ_AXIS_COUNT],
+    itermWindupPointInv: f32,
+    inCrashRecoveryMode: bool,
+    crashDetectedAtUs: timeUs,
+    crashTimeLimitUs: timeDelta,
+    crashTimeDelayUs: timeDelta,
+    crashRecoveryAngleDeciDegrees: i32,
+    crashRecoveryRate: f32,
+    crashGyroThreshold: f32,
+    crashDtermThreshold: f32,
+    crashSetpointThreshold: f32,
+    crashLimitYaw: f32,
+    itermLimit: f32,
+    itermRotation: bool,
+    zeroThrottleItermReset: bool,
+    levelRaceMode: bool,
+    tpaFactor: f32,
 
-#ifdef USE_ITERM_RELAX
-    pt1Filter_t windupLpf[XYZ_AXIS_COUNT];
-    uint8_t itermRelax;
-    uint8_t itermRelaxType;
-    uint8_t itermRelaxCutoff;
-#endif
+// #ifdef USE_ITERM_RELAX
+    windupLpf: [pt1Filter; XYZ_AXIS_COUNT],
+    itermRelax: u8,
+    itermRelaxType: u8,
+    itermRelaxCutoff: u8,
+// #endif
 
-#ifdef USE_ABSOLUTE_CONTROL
-    float acCutoff;
-    float acGain;
-    float acLimit;
-    float acErrorLimit;
-    pt1Filter_t acLpf[XYZ_AXIS_COUNT];
-    float oldSetpointCorrection[XYZ_AXIS_COUNT];
-#endif
+// #ifdef USE_ABSOLUTE_CONTROL
+    acCutoff: f32,
+    acGain: f32,
+    acLimit: f32,
+    acErrorLimit: f32,
+    acLpf: [pt1Filter; XYZ_AXIS_COUNT],
+    oldSetpointCorrection: [f32; XYZ_AXIS_COUNT],
+// #endif
 
-#ifdef USE_D_MIN
-    pt2Filter_t dMinRange[XYZ_AXIS_COUNT];
-    pt2Filter_t dMinLowpass[XYZ_AXIS_COUNT];
-    float dMinPercent[XYZ_AXIS_COUNT];
-    float dMinGyroGain;
-    float dMinSetpointGain;
-#endif
+// #ifdef USE_D_MIN
+    dMinRange: [pt2Filter; XYZ_AXIS_COUNT],
+    dMinLowpass: [pt2Filter; XYZ_AXIS_COUNT],
+    dMinPercent: [f32; XYZ_AXIS_COUNT],
+    dMinGyroGain: f32,
+    dMinSetpointGain: f32,
+// #endif
 
-#ifdef USE_AIRMODE_LPF
-    pt1Filter_t airmodeThrottleLpf1;
-    pt1Filter_t airmodeThrottleLpf2;
-#endif
+// #ifdef USE_AIRMODE_LPF
+    airmodeThrottleLpf1: pt1Filter,
+    airmodeThrottleLpf2: Pt1Filter,
+// #endif
 
-#ifdef USE_RC_SMOOTHING_FILTER
-    pt3Filter_t feedforwardPt3[XYZ_AXIS_COUNT];
-    bool feedforwardLpfInitialized;
-    uint8_t rcSmoothingDebugAxis;
-    uint8_t rcSmoothingFilterType;
-#endif // USE_RC_SMOOTHING_FILTER
+// #ifdef USE_RC_SMOOTHING_FILTER
+    feedforwardPt3: [pt3Filter; XYZ_AXIS_COUNT],
+    feedforwardLpfInitialized: bool,
+    rcSmoothingDebugAxis: u8,
+    rcSmoothingFilterType: u8,
+// #endif // USE_RC_SMOOTHING_FILTER
 
-#ifdef USE_ACRO_TRAINER
-    float acroTrainerAngleLimit;
-    float acroTrainerLookaheadTime;
-    uint8_t acroTrainerDebugAxis;
-    float acroTrainerGain;
-    bool acroTrainerActive;
-    int acroTrainerAxisState[2];  // only need roll and pitch
-#endif
+// #ifdef USE_ACRO_TRAINER
+    acroTrainerAngleLimit: f32,
+    acroTrainerLookaheadTime: f32,
+    acroTrainerDebugAxis: u8,
+    acroTrainerGain: f32,
+    acroTrainerActive: bool,
+    acroTrainerAxisState: [u32; 2],  // only need roll and pitch // todo: int in c. what type?
+// #endif
 
-#ifdef USE_DYN_LPF
-    uint8_t dynLpfFilter;
-    uint16_t dynLpfMin;
-    uint16_t dynLpfMax;
-    uint8_t dynLpfCurveExpo;
-#endif
+// #ifdef USE_DYN_LPF
+    dynLpfFilter: u8,
+    dynLpfMin: u16,
+    dynLpfMax: u16,
+    dynLpfCurveExpo: u8,
+// #endif
 
-#ifdef USE_LAUNCH_CONTROL
-    uint8_t launchControlMode;
-    uint8_t launchControlAngleLimit;
-    float launchControlKi;
-#endif
+// #ifdef USE_LAUNCH_CONTROL
+    launchControlMode: u8,
+    launchControlAngleLimit: u8,
+    launchControlKi: f32,
+// #endif
 
-#ifdef USE_INTEGRATED_YAW_CONTROL
-    bool useIntegratedYaw;
-    uint8_t integratedYawRelax;
-#endif
+// #ifdef USE_INTEGRATED_YAW_CONTROL
+    useIntegratedYaw: bool,
+    integratedYawRelax: u8,
+// #endif
 
-#ifdef USE_THRUST_LINEARIZATION
-    float thrustLinearization;
-    float throttleCompensateAmount;
-#endif
+// #ifdef USE_THRUST_LINEARIZATION
+    thrustLinearization: f32,
+    throttleCompensateAmount: f32,
+// #endif
 
-#ifdef USE_AIRMODE_LPF
-    float airmodeThrottleOffsetLimit;
-#endif
+// #ifdef USE_AIRMODE_LPF
+    airmodeThrottleOffsetLimit: f32,
+// #endif
 
-#ifdef USE_FEEDFORWARD
-    float feedforwardTransitionFactor;
-    feedforwardAveraging_t feedforwardAveraging;
-    float feedforwardSmoothFactor;
-    float feedforwardJitterFactor;
-    float feedforwardBoostFactor;
-#endif
-} pidRuntime_t;
+// #ifdef USE_FEEDFORWARD
+    feedforwardTransitionFactor: f32,
+    feedforwardAveraging: feedforwardAveraging,
+    feedforwardSmoothFactor: f32,
+    feedforwardJitterFactor: f32,
+    feedforwardBoostFactor: f32,
+// #endif
+}
 
-extern pidRuntime_t pidRuntime;
+// extern pidRuntime_t pidRuntime;
+//
+// extern const char pidNames[];
+//
+// extern pidAxisData_t pidData[3];
+//
+// extern uint32_t targetPidLooptime;
+//
+// extern float throttleBoost;
+// extern pt1Filter_t throttleLpf;
 
-extern const char pidNames[];
-
-extern pidAxisData_t pidData[3];
-
-extern uint32_t targetPidLooptime;
-
-extern float throttleBoost;
-extern pt1Filter_t throttleLpf;
-
-void resetPidProfile(pidProfile_t *profile);
-
-void pidResetIterm(void);
-void pidStabilisationState(pidStabilisationState_e pidControllerState);
-void pidSetItermAccelerator(float newItermAccelerator);
-bool crashRecoveryModeActive(void);
-void pidAcroTrainerInit(void);
-void pidSetAcroTrainerState(bool newState);
-void pidUpdateTpaFactor(float throttle);
-void pidUpdateAntiGravityThrottleFilter(float throttle);
-bool pidOsdAntiGravityActive(void);
-bool pidOsdAntiGravityMode(void);
-void pidSetAntiGravityState(bool newState);
-bool pidAntiGravityEnabled(void);
-
-#ifdef USE_THRUST_LINEARIZATION
-float pidApplyThrustLinearization(float motorValue);
-float pidCompensateThrustLinearization(float throttle);
-#endif
-
-#ifdef USE_AIRMODE_LPF
-void pidUpdateAirmodeLpf(float currentOffset);
-float pidGetAirmodeThrottleOffset();
-#endif
-
-#ifdef UNIT_TEST
-#include "sensors/acceleration.h"
-extern float axisError[XYZ_AXIS_COUNT];
-void applyItermRelax(const int axis, const float iterm,
-    const float gyroRate, float *itermErrorRate, float *currentPidSetpoint);
-void applyAbsoluteControl(const int axis, const float gyroRate, float *currentPidSetpoint, float *itermErrorRate);
-void rotateItermAndAxisError();
-float pidLevel(int axis, const pidProfile_t *pidProfile,
-    const rollAndPitchTrims_t *angleTrim, float currentPidSetpoint);
-float calcHorizonLevelStrength(void);
-#endif
-void dynLpfDTermUpdate(float throttle);
-void pidSetItermReset(bool enabled);
-float pidGetPreviousSetpoint(int axis);
-float pidGetDT();
-float pidGetPidFrequency();
-float pidGetFeedforwardBoostFactor();
-float pidGetFeedforwardSmoothFactor();
-float pidGetFeedforwardJitterFactor();
-float pidGetFeedforwardTransitionFactor();
-float dynLpfCutoffFreq(float throttle, uint16_t dynLpfMin, uint16_t dynLpfMax, uint8_t expo);
-
-
-Skip to content
-Pull requests
-Issues
-Marketplace
-Explore
-@David-OConnor
-betaflight /
-betaflight
-Public
-
-Code
-Issues 192
-Pull requests 75
-Discussions
-Actions
-Wiki
-Security
-
-    Insights
-
-betaflight/src/main/flight/pid.c
-@ctzsnooze
-ctzsnooze use Throttle Setpoint, not rcDATA(throttle), for TPA
-Latest commit 2262dfc on Jan 23
-History
-50 contributors
-@borisbstyle
-@mikeller
-@martinbudden
-@ctzsnooze
-@etracer65
-@MJ666
-@hydra
-@IllusionFpv
-@kmitchel
-@Vidalcris
-@blckmn
-@supiiik
-1307 lines (1160 sloc) 52 KB
-/*
- * This file is part of Cleanflight and Betaflight.
- *
- * Cleanflight and Betaflight are free software. You can redistribute
- * this software and/or modify this software under the terms of the
- * GNU General Public License as published by the Free Software
- * Foundation, either version 3 of the License, or (at your option)
- * any later version.
- *
- * Cleanflight and Betaflight are distributed in the hope that they
- * will be useful, but WITHOUT ANY WARRANTY; without even the implied
- * warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
- * See the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this software.
- *
- * If not, see <http://www.gnu.org/licenses/>.
- */
-
-#include <stdbool.h>
-#include <stdint.h>
-#include <string.h>
-#include <math.h>
-
-#include "platform.h"
-
-#include "build/build_config.h"
-#include "build/debug.h"
-
-#include "common/axis.h"
-#include "common/filter.h"
-
-#include "config/config_reset.h"
-#include "config/simplified_tuning.h"
-
-#include "drivers/pwm_output.h"
-#include "drivers/sound_beeper.h"
-#include "drivers/time.h"
-
-#include "fc/controlrate_profile.h"
-#include "fc/core.h"
-#include "fc/rc.h"
-#include "fc/rc_controls.h"
-#include "fc/runtime_config.h"
-
-#include "flight/gps_rescue.h"
-#include "flight/imu.h"
-#include "flight/mixer.h"
-#include "flight/rpm_filter.h"
-#include "flight/feedforward.h"
-
-#include "io/gps.h"
-
-#include "pg/pg.h"
-#include "pg/pg_ids.h"
-
-#include "sensors/acceleration.h"
-#include "sensors/battery.h"
-#include "sensors/gyro.h"
-
-#include "pid.h"
-
-typedef enum {
+#[derive(Copy, Clone, PartialEq)]
+#[repr(u8)]
+enum levelMode {
     LEVEL_MODE_OFF = 0,
     LEVEL_MODE_R,
     LEVEL_MODE_RP,
-} levelMode_e;
+}
 
-const char pidNames[] =
-    "ROLL;"
-    "PITCH;"
-    "YAW;"
-    "LEVEL;"
-    "MAG;";
+const pidNames: [&str; 5] = [
+    "ROLL;",
+    "PITCH;",
+    "YAW;",
+    "LEVEL;",
+    "MAG;",
+];
 
-FAST_DATA_ZERO_INIT uint32_t targetPidLooptime;
-FAST_DATA_ZERO_INIT pidAxisData_t pidData[XYZ_AXIS_COUNT];
-FAST_DATA_ZERO_INIT pidRuntime_t pidRuntime;
+static mut targetPidLooptime: u32 = 0;
+static mut  pidData: [pidAxisData; XYZ_AXIS_COUNT] = [0; XYZ_AXIS_COUNT];
+// static mut pidRuntime = mem::zeroed();
 
-#if defined(USE_ABSOLUTE_CONTROL)
+// #if defined(USE_ABSOLUTE_CONTROL)
 STATIC_UNIT_TESTED FAST_DATA_ZERO_INIT float axisError[XYZ_AXIS_COUNT];
-#endif
+// #endif
 
-#if defined(USE_THROTTLE_BOOST)
+// #if defined(USE_THROTTLE_BOOST)
 FAST_DATA_ZERO_INIT float throttleBoost;
 pt1Filter_t throttleLpf;
-#endif
+// #endif
 
 PG_REGISTER_WITH_RESET_TEMPLATE(pidConfig_t, pidConfig, PG_PID_CONFIG, 3);
 
-#if defined(STM32F1)
-const PID_PROCESS_DENOM_DEFAULT       8
-#elif defined(STM32F3)
-const PID_PROCESS_DENOM_DEFAULT       4
-#elif defined(STM32F411xE) || defined(STM32G4) //G4 sometimes cpu overflow when PID rate set to higher than 4k
-const PID_PROCESS_DENOM_DEFAULT       2
-#else
-const PID_PROCESS_DENOM_DEFAULT       1
-#endif
+
+const PID_PROCESS_DENOM_DEFAULT: u8 = 1; // todo type
 
 #ifdef USE_RUNAWAY_TAKEOFF
 PG_RESET_TEMPLATE(pidConfig_t, pidConfig,
@@ -623,15 +475,15 @@ const LAUNCH_CONTROL_YAW_ITERM_LIMIT 50 // yaw iterm windup limit when launch mo
 
 PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, PID_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 3);
 
-void resetPidProfile(pidProfile_t *pidProfile)
+fn resetPidProfile(pidProfile: &pidProfile)
 {
     RESET_CONFIG(pidProfile_t, pidProfile,
         .pid = {
             [PID_ROLL] =  PID_ROLL_DEFAULT,
             [PID_PITCH] = PID_PITCH_DEFAULT,
             [PID_YAW] =   PID_YAW_DEFAULT,
-            [PID_LEVEL] = { 50, 50, 75, 0 },
-            [PID_MAG] =   { 40, 0, 0, 0 },
+            [PID_LEVEL] = [ 50, 50, 75, 0 ],
+            [PID_MAG] =   [ 40, 0, 0, 0 ],
         },
         .pidSumLimit = PIDSUM_LIMIT,
         .pidSumLimitYaw = PIDSUM_LIMIT_YAW,
@@ -724,140 +576,144 @@ void resetPidProfile(pidProfile_t *pidProfile)
         .simplified_dterm_filter_multiplier = SIMPLIFIED_TUNING_DEFAULT,
     );
 
-#ifndef USE_D_MIN
-    pidProfile->pid[PID_ROLL].D = 30;
-    pidProfile->pid[PID_PITCH].D = 32;
-#endif
+// #ifndef USE_D_MIN
+    pidProfile.pid[PID_ROLL].D = 30;
+    pidProfile.pid[PID_PITCH].D = 32;
+// #endif
 }
 
-void pgResetFn_pidProfiles(pidProfile_t *pidProfiles)
+fn pgResetFn_pidProfiles(pidProfiles: &[pidProfile])
 {
-    for (int i = 0; i < PID_PROFILE_COUNT; i++) {
-        resetPidProfile(&pidProfiles[i]);
+    for profile in pidProfiles {
+        resetPidProfile(profile);
     }
 }
 
 // Scale factors to make best use of range with D_LPF debugging, aiming for max +/-16K as debug values are 16 bit
-const D_LPF_RAW_SCALE 25
-const D_LPF_FILT_SCALE 22
+const D_LPF_RAW_SCALE: u8 = 25; // todo: type
+const D_LPF_FILT_SCALE: u8 = 22;
 
 
-void pidSetItermAccelerator(float newItermAccelerator)
+impl pidRuntime {
+
+fn pidSetItermAccelerator(newItermAccelerator: f32)
 {
     pidRuntime.itermAccelerator = newItermAccelerator;
 }
 
-bool pidOsdAntiGravityActive(void)
+fn pidOsdAntiGravityActive() -> bool
 {
-    return (pidRuntime.itermAccelerator > pidRuntime.antiGravityOsdCutoff);
+    pidRuntime.itermAccelerator > pidRuntime.antiGravityOsdCutoff
 }
 
-void pidStabilisationState(pidStabilisationState_e pidControllerState)
+fn pidStabilisationState(pidControllerState: pidStabilisationState)
 {
-    pidRuntime.pidStabilisationEnabled = (pidControllerState == PID_STABILISATION_ON) ? true : false;
-}
-
-const angle_index_t rcAliasToAngleIndexMap[] = { AI_ROLL, AI_PITCH };
-
-#ifdef USE_FEEDFORWARD
-float pidGetFeedforwardTransitionFactor()
-{
-    return pidRuntime.feedforwardTransitionFactor;
-}
-
-float pidGetFeedforwardSmoothFactor()
-{
-    return pidRuntime.feedforwardSmoothFactor;
-}
-
-float pidGetFeedforwardJitterFactor()
-{
-    return pidRuntime.feedforwardJitterFactor;
-}
-
-float pidGetFeedforwardBoostFactor()
-{
-    return pidRuntime.feedforwardBoostFactor;
-}
-#endif
-
-void pidResetIterm(void)
-{
-    for (int axis = 0; axis < 3; axis++) {
-        pidData[axis].I = 0.0f;
-#if defined(USE_ABSOLUTE_CONTROL)
-        axisError[axis] = 0.0f;
-#endif
+    unsafe {
+        pidRuntime.pidStabilisationEnabled = pidControllerState == PID_STABILISATION_ON;
     }
 }
 
-void pidUpdateTpaFactor(float throttle)
+const rcAliasToAngleIndexMap: [angle_index; 2] = [ AI_ROLL, AI_PITCH ];
+
+// #ifdef USE_FEEDFORWARD
+fn pidGetFeedforwardTransitionFactor(&self) -> f32
 {
-    const float tpaBreakpoint = (currentControlRateProfile->tpa_breakpoint - 1000) / 1000.0f;
-    float tpaRate = currentControlRateProfile->tpa_rate / 100.0f;
-    if (throttle > tpaBreakpoint) {
-        if (throttle < 1.0f) {
-            tpaRate *= (throttle - tpaBreakpoint) / (1.0f - tpaBreakpoint);
+    self.feedforwardTransitionFactor
+}
+
+fn pidGetFeedforwardSmoothFactor(&self) -> f32
+{
+    self.feedforwardSmoothFactor
+}
+
+fn pidGetFeedforwardJitterFactor(&self) -> f32
+{
+    self.feedforwardJitterFactor
+}
+
+fn pidGetFeedforwardBoostFactor(&self) -> f32
+{
+    self.feedforwardBoostFactor
+}
+// #endif
+
+fn pidResetIterm()
+{
+    for axis in 0..3 {
+        pidData[axis].I = 0.0;
+// #if defined(USE_ABSOLUTE_CONTROL)
+        axisError[axis] = 0.0;
+// #endif
+    }
+}
+
+fn pidUpdateTpaFactor(&mut self, throttle: f32)
+{
+    let tpaBreakpoint: f32 = (currentControlRateProfile.tpa_breakpoint - 1000) / 1000.0;
+    let tpaRate: f32 = currentControlRateProfile.tpa_rate / 100.0;
+    if throttle > tpaBreakpoint {
+        if throttle < 1.0 {
+            tpaRate *= (throttle - tpaBreakpoint) / (1.0 - tpaBreakpoint);
         }
     } else {
-        tpaRate = 0.0f;
+        tpaRate = 0.0;
     }
-    pidRuntime.tpaFactor = 1.0f - tpaRate;
+    self.tpaFactor = 1.0 - tpaRate;
 }
 
-void pidUpdateAntiGravityThrottleFilter(float throttle)
+fn pidUpdateAntiGravityThrottleFilter(&mut self, throttle: f32)
 {
-    if (pidRuntime.antiGravityMode == ANTI_GRAVITY_SMOOTH) {
+    if self.antiGravityMode == ANTI_GRAVITY_SMOOTH {
         // calculate a boost factor for P in the same way as for I when throttle changes quickly
-        const float antiGravityThrottleLpf = pt1FilterApply(&pidRuntime.antiGravityThrottleLpf, throttle);
+        const float antiGravityThrottleLpf = pt1FilterApply(&self.antiGravityThrottleLpf, throttle);
         // focus P boost on low throttle range only
-        if (throttle < 0.5f) {
-            pidRuntime.antiGravityPBoost = 0.5f - throttle;
+        if throttle < 0.5 {
+            self.antiGravityPBoost = 0.5 - throttle;
         } else {
-            pidRuntime.antiGravityPBoost = 0.0f;
+            self.antiGravityPBoost = 0.0;
         }
         // use lowpass to identify start of a throttle up, use this to reduce boost at start by half
-        if (antiGravityThrottleLpf < throttle) {
-            pidRuntime.antiGravityPBoost *= 0.5f;
+        if antiGravityThrottleLpf < throttle {
+            self.antiGravityPBoost *= 0.5;
         }
         // high-passed throttle focuses boost on faster throttle changes
-        pidRuntime.antiGravityThrottleHpf = fabsf(throttle - antiGravityThrottleLpf);
-        pidRuntime.antiGravityPBoost = pidRuntime.antiGravityPBoost * pidRuntime.antiGravityThrottleHpf;
+        self.antiGravityThrottleHpf = fabsf(throttle - antiGravityThrottleLpf);
+        self.antiGravityPBoost = self.antiGravityPBoost * self.antiGravityThrottleHpf;
         // smooth the P boost at 3hz to remove the jagged edges and prolong the effect after throttle stops
-        pidRuntime.antiGravityPBoost = pt1FilterApply(&pidRuntime.antiGravitySmoothLpf, pidRuntime.antiGravityPBoost);
+        self.antiGravityPBoost = pt1FilterApply(&self.antiGravitySmoothLpf, self.antiGravityPBoost);
     }
 }
 
-#ifdef USE_ACRO_TRAINER
-void pidAcroTrainerInit(void)
-{
-    pidRuntime.acroTrainerAxisState[FD_ROLL] = 0;
-    pidRuntime.acroTrainerAxisState[FD_PITCH] = 0;
-}
-#endif // USE_ACRO_TRAINER
+// #ifdef USE_ACRO_TRAINER
+// void pidAcroTrainerInit(void)
+// {
+//     pidRuntime.acroTrainerAxisState[FD_ROLL] = 0;
+//     pidRuntime.acroTrainerAxisState[FD_PITCH] = 0;
+// }
+// #endif // USE_ACRO_TRAINER
 
-#ifdef USE_THRUST_LINEARIZATION
-float pidCompensateThrustLinearization(float throttle)
+// #ifdef USE_THRUST_LINEARIZATION
+fn pidCompensateThrustLinearization(&self, throttle: f32) -> f32
 {
-    if (pidRuntime.thrustLinearization != 0.0f) {
+    if self.thrustLinearization != 0.0 {
         // for whoops where a lot of TL is needed, allow more throttle boost
-        const float throttleReversed = (1.0f - throttle);
-        throttle /= 1.0f + pidRuntime.throttleCompensateAmount * powf(throttleReversed, 2);
+        let throttleReversed = 1.0 - throttle;
+        throttle /= 1.0 + pidRuntime.throttleCompensateAmount * powf(throttleReversed, 2);
     }
     return throttle;
 }
 
-float pidApplyThrustLinearization(float motorOutput)
+fn pidApplyThrustLinearization(motorOutput: f32) -> f32
 {
-    if (pidRuntime.thrustLinearization != 0.0f) {
-        if (motorOutput > 0.0f) {
-            const float motorOutputReversed = (1.0f - motorOutput);
-            motorOutput *= 1.0f + powf(motorOutputReversed, 2) * pidRuntime.thrustLinearization;
+    if pidRuntime.thrustLinearization != 0. {
+        if motorOutput > 0.0 {
+            let motorOutputReversed: f32 = (1.0 - motorOutput);
+            motorOutput *= 1.0 + powf(motorOutputReversed, 2) * pidRuntime.thrustLinearization;
         }
     }
     return motorOutput;
 }
-#endif
+// #endif
 
 #if defined(USE_ACC)
 // calculate the stick deflection while applying level mode expo
@@ -1114,6 +970,8 @@ static float accelerationLimit(int axis, float currentPidSetpoint)
     return currentPidSetpoint;
 }
 
+// todo: These all should probably be methods on pidruntime.
+
 static void rotateVector(float v[XYZ_AXIS_COUNT], float rotation[XYZ_AXIS_COUNT])
 {
     // rotate v around rotation vector rotation
@@ -1250,10 +1108,10 @@ STATIC_UNIT_TESTED void applyItermRelax(const int axis, const float iterm,
 }
 #endif
 
-#ifdef USE_AIRMODE_LPF
-void pidUpdateAirmodeLpf(float currentOffset)
+// #ifdef USE_AIRMODE_LPF
+fn pidUpdateAirmodeLpf(currentOffset: f32)
 {
-    if (pidRuntime.airmodeThrottleOffsetLimit == 0.0f) {
+    if (pidRuntime.airmodeThrottleOffsetLimit.abs() < EPS) {
         return;
     }
 
@@ -1269,16 +1127,18 @@ void pidUpdateAirmodeLpf(float currentOffset)
     pidRuntime.airmodeThrottleLpf1.state = constrainf(pidRuntime.airmodeThrottleLpf1.state, -pidRuntime.airmodeThrottleOffsetLimit, pidRuntime.airmodeThrottleOffsetLimit);
 }
 
-float pidGetAirmodeThrottleOffset()
+fn pidGetAirmodeThrottleOffset() -> f32
 {
-    return pidRuntime.airmodeThrottleLpf1.state;
+    unsfe {
+        pidRuntime.airmodeThrottleLpf1.state
+    }
 }
-#endif
+// #endif
 
-#ifdef USE_LAUNCH_CONTROL
-const LAUNCH_CONTROL_MAX_RATE 100.0f
-const LAUNCH_CONTROL_MIN_RATE 5.0f
-const LAUNCH_CONTROL_ANGLE_WINDOW 10.0f  // The remaining angle degrees where rate dampening starts
+// #ifdef USE_LAUNCH_CONTROL
+const LAUNCH_CONTROL_MAX_RATE: f32 = 100.0;
+const LAUNCH_CONTROL_MIN_RATE: f32 = 5.0;
+const LAUNCH_CONTROL_ANGLE_WINDOW: f32 = 10.0;  // The remaining angle degrees where rate dampening starts
 
 // Use the FAST_CODE_NOINLINE directive to avoid this code from being inlined into ITCM RAM to avoid overflow.
 // The impact is possibly slightly slower performance on F7/H7 but they have more than enough
@@ -1697,7 +1557,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 
     // Disable PID control if at zero throttle or if gyro overflow detected
     // This may look very innefficient, but it is done on purpose to always show real CPU usage as in flight
-    if (!pidRuntime.pidStabilisationEnabled || gyroOverflowDetected()) {
+    if !pidRuntime.pidStabilisationEnabled || gyroOverflowDetected() {
         for (int axis = FD_ROLL; axis <= FD_YAW; ++axis) {
             pidData[axis].P = 0;
             pidData[axis].I = 0;
@@ -1711,41 +1571,41 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
     }
 }
 
-bool crashRecoveryModeActive(void)
+fn crashRecoveryModeActive(&self) -> bool
 {
-    return pidRuntime.inCrashRecoveryMode;
+    self.inCrashRecoveryMode
 }
 
-#ifdef USE_ACRO_TRAINER
-void pidSetAcroTrainerState(bool newState)
-{
-    if (pidRuntime.acroTrainerActive != newState) {
-        if (newState) {
-            pidAcroTrainerInit();
-        }
-        pidRuntime.acroTrainerActive = newState;
-    }
-}
-#endif // USE_ACRO_TRAINER
+// #ifdef USE_ACRO_TRAINER
+// void pidSetAcroTrainerState(bool newState)
+// {
+//     if (pidRuntime.acroTrainerActive != newState) {
+//         if (newState) {
+//             pidAcroTrainerInit();
+//         }
+//         pidRuntime.acroTrainerActive = newState;
+//     }
+// }
+// #endif // USE_ACRO_TRAINER
 
-void pidSetAntiGravityState(bool newState)
+fn pidSetAntiGravityState(&mut self, newState: bool)
 {
-    if (newState != pidRuntime.antiGravityEnabled) {
+    if newState != pidRuntime.antiGravityEnabled {
         // reset the accelerator on state changes
-        pidRuntime.itermAccelerator = 0.0f;
+        self.itermAccelerator = 0.0;
     }
-    pidRuntime.antiGravityEnabled = newState;
+    self.antiGravityEnabled = newState;
 }
 
-bool pidAntiGravityEnabled(void)
+fn pidAntiGravityEnabled(&self) -> bool
 {
-    return pidRuntime.antiGravityEnabled;
+   self.antiGravityEnabled
 }
 
-#ifdef USE_DYN_LPF
-void dynLpfDTermUpdate(float throttle)
+// #ifdef USE_DYN_LPF
+fn dynLpfDTermUpdate(throttle: f32)
 {
-    if (pidRuntime.dynLpfFilter != DYN_LPF_NONE) {
+    if pidRuntime.dynLpfFilter != DYN_LPF_NONE {
         float cutoffFreq;
         if (pidRuntime.dynLpfCurveExpo > 0) {
             cutoffFreq = dynLpfCutoffFreq(throttle, pidRuntime.dynLpfMin, pidRuntime.dynLpfMax, pidRuntime.dynLpfCurveExpo);
@@ -1777,46 +1637,36 @@ void dynLpfDTermUpdate(float throttle)
         }
     }
 }
-#endif
+// #endif
 
-float dynLpfCutoffFreq(float throttle, uint16_t dynLpfMin, uint16_t dynLpfMax, uint8_t expo) {
-    const float expof = expo / 10.0f;
-    static float curve;
-    curve = throttle * (1 - throttle) * expof + throttle;
-    return (dynLpfMax - dynLpfMin) * curve + dynLpfMin;
-}
-
-void pidSetItermReset(bool enabled)
+fn pidSetItermReset(&mut self, enabled: bool)
 {
-    pidRuntime.zeroThrottleItermReset = enabled;
+    self.zeroThrottleItermReset = enabled;
 }
 
-float pidGetPreviousSetpoint(int axis)
+fn pidGetPreviousSetpoint(&self, axis: u32) -> f32 // todo: int type.
 {
-    return pidRuntime.previousPidSetpoint[axis];
+    self.previousPidSetpoint[axis]
 }
 
-float pidGetDT()
+fn pidGetDT(&self) -> f32
 {
-    return pidRuntime.dT;
+    self.dT;
 }
 
-float pidGetPidFrequency()
+fn pidGetPidFrequency(&self) -> f32
 {
-    return pidRuntime.pidFrequency;
+    self.pidFrequency
+}
 }
 
-    © 2022 GitHub, Inc.
+static mut curve: f32 = 0;
 
-    Terms
-    Privacy
-    Security
-    Status
-    Docs
-    Contact GitHub
-    Pricing
-    API
-    Training
-    Blog
-    About
+fn dynLpfCutoffFreq(throttle: f32, dynLpfMin: u16, dynLpfMax: u16, expo: u8) -> f32 {
+    let expof = expo as f32 / 10.0;
+    unsafe {
+        curve = throttle * (1 - throttle) * expof + throttle;
 
+        (dynLpfMax - dynLpfMin) * curve + dynLpfMin
+    }
+}

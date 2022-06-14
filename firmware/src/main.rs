@@ -572,18 +572,15 @@ mod app {
             &clock_cfg,
         );
 
-        // let delay_timer = Timer::new_tim5(
-        //     dp.TIM5,
-        //     1.,
-        //      Default::default(),
-        // &clock_cfg);
-
         let mut user_cfg = UserCfg::default();
 
-        // user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
+        user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
 
         match user_cfg.aircraft_type {
             AircraftType::Quadcopter => {
+                #[cfg(feature = "h7")]
+                dshot::setup_timers(&mut rotor_timer_b);
+                #[cfg(feature = "g4")]
                 dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
             }
             AircraftType::FlyingWing => {

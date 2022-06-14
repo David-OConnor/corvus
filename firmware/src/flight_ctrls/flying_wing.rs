@@ -46,8 +46,10 @@ cfg_if! {
 // const DUTY_HIGH: u32 = ARR / 5 * 2;
 // const DUTY_LOW: u32 = ARR / 5;
 // We don't use full ARR for max high, since that would be full high the whole time.
-const SERVO_DUTY_HIGH: f32 = (ARR - 50) as f32;
-const SERVO_DUTY_LOW: f32 = (ARR / 2) as f32;
+// const SERVO_DUTY_HIGH: f32 = (ARR - 50) as f32; // todo: 2ms
+const SERVO_DUTY_HIGH: f32 = (ARR * 3 / 4) as f32;
+// const SERVO_DUTY_LOW: f32 = (ARR / 2) as f32; // todo: Thi sis our 1ms=low value.
+const SERVO_DUTY_LOW: f32 = (ARR / 4) as f32;
 
 /// Sets the position of an elevon
 pub fn set_elevon_posit(
