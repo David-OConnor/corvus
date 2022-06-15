@@ -144,10 +144,9 @@ impl Default for CtrlCoeffsPR {
 impl CtrlCoeffsPR {
     pub fn default_flying_wing() -> Self {
         Self {
-            k_p_rate: 0.14,
-            // k_i_rate: 0.0010,
-            k_i_rate: 0.14,
-            k_d_rate: 0.01,
+            k_p_rate: 0.10,
+            k_i_rate: 0.00,
+            k_d_rate: 0.00,
 
             // Attitude not used.
 
@@ -214,6 +213,17 @@ impl Default for CtrlCoeffGroup {
         Self {
             pitch: Default::default(),
             roll: Default::default(),
+            yaw: Default::default(),
+            thrust: Default::default(),
+        }
+    }
+}
+
+impl CtrlCoeffGroup {
+    pub fn default_flying_wing() -> Self {
+        Self {
+            pitch: CtrlCoeffsPR::default_flying_wing(),
+            roll: CtrlCoeffsPR::default_flying_wing(),
             yaw: Default::default(),
             thrust: Default::default(),
         }
@@ -1005,7 +1015,7 @@ pub fn run_rate_flying_wing(
                 thrust: input_map.calc_manual_throttle(ch_data.throttle),
             };
 
-            println!("throttle command: {:?}", rates_commanded.thrust);
+            // println!("throttle command: {:?}", rates_commanded.thrust);
 
             if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
                 let dist = match alt_type {
@@ -1093,6 +1103,7 @@ pub fn run_rate_flying_wing(
     // todo: Work on this.
     let throttle = manual_throttle;
 
+    println!("PITCH {} ROLL {}", pitch, roll);
     flight_ctrls::flying_wing::apply_controls(
         pitch,
         roll,

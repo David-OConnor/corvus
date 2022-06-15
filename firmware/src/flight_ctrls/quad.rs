@@ -255,7 +255,7 @@ impl MotorPower {
         self.front_left + self.front_right + self.aft_left + self.aft_right
     }
 
-    /// Clamp rotor speeds . A simple form of dealing with a rotor out of limits.
+    /// Clamp rotor speeds. A simple form of dealing with a rotor out of limits.
     pub fn clamp_individual_rotors(&mut self) {
         //Note: This loop approach is not working.
         // for rotor in [self.front_left, self.front_right, self.aft_left, self.aft_right].iter_mut() {
@@ -267,25 +267,25 @@ impl MotorPower {
         // }
 
         if self.front_left < MIN_ROTOR_POWER {
-            self.front_left = MIN_ROTOR_POWER
+            self.front_left = MIN_ROTOR_POWER;
         } else if self.front_left > MAX_ROTOR_POWER {
             self.front_left = MAX_ROTOR_POWER;
         }
 
         if self.front_right < MIN_ROTOR_POWER {
-            self.front_right = MIN_ROTOR_POWER
+            self.front_right = MIN_ROTOR_POWER;
         } else if self.front_right > MAX_ROTOR_POWER {
             self.front_right = MAX_ROTOR_POWER;
         }
 
         if self.aft_left < MIN_ROTOR_POWER {
-            self.aft_left = MIN_ROTOR_POWER
+            self.aft_left = MIN_ROTOR_POWER;
         } else if self.aft_left > MAX_ROTOR_POWER {
             self.aft_left = MAX_ROTOR_POWER;
         }
 
         if self.aft_right < MIN_ROTOR_POWER {
-            self.aft_right = MIN_ROTOR_POWER
+            self.aft_right = MIN_ROTOR_POWER;
         } else if self.aft_right > MAX_ROTOR_POWER {
             self.aft_right = MAX_ROTOR_POWER;
         }

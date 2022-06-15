@@ -351,7 +351,7 @@ mod app {
             #[cfg(feature = "h7")]
             usb_src: clocks::UsSrc::Hsi48,
             #[cfg(feature = "g4")]
-            clk48_src: rcc::Clk48Src::Hsi48,
+            clk48_src: clocks::Clk48Src::Hsi48,
             #[cfg(feature = "g4")]
             boost_mode: true, // Required for speeds > 150Mhz.
             ..Default::default()
@@ -363,9 +363,9 @@ mod app {
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-        clocks::enable_crs(CrsSyncSrc::OtgHs);
+            clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-        clocks::enable_crs(CrsSyncSrc::Usb);
+            clocks::enable_crs(CrsSyncSrc::Usb);
 
         // Improves performance, at a cost of slightly increased power use.
         cp.SCB.invalidate_icache();
@@ -378,25 +378,25 @@ mod app {
 
         let mut dma = Dma::new(dp.DMA1);
         #[cfg(feature = "g4")]
-        dma::enable_mux1();
+            dma::enable_mux1();
 
         #[cfg(feature = "h7")]
-        setup::setup_dma(&mut dma, &mut dp.DMAMUX1);
+            setup::setup_dma(&mut dma, &mut dp.DMAMUX1);
         #[cfg(feature = "g4")]
-        setup::setup_dma(&mut dma, &mut dp.DMAMUX);
+            setup::setup_dma(&mut dma, &mut dp.DMAMUX);
 
         // We use SPI1 for the IMU
         // SPI input clock is 400MHz for H7, and 172Mhz for G4. 400MHz / 32 = 12.5 MHz. 170Mhz / 8 = 21.25Mhz.
         // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
         // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
         #[cfg(feature = "g4")]
-        // todo: Switch to higher speed.
-        // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
-        // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
-        let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
+            // todo: Switch to higher speed.
+            // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
+            // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
+            let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
         #[cfg(feature = "h7")]
-        // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
-        let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
+            // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
+            let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
 
         let imu_spi_cfg = SpiConfig {
             // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
@@ -407,9 +407,9 @@ mod app {
         let mut spi1 = Spi::new(dp.SPI1, imu_spi_cfg, imu_baud_div);
 
         #[cfg(feature = "mercury-h7")]
-        let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
+            let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
         #[cfg(feature = "mercury-g4")]
-        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+            let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
         cs_imu.set_high();
 
@@ -434,9 +434,9 @@ mod app {
         let spi3 = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
 
         #[cfg(feature = "h7")]
-        let flash_pin = 10;
+            let flash_pin = 10;
         #[cfg(not(feature = "h7"))]
-        let flash_pin = 6;
+            let flash_pin = 6;
         let mut cs_flash = Pin::new(Port::C, flash_pin, PinMode::Output);
         cs_flash.set_high();
 
@@ -585,9 +585,9 @@ mod app {
         match user_cfg.aircraft_type {
             AircraftType::Quadcopter => {
                 #[cfg(feature = "h7")]
-                dshot::setup_timers(&mut rotor_timer_b);
+                    dshot::setup_timers(&mut rotor_timer_b);
                 #[cfg(feature = "g4")]
-                dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
+                    dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
             }
             AircraftType::FlyingWing => {
                 flying_wing::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
@@ -595,21 +595,35 @@ mod app {
         }
 
         // todo temp
-        println!("A");
-        flying_wing::set_elevon_posit(
-            flying_wing::ServoWing::S1,
-            0.75,
-            &user_cfg.servo_wing_mapping,
-            &mut rotor_timer_b,
-        );
-        flying_wing::set_elevon_posit(
-            flying_wing::ServoWing::S2,
-            0.75,
-            &user_cfg.servo_wing_mapping,
-            &mut rotor_timer_b,
-        );
-        println!("B");
-        loop {}
+        loop {
+            flying_wing::set_elevon_posit(
+                flying_wing::ServoWing::S1,
+                -0.5,
+                &user_cfg.servo_wing_mapping,
+                &mut rotor_timer_b,
+            );
+            flying_wing::set_elevon_posit(
+                flying_wing::ServoWing::S2,
+                -0.5,
+                &user_cfg.servo_wing_mapping,
+                &mut rotor_timer_b,
+            );
+
+            delay.delay_ms(1000);
+            flying_wing::set_elevon_posit(
+                flying_wing::ServoWing::S1,
+                0.5,
+                &user_cfg.servo_wing_mapping,
+                &mut rotor_timer_b,
+            );
+            flying_wing::set_elevon_posit(
+                flying_wing::ServoWing::S2,
+                0.5,
+                &user_cfg.servo_wing_mapping,
+                &mut rotor_timer_b,
+            );
+            delay.delay_ms(1000);
+        }
 
         // We use I2C2 for the barometer / altimeter.
         let mut i2c2 = I2c::new(dp.I2C2, i2c_baro_cfg, &clock_cfg);
@@ -718,7 +732,8 @@ mod app {
                 input_map: Default::default(),
                 input_mode: InputMode::Acro,
                 autopilot_status: Default::default(),
-                ctrl_coeffs: Default::default(),
+                // ctrl_coeffs: Default::default(),
+                ctrl_coeffs: CtrlCoeffGroup::default_flying_wing(),
                 current_params: params,
                 velocities_commanded: Default::default(),
                 attitudes_commanded: Default::default(),
@@ -1145,18 +1160,16 @@ mod app {
                     // of disarm. Alternatively, we could neither return nor stop motors here, and
                     // let `set_power` handle it.
                     if command_state.arm_status != ArmStatus::Armed {
-                        dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
-                        return;
-                    }
-
-                    if let OperationMode::Preflight = state_volatile.op_mode {
-                        return;
+                        // todo: Put back! Temp testing fixed wing without ELRS connected.
+                        // dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
+                        // return;
                     }
 
                     // Our fixed-wing update rate is limited by the servos, so we only run this
                     // 1 out of 16 IMU updates.
                     match cfg.aircraft_type {
                         AircraftType::Quadcopter => {
+                            println!("Quad");
                             pid::run_rate(
                                 params,
                                 *input_mode,
@@ -1181,9 +1194,8 @@ mod app {
                         AircraftType::FlyingWing => {
                             *cx.local.fixed_wing_rate_loop_i += 1;
                             if *cx.local.fixed_wing_rate_loop_i % FIXED_WING_RATE_UPDATE_RATIO == 0
-                            {
-                                rotor_timer_b.enable();
 
+                            {
                                 pid::run_rate_flying_wing(
                                     params,
                                     *input_mode,
@@ -1419,7 +1431,7 @@ mod app {
                     }
 
                     if let Some(crsf_data) =
-                        crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8)
+                    crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8)
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {

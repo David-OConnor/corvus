@@ -14,9 +14,9 @@ use stm32_hal2::{
 };
 
 #[cfg(feature = "g4")]
-use pac::DMAMUX;
+use stm32_hal2::pac::DMAMUX;
 #[cfg(feature = "h7")]
-use pac::DMAMUX1 as DMAMUX;
+use stm32_hal2::pac::DMAMUX1 as DMAMUX;
 
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
 pub const IMU_RX_CH: DmaChannel = DmaChannel::C2;

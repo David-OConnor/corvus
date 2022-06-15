@@ -17,6 +17,11 @@ use cfg_if::cfg_if;
 
 use defmt::println;
 
+const MIN_MOTOR_POWER: f32 = 0.03;
+
+// Max power setting for any individual rotor at idle setting.
+pub const MAX_MOTOR_POWER: f32 = 1.;
+
 const ELEVON_MIN: f32 = -1.;
 const ELEVON_MAX: f32 = 1.;
 
@@ -32,8 +37,12 @@ const ELEVON_PULSE_DUR_FULL_UP: f32 = 0.002; // In seconds. With this pulse dir,
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
+        // 480Mhz tim clock.
         pub const PSC: u16 = 0; // todo
         pub const ARR: u32 = 332; // todo
+        // 520Mhz tim clock.
+        // pub const PSC: u16 = 0; // todo
+        // pub const ARR: u32 = 332; // todo
     } else if #[cfg(feature = "g4")] {
         // 170Mhz tim clock. Results in 500Hz.
         // (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period
@@ -43,13 +52,13 @@ cfg_if! {
 }
 
 // High and low correspond to 2ms, and 1ms pulse width respsectively. (Period of 500Hz is 2ms)
-// const DUTY_HIGH: u32 = ARR / 5 * 2;
+// const DUTY_HIGH: u32 = ARR / 5 * 2;s
 // const DUTY_LOW: u32 = ARR / 5;
 // We don't use full ARR for max high, since that would be full high the whole time.
 // const SERVO_DUTY_HIGH: f32 = (ARR - 50) as f32; // todo: 2ms
-const SERVO_DUTY_HIGH: f32 = (ARR * 3 / 4) as f32;
+const SERVO_DUTY_HIGH: f32 = ARR as f32 * 0.2;
 // const SERVO_DUTY_LOW: f32 = (ARR / 2) as f32; // todo: Thi sis our 1ms=low value.
-const SERVO_DUTY_LOW: f32 = (ARR / 4) as f32;
+const SERVO_DUTY_LOW: f32 = ARR as f32 * 0.7;
 
 /// Sets the physical position of an elevon; commands a servo movement.
 pub fn set_elevon_posit(
@@ -89,7 +98,7 @@ pub fn setup_timers(motor_timer: &mut Timer<TIM2>, servo_timer: &mut Timer<TIM3>
     servo_timer.set_auto_reload(ARR);
 
     motor_timer.enable_interrupt(TimerInterrupt::UpdateDma);
-    servo_timer.enable_interrupt(TimerInterrupt::Update);
+    // servo_timer.enable_interrupt(TimerInterrupt::Update);
 
     // Arbitrary duty cycle set, since we'll override it with DMA bursts.
     motor_timer.enable_pwm_output(Motor::M1.tim_channel(), OutputCompare::Pwm1, 0.);
@@ -108,6 +117,9 @@ pub fn setup_timers(motor_timer: &mut Timer<TIM2>, servo_timer: &mut Timer<TIM3>
             w.pupdr1().bits(0b10)
         });
     }
+
+    // Motor timer is enabled in Timer burst DMA. We enable the servo timer here.
+    servo_timer.enable();
 }
 
 /// Equivalent of `Motor` for quadcopters.
@@ -158,7 +170,7 @@ impl ServoWingMapping {
     }
 }
 
-/// Represents control settings for the motor, and elevons. Equivalent API to `quad::RotorPower`.
+/// Represents control settings for the motor, and elevons. Equivalent API to `quad::MotorPower`.
 /// Positive elevon value means pointed up relative to its hinge point.
 #[derive(Default)]
 pub struct ControlPositions {
@@ -177,9 +189,10 @@ impl ControlPositions {
         mapping: &ServoWingMapping,
         dma: &mut Dma<DMA1>,
     ) {
-        // servo_tim.enable();
-
         // M2 isn't used here, but keeps our API similar to Quad.
+        // todo: TEMP to deal with lack of CRSF module attached to test rig!!
+        let arm_status = ArmStatus::Armed;
+
         match arm_status {
             ArmStatus::Armed => {
                 // #[cfg(feature = "h7")]
@@ -193,9 +206,30 @@ impl ControlPositions {
             }
             ArmStatus::Disarmed => {
                 dshot::set_power_a(Motor::M1, Motor::M2, 0., 0., motor_tim, dma);
-                servo_tim.set_duty(TimChannel::C1, ARR / 2);
-                servo_tim.set_duty(TimChannel::C2, ARR / 2);
+                set_elevon_posit(ServoWing::S1, 0., mapping, servo_tim);
+                set_elevon_posit(ServoWing::S2, 0., mapping, servo_tim);
             }
+        }
+    }
+
+     /// Clamp motor speed and servo motion. A simple form of dealing with out of limits.
+    pub fn clamp(&mut self) {
+        if self.motor < MIN_MOTOR_POWER {
+            self.motor = MIN_MOTOR_POWER;
+        } else if self.motor > MAX_MOTOR_POWER {
+            self.motor = MAX_MOTOR_POWER;
+        }
+
+        if self.elevon_left < ELEVON_MIN {
+            self.elevon_left = ELEVON_MIN;
+        } else if self.elevon_left > ELEVON_MAX {
+            self.elevon_left = ELEVON_MAX;
+        }
+
+        if self.elevon_right < ELEVON_MIN {
+            self.elevon_right = ELEVON_MIN;
+        } else if self.elevon_right > ELEVON_MAX {
+            self.elevon_right = ELEVON_MAX;
         }
     }
 }
@@ -228,13 +262,15 @@ pub fn apply_controls(
     elevon_left -= roll_delta * ROLL_COEFF;
     elevon_right += roll_delta * ROLL_COEFF;
 
-    // todo: Clamp both elevons in both directions.
-
     let mut posits = ControlPositions {
         motor: throttle,
         elevon_left,
         elevon_right,
     };
+
+    posits.clamp();
+
+    println!("Motor: {} Left: {} Right: {}", posits.motor, posits.elevon_left, posits.elevon_right);
 
     posits.set(motor_tim, servo_tim, arm_status, mapping, dma);
 }
