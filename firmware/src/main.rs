@@ -425,8 +425,10 @@ mod app {
         // todo: Move this as approp.
         // Used to trigger a a control-data-received update based on new ELRS data.
         let elrs_busy = Pin::new(Port::C, 14, PinMode::Input);
-        let mut elrs_dio = Pin::new(Port::C, 13, PinMode::Input);
-        elrs_dio.enable_interrupt(Edge::Rising);
+
+        // todo: Put elrs_dio back. Currently disabled since we have accidentally shorted it to SCL2.
+        // let mut elrs_dio = Pin::new(Port::C, 13, PinMode::Input);
+        // elrs_dio.enable_interrupt(Edge::Rising);
         let mut cs_elrs = Pin::new(Port::C, 15, PinMode::Input);
         cs_elrs.set_high();
 
@@ -595,42 +597,49 @@ mod app {
         }
 
         // todo temp
-        loop {
-            flying_wing::set_elevon_posit(
-                flying_wing::ServoWing::S1,
-                -0.5,
-                &user_cfg.servo_wing_mapping,
-                &mut rotor_timer_b,
-            );
-            flying_wing::set_elevon_posit(
-                flying_wing::ServoWing::S2,
-                -0.5,
-                &user_cfg.servo_wing_mapping,
-                &mut rotor_timer_b,
-            );
-
-            delay.delay_ms(1000);
-            flying_wing::set_elevon_posit(
-                flying_wing::ServoWing::S1,
-                0.5,
-                &user_cfg.servo_wing_mapping,
-                &mut rotor_timer_b,
-            );
-            flying_wing::set_elevon_posit(
-                flying_wing::ServoWing::S2,
-                0.5,
-                &user_cfg.servo_wing_mapping,
-                &mut rotor_timer_b,
-            );
-            delay.delay_ms(1000);
-        }
+        // loop {
+        //     flying_wing::set_elevon_posit(
+        //         flying_wing::ServoWing::S1,
+        //         -0.5,
+        //         &user_cfg.servo_wing_mapping,
+        //         &mut rotor_timer_b,
+        //     );
+        //     flying_wing::set_elevon_posit(
+        //         flying_wing::ServoWing::S2,
+        //         -0.5,
+        //         &user_cfg.servo_wing_mapping,
+        //         &mut rotor_timer_b,
+        //     );
+        //
+        //     delay.delay_ms(2000);
+        //     flying_wing::set_elevon_posit(
+        //         flying_wing::ServoWing::S1,
+        //         0.5,
+        //         &user_cfg.servo_wing_mapping,
+        //         &mut rotor_timer_b,
+        //     );
+        //     flying_wing::set_elevon_posit(
+        //         flying_wing::ServoWing::S2,
+        //         0.5,
+        //         &user_cfg.servo_wing_mapping,
+        //         &mut rotor_timer_b,
+        //     );
+        //     delay.delay_ms(2000);
+        // }
 
         // We use I2C2 for the barometer / altimeter.
         let mut i2c2 = I2c::new(dp.I2C2, i2c_baro_cfg, &clock_cfg);
 
+        println!("Setting up alt");
         let mut altimeter = baro::Altimeter::new(&mut i2c2);
 
         println!("Altimeter setup complete");
+
+        // loop {
+        //     let reading = altimeter.read_pressure(&mut i2c2);
+        //     println!("Alt: {:?}", reading);
+        //     delay.delay_ms(500);
+        // }
 
         // todo: ID connected sensors etc by checking their device ID etc.
         let mut state_volatile = StateVolatile::default();
@@ -922,15 +931,7 @@ mod app {
                         //     "Attitude: roll {}, pitch: {}, yaw: {}\n",
                         //     params.s_roll, params.s_pitch, params.s_yaw
                         // );
-                        //
-                        // println!(
-                        //     "Controls: Pitch: {} Roll: {} Yaw: {} Throttle: {}",
-                        //     control_channel_data.pitch,
-                        //     control_channel_data.roll,
-                        //     control_channel_data.yaw,
-                        //     control_channel_data.throttle
-                        // );
-                        //
+
                         // println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
                         // println!(
                         //     "Input mode sw: {:?}",
@@ -1169,7 +1170,6 @@ mod app {
                     // 1 out of 16 IMU updates.
                     match cfg.aircraft_type {
                         AircraftType::Quadcopter => {
-                            println!("Quad");
                             pid::run_rate(
                                 params,
                                 *input_mode,

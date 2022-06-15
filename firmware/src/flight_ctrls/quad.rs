@@ -370,10 +370,10 @@ fn calc_rotor_powers(
     let mut aft_left = throttle;
     let mut aft_right = throttle;
 
-    println!(
-        "Pitch {} roll {} yaw {} throttle {}",
-        pitch_half_delta, roll_half_delta, yaw_half_delta, throttle
-    );
+    // println!(
+    //     "Pitch {} roll {} yaw {} throttle {}",
+    //     pitch_half_delta, roll_half_delta, yaw_half_delta, throttle
+    // );
 
     // Nose down for positive pitch.
     front_left -= pitch_half_delta;

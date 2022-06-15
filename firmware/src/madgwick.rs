@@ -365,16 +365,22 @@ impl Ahrs {
 
     /// Returns the AHRS algorithm internal states.
     fn get_internal_states(&self) -> InternalStates {
-        let rejection_timeout_reciprocal = 1.0 / self.settings.rejection_timeout as f32;
+        let (accel_rejection_timer, magnetic_rejection_timer) = if self.settings.rejection_timeout == 0 {
+            (0., 0.)
+        } else {
+            (
+                (self.accel_rejection_timer / self.settings.rejection_timeout) as f32,
+                (self.mag_rejection_timer / self.settings.rejection_timeout) as f32,
+            )
+        };
 
         InternalStates {
-            accel_error: (2.0 * self.half_accelerometer_feedback.magnitude()).asin(),
+            accel_error: fusion_asin(2.0 * self.half_accelerometer_feedback.magnitude()),
             accelerometer_ignored: self.accelerometer_ignored,
-            accel_rejection_timer: self.accel_rejection_timer as f32 * rejection_timeout_reciprocal,
-            magnetic_error: (2.0 * self.half_magnetometer_feedback.magnitude()).asin(),
+            accel_rejection_timer,
+            magnetic_error: fusion_asin(2.0 * self.half_magnetometer_feedback.magnitude()),
             magnetometer_ignored: self.magnetometer_ignored,
-            magnetic_rejection_timer: self.mag_rejection_timer as f32
-                * rejection_timeout_reciprocal,
+            magnetic_rejection_timer,
         }
     }
 
@@ -651,4 +657,16 @@ pub fn compass_calc_heading(accelerometer: Vec3, magnetometer: Vec3) -> f32 {
 
     // Calculate angular heading relative to magnetic north
     magnetic_west.x.atan2(magnetic_north.x)
+}
+
+/// Returns the arc sine of the value. Presumably used as a workaround for certain cases.
+/// (pub for use in lin_alg)
+pub fn fusion_asin(value: f32) -> f32 {
+    if value <= -1.0 {
+        return TAU / -4.0;
+    }
+    if value >= 1.0 {
+        return TAU / 4.0;
+    }
+    value.asin()
 }

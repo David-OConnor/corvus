@@ -195,6 +195,7 @@ impl ControlPositions {
 
         match arm_status {
             ArmStatus::Armed => {
+                // todo: What to do here? Probably use tim8 for servos.
                 // #[cfg(feature = "h7")]
                 // dshot::set_power_a(Motor::M1, Motor::M2, self.motor, 0., motor_tim, dma);
                 // #[cfg(feature = "g4")]
@@ -269,8 +270,6 @@ pub fn apply_controls(
     };
 
     posits.clamp();
-
-    println!("Motor: {} Left: {} Right: {}", posits.motor, posits.elevon_left, posits.elevon_right);
 
     posits.set(motor_tim, servo_tim, arm_status, mapping, dma);
 }

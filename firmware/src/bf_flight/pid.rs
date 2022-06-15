@@ -9,6 +9,17 @@ use core::mem;
 
 const EPS: f32 = 0.000001; // c uses float == 0 comparison?
 
+/// Utility fn from elsewhere in BF (?)
+fn constrainf(val: f32, min: f32, max: f32) -> f32 {
+    if val < min {
+        min
+    } else if val > max {
+        max
+    } else {
+        val
+    }
+}
+
 /*
  * This file is part of Cleanflight and Betaflight.
  *
@@ -148,7 +159,7 @@ struct pidProfile {
     dterm_notch_hz: u16,                // Biquad dterm notch hz
     dterm_notch_cutoff: u16,             // Biquad dterm notch low cutoff
 
-    pid[pidf; PID_ITEM_COUNT],
+    pid: [pidf; PID_ITEM_COUNT],
 
     dterm_lpf1_type: u8,                // Filter type for dterm lowpass 1
     itermWindupPointPercent: u8,        // iterm windup threshold, percent motor saturation
@@ -202,7 +213,7 @@ struct pidProfile {
     use_integrated_yaw: u8,             // Selects whether the yaw pidsum should integrated
     integrated_yaw_relax: u8,           // Specifies how much integrated yaw should be reduced to offset the drag based yaw component
     thrustLinearization,            // Compensation factor for pid linearization
-    d_min[XYZ_AXIS_COUNT]: u8,          // Minimum D value on each axis
+    d_min: [u8; XYZ_AXIS_COUNT],          // Minimum D value on each axis
     d_min_gain: u8,                     // Gain factor for amount of gyro / setpoint activity required to boost D
     d_min_advance: u8,                  // Percentage multiplier for setpoint input to boost algorithm
     motor_output_limit: u8,             // Upper limit of the motor output (percent)
@@ -240,7 +251,7 @@ struct pidProfile {
     simplified_pitch_pi_gain: u8,
 }
 
-PG_DECLARE_ARRAY(pidProfile_t, PID_PROFILE_COUNT, pidProfiles);
+// PG_DECLARE_ARRAY(pidProfile_t, PID_PROFILE_COUNT, pidProfiles);
 
 struct pidConfig {
     pid_process_denom: u8,             // Processing denominator for PID controller vs gyro sampling rate
@@ -251,8 +262,7 @@ struct pidConfig {
 
 // PG_DECLARE(pidConfig_t, pidConfig);
 
-union rollAndPitchTrims_u;
-void pidController(const pidProfile_t *pidProfile, timeUs_t currentTimeUs);
+// union rollAndPitchTrims_u;
 
 struct pidAxisData {
     P: f32,
@@ -735,29 +745,29 @@ static float getLevelModeRcDeflection(uint8_t axis)
 }
 
 // calculates strength of horizon leveling; 0 = none, 1.0 = most leveling
-STATIC_UNIT_TESTED float calcHorizonLevelStrength(void)
+fn calcHorizonLevelStrength(&self) -> f32
 {
     // start with 1.0 at center stick, 0.0 at max stick deflection:
-    float horizonLevelStrength = 1.0f - MAX(fabsf(getLevelModeRcDeflection(FD_ROLL)), fabsf(getLevelModeRcDeflection(FD_PITCH)));
+    let mut horizonLevelStrength = 1.0 - MAX(fabsf(getLevelModeRcDeflection(FD_ROLL)), fabsf(getLevelModeRcDeflection(FD_PITCH)));
 
     // 0 at level, 90 at vertical, 180 at inverted (degrees):
-    const float currentInclination = MAX(ABS(attitude.values.roll), ABS(attitude.values.pitch)) / 10.0f;
+    let currentInclination = MAX(ABS(attitude.values.roll), ABS(attitude.values.pitch)) / 10.0;
 
     // horizonTiltExpertMode:  0 = leveling always active when sticks centered,
     //                         1 = leveling can be totally off when inverted
-    if (pidRuntime.horizonTiltExpertMode) {
-        if (pidRuntime.horizonTransition > 0 && pidRuntime.horizonCutoffDegrees > 0) {
+    if self.horizonTiltExpertMode {
+        if self.horizonTransition > 0 && self.horizonCutoffDegrees > 0 {
                     // if d_level > 0 and horizonTiltEffect < 175
             // horizonCutoffDegrees: 0 to 125 => 270 to 90 (represents where leveling goes to zero)
             // inclinationLevelRatio (0.0 to 1.0) is smaller (less leveling)
             //  for larger inclinations; 0.0 at horizonCutoffDegrees value:
-            const float inclinationLevelRatio = constrainf((pidRuntime.horizonCutoffDegrees-currentInclination) / pidRuntime.horizonCutoffDegrees, 0, 1);
+            let inclinationLevelRatio = constrainf((self.horizonCutoffDegrees-currentInclination) / self.horizonCutoffDegrees, 0, 1);
             // apply configured horizon sensitivity:
                 // when stick is near center (horizonLevelStrength ~= 1.0)
                 //  H_sensitivity value has little effect,
                 // when stick is deflected (horizonLevelStrength near 0.0)
                 //  H_sensitivity value has more effect:
-            horizonLevelStrength = (horizonLevelStrength - 1) * 100 / pidRuntime.horizonTransition + 1;
+            horizonLevelStrength = (horizonLevelStrength - 1.) * 100. / self.horizonTransition + 1;
             // apply inclination ratio, which may lower leveling
             //  to zero regardless of stick position:
             horizonLevelStrength *= inclinationLevelRatio;
@@ -765,19 +775,18 @@ STATIC_UNIT_TESTED float calcHorizonLevelStrength(void)
           horizonLevelStrength = 0;
         }
     } else { // horizon_tilt_expert_mode = 0 (leveling always active when sticks centered)
-        float sensitFact;
-        if (pidRuntime.horizonFactorRatio < 1.0f) { // if horizonTiltEffect > 0
+        let sensitFact = if self.horizonFactorRatio < 1.0 { // if horizonTiltEffect > 0
             // horizonFactorRatio: 1.0 to 0.0 (larger means more leveling)
             // inclinationLevelRatio (0.0 to 1.0) is smaller (less leveling)
             //  for larger inclinations, goes to 1.0 at inclination==level:
-            const float inclinationLevelRatio = (180 - currentInclination) / 180 * (1.0f - pidRuntime.horizonFactorRatio) + pidRuntime.horizonFactorRatio;
+            let inclinationLevelRatio: f32 = (180. - currentInclination) / 180 * (1.0 - self.horizonFactorRatio) + self.horizonFactorRatio;
             // apply ratio to configured horizon sensitivity:
-            sensitFact = pidRuntime.horizonTransition * inclinationLevelRatio;
+            self.horizonTransition * inclinationLevelRatio
         } else { // horizonTiltEffect=0 for "old" functionality
-            sensitFact = pidRuntime.horizonTransition;
-        }
+            self.horizonTransition
+        };
 
-        if (sensitFact <= 0) {           // zero means no leveling
+        if sensitFact <= 0 {           // zero means no leveling
             horizonLevelStrength = 0;
         } else {
             // when stick is near center (horizonLevelStrength ~= 1.0)
@@ -787,34 +796,34 @@ STATIC_UNIT_TESTED float calcHorizonLevelStrength(void)
             horizonLevelStrength = ((horizonLevelStrength - 1) * (100 / sensitFact)) + 1;
         }
     }
-    return constrainf(horizonLevelStrength, 0, 1);
+    constrainf(horizonLevelStrength, 0, 1)
 }
 
 // Use the FAST_CODE_NOINLINE directive to avoid this code from being inlined into ITCM RAM to avoid overflow.
 // The impact is possibly slightly slower performance on F7/H7 but they have more than enough
 // processing power that it should be a non-issue.
-STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_t *pidProfile, const rollAndPitchTrims_t *angleTrim, float currentPidSetpoint) {
+fn pidLevel(&self, axis: usize, pidProfile: &pidProfile, angleTrim: rollAndPitchTrims, currentPidSetpoint: f32) -> f32 {
     // calculate error angle and limit the angle to the max inclination
     // rcDeflection is in range [-1.0, 1.0]
-    float angle = pidProfile->levelAngleLimit * getLevelModeRcDeflection(axis);
-#ifdef USE_GPS_RESCUE
-    angle += gpsRescueAngle[axis] / 100; // ANGLE IS IN CENTIDEGREES
-#endif
-    angle = constrainf(angle, -pidProfile->levelAngleLimit, pidProfile->levelAngleLimit);
-    const float errorAngle = angle - ((attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f);
-    if (FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(GPS_RESCUE_MODE)) {
+    let mut angle = pidProfile.levelAngleLimit * getLevelModeRcDeflection(axis);
+// #ifdef USE_GPS_RESCUE
+//     angle += gpsRescueAngle[axis] / 100; // ANGLE IS IN CENTIDEGREES
+// #endif
+    angle = constrainf(angle, -pidProfile.levelAngleLimit, pidProfile.levelAngleLimit);
+    const float errorAngle = angle - ((attitude.raw[axis] - angleTrim.raw[axis]) / 10.0);
+    if FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(GPS_RESCUE_MODE) {
         // ANGLE mode - control is angle based
         currentPidSetpoint = errorAngle * pidRuntime.levelGain;
     } else {
         // HORIZON mode - mix of ANGLE and ACRO modes
         // mix in errorAngle to currentPidSetpoint to add a little auto-level feel
-        const float horizonLevelStrength = calcHorizonLevelStrength();
+        let horizonLevelStrength = calcHorizonLevelStrength();
         currentPidSetpoint = currentPidSetpoint + (errorAngle * pidRuntime.horizonGain * horizonLevelStrength);
     }
-    return currentPidSetpoint;
+    currentPidSetpoint
 }
 
-static void handleCrashRecovery(
+fn handleCrashRecovery(
     const pidCrashRecovery_e crash_recovery, const rollAndPitchTrims_t *angleTrim,
     const int axis, const timeUs_t currentTimeUs, const float gyroRate, float *currentPidSetpoint, float *errorRate)
 {
@@ -856,33 +865,33 @@ static void handleCrashRecovery(
     }
 }
 
-static void detectAndSetCrashRecovery(
-    const pidCrashRecovery_e crash_recovery, const int axis,
-    const timeUs_t currentTimeUs, const float delta, const float errorRate)
+fn detectAndSetCrashRecovery(&mut self,
+    crash_recovery: pidCrashRecovery, axis: usize,
+    currentTimeUs: u32, delta: f32, errorRate: f32)
 {
     // if crash recovery is on and accelerometer enabled and there is no gyro overflow, then check for a crash
     // no point in trying to recover if the crash is so severe that the gyro overflows
-    if ((crash_recovery || FLIGHT_MODE(GPS_RESCUE_MODE)) && !gyroOverflowDetected()) {
-        if (ARMING_FLAG(ARMED)) {
-            if (getMotorMixRange() >= 1.0f && !pidRuntime.inCrashRecoveryMode
-                && fabsf(delta) > pidRuntime.crashDtermThreshold
-                && fabsf(errorRate) > pidRuntime.crashGyroThreshold
-                && fabsf(getSetpointRate(axis)) < pidRuntime.crashSetpointThreshold) {
-                if (crash_recovery == PID_CRASH_RECOVERY_DISARM) {
+    if (crash_recovery || FLIGHT_MODE(GPS_RESCUE_MODE)) && !gyroOverflowDetected() {
+        if ARMING_FLAG(ARMED) {
+            if (getMotorMixRange() >= 1.0 && !self.inCrashRecoveryMode
+                && fabsf(delta) > self.crashDtermThreshold
+                && fabsf(errorRate) > self.crashGyroThreshold
+                && fabsf(getSetpointRate(axis)) < self.crashSetpointThreshold) {
+                if crash_recovery == PID_CRASH_RECOVERY_DISARM {
                     setArmingDisabled(ARMING_DISABLED_CRASH_DETECTED);
                     disarm(DISARM_REASON_CRASH_PROTECTION);
                 } else {
-                    pidRuntime.inCrashRecoveryMode = true;
-                    pidRuntime.crashDetectedAtUs = currentTimeUs;
+                    self.inCrashRecoveryMode = true;
+                    self.crashDetectedAtUs = currentTimeUs;
                 }
             }
-            if (pidRuntime.inCrashRecoveryMode && cmpTimeUs(currentTimeUs, pidRuntime.crashDetectedAtUs) < pidRuntime.crashTimeDelayUs && (fabsf(errorRate) < pidRuntime.crashGyroThreshold
-                || fabsf(getSetpointRate(axis)) > pidRuntime.crashSetpointThreshold)) {
-                pidRuntime.inCrashRecoveryMode = false;
+            if self.inCrashRecoveryMode && cmpTimeUs(currentTimeUs, self.crashDetectedAtUs) < self.crashTimeDelayUs && (fabsf(errorRate) < self.crashGyroThreshold
+                || fabsf(getSetpointRate(axis)) > self.crashSetpointThreshold) {
+                self.inCrashRecoveryMode = false;
                 BEEP_OFF;
             }
-        } else if (pidRuntime.inCrashRecoveryMode) {
-            pidRuntime.inCrashRecoveryMode = false;
+        } else if self.inCrashRecoveryMode {
+            self.inCrashRecoveryMode = false;
             BEEP_OFF;
         }
     }
@@ -1608,37 +1617,36 @@ fn pidAntiGravityEnabled(&self) -> bool
 }
 
 // #ifdef USE_DYN_LPF
-fn dynLpfDTermUpdate(throttle: f32)
+fn dynLpfDTermUpdate(&self, throttle: f32)
 {
-    if pidRuntime.dynLpfFilter != DYN_LPF_NONE {
-        float cutoffFreq;
-        if (pidRuntime.dynLpfCurveExpo > 0) {
-            cutoffFreq = dynLpfCutoffFreq(throttle, pidRuntime.dynLpfMin, pidRuntime.dynLpfMax, pidRuntime.dynLpfCurveExpo);
+    if self.dynLpfFilter != DYN_LPF_NONE {
+        let cutoffFreq = if self.dynLpfCurveExpo > 0 {
+            dynLpfCutoffFreq(throttle, self.dynLpfMin, self.dynLpfMax, self.dynLpfCurveExpo)
         } else {
-            cutoffFreq = fmaxf(dynThrottle(throttle) * pidRuntime.dynLpfMax, pidRuntime.dynLpfMin);
-        }
+            fmaxf(dynThrottle(throttle) * self.dynLpfMax, self.dynLpfMin)
+        };
 
-        switch (pidRuntime.dynLpfFilter) {
-        case DYN_LPF_PT1:
-            for (int axis = 0; axis < XYZ_AXIS_COUNT; axis++) {
-                pt1FilterUpdateCutoff(&pidRuntime.dtermLowpass[axis].pt1Filter, pt1FilterGain(cutoffFreq, pidRuntime.dT));
+        match self.dynLpfFilter {
+        DYN_LPF_PT1 => {
+            for axis in 0..XYZ_AXIS_COUNT {
+                pt1FilterUpdateCutoff(&self.dtermLowpass[axis].pt1Filter, pt1FilterGain(cutoffFreq, self.dT));
             }
-            break;
-        case DYN_LPF_BIQUAD:
-            for (int axis = 0; axis < XYZ_AXIS_COUNT; axis++) {
-                biquadFilterUpdateLPF(&pidRuntime.dtermLowpass[axis].biquadFilter, cutoffFreq, targetPidLooptime);
+        }
+       DYN_LPF_BIQUAD => {
+           for axis in 0..XYZ_AXIS_COUNT {
+               biquadFilterUpdateLPF(&self.dtermLowpass[axis].biquadFilter, cutoffFreq, targetPidLooptime);
+           }
+       }
+        DYN_LPF_PT2  => {
+            for axis in 0..XYZ_AXIS_COUNT {
+            pt2FilterUpdateCutoff( & self.dtermLowpass[axis].pt2Filter, pt2FilterGain(cutoffFreq, self.dT));
             }
-            break;
-        case DYN_LPF_PT2:
-            for (int axis = 0; axis < XYZ_AXIS_COUNT; axis++) {
-                pt2FilterUpdateCutoff(&pidRuntime.dtermLowpass[axis].pt2Filter, pt2FilterGain(cutoffFreq, pidRuntime.dT));
             }
-            break;
-        case DYN_LPF_PT3:
-            for (int axis = 0; axis < XYZ_AXIS_COUNT; axis++) {
-                pt3FilterUpdateCutoff(&pidRuntime.dtermLowpass[axis].pt3Filter, pt3FilterGain(cutoffFreq, pidRuntime.dT));
+        DYN_LPF_PT3=> {
+            for axis in 0..XYZ_AXIS_COUNT {
+                pt3FilterUpdateCutoff(&self.dtermLowpass[axis].pt3Filter, pt3FilterGain(cutoffFreq, self.dT));
             }
-            break;
+        }
         }
     }
 }

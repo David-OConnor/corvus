@@ -145,8 +145,8 @@ impl CtrlCoeffsPR {
     pub fn default_flying_wing() -> Self {
         Self {
             k_p_rate: 0.10,
-            k_i_rate: 0.00,
-            k_d_rate: 0.00,
+            k_i_rate: 0.05,
+            k_d_rate: 0.01,
 
             // Attitude not used.
 
@@ -821,7 +821,7 @@ pub fn run_rate(
                 thrust: input_map.calc_manual_throttle(ch_data.throttle),
             };
 
-            println!("throttle command: {:?}", rates_commanded.thrust);
+            // println!("throttle command: {:?}", rates_commanded.thrust);
 
             if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
                 let dist = match alt_type {
@@ -913,13 +913,13 @@ pub fn run_rate(
     let roll = pid.roll.out();
     let yaw = pid.yaw.out();
 
-    println!("\nYaw rate measured: {:?}", params.v_yaw);
-    println!("Yaw rate commanded: {:?}", rates_commanded.yaw);
-    println!("Yaw power: {:?}", yaw);
-
-    println!("Pitch out: {:?}", pitch);
-    println!("Roll out: {:?}", roll);
-    println!("PID Yaw out: {:?}", yaw);
+    // println!("\nYaw rate measured: {:?}", params.v_yaw);
+    // println!("Yaw rate commanded: {:?}", rates_commanded.yaw);
+    // println!("Yaw power: {:?}", yaw);
+    //
+    // println!("Pitch out: {:?}", pitch);
+    // println!("Roll out: {:?}", roll);
+    // println!("PID Yaw out: {:?}", yaw);
 
     // todo: Work on this.
     let throttle = match input_mode {
@@ -1103,7 +1103,7 @@ pub fn run_rate_flying_wing(
     // todo: Work on this.
     let throttle = manual_throttle;
 
-    println!("PITCH {} ROLL {}", pitch, roll);
+    // println!("PITCH {} ROLL {}", pitch, roll);
     flight_ctrls::flying_wing::apply_controls(
         pitch,
         roll,
