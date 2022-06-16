@@ -1,4 +1,8 @@
 //! This module contains flight control code for flying-wing aircraft.
+//! Note: We use M1 to connect to the motor, M3 for left elevon, and M4 for right elevon. M2 is unused.
+//! On G4, We use Tim2 for the motor, and Tim3 for elevons (equivalent to quads).
+//! On H7, since we use a single timer for all 4 motors on quads, but need different periods between servo
+//! and motor here, we use Tim2 for the motor (as before), but Tim8 for the elevons (same pins).
 
 // todo: For wing, consider lowering your main loop frequency to whatever the min servo update frequency is.
 
@@ -195,10 +199,20 @@ impl ControlPositions {
 
         match arm_status {
             ArmStatus::Armed => {
-                // todo: What to do here? Probably use tim8 for servos.
-                // #[cfg(feature = "h7")]
-                // dshot::set_power_a(Motor::M1, Motor::M2, self.motor, 0., motor_tim, dma);
-                // #[cfg(feature = "g4")]
+                #[cfg(feature = "h7")]
+                dshot::set_power(
+                    Motor::M1,
+                    Motor::M2,
+                    Motor::M3,
+                    Motor::M4,
+                    self.motor,
+                    0.,
+                    0.,
+                    0.,
+                    motor_tim,
+                    dma,
+                );
+                #[cfg(feature = "g4")]
                 dshot::set_power_a(Motor::M1, Motor::M2, self.motor, 0., motor_tim, dma);
 
                 // todo: Apply to left and right wing by mapping etc! Here or upstream.
@@ -206,14 +220,18 @@ impl ControlPositions {
                 set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, servo_tim);
             }
             ArmStatus::Disarmed => {
+                #[cfg(feature = "h7")]
+                dshot::stop_all(motor_tim, dma);
+                #[cfg(feature = "g4")]
                 dshot::set_power_a(Motor::M1, Motor::M2, 0., 0., motor_tim, dma);
+
                 set_elevon_posit(ServoWing::S1, 0., mapping, servo_tim);
                 set_elevon_posit(ServoWing::S2, 0., mapping, servo_tim);
             }
         }
     }
 
-     /// Clamp motor speed and servo motion. A simple form of dealing with out of limits.
+    /// Clamp motor speed and servo motion. A simple form of dealing with out of limits.
     pub fn clamp(&mut self) {
         if self.motor < MIN_MOTOR_POWER {
             self.motor = MIN_MOTOR_POWER;

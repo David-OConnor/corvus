@@ -205,7 +205,90 @@ pub fn stop_all(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>, dma: &mut 
     set_power_b(Motor::M3, Motor::M4, 0., 0., timer_b, dma);
 }
 
-// todo: H7 variant of setup_motor_dir
+#[cfg(feature = "h7")]
+/// Set up the direction for each motor, in accordance with user config.
+pub fn setup_motor_dir(
+    motors_reversed: (bool, bool, bool, bool),
+    timer: &mut Timer<TIM3>,
+    dma: &mut Dma<DMA1>,
+) {
+    // A blocking delay.
+    let cp = unsafe { cortex_m::Peripherals::steal() };
+    let mut delay = Delay::new(cp.SYST, 170_000_000);
+
+    // Throttle must be 0 with telemetry bit set to use commands.
+    stop_all(timer, dma);
+    delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+
+    // setup_payload(Rotor::R1, CmdType::Command(Command::Led0On));
+    // setup_payload(Rotor::R2, CmdType::Command(Command::Led0On));
+    // setup_payload(Rotor::R3, CmdType::Command(Command::Led0On));
+    // setup_payload(Rotor::R4, CmdType::Command(Command::Led0On));
+
+    // send_payload_a(timer_a, dma);
+    // send_payload_b(timer_b, dma);
+    // delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+
+    // Spin dir commands need to be sent 6 times. (or 10?) We're using the "forced" spin dir commands,
+    // ie not with respect to ESC configuration; although that would be acceptable as well.
+    for _ in 0..REPEAT_COMMAND_COUNT {
+        let cmd_1 = if motors_reversed.0 {
+            Command::SpinDir2
+        } else {
+            Command::SpinDir1
+        };
+        let cmd_2 = if motors_reversed.1 {
+            Command::SpinDir2
+        } else {
+            Command::SpinDir1
+        };
+        let cmd_3 = if motors_reversed.2 {
+            Command::SpinDir2
+        } else {
+            Command::SpinDir1
+        };
+        let cmd_4 = if motors_reversed.3 {
+            Command::SpinDir2
+        } else {
+            Command::SpinDir1
+        };
+
+        setup_payload(Motor::M1, CmdType::Command(cmd_1));
+        setup_payload(Motor::M2, CmdType::Command(cmd_2));
+        setup_payload(Motor::M3, CmdType::Command(cmd_3));
+        setup_payload(Motor::M4, CmdType::Command(cmd_4));
+
+        send_payload(timer, dma);
+
+        delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+
+        // setup_payload(Rotor::R1, CmdType::Command(Command::SaveSettings));
+        // setup_payload(Rotor::R2, CmdType::Command(Command::SaveSettings));
+        // send_payload_a(timer_a, dma);
+        //
+        // setup_payload(Rotor::R3, CmdType::Command(Command::SaveSettings));
+        // setup_payload(Rotor::R4, CmdType::Command(Command::SaveSettings));
+        // send_payload_b(timer_b, dma);
+        //
+        // delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+    }
+
+    for _ in 0..REPEAT_COMMAND_COUNT {
+        setup_payload(Motor::M1, CmdType::Command(Command::SaveSettings));
+        setup_payload(Motor::M2, CmdType::Command(Command::SaveSettings));
+        setup_payload(Motor::M3, CmdType::Command(Command::SaveSettings));
+        setup_payload(Motor::M4, CmdType::Command(Command::SaveSettings));
+
+        send_payload(timer, dma);
+
+        delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+    }
+    delay.delay_ms(PAUSE_AFTER_SAVE);
+}
+
+// todo: Major DRY between setup_motor_dir in g4 and h7!
+
+#[cfg(feature = "g4")]
 /// Set up the direction for each motor, in accordance with user config.
 pub fn setup_motor_dir(
     motors_reversed: (bool, bool, bool, bool),
@@ -374,13 +457,13 @@ pub fn set_power_single(rotor: Motor, power: f32, timer: &mut Timer<TIM3>, dma: 
 
 #[cfg(not(feature = "h7"))]
 /// Set a single rotor's power. Used by preflight; not normal operations.
-pub fn set_power_single_a(rotor: Motor, power: f32, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
+pub fn set_power_single(rotor: Motor, power: f32, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     setup_payload(rotor, CmdType::Power(power));
 
-    send_payload_a(timer, dma)
+    send_payload(timer, dma)
 }
 
-// #[cfg(not(feature = "h7"))]
+#[cfg(not(feature = "h7"))]
 /// Set a rotor pair's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
 /// settings. `power` ranges from 0. to 1.
 pub fn set_power_a(

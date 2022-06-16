@@ -305,7 +305,9 @@ mod app {
         rotor_timer_b: Timer<TIM3>,
         elrs_timer: Timer<TIM4>,
         // delay_timer: Timer<TIM5>,
+        #[cfg(feature = "g4")]
         usb_dev: UsbDevice<'static, UsbBusType>,
+        #[cfg(feature = "g4")]
         usb_serial: SerialPort<'static, UsbBusType>,
         // `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
         power_used: f32,
@@ -349,7 +351,7 @@ mod app {
             },
             hsi48_on: true,
             #[cfg(feature = "h7")]
-            usb_src: clocks::UsSrc::Hsi48,
+            usb_src: clocks::UsbSrc::Hsi48,
             #[cfg(feature = "g4")]
             clk48_src: clocks::Clk48Src::Hsi48,
             #[cfg(feature = "g4")]
@@ -363,9 +365,9 @@ mod app {
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-            clocks::enable_crs(CrsSyncSrc::OtgHs);
+        clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-            clocks::enable_crs(CrsSyncSrc::Usb);
+        clocks::enable_crs(CrsSyncSrc::Usb);
 
         // Improves performance, at a cost of slightly increased power use.
         cp.SCB.invalidate_icache();
@@ -378,25 +380,25 @@ mod app {
 
         let mut dma = Dma::new(dp.DMA1);
         #[cfg(feature = "g4")]
-            dma::enable_mux1();
+        dma::enable_mux1();
 
         #[cfg(feature = "h7")]
-            setup::setup_dma(&mut dma, &mut dp.DMAMUX1);
+        setup::setup_dma(&mut dma, &mut dp.DMAMUX1);
         #[cfg(feature = "g4")]
-            setup::setup_dma(&mut dma, &mut dp.DMAMUX);
+        setup::setup_dma(&mut dma, &mut dp.DMAMUX);
 
         // We use SPI1 for the IMU
         // SPI input clock is 400MHz for H7, and 172Mhz for G4. 400MHz / 32 = 12.5 MHz. 170Mhz / 8 = 21.25Mhz.
         // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
         // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
         #[cfg(feature = "g4")]
-            // todo: Switch to higher speed.
-            // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
-            // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
-            let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
+        // todo: Switch to higher speed.
+        // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
+        // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
+        let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
         #[cfg(feature = "h7")]
-            // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
-            let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
+        // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
+        let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
 
         let imu_spi_cfg = SpiConfig {
             // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
@@ -407,9 +409,9 @@ mod app {
         let mut spi1 = Spi::new(dp.SPI1, imu_spi_cfg, imu_baud_div);
 
         #[cfg(feature = "mercury-h7")]
-            let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
+        let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
         #[cfg(feature = "mercury-g4")]
-            let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
         cs_imu.set_high();
 
@@ -436,9 +438,9 @@ mod app {
         let spi3 = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
 
         #[cfg(feature = "h7")]
-            let flash_pin = 10;
+        let flash_pin = 10;
         #[cfg(not(feature = "h7"))]
-            let flash_pin = 6;
+        let flash_pin = 6;
         let mut cs_flash = Pin::new(Port::C, flash_pin, PinMode::Output);
         cs_flash.set_high();
 
@@ -550,6 +552,11 @@ mod app {
                     Timer::new_tim2(dp.TIM2, 1., rotor_timer_cfg.clone(), &clock_cfg);
 
                 let mut rotor_timer_b = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
+
+                // For fixed wing on H7; need a separate timer from the 4 used for DSHOT.
+                // todo: PAC ommission??
+                // let mut servo_timer = Timer::new_tim8(dp.TIM8, 1., Default::default(), &clock_cfg);
+
             } else if #[cfg(feature = "mercury-g4")] {
 
                 let mut rotor_timer_a =
@@ -587,9 +594,9 @@ mod app {
         match user_cfg.aircraft_type {
             AircraftType::Quadcopter => {
                 #[cfg(feature = "h7")]
-                    dshot::setup_timers(&mut rotor_timer_b);
+                dshot::setup_timers(&mut rotor_timer_b);
                 #[cfg(feature = "g4")]
-                    dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
+                dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
             }
             AircraftType::FlyingWing => {
                 flying_wing::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
@@ -771,7 +778,9 @@ mod app {
                 rotor_timer_b,
                 elrs_timer,
                 // delay_timer,
+                #[cfg(feature = "g4")]
                 usb_dev,
+                #[cfg(feature = "g4")]
                 usb_serial,
                 flash_onboard,
                 power_used: 0.,
@@ -812,7 +821,11 @@ mod app {
                 // Allow ESC to warm up and radio to connect before starting the main loop.
                 delay.delay_ms(2_000);
 
+                #[cfg(feature = "h7")]
+                dshot::stop_all(rotor_timer, dma);
+                #[cfg(feature = "g4")]
                 dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
+
                 delay.delay_ms(1);
 
                 // todo still not working
@@ -1073,7 +1086,14 @@ mod app {
     /// we receive IMU data; it triggers the inner PID loop.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         // Clear DMA interrupt this way due to RTIC conflict.
-        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit()) }
+        #[cfg(feature = "h7")]
+        unsafe {
+            (*DMA1::ptr()).lifcr.write(|w| w.tcif2().set_bit())
+        }
+        #[cfg(feature = "g4")]
+        unsafe {
+            (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit())
+        }
 
         cx.shared.cs_imu.lock(|cs| {
             cs.set_high();
@@ -1194,7 +1214,6 @@ mod app {
                         AircraftType::FlyingWing => {
                             *cx.local.fixed_wing_rate_loop_i += 1;
                             if *cx.local.fixed_wing_rate_loop_i % FIXED_WING_RATE_UPDATE_RATIO == 0
-
                             {
                                 pid::run_rate_flying_wing(
                                     params,
@@ -1291,7 +1310,14 @@ mod app {
     #[task(binds = DMA1_CH3, shared = [rotor_timer_a], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_a(mut cx: dshot_isr_a::Context) {
-        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit()) }
+        #[cfg(feature = "h7")]
+        unsafe {
+            (*DMA1::ptr()).lifcr.write(|w| w.tcif3().set_bit())
+        }
+        #[cfg(feature = "g4")]
+        unsafe {
+            (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit())
+        }
 
         cx.shared.rotor_timer_a.lock(|timer| {
             timer.disable();
@@ -1312,8 +1338,14 @@ mod app {
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_b(mut cx: dshot_isr_b::Context) {
         // todo: Feature-gate this out on H7 or something? Not used.
-
-        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit()) }
+        #[cfg(feature = "h7")]
+        unsafe {
+            (*DMA1::ptr()).lifcr.write(|w| w.tcif4().set_bit())
+        }
+        #[cfg(feature = "g4")]
+        unsafe {
+            (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit())
+        }
 
         cx.shared.rotor_timer_b.lock(|timer| {
             timer.disable();
@@ -1431,7 +1463,7 @@ mod app {
                     }
 
                     if let Some(crsf_data) =
-                    crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8)
+                        crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8)
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {

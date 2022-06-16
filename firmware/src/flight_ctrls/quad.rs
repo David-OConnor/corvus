@@ -19,6 +19,8 @@ use defmt::println;
 
 use cmsis_dsp_sys as dsp_sys;
 
+use cfg_if::cfg_if;
+
 // Min power setting for any individual rotor at idle setting.
 const MIN_ROTOR_POWER: f32 = 0.03;
 
@@ -302,16 +304,26 @@ impl MotorPower {
     ) {
         let (p1, p2, p3, p4) = self.by_rotor_num(mapping);
 
-        match arm_status {
-            ArmStatus::Armed => {
-                dshot::set_power_a(Motor::M1, Motor::M2, p1, p2, rotor_timer_a, dma);
-                dshot::set_power_b(Motor::M3, Motor::M4, p3, p4, rotor_timer_b, dma);
-            }
-            ArmStatus::Disarmed => {
-                #[cfg(feature = "h7")]
-                dshot::stop_all(rotor_timer_a, dma);
-                #[cfg(feature = "g4")]
-                dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
+        cfg_if! {
+            if #[cfg(feature = "h7")] {
+                match arm_status {
+                    ArmStatus::Armed => {
+                        dshot::set_power(Motor::M1, Motor::M2, Motor::M3, Motor::M4, p1, p2, p3, p4, rotor_timer_b, dma);
+                    }
+                    ArmStatus::Disarmed => {
+                        dshot::stop_all(rotor_timer_b, dma);
+                    }
+                }
+            } else {
+                match arm_status {
+                    ArmStatus::Armed => {
+                        dshot::set_power_a(Motor::M1, Motor::M2, p1, p2, rotor_timer_a, dma);
+                        dshot::set_power_b(Motor::M3, Motor::M4, p3, p4, rotor_timer_b, dma);
+                    }
+                    ArmStatus::Disarmed => {
+                        dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
+                    }
+                }
             }
         }
     }

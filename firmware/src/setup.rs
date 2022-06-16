@@ -101,6 +101,7 @@ pub fn setup_pins() {
             // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
             cfg_if! {
                 if #[cfg(feature = "mercury-h7")] {
+                    // todo: If flying wing on H7, set rotors 3 and 4 to Alt3, for TIM8 (same channels)
                     let mut rotor1 = Pin::new(Port::C, 6, PinMode::Alt(2)); // Tim3 ch1
                     let mut rotor2 = Pin::new(Port::C, 7, PinMode::Alt(2)); // Tim3 ch2
                     let mut rotor3 = Pin::new(Port::C, 8, PinMode::Alt(2)); // Tim3 ch3

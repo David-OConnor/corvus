@@ -365,14 +365,15 @@ impl Ahrs {
 
     /// Returns the AHRS algorithm internal states.
     fn get_internal_states(&self) -> InternalStates {
-        let (accel_rejection_timer, magnetic_rejection_timer) = if self.settings.rejection_timeout == 0 {
-            (0., 0.)
-        } else {
-            (
-                (self.accel_rejection_timer / self.settings.rejection_timeout) as f32,
-                (self.mag_rejection_timer / self.settings.rejection_timeout) as f32,
-            )
-        };
+        let (accel_rejection_timer, magnetic_rejection_timer) =
+            if self.settings.rejection_timeout == 0 {
+                (0., 0.)
+            } else {
+                (
+                    (self.accel_rejection_timer / self.settings.rejection_timeout) as f32,
+                    (self.mag_rejection_timer / self.settings.rejection_timeout) as f32,
+                )
+            };
 
         InternalStates {
             accel_error: fusion_asin(2.0 * self.half_accelerometer_feedback.magnitude()),
