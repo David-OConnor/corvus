@@ -454,12 +454,7 @@ pub fn set_power_single(rotor: Motor, power: f32, timer: &mut Timer<TIM3>, dma: 
 #[cfg(not(feature = "h7"))]
 /// Set a rotor pair's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
 /// settings. `power` ranges from 0. to 1.
-pub fn set_power_a(
-    power1: f32,
-    power2: f32,
-    timer: &mut Timer<TIM2>,
-    dma: &mut Dma<DMA1>,
-) {
+pub fn set_power_a(power1: f32, power2: f32, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
     setup_payload(Motor::M1, CmdType::Power(power1));
     setup_payload(Motor::M2, CmdType::Power(power2));
 
@@ -468,12 +463,7 @@ pub fn set_power_a(
 
 #[cfg(not(feature = "h7"))]
 // todo: DRY due to type issue. Use a trait?
-pub fn set_power_b(
-    power1: f32,
-    power2: f32,
-    timer: &mut Timer<TIM3>,
-    dma: &mut Dma<DMA1>,
-) {
+pub fn set_power_b(power1: f32, power2: f32, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     setup_payload(Motor::M1, CmdType::Power(power1));
     setup_payload(Motor::M2, CmdType::Power(power2));
 
