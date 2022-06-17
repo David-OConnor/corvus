@@ -12,6 +12,9 @@ use stm32_hal2::{
     timer::{OutputCompare, TimChannel, Timer, TimerInterrupt},
 };
 
+#[cfg(feature = "h7")]
+use stm32_hal2::pac::TIM8;
+
 use crate::{dshot, flight_ctrls::quad::Motor, safety::ArmStatus, util, RotorMapping};
 
 // todo: We're going to assume the servos operate off pulse width, with frequency between 40 and 200hz.
@@ -185,6 +188,49 @@ pub struct ControlPositions {
 
 impl ControlPositions {
     /// Send this command to cause power to be applied to the motor and servos.
+    #[cfg(feature = "h7")]
+    pub fn set(
+        &self,
+        motor_tim: &mut Timer<TIM3>,
+        servo_tim: &mut Timer<TIM8>,
+        arm_status: ArmStatus,
+        mapping: &ServoWingMapping,
+        dma: &mut Dma<DMA1>,
+    ) {
+        // M2 isn't used here, but keeps our API similar to Quad.
+        // todo: TEMP to deal with lack of CRSF module attached to test rig!!
+        let arm_status = ArmStatus::Armed;
+
+        match arm_status {
+            ArmStatus::Armed => {
+                dshot::set_power(
+                    Motor::M1,
+                    Motor::M2,
+                    Motor::M3,
+                    Motor::M4,
+                    self.motor,
+                    0.,
+                    0.,
+                    0.,
+                    motor_tim,
+                    dma,
+                );
+
+                // todo: Apply to left and right wing by mapping etc! Here or upstream.
+                set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, servo_tim);
+                set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, servo_tim);
+            }
+            ArmStatus::Disarmed => {
+                dshot::stop_all(motor_tim, dma);
+
+                set_elevon_posit(ServoWing::S1, 0., mapping, servo_tim);
+                set_elevon_posit(ServoWing::S2, 0., mapping, servo_tim);
+            }
+        }
+    }
+
+    // todo: DRY with above!
+    #[cfg(feature = "g4")]
     pub fn set(
         &self,
         motor_tim: &mut Timer<TIM2>,
@@ -199,31 +245,14 @@ impl ControlPositions {
 
         match arm_status {
             ArmStatus::Armed => {
-                #[cfg(feature = "h7")]
-                dshot::set_power(
-                    Motor::M1,
-                    Motor::M2,
-                    Motor::M3,
-                    Motor::M4,
-                    self.motor,
-                    0.,
-                    0.,
-                    0.,
-                    motor_tim,
-                    dma,
-                );
-                #[cfg(feature = "g4")]
-                dshot::set_power_a(Motor::M1, Motor::M2, self.motor, 0., motor_tim, dma);
+                dshot::set_power_a(self.motor, 0., motor_tim, dma);
 
                 // todo: Apply to left and right wing by mapping etc! Here or upstream.
                 set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, servo_tim);
                 set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, servo_tim);
             }
             ArmStatus::Disarmed => {
-                #[cfg(feature = "h7")]
-                dshot::stop_all(motor_tim, dma);
-                #[cfg(feature = "g4")]
-                dshot::set_power_a(Motor::M1, Motor::M2, 0., 0., motor_tim, dma);
+                dshot::set_power_a(0., 0., motor_tim, dma);
 
                 set_elevon_posit(ServoWing::S1, 0., mapping, servo_tim);
                 set_elevon_posit(ServoWing::S2, 0., mapping, servo_tim);

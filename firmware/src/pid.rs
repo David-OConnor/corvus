@@ -146,7 +146,7 @@ impl CtrlCoeffsPR {
         Self {
             k_p_rate: 0.10,
             k_i_rate: 0.05,
-            k_d_rate: 0.01,
+            k_d_rate: 0.005,
 
             // Attitude not used.
 

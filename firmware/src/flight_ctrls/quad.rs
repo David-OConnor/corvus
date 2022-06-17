@@ -308,7 +308,7 @@ impl MotorPower {
             if #[cfg(feature = "h7")] {
                 match arm_status {
                     ArmStatus::Armed => {
-                        dshot::set_power(Motor::M1, Motor::M2, Motor::M3, Motor::M4, p1, p2, p3, p4, rotor_timer_b, dma);
+                        dshot::set_power(p1, p2, p3, p4, rotor_timer_b, dma);
                     }
                     ArmStatus::Disarmed => {
                         dshot::stop_all(rotor_timer_b, dma);
@@ -317,8 +317,8 @@ impl MotorPower {
             } else {
                 match arm_status {
                     ArmStatus::Armed => {
-                        dshot::set_power_a(Motor::M1, Motor::M2, p1, p2, rotor_timer_a, dma);
-                        dshot::set_power_b(Motor::M3, Motor::M4, p3, p4, rotor_timer_b, dma);
+                        dshot::set_power_a(p1, p2, rotor_timer_a, dma);
+                        dshot::set_power_b(p3, p4, rotor_timer_b, dma);
                     }
                     ArmStatus::Disarmed => {
                         dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);

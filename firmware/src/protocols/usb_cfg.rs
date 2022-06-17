@@ -170,6 +170,7 @@ impl From<&ChannelData> for [u8; CONTROLS_SIZE] {
 
 /// Handle incoming data from the PC
 pub fn handle_rx(
+    #[cfg(feature = "g4")]
     usb_serial: &mut SerialPort<'static, UsbBusType>,
     data: &[u8],
     count: usize,

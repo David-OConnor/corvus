@@ -201,8 +201,8 @@ pub fn stop_all(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
 /// initialization.
 pub fn stop_all(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     // Note that the stop command (Command 0) is currently not implemented, so set throttles to 0.
-    set_power_a(Motor::M1, Motor::M2, 0., 0., timer_a, dma);
-    set_power_b(Motor::M3, Motor::M4, 0., 0., timer_b, dma);
+    set_power_a(0., 0., timer_a, dma);
+    set_power_b(0., 0., timer_b, dma);
 }
 
 #[cfg(feature = "h7")]
@@ -429,10 +429,6 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
 
 #[cfg(feature = "h7")]
 pub fn set_power(
-    rotor1: Motor,
-    rotor2: Motor,
-    rotor3: Motor,
-    rotor4: Motor,
     power1: f32,
     power2: f32,
     power3: f32,
@@ -440,10 +436,10 @@ pub fn set_power(
     timer: &mut Timer<TIM3>,
     dma: &mut Dma<DMA1>,
 ) {
-    setup_payload(rotor1, CmdType::Power(power1));
-    setup_payload(rotor2, CmdType::Power(power2));
-    setup_payload(rotor3, CmdType::Power(power3));
-    setup_payload(rotor4, CmdType::Power(power4));
+    setup_payload(Motor::M1, CmdType::Power(power1));
+    setup_payload(Motor::M2, CmdType::Power(power2));
+    setup_payload(Motor::M3, CmdType::Power(power3));
+    setup_payload(Motor::M4, CmdType::Power(power4));
 
     send_payload(timer, dma)
 }
@@ -456,26 +452,16 @@ pub fn set_power_single(rotor: Motor, power: f32, timer: &mut Timer<TIM3>, dma: 
 }
 
 #[cfg(not(feature = "h7"))]
-/// Set a single rotor's power. Used by preflight; not normal operations.
-pub fn set_power_single(rotor: Motor, power: f32, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
-    setup_payload(rotor, CmdType::Power(power));
-
-    send_payload(timer, dma)
-}
-
-#[cfg(not(feature = "h7"))]
 /// Set a rotor pair's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
 /// settings. `power` ranges from 0. to 1.
 pub fn set_power_a(
-    rotor1: Motor,
-    rotor2: Motor,
     power1: f32,
     power2: f32,
     timer: &mut Timer<TIM2>,
     dma: &mut Dma<DMA1>,
 ) {
-    setup_payload(rotor1, CmdType::Power(power1));
-    setup_payload(rotor2, CmdType::Power(power2));
+    setup_payload(Motor::M1, CmdType::Power(power1));
+    setup_payload(Motor::M2, CmdType::Power(power2));
 
     send_payload_a(timer, dma)
 }
@@ -483,17 +469,22 @@ pub fn set_power_a(
 #[cfg(not(feature = "h7"))]
 // todo: DRY due to type issue. Use a trait?
 pub fn set_power_b(
-    rotor1: Motor,
-    rotor2: Motor,
     power1: f32,
     power2: f32,
     timer: &mut Timer<TIM3>,
     dma: &mut Dma<DMA1>,
 ) {
-    setup_payload(rotor1, CmdType::Power(power1));
-    setup_payload(rotor2, CmdType::Power(power2));
+    setup_payload(Motor::M1, CmdType::Power(power1));
+    setup_payload(Motor::M2, CmdType::Power(power2));
 
     send_payload_b(timer, dma)
+}
+
+#[cfg(not(feature = "h7"))]
+/// Set a single rotor's power. Used by preflight; not normal operations.
+pub fn set_power_single_a(rotor: Motor, power: f32, timer: &mut Timer<TIM2>, dma: &mut Dma<DMA1>) {
+    setup_payload(rotor, CmdType::Power(power));
+    send_payload_a(timer, dma)
 }
 
 #[cfg(not(feature = "h7"))]

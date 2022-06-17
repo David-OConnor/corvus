@@ -2,7 +2,7 @@
 #![no_std]
 #![allow(mixed_script_confusables)] // eg variable names that include greek letters.
 
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use cfg_if::cfg_if;
 
@@ -305,9 +305,7 @@ mod app {
         rotor_timer_b: Timer<TIM3>,
         elrs_timer: Timer<TIM4>,
         // delay_timer: Timer<TIM5>,
-        #[cfg(feature = "g4")]
         usb_dev: UsbDevice<'static, UsbBusType>,
-        #[cfg(feature = "g4")]
         usb_serial: SerialPort<'static, UsbBusType>,
         // `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
         power_used: f32,
@@ -1088,7 +1086,7 @@ mod app {
         // Clear DMA interrupt this way due to RTIC conflict.
         #[cfg(feature = "h7")]
         unsafe {
-            (*DMA1::ptr()).lifcr.write(|w| w.tcif2().set_bit())
+            (*DMA1::ptr()).lifcr.write(|w| w.ctcif2().set_bit())
         }
         #[cfg(feature = "g4")]
         unsafe {
@@ -1242,6 +1240,7 @@ mod app {
 
     // todo: Commented out USB ISR so we don't get the annoying beeps from PC on conn/dc
 
+    #[cfg(feature = "g4")]
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data, command_state,
     user_cfg, state_volatile, rotor_timer_a, rotor_timer_b, batt_curr_adc, dma], local = [], priority = 7)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
@@ -1312,7 +1311,7 @@ mod app {
     fn dshot_isr_a(mut cx: dshot_isr_a::Context) {
         #[cfg(feature = "h7")]
         unsafe {
-            (*DMA1::ptr()).lifcr.write(|w| w.tcif3().set_bit())
+            (*DMA1::ptr()).lifcr.write(|w| w.ctcif3().set_bit())
         }
         #[cfg(feature = "g4")]
         unsafe {
@@ -1335,12 +1334,13 @@ mod app {
     }
 
     #[task(binds = DMA1_CH4, shared = [rotor_timer_b], priority = 6)]
-    /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
+    /// We use this ISR to disable the DSHOT t
+    /// imer upon completion of a packet send.
     fn dshot_isr_b(mut cx: dshot_isr_b::Context) {
         // todo: Feature-gate this out on H7 or something? Not used.
         #[cfg(feature = "h7")]
         unsafe {
-            (*DMA1::ptr()).lifcr.write(|w| w.tcif4().set_bit())
+            (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit())
         }
         #[cfg(feature = "g4")]
         unsafe {
