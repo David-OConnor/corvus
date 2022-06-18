@@ -375,6 +375,10 @@ pub fn handle_packet(
     // be anywhere, at time of line going idle. Then pass in a buffer, rearranged start-to-end.
     // todo: Is there a cheaper way to do this than scanning for a matching pattern?
 
+    unsafe {
+        println!("RX BUF: {:?}", RX_BUFFER);
+    }
+
     let mut start_i = 0;
     let mut start_i_found = false;
     for i in 0..MAX_PACKET_SIZE {

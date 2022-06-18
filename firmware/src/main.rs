@@ -90,7 +90,7 @@ use madgwick::Ahrs;
 use filter_imu::ImuFilters;
 
 use flight_ctrls::{
-    common::{AutopilotStatus, CommandState, CtrlInputs, InputMap, Params},
+    common::{AutopilotStatus, CommandState, ControlMix, CtrlInputs, InputMap, Params},
     flying_wing::{self, ControlPositions, ServoWingMapping},
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
@@ -280,6 +280,7 @@ mod app {
         velocities_commanded: CtrlInputs,
         attitudes_commanded: CtrlInputs,
         rates_commanded: CtrlInputs,
+        control_mix: ControlMix,
         pid_velocity: PidGroup,
         pid_attitude: PidGroup,
         pid_rate: PidGroup,
@@ -587,7 +588,7 @@ mod app {
 
         let mut user_cfg = UserCfg::default();
 
-        user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
+        // user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
 
         match user_cfg.aircraft_type {
             AircraftType::Quadcopter => {
@@ -752,6 +753,7 @@ mod app {
                 velocities_commanded: Default::default(),
                 attitudes_commanded: Default::default(),
                 rates_commanded: Default::default(),
+                control_mix: Default::default(),
                 pid_velocity: Default::default(),
                 pid_attitude: Default::default(),
                 pid_rate: Default::default(),
@@ -1079,7 +1081,7 @@ mod app {
 
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, input_mode, control_channel_data, input_map, autopilot_status,
     rates_commanded, pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, command_state, cs_imu, user_cfg,
-    rotor_timer_a, rotor_timer_b, ahrs, state_volatile], local = [fixed_wing_rate_loop_i], priority = 5)]
+    rotor_timer_a, rotor_timer_b, ahrs, state_volatile, control_mix], local = [fixed_wing_rate_loop_i], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
@@ -1104,6 +1106,7 @@ mod app {
             cx.shared.input_mode,
             cx.shared.autopilot_status,
             cx.shared.rates_commanded,
+            cx.shared.control_mix,
             cx.shared.pid_rate,
             cx.shared.pid_deriv_filters,
             cx.shared.rotor_timer_a,
@@ -1123,6 +1126,7 @@ mod app {
                  input_mode,
                  autopilot_status,
                  rates_commanded,
+                 control_mix,
                  pid_inner,
                  filters,
                  rotor_timer_a,
@@ -1179,9 +1183,11 @@ mod app {
                     // of disarm. Alternatively, we could neither return nor stop motors here, and
                     // let `set_power` handle it.
                     if command_state.arm_status != ArmStatus::Armed {
-                        // todo: Put back! Temp testing fixed wing without ELRS connected.
-                        // dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
-                        // return;
+                        #[cfg(feature = "h7")]
+                        dshot::stop_all(rotor_timer_b, dma);
+                        #[cfg(feature = "g4")]
+                        dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
+                        return;
                     }
 
                     // Our fixed-wing update rate is limited by the servos, so we only run this
@@ -1195,6 +1201,7 @@ mod app {
                                 // cfg,
                                 control_channel_data,
                                 rates_commanded,
+                                control_mix,
                                 pid_inner,
                                 filters,
                                 &mut state_volatile.current_pwr,
@@ -1220,8 +1227,10 @@ mod app {
                                     // cfg,
                                     control_channel_data,
                                     rates_commanded,
+                                    control_mix,
                                     pid_inner,
                                     filters,
+                                    &mut state_volatile.ctrl_positions,
                                     &cfg.servo_wing_mapping,
                                     rotor_timer_a,
                                     rotor_timer_b,
@@ -1454,6 +1463,8 @@ mod app {
                  state_volatile| {
                     uart.clear_interrupt(UsartInterrupt::Idle);
 
+                    println!("CRSF");
+
                     if rf_limiter_timer.is_enabled() {
                         // todo: Put this back and figure out why this keeps happening.
                         // return;
@@ -1471,7 +1482,6 @@ mod app {
 
                                 lost_link_timer.reset_countdown();
                                 lost_link_timer.enable();
-                                // state_volatile.connected_to_controller = true;
 
                                 if safety::LINK_LOST
                                     .compare_exchange(

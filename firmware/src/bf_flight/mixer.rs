@@ -421,9 +421,9 @@ fn applyMixToMotors(float motorMix[MAX_SUPPORTED_MOTORS], motorMixer_t *activeMi
 
 fn applyThrottleLimit(throttle: f32) -> f32
 {
-    if (currentControlRateProfile->throttle_limit_percent < 100) {
-        const float throttleLimitFactor = currentControlRateProfile->throttle_limit_percent / 100.0f;
-        switch (currentControlRateProfile->throttle_limit_type) {
+    if currentControlRateProfile.throttle_limit_percent < 100 {
+        let throttleLimitFactor = currentControlRateProfile.throttle_limit_percent / 100.0;
+        switch (currentControlRateProfile.throttle_limit_type) {
             case THROTTLE_LIMIT_TYPE_SCALE:
                 return throttle * throttleLimitFactor;
             case THROTTLE_LIMIT_TYPE_CLIP:
@@ -528,9 +528,9 @@ fn mixTable(currentTimeUs: timeUs)
 
     // Calculate and Limit the PID sum
     let scaledAxisPidRoll =
-        constrainf(pidData[FD_ROLL].Sum, -currentPidProfile->pidSumLimit, currentPidProfile->pidSumLimit) / PID_MIXER_SCALING;
+        constrainf(pidData[FD_ROLL].Sum, -currentPidProfile.pidSumLimit, currentPidProfile.pidSumLimit) / PID_MIXER_SCALING;
     let scaledAxisPidPitch =
-        constrainf(pidData[FD_PITCH].Sum, -currentPidProfile->pidSumLimit, currentPidProfile->pidSumLimit) / PID_MIXER_SCALING;
+        constrainf(pidData[FD_PITCH].Sum, -currentPidProfile.pidSumLimit, currentPidProfile.pidSumLimit) / PID_MIXER_SCALING;
 
     let yawPidSumLimit = currentPidProfile.pidSumLimitYaw;
 
@@ -549,7 +549,7 @@ fn mixTable(currentTimeUs: timeUs)
     }
 
     // Apply the throttle_limit_percent to scale or limit the throttle based on throttle_limit_type
-    if currentControlRateProfile->throttle_limit_type != THROTTLE_LIMIT_TYPE_OFF {
+    if currentControlRateProfile.throttle_limit_type != THROTTLE_LIMIT_TYPE_OFF {
         throttle = applyThrottleLimit(throttle);
     }
 

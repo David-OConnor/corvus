@@ -13,7 +13,7 @@ use stm32_hal2::{
 
 use crate::{control_interface::InputModeSwitch, dshot, safety::ArmStatus, util, StateVolatile};
 
-use super::common::Params;
+use super::common::{ControlMix, Params};
 
 use defmt::println;
 
@@ -293,6 +293,26 @@ impl MotorPower {
         }
     }
 
+    #[cfg(feature = "h7")]
+    pub fn set(
+        &self,
+        mapping: &RotorMapping,
+        rotor_timer: &mut Timer<TIM3>,
+        arm_status: ArmStatus,
+        dma: &mut Dma<DMA1>,
+    ) {
+        let (p1, p2, p3, p4) = self.by_rotor_num(mapping);
+        match arm_status {
+            ArmStatus::Armed => {
+                dshot::set_power(p1, p2, p3, p4, rotor_timer, dma);
+            }
+            ArmStatus::Disarmed => {
+                dshot::stop_all(rotor_timer_b, dma);
+            }
+        }
+    }
+
+    #[cfg(feature = "g4")]
     /// Send this power command to the rotors
     pub fn set(
         &self,
@@ -304,26 +324,13 @@ impl MotorPower {
     ) {
         let (p1, p2, p3, p4) = self.by_rotor_num(mapping);
 
-        cfg_if! {
-            if #[cfg(feature = "h7")] {
-                match arm_status {
-                    ArmStatus::Armed => {
-                        dshot::set_power(p1, p2, p3, p4, rotor_timer_b, dma);
-                    }
-                    ArmStatus::Disarmed => {
-                        dshot::stop_all(rotor_timer_b, dma);
-                    }
-                }
-            } else {
-                match arm_status {
-                    ArmStatus::Armed => {
-                        dshot::set_power_a(p1, p2, rotor_timer_a, dma);
-                        dshot::set_power_b(p3, p4, rotor_timer_b, dma);
-                    }
-                    ArmStatus::Disarmed => {
-                        dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
-                    }
-                }
+        match arm_status {
+            ArmStatus::Armed => {
+                dshot::set_power_a(p1, p2, rotor_timer_a, dma);
+                dshot::set_power_b(p3, p4, rotor_timer_b, dma);
+            }
+            ArmStatus::Disarmed => {
+                dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
             }
         }
     }
@@ -355,9 +362,10 @@ fn calc_rotor_powers(
     mut yaw_half_delta: f32,
     throttle: f32,
     front_left_dir: RotationDir,
+    current_pwr: &mut MotorPower,
+    // control_mix: &mut ControlMix,
 ) -> MotorPower {
     // Clamp the output of our PIDs to respect maximum rotor pair power deltas.
-
     if pitch_half_delta > ROTOR_HALF_DELTA_CLAMP {
         pitch_half_delta = ROTOR_HALF_DELTA_CLAMP
     } else if pitch_half_delta < -ROTOR_HALF_DELTA_CLAMP {
@@ -377,15 +385,33 @@ fn calc_rotor_powers(
     }
 
     // Start by setting all powers equal to the overall throttle setting.
-    let mut front_left = throttle;
-    let mut front_right = throttle;
-    let mut aft_left = throttle;
-    let mut aft_right = throttle;
+    // let mut front_left = throttle;
+    // let mut front_right = throttle;
+    // let mut aft_left = throttle;
+    // let mut aft_right = throttle;
 
     // println!(
     //     "Pitch {} roll {} yaw {} throttle {}",
     //     pitch_half_delta, roll_half_delta, yaw_half_delta, throttle
     // );
+
+    let mut front_left = current_pwr.front_left;
+    let mut front_right = current_pwr.front_right;
+    let mut aft_left = current_pwr.aft_left;
+    let mut aft_right = current_pwr.aft_right;
+
+    // Now, adjust the baseline based on the current throttle setting.
+    // Average power should be the throttle setting. (Adjustments below shouldn't affect this,
+    // since they're applied in opposites of equal mangnitude to opposing pairs)
+
+    let throttle_scale_factor = (throttle * 4.) / (front_left + front_right + aft_left + aft_right);
+
+    front_left *= throttle_scale_factor;
+    front_front_right *= throttle_scale_factor;
+    aft_left *= throttle_scale_factor;
+    aft_right *= throttle_scale_factor;
+
+    // Now, apply differtials based on the PID-output deltas.
 
     // Nose down for positive pitch.
     front_left -= pitch_half_delta;
@@ -430,13 +456,15 @@ fn calc_rotor_powers(
 /// If a rotor exceeds min or max power settings, clamp it.
 ///
 /// Input deltas units are half-power-delta.  based on PID output; they're not in real units like radians/s.
+/// todo: Feature gate H7, or just pass the timer?
 pub fn apply_controls(
     pitch_delta: f32,
     roll_delta: f32,
     yaw_delta: f32,
     throttle: f32,
-    mapping: &RotorMapping,
+    control_mix: &mut ControlMix,
     current_pwr: &mut MotorPower,
+    mapping: &RotorMapping,
     rotor_tim_a: &mut Timer<TIM2>,
     rotor_tim_b: &mut Timer<TIM3>,
     arm_status: ArmStatus,
@@ -448,6 +476,8 @@ pub fn apply_controls(
         yaw_delta,
         throttle,
         mapping.frontleft_aftright_dir,
+        current_pwr,
+        // control_mix,
     );
 
     pwr.clamp_individual_rotors();

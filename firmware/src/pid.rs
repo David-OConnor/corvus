@@ -21,11 +21,13 @@ use crate::{
     control_interface::ChannelData,
     flight_ctrls::{
         self,
-        common::{AltType, AutopilotStatus, CommandState, CtrlInputs, InputMap, Params},
+        common::{
+            AltType, AutopilotStatus, CommandState, ControlMix, CtrlInputs, InputMap, Params,
+        },
         quad::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED},
     },
     util::IirInstWrapper,
-    ArmStatus, RotorMapping, ServoWingMapping, UserCfg, DT_ATTITUDE,
+    ArmStatus, ControlPositions, RotorMapping, ServoWingMapping, UserCfg, DT_ATTITUDE,
 };
 
 use crate::flight_ctrls::quad::MAX_ROTOR_POWER;
@@ -770,6 +772,7 @@ pub fn run_rate(
     // cfg: &UserCfg,
     ch_data: &ChannelData,
     rates_commanded: &mut CtrlInputs,
+    control_mix: &mut ControlMix,
     pid: &mut PidGroup,
     filters: &mut PidDerivFilters,
     current_pwr: &mut crate::MotorPower,
@@ -913,14 +916,6 @@ pub fn run_rate(
     let roll = pid.roll.out();
     let yaw = pid.yaw.out();
 
-    // println!("\nYaw rate measured: {:?}", params.v_yaw);
-    // println!("Yaw rate commanded: {:?}", rates_commanded.yaw);
-    // println!("Yaw power: {:?}", yaw);
-    //
-    // println!("Pitch out: {:?}", pitch);
-    // println!("Roll out: {:?}", roll);
-    // println!("PID Yaw out: {:?}", yaw);
-
     // todo: Work on this.
     let throttle = match input_mode {
         InputMode::Acro => {
@@ -951,8 +946,9 @@ pub fn run_rate(
         roll,
         yaw,
         throttle,
-        rotor_mapping,
+        control_mix,
         current_pwr,
+        rotor_mapping,
         rotor_timer_a,
         rotor_timer_b,
         arm_status,
@@ -966,8 +962,10 @@ pub fn run_rate_flying_wing(
     autopilot_status: &AutopilotStatus,
     ch_data: &ChannelData,
     rates_commanded: &mut CtrlInputs,
+    control_mix: &mut ControlMix,
     pid: &mut PidGroup,
     filters: &mut PidDerivFilters,
+    control_posits: &mut ControlPositions,
     mapping: &ServoWingMapping,
     motor_timer: &mut Timer<TIM2>,
     servo_timer: &mut Timer<TIM3>,
@@ -1005,7 +1003,7 @@ pub fn run_rate_flying_wing(
 
             // Note: We may not need to modify the `rates_commanded` resource in place here; we don't
             // use it upstream.
-            // Map the manual input rates (eg -1. to +1. etc) to real units, eg randians/s.
+            // Map the manual input rates (eg -1. to +1. etc) to real units, eg radians/s.
             *rates_commanded = CtrlInputs {
                 pitch: input_map.calc_pitch_rate(ch_data.pitch),
                 roll: input_map.calc_roll_rate(ch_data.roll),
@@ -1108,6 +1106,8 @@ pub fn run_rate_flying_wing(
         pitch,
         roll,
         throttle,
+        control_mix,
+        control_posits,
         motor_timer,
         servo_timer,
         arm_status,

@@ -1,5 +1,11 @@
 //! This module contains flight control code not specific to an aircraft design category.
 
+// Todo: For rate-based controls on both fixed and quad: Consider using rate with PID while control
+// todo inputs are changing. When no controls are present, use attititude to maintain position.
+// todo: For the rate sub-loop, consider toning down I term, or possibly skipping the rate loop entirely.
+// todo: For that last option, perhaps impl wise to maintain 8kHz etc update rate, make the inner
+// todo loop attitude-based, instead of deferring to the mid loop.
+
 use core::f32::consts::TAU;
 
 use crate::{lin_alg::Quaternion, ppks::Location, safety::ArmStatus, util::map_linear};
@@ -236,4 +242,19 @@ pub struct ResponseDataPt {
     pub pitch_rate: f32,
     pub roll_rate: f32,
     pub yaw_rate: f32,
+}
+
+// todo: Separate module for control_mixer?
+
+/// todo: Fill this out as you sort it out
+/// Store this persistently, and use it as a starting point for future updates. Suitable for quad
+/// and fixed wing. This seems very similar to `CtrlInputs`, but that is scaled from -1. to 1. etc,
+/// and this is in terms of rotor half delta.
+/// todo: Currently unused, but passed ina  few places that will show as unused in clippy.
+#[derive(Default)]
+pub struct ControlMix {
+    pub pitch: f32,
+    pub roll: f32,
+    pub yaw: f32,
+    pub throttle: f32,
 }
