@@ -1,8 +1,9 @@
 //! This module contains code related to state, both config stored to flash, and volatile data
 //! specific to the current flight, and cleared when power is removed.
+
 /// User-configurable settings. These get saved to and loaded from internal flash.
 use crate::{
-    control_interface::InputModeSwitch,
+    control_interface::{InputModeSwitch, LinkStats},
     flight_ctrls::{
         flying_wing::{ControlPositions, ServoWingMapping},
         quad::{AxisLocks, MotorPower, RotorMapping},
@@ -15,6 +16,12 @@ pub enum OperationMode {
     Normal,
     /// Plugged into a PC to verify motors, IMU readings, control readings etc, and adjust settings
     Preflight,
+}
+
+impl Default for OperationMode {
+    fn default() -> Self {
+        Self::Normal
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -113,6 +120,7 @@ impl Default for UserCfg {
 }
 
 /// State that doesn't get saved to flash.
+#[derive(Default)]
 pub struct StateVolatile {
     pub op_mode: OperationMode,
     pub input_mode_switch: InputModeSwitch,
@@ -127,19 +135,6 @@ pub struct StateVolatile {
     pub current_pwr: MotorPower,
     /// Fixed-wing
     pub ctrl_positions: ControlPositions,
-}
-
-impl Default for StateVolatile {
-    fn default() -> Self {
-        Self {
-            op_mode: OperationMode::Normal,
-            input_mode_switch: InputModeSwitch::Acro,
-            gps_attached: false,
-            tof_attached: false,
-            axis_locks: Default::default(),
-            current_pwr: Default::default(),
-            ctrl_positions: Default::default(),
-            // connected_to_controller: false,
-        }
-    }
+    /// Link statistics, including Received Signal Strength Indicator (RSSI) from the controller's radio.
+    pub link_stats: LinkStats,
 }

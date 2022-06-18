@@ -462,10 +462,10 @@ pub fn set_power_a(power1: f32, power2: f32, timer: &mut Timer<TIM2>, dma: &mut 
 }
 
 #[cfg(not(feature = "h7"))]
-// todo: DRY due to type issue. Use a trait?
+// todo: DRY due to type issue. Use a trait or macro?
 pub fn set_power_b(power1: f32, power2: f32, timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
-    setup_payload(Motor::M1, CmdType::Power(power1));
-    setup_payload(Motor::M2, CmdType::Power(power2));
+    setup_payload(Motor::M3, CmdType::Power(power1));
+    setup_payload(Motor::M4, CmdType::Power(power2));
 
     send_payload_b(timer, dma)
 }

@@ -6,7 +6,6 @@
 
 // todo: For wing, consider lowering your main loop frequency to whatever the min servo update frequency is.
 
-use core::arch::arm::CONTROL;
 use stm32_hal2::{
     dma::Dma,
     pac::{self, DMA1, TIM2, TIM3},

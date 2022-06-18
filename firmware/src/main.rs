@@ -285,7 +285,6 @@ mod app {
         pid_attitude: PidGroup,
         pid_rate: PidGroup,
         control_channel_data: ChannelData,
-        control_link_stats: LinkStats,
         // manual_inputs: CtrlInputs,
         dma: Dma<DMA1>,
         spi1: Spi<SPI1>,
@@ -758,7 +757,6 @@ mod app {
                 pid_attitude: Default::default(),
                 pid_rate: Default::default(),
                 control_channel_data: Default::default(),
-                control_link_stats: Default::default(),
                 // manual_inputs: Default::default(),
                 dma,
                 spi1,
@@ -850,7 +848,7 @@ mod app {
     shared = [current_params, input_map,
     velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
-    ahrs, control_channel_data, control_link_stats,
+    ahrs, control_channel_data,
     lost_link_timer, altimeter, i2c2, state_volatile, batt_curr_adc,
     ],
     local = [arm_signals_received, disarm_signals_received, update_loop_i],
@@ -960,16 +958,13 @@ mod app {
                         //
                         //
                         //
-                        // println!(
-                        //     "up RSSI: {}, Uplink qual: {} SNR: {}, tx pwr: {}, down RSSI: {}, down qual: {}, down snr: {}",
-                        //     link_stats.uplink_rssi_1,
-                        //     link_stats.uplink_link_quality,
-                        //     link_stats.uplink_snr,
-                        //     link_stats.uplink_tx_power,
-                        //     link_stats.downlink_rssi,
-                        //     link_stats.downlink_link_quality,
-                        //     link_stats.downlink_snr,
-                        // );
+                        println!(
+                            "RSSI1: {}, RSSI2: {}, Uplink qual: {} SNR: {}",
+                            state_volatile.link_stats.uplink_rssi_1,
+                            state_volatile.link_stats.uplink_rssi_2,
+                            state_volatile.link_stats.uplink_link_quality,
+                            state_volatile.link_stats.uplink_snr,
+                        );
                     }
 
                     if *cx.local.update_loop_i % LOGGING_UPDATE_RATIO == 0 {
@@ -1438,7 +1433,7 @@ mod app {
         safety::LINK_LOST.store(true, Ordering::Release);
     }
 
-    #[task(binds = USART3, shared = [uart3, dma, control_channel_data, control_link_stats,
+    #[task(binds = USART3, shared = [uart3, dma, control_channel_data,
     lost_link_timer, rf_limiter_timer, state_volatile], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
@@ -1448,22 +1443,15 @@ mod app {
             cx.shared.uart3,
             cx.shared.dma,
             cx.shared.control_channel_data,
-            cx.shared.control_link_stats,
             cx.shared.lost_link_timer,
             cx.shared.rf_limiter_timer,
             cx.shared.state_volatile,
         )
             .lock(
-                |uart,
-                 dma,
-                 ch_data,
-                 link_stats,
-                 lost_link_timer,
-                 rf_limiter_timer,
-                 state_volatile| {
+                |uart, dma, ch_data, lost_link_timer, rf_limiter_timer, state_volatile| {
                     uart.clear_interrupt(UsartInterrupt::Idle);
 
-                    println!("CRSF");
+                    // println!("CRSF");
 
                     if rf_limiter_timer.is_enabled() {
                         // todo: Put this back and figure out why this keeps happening.
@@ -1497,7 +1485,7 @@ mod app {
                                 }
                             }
                             crsf::PacketData::LinkStats(stats) => {
-                                *link_stats = stats;
+                                state_volatile.link_stats = stats;
                             }
                         }
                     }

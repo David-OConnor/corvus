@@ -27,6 +27,7 @@ num-traits = { version = "0.2.14", default_features = false } # Absolute value, 
 cfg-if = "1.0.0"  # if/else blocks for feature-gating based on flight controller and MCU layout
 
 stm32-usbd = { version = "0.6.0", optional = true}
+synopsys-usb-otg = { version = "0.3.0", optional = true}
 usb-device = "0.2.8"
 usbd-serial = "0.1.1"
 
@@ -40,7 +41,7 @@ num_enum = { version = "0.5.7", default_features = false }
 mercury-g4 = ["g4"]
 mercury-h7 = ["h7"]
 g4 = ["stm32-hal2/g4rt", "stm32-hal2/g491", "stm32-hal2/usb", "stm32-usbd"]
-h7 = ["stm32-hal2/h7rt", "stm32-hal2/h735"]
+h7 = ["stm32-hal2/h7rt", "stm32-hal2/h735", "stm32-hal2/usbotg_hs", "synopsys-usb-otg"]
 
 default = ["mercury-g4"]
 

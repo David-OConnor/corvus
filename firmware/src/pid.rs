@@ -123,10 +123,10 @@ pub struct CtrlCoeffsPR {
 impl Default for CtrlCoeffsPR {
     fn default() -> Self {
         Self {
-            k_p_rate: 0.12,
+            k_p_rate: 0.12  * 0.01,
             // k_i_rate: 0.0010,
-            k_i_rate: 0.20,
-            k_d_rate: 0.0030,
+            k_i_rate: 0.20  * 0.01,
+            k_d_rate: 0.0030  * 0.01,
 
             // pid for controlling pitch and roll from commanded horizontal velocity
             k_p_attitude: 47.,
@@ -1108,10 +1108,10 @@ pub fn run_rate_flying_wing(
         throttle,
         control_mix,
         control_posits,
+        mapping,
         motor_timer,
         servo_timer,
         arm_status,
-        mapping,
         dma,
     );
 }
