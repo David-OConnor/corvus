@@ -73,6 +73,9 @@ mod sensor_fusion;
 mod setup;
 mod state;
 mod util;
+// todo: Can't get startup working separately since Shared and Local must be private per an RTIC restriction.
+// todo: See this GH issue: https://github.com/rtic-rs/cortex-m-rtic/issues/505
+// mod startup;
 
 use control_interface::{ChannelData, InputModeSwitch, LinkStats};
 
@@ -331,6 +334,7 @@ mod app {
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
+        // startup::init()
         // Cortex-M peripherals
         let mut cp = cx.core;
         // Set up microcontroller peripherals
@@ -587,8 +591,9 @@ mod app {
 
         let mut user_cfg = UserCfg::default();
 
-        // user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
+        user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
 
+        let mut ctrl_coeffs = Default::default();
         match user_cfg.aircraft_type {
             AircraftType::Quadcopter => {
                 #[cfg(feature = "h7")]
@@ -598,6 +603,7 @@ mod app {
             }
             AircraftType::FlyingWing => {
                 flying_wing::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
+                ctrl_coeffs = CtrlCoeffGroup::default_flying_wing();
             }
         }
 
@@ -680,7 +686,7 @@ mod app {
         // todo: Testing flash
         let mut flash_buf = [0; 8];
         // let cfg_data =
-        flash_onboard.read(Bank::B1, FLASH_CFG_PAGE, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -697,7 +703,7 @@ mod app {
 
         // todo: For params, consider raw readings without DMA. Currently you're just passign in the
         // todo default; not going to cut it.?
-        init_sensors(
+        crate::init_sensors(
             &mut params,
             &mut altimeter,
             &mut base_point,
@@ -746,8 +752,7 @@ mod app {
                 input_map: Default::default(),
                 input_mode: InputMode::Acro,
                 autopilot_status: Default::default(),
-                // ctrl_coeffs: Default::default(),
-                ctrl_coeffs: CtrlCoeffGroup::default_flying_wing(),
+                ctrl_coeffs,
                 current_params: params,
                 velocities_commanded: Default::default(),
                 attitudes_commanded: Default::default(),
@@ -926,22 +931,22 @@ mod app {
                         let curr_v =
                             adc.reading_to_voltage(unsafe { ADC_READ_BUF }[1]) * ADC_CURR_DIVISION;
 
-                        println!("Batt V: {} Curr V: {}", batt_v, curr_v);
-
-                        println!(
-                            "Accel: Ax {}, Ay: {}, Az: {}",
-                            params.a_x, params.a_y, params.a_z
-                        );
-
-                        println!(
-                            "Gyro: roll {}, pitch: {}, yaw: {}",
-                            params.v_roll, params.v_pitch, params.v_yaw
-                        );
+                        // println!("Batt V: {} Curr V: {}", batt_v, curr_v);
                         //
                         // println!(
-                        //     "Attitude: roll {}, pitch: {}, yaw: {}\n",
-                        //     params.s_roll, params.s_pitch, params.s_yaw
+                        //     "Accel: Ax {}, Ay: {}, Az: {}",
+                        //     params.a_x, params.a_y, params.a_z
                         // );
+                        //
+                        // println!(
+                        //     "Gyro: roll {}, pitch: {}, yaw: {}",
+                        //     params.v_roll, params.v_pitch, params.v_yaw
+                        // );
+                        // //
+                        println!(
+                            "Attitude: roll {}, pitch: {}, yaw: {}\n",
+                            params.s_roll, params.s_pitch, params.s_yaw
+                        );
 
                         // println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
                         // println!(
@@ -958,13 +963,13 @@ mod app {
                         //
                         //
                         //
-                        println!(
-                            "RSSI1: {}, RSSI2: {}, Uplink qual: {} SNR: {}",
-                            state_volatile.link_stats.uplink_rssi_1,
-                            state_volatile.link_stats.uplink_rssi_2,
-                            state_volatile.link_stats.uplink_link_quality,
-                            state_volatile.link_stats.uplink_snr,
-                        );
+                        // println!(
+                        //     "RSSI1: {}, RSSI2: {}, Uplink qual: {} SNR: {}",
+                        //     state_volatile.link_stats.uplink_rssi_1,
+                        //     state_volatile.link_stats.uplink_rssi_2,
+                        //     state_volatile.link_stats.uplink_link_quality,
+                        //     state_volatile.link_stats.uplink_snr,
+                        // );
                     }
 
                     if *cx.local.update_loop_i % LOGGING_UPDATE_RATIO == 0 {
@@ -1242,7 +1247,7 @@ mod app {
             );
     }
 
-    // todo: Commented out USB ISR so we don't get the annoying beeps from PC on conn/dc
+    // todo: Commented out USB ISR temporarily
 
     #[cfg(feature = "g4")]
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data, command_state,
@@ -1250,6 +1255,7 @@ mod app {
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
+        // return; // todo temp!!!!
         (
             cx.shared.usb_dev,
             cx.shared.usb_serial,
@@ -1292,6 +1298,7 @@ mod app {
                                 params.quaternion,
                                 params.s_z_msl,
                                 ch_data,
+                                &state_volatile.link_stats,
                                 &mut command_state.arm_status,
                                 &mut user_cfg.motor_mapping,
                                 &mut state_volatile.op_mode,

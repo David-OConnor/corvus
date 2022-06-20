@@ -1,9 +1,9 @@
 //! This module describes the custom profile we use to exchange data between the flight
-//! controller, and a PC running configuration software, over USB.
+//! controller, and a PC running configuration software, over USB. Usd with the `Preflight` PC
+//! software.
 //!
 //! Format - Byte 0: message type. Byte -1: CRC. Rest: payload
 //! We use Little-endian float representations.
-//!
 
 // const START_BYTE: u8 =
 
@@ -17,7 +17,7 @@ use crate::{
     lin_alg::Quaternion,
     safety::ArmStatus,
     state::OperationMode,
-    util,
+    util, LinkStats,
 };
 
 use stm32_hal2::{
@@ -47,12 +47,15 @@ static mut CRC_LUT: [u8; 256] = [0; 256];
 const CRC_POLY: u8 = 0xab;
 
 const QUATERNION_SIZE: usize = F32_BYTES * 4; // Quaternion (4x4 + altimeter + voltage reading + current reading)
-const PARAMS_SIZE: usize = QUATERNION_SIZE + 4 * 3; //
+const PARAMS_SIZE: usize = QUATERNION_SIZE + F32_BYTES * 3; //
 const CONTROLS_SIZE: usize = 18;
+// const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
+const LINK_STATS_SIZE: usize = 4; // Only the first 4 fields.
 
 // Packet sizes are payload size + 2. Additional data are message type, and CRC.
 const PARAMS_PACKET_SIZE: usize = PARAMS_SIZE + 2;
 const CONTROLS_PACKET_SIZE: usize = CONTROLS_SIZE + 2;
+const LINK_STATS_PACKET_SIZE: usize = LINK_STATS_SIZE + 2;
 
 struct _DecodeError {}
 
@@ -77,13 +80,17 @@ pub enum MsgType {
     Controls = 4,
     /// Request controls data. (From PC)
     ReqControls = 5,
+    /// Link quality data (From FC)
+    LinkStats = 6,
+    /// Request Link quality data (From PC)
+    ReqLinkStats = 7,
     /// Arm all motors, for testing
-    ArmMotors = 6,
-    DisarmMotors = 7,
+    ArmMotors = 8,
+    DisarmMotors = 9,
     /// Start a specific motor
-    StartMotor = 8,
+    StartMotor = 10,
     /// Stop a specific motor
-    StopMotor = 9,
+    StopMotor = 11,
 }
 
 impl MsgType {
@@ -96,6 +103,8 @@ impl MsgType {
             Self::Ack => 0,
             Self::Controls => CONTROLS_SIZE,
             Self::ReqControls => 0,
+            Self::LinkStats => LINK_STATS_SIZE,
+            Self::ReqLinkStats => 0,
             Self::ArmMotors => 0,
             Self::DisarmMotors => 0,
             Self::StartMotor => 1,
@@ -168,6 +177,24 @@ impl From<&ChannelData> for [u8; CONTROLS_SIZE] {
     }
 }
 
+impl From<&LinkStats> for [u8; LINK_STATS_SIZE] {
+    /// 4 f32s = 76. In the order we have defined in the struct.
+    fn from(p: &LinkStats) -> Self {
+        // let mut result = [0; LINK_STATS_SIZE];
+
+        // result[0..4].clone_from_slice(&p.uplink_rssi_1.to_be_bytes());
+        // result[4..8].clone_from_slice(&p.uplink_rssi_2.to_be_bytes());
+        // result[8..12].clone_from_slice(&p.uplink_link_quality.to_be_bytes());
+        // result[12..16].clone_from_slice(&p.uplink_snr.to_be_bytes());
+        [
+            p.uplink_rssi_1,
+            p.uplink_rssi_2,
+            p.uplink_link_quality,
+            p.uplink_snr as u8,
+        ]
+    }
+}
+
 /// Handle incoming data from the PC
 pub fn handle_rx(
     #[cfg(feature = "g4")] usb_serial: &mut SerialPort<'static, UsbBusType>,
@@ -177,6 +204,7 @@ pub fn handle_rx(
     attitude: Quaternion,
     altimeter: f32,
     controls: &ChannelData,
+    link_stats: &LinkStats,
     arm_status: &mut ArmStatus,
     rotor_mapping: &mut RotorMapping,
     op_mode: &mut OperationMode,
@@ -210,8 +238,6 @@ pub fn handle_rx(
             // todo
         }
         MsgType::ReqParams => {
-            println!("Params requested...");
-
             // todo: current behavior is to set preflight at first params request, and never set
             // todo it back. This could potentially be dangerous.
             *op_mode = OperationMode::Preflight;
@@ -256,8 +282,6 @@ pub fn handle_rx(
         }
         MsgType::Ack => {}
         MsgType::ReqControls => {
-            println!("Controls requested...");
-
             // todo: DRY with above.
             let mut tx_buf = [0; CONTROLS_PACKET_SIZE];
             tx_buf[0] = MsgType::Controls as u8;
@@ -276,6 +300,25 @@ pub fn handle_rx(
             usb_serial.write(&tx_buf).ok();
         }
         MsgType::Controls => {}
+        MsgType::ReqLinkStats => {
+            // todo: DRY with above.
+            let mut tx_buf = [0; LINK_STATS_PACKET_SIZE];
+            tx_buf[0] = MsgType::Controls as u8;
+
+            let payload: [u8; LINK_STATS_SIZE] = link_stats.into();
+
+            tx_buf[1..(LINK_STATS_SIZE + 1)].copy_from_slice(&payload);
+
+            let payload_size = MsgType::LinkStats.payload_size();
+            tx_buf[payload_size + 1] = util::calc_crc(
+                unsafe { &CRC_LUT },
+                &tx_buf[..payload_size + 1],
+                payload_size as u8 + 1,
+            );
+
+            usb_serial.write(&tx_buf).ok();
+        }
+        MsgType::LinkStats => {}
         MsgType::ArmMotors => {
             // We use the same `ArmStatus` flag for testing motors in preflight as we do
             // for flight.

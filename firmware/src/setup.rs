@@ -94,121 +94,119 @@ impl ServoWing {
 
 /// Set up the pins that have structs that don't need to be accessed after.
 pub fn setup_pins() {
+    // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
     cfg_if! {
         if #[cfg(feature = "mercury-h7")] {
-            // todo
-        } else if #[cfg(feature = "mercury-g4")] {
-            // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
-            cfg_if! {
-                if #[cfg(feature = "mercury-h7")] {
-                    // todo: If flying wing on H7, set rotors 3 and 4 to Alt3, for TIM8 (same channels)
-                    let mut rotor1 = Pin::new(Port::C, 6, PinMode::Alt(2)); // Tim3 ch1
-                    let mut rotor2 = Pin::new(Port::C, 7, PinMode::Alt(2)); // Tim3 ch2
-                    let mut rotor3 = Pin::new(Port::C, 8, PinMode::Alt(2)); // Tim3 ch3
-                    let mut rotor4 = Pin::new(Port::C, 9, PinMode::Alt(2)); // Tim3 ch4
-                } else {
-                    let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(1)); // Tim2 ch1
-                    let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(1)); // Tim2 ch2
-                    let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
-                    let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
-                }
-            }
-
-            rotor1.output_speed(OutputSpeed::High);
-            rotor2.output_speed(OutputSpeed::High);
-            rotor3.output_speed(OutputSpeed::High);
-            rotor4.output_speed(OutputSpeed::High);
-
-            let _buzzer = Pin::new(Port::A, 10, PinMode::Alt(6)); // Tim1 ch3
-
-            // todo: USB? How do we set them up (no alt fn) PA11(DN) and PA12 (DP).
-            // let _usb_dm = Pin::new(Port::A, 11, PinMode::Output);
-            // let _usb_dp = Pin::new(Port::A, 12, PinMode::Output);
-
-            let batt_v_adc_ = Pin::new(Port::A, 4, PinMode::Analog);  // ADC2, channel 17
-            let current_sense_adc_ = Pin::new(Port::B, 2, PinMode::Analog);  // ADC2, channel 12
-
-            // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
-            let mut sck1 = Pin::new(Port::A, 5, PinMode::Alt(5));
-            let mut miso1 = Pin::new(Port::A, 6, PinMode::Alt(5));
-            let mut mosi1 = Pin::new(Port::A, 7, PinMode::Alt(5));
-
-            // todo: Output speed on SPI pins?
-            sck1.output_speed(OutputSpeed::High);
-            miso1.output_speed(OutputSpeed::High);
-            mosi1.output_speed(OutputSpeed::High);
-
-            // SPI2 for the LoRa chip
-            let mut sck2 = Pin::new(Port::B, 13, PinMode::Alt(5));
-            let mut miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
-            let mut mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
-
-            // todo: Output speed on SPI pins?
-            sck2.output_speed(OutputSpeed::High);
-            miso2.output_speed(OutputSpeed::High);
-            mosi2.output_speed(OutputSpeed::High);
-
-            // SPI3 for flash
-            let _sck3 = Pin::new(Port::B, 3, PinMode::Alt(6));
-            let _miso3 = Pin::new(Port::B, 4, PinMode::Alt(6));
-            let _mosi3 = Pin::new(Port::B, 5, PinMode::Alt(6));
-
-            // We use UARTs for misc external devices, including ESC telemetry,
-            // and VTX OSD.
-
-            let _uart1_tx = Pin::new(Port::B, 6, PinMode::Alt(7));
-            let _uart1_rx = Pin::new(Port::B, 7, PinMode::Alt(7));
-            let _uart2_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
-            let _uart2_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
-            let _uart3_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
-            let _uart3_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
-            let _uart4_tx = Pin::new(Port::C, 10, PinMode::Alt(7));
-            let _uart4_rx = Pin::new(Port::C, 11, PinMode::Alt(7));
-
-            // Used to trigger a PID update based on new IMU data.
-            // We assume here the interrupt config uses default settings active low, push pull, pulsed.
-            #[cfg(feature = "mercury-h7")]
-            let mut imu_interrupt = Pin::new(Port::B, 12, PinMode::Input);
-            #[cfg(feature = "mercury-g4")]
-            let mut imu_interrupt = Pin::new(Port::C, 4, PinMode::Input);
-
-            imu_interrupt.output_type(OutputType::OpenDrain);
-            imu_interrupt.pull(Pull::Up);
-            imu_interrupt.enable_interrupt(Edge::Falling);
-
-            // ELRS busy and DIO currently in the main fn.
-            //
-            // // Used to trigger a a control-data-received update based on new ELRS data.
-            // let mut elrs_busy = Pin::new(Port::C, 14, PinMode::Input);
-            // elrs_busy.output_type(OutputType::OpenDrain);
-            // elrs_busy.pull(Pull::Up);
-            // elrs_busy.enable_interrupt(Edge::Falling);
-            //
-            // let mut elrs_dio = Pin::new(Port::C, 14, PinMode::Input);
-            // elrs_busy.output_type(OutputType::OpenDrain);
-            // elrs_busy.pull(Pull::Up);
-            // elrs_busy.enable_interrupt(Edge::Falling);
-
-            // I2C1 for external sensors, via pads
-            let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
-            scl1.output_type(OutputType::OpenDrain);
-            scl1.pull(Pull::Up);
-
-            let mut sda1 = Pin::new(Port::B, 7, PinMode::Alt(4));
-            sda1.output_type(OutputType::OpenDrain);
-            sda1.pull(Pull::Up);
-
-            // I2C2 for the DPS310 barometer, and pads.
-            let mut scl2 = Pin::new(Port::A, 9, PinMode::Alt(4));
-            scl2.output_type(OutputType::OpenDrain);
-            scl2.pull(Pull::Up);
-
-            let mut sda2 = Pin::new(Port::A, 8, PinMode::Alt(4));
-            sda2.output_type(OutputType::OpenDrain);
-            sda2.pull(Pull::Up);
-
+            // todo: If flying wing on H7, set rotors 3 and 4 to Alt3, for TIM8 (same channels)
+            let mut rotor1 = Pin::new(Port::C, 6, PinMode::Alt(2)); // Tim3 ch1
+            let mut rotor2 = Pin::new(Port::C, 7, PinMode::Alt(2)); // Tim3 ch2
+            let mut rotor3 = Pin::new(Port::C, 8, PinMode::Alt(2)); // Tim3 ch3
+            let mut rotor4 = Pin::new(Port::C, 9, PinMode::Alt(2)); // Tim3 ch4
+        } else {
+            let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(1)); // Tim2 ch1
+            let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(1)); // Tim2 ch2
+            let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
+            let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
         }
     }
+
+    rotor1.output_speed(OutputSpeed::High);
+    rotor2.output_speed(OutputSpeed::High);
+    rotor3.output_speed(OutputSpeed::High);
+    rotor4.output_speed(OutputSpeed::High);
+
+    let _buzzer = Pin::new(Port::A, 10, PinMode::Alt(6)); // Tim1 ch3
+
+    // todo: USB? How do we set them up (no alt fn) PA11(DN) and PA12 (DP).
+    // let _usb_dm = Pin::new(Port::A, 11, PinMode::Output);
+    // let _usb_dp = Pin::new(Port::A, 12, PinMode::Output);
+
+    let batt_v_adc_ = Pin::new(Port::A, 4, PinMode::Analog); // ADC2, channel 17
+    let current_sense_adc_ = Pin::new(Port::B, 2, PinMode::Analog); // ADC2, channel 12
+
+    // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
+    let mut sck1 = Pin::new(Port::A, 5, PinMode::Alt(5));
+    let mut miso1 = Pin::new(Port::A, 6, PinMode::Alt(5));
+    let mut mosi1 = Pin::new(Port::A, 7, PinMode::Alt(5));
+
+    // todo: Output speed on SPI pins?
+    sck1.output_speed(OutputSpeed::High);
+    miso1.output_speed(OutputSpeed::High);
+    mosi1.output_speed(OutputSpeed::High);
+
+    // SPI2 for the LoRa chip
+    let mut sck2 = Pin::new(Port::B, 13, PinMode::Alt(5));
+    let mut miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
+    let mut mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
+
+    // todo: Output speed on SPI pins?
+    sck2.output_speed(OutputSpeed::High);
+    miso2.output_speed(OutputSpeed::High);
+    mosi2.output_speed(OutputSpeed::High);
+
+    // SPI3 for flash
+    let _sck3 = Pin::new(Port::B, 3, PinMode::Alt(6));
+    let _miso3 = Pin::new(Port::B, 4, PinMode::Alt(6));
+    let _mosi3 = Pin::new(Port::B, 5, PinMode::Alt(6));
+
+    // We use UARTs for misc external devices, including ESC telemetry,
+    // and VTX OSD.
+
+    let _uart1_tx = Pin::new(Port::B, 6, PinMode::Alt(7));
+    let _uart1_rx = Pin::new(Port::B, 7, PinMode::Alt(7));
+    let _uart2_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
+    let _uart2_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
+    let _uart3_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
+    let _uart3_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
+    let _uart4_tx = Pin::new(Port::C, 10, PinMode::Alt(7));
+    let _uart4_rx = Pin::new(Port::C, 11, PinMode::Alt(7));
+
+    // todo temp!
+    // let mut uart3_rx = Pin::new(Port::B, 11, PinMode::Output);
+    // uart3_rx.set_high();
+    // loop {}
+
+    // Used to trigger a PID update based on new IMU data.
+    // We assume here the interrupt config uses default settings active low, push pull, pulsed.
+    #[cfg(feature = "mercury-h7")]
+    let mut imu_interrupt = Pin::new(Port::B, 12, PinMode::Input);
+    #[cfg(feature = "mercury-g4")]
+    let mut imu_interrupt = Pin::new(Port::C, 4, PinMode::Input);
+
+    imu_interrupt.output_type(OutputType::OpenDrain);
+    imu_interrupt.pull(Pull::Up);
+    imu_interrupt.enable_interrupt(Edge::Falling);
+
+    // ELRS busy and DIO currently in the main fn.
+    //
+    // // Used to trigger a a control-data-received update based on new ELRS data.
+    // let mut elrs_busy = Pin::new(Port::C, 14, PinMode::Input);
+    // elrs_busy.output_type(OutputType::OpenDrain);
+    // elrs_busy.pull(Pull::Up);
+    // elrs_busy.enable_interrupt(Edge::Falling);
+    //
+    // let mut elrs_dio = Pin::new(Port::C, 14, PinMode::Input);
+    // elrs_busy.output_type(OutputType::OpenDrain);
+    // elrs_busy.pull(Pull::Up);
+    // elrs_busy.enable_interrupt(Edge::Falling);
+
+    // I2C1 for external sensors, via pads
+    let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
+    scl1.output_type(OutputType::OpenDrain);
+    scl1.pull(Pull::Up);
+
+    let mut sda1 = Pin::new(Port::B, 7, PinMode::Alt(4));
+    sda1.output_type(OutputType::OpenDrain);
+    sda1.pull(Pull::Up);
+
+    // I2C2 for the DPS310 barometer, and pads.
+    let mut scl2 = Pin::new(Port::A, 9, PinMode::Alt(4));
+    scl2.output_type(OutputType::OpenDrain);
+    scl2.pull(Pull::Up);
+
+    let mut sda2 = Pin::new(Port::A, 8, PinMode::Alt(4));
+    sda2.output_type(OutputType::OpenDrain);
+    sda2.pull(Pull::Up);
 }
 
 /// Assign DMA channels to peripherals.

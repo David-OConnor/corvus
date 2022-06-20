@@ -26,7 +26,7 @@ use cfg_if::cfg_if;
 
 use defmt::println;
 
-const MIN_MOTOR_POWER: f32 = 0.03;
+const MIN_MOTOR_POWER: f32 = 0.02;
 
 // Max power setting for any individual rotor at idle setting.
 pub const MAX_MOTOR_POWER: f32 = 1.;
@@ -37,12 +37,6 @@ const ELEVON_MAX: f32 = 1.;
 // ROLL_COEFF is used to balance pitch and roll input sensitivity, compared to the implied
 // pitch coeffecient of 1.
 const ROLL_COEFF: f32 = 1.;
-
-// These pulse durations are in seconds, and correspond to nuetral, and full scale deflections.
-// todo: Probably should be in a user config.
-const ELEVON_PULSE_DUR_NEUTRAL: f32 = 0.0015; // In seconds. With this pulse dir, cervo is centered.
-const ELEVON_PULSE_DUR_FULL_DOWN: f32 = 0.001; // In seconds. With this pulse dir, cervo is centered.
-const ELEVON_PULSE_DUR_FULL_UP: f32 = 0.002; // In seconds. With this pulse dir, cervo is centered.
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
@@ -60,13 +54,9 @@ cfg_if! {
     }
 }
 
-// High and low correspond to 2ms, and 1ms pulse width respsectively. (Period of 500Hz is 2ms)
-// const DUTY_HIGH: u32 = ARR / 5 * 2;s
-// const DUTY_LOW: u32 = ARR / 5;
+// These represent full scale deflection of the evelons, assuming 500kHz PWM frequency.
 // We don't use full ARR for max high, since that would be full high the whole time.
-// const SERVO_DUTY_HIGH: f32 = (ARR - 50) as f32; // todo: 2ms
 const SERVO_DUTY_HIGH: f32 = ARR as f32 * 0.2;
-// const SERVO_DUTY_LOW: f32 = (ARR / 2) as f32; // todo: Thi sis our 1ms=low value.
 const SERVO_DUTY_LOW: f32 = ARR as f32 * 0.7;
 
 /// Sets the physical position of an elevon; commands a servo movement.
@@ -181,7 +171,7 @@ impl ServoWingMapping {
 
 /// Represents control settings for the motor, and elevons. Equivalent API to `quad::MotorPower`.
 /// Positive elevon value means pointed up relative to its hinge point.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ControlPositions {
     pub motor: f32,
     pub elevon_left: f32,
@@ -288,17 +278,17 @@ pub fn apply_controls(
     arm_status: ArmStatus,
     dma: &mut Dma<DMA1>,
 ) {
-    // let mut elevon_left = 0.;
-    // let mut elevon_right = 0.;
+    let mut elevon_left = 0.;
+    let mut elevon_right = 0.;
 
-    let mut elevon_left = control_posits.elevon_left;
-    let mut elevon_right = control_posits.elevon_right;
+    // let mut elevon_left = control_posits.elevon_left;
+    // let mut elevon_right = control_posits.elevon_right;
 
     elevon_left += pitch_delta;
     elevon_right += pitch_delta;
 
-    elevon_left -= roll_delta * ROLL_COEFF;
-    elevon_right += roll_delta * ROLL_COEFF;
+    elevon_left += roll_delta * ROLL_COEFF;
+    elevon_right -= roll_delta * ROLL_COEFF;
 
     let mut posits = ControlPositions {
         motor: throttle,
@@ -307,6 +297,9 @@ pub fn apply_controls(
     };
 
     posits.clamp();
+
+    // Update the mix for use next loop.
+    *control_posits = posits.clone();
 
     posits.set(motor_tim, servo_tim, arm_status, mapping, dma);
 }

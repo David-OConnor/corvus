@@ -40,7 +40,8 @@ use defmt::println;
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
 // todo: What should these be? Taken from an example.
-const INTEGRATOR_CLAMP_MAX: f32 = 0.17;
+// const INTEGRATOR_CLAMP_MAX: f32 = 0.17;
+const INTEGRATOR_CLAMP_MAX: f32 = 0.5;
 const INTEGRATOR_CLAMP_MIN: f32 = -INTEGRATOR_CLAMP_MAX;
 
 // "TPA" stands for Throttle PID attenuation - reduction in D term (or more) past a certain
@@ -123,10 +124,10 @@ pub struct CtrlCoeffsPR {
 impl Default for CtrlCoeffsPR {
     fn default() -> Self {
         Self {
-            k_p_rate: 0.12  * 0.01,
+            k_p_rate: 0.10,
             // k_i_rate: 0.0010,
-            k_i_rate: 0.20  * 0.01,
-            k_d_rate: 0.0030  * 0.01,
+            k_i_rate: 0.30,
+            k_d_rate: 0.0030,
 
             // pid for controlling pitch and roll from commanded horizontal velocity
             k_p_attitude: 47.,
@@ -146,9 +147,9 @@ impl Default for CtrlCoeffsPR {
 impl CtrlCoeffsPR {
     pub fn default_flying_wing() -> Self {
         Self {
-            k_p_rate: 0.10,
-            k_i_rate: 0.05,
-            k_d_rate: 0.005,
+            k_p_rate: 0.06,
+            k_i_rate: 0.60,
+            k_d_rate: 0.02,
 
             // Attitude not used.
 

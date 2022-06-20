@@ -40,7 +40,7 @@ pub const THROTTLE_MIN_MNVR_CLAMP: f32 = 0.06;
 
 // Even if PID output for a given axis is higher than this, don't allow more than this
 // half-pair-delta between rotor power levels.
-const ROTOR_HALF_DELTA_CLAMP: f32 = 0.30;
+const ROTOR_HALF_DELTA_CLAMP: f32 = 0.15;
 
 // Don't execute the calibration procedure from below this altitude, in meters AGL, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;
@@ -350,39 +350,39 @@ impl ControlMix {
     /// no differential clamping, and no individual power clamping. Don't send the results of
     /// this to motors directly. (note that this is in a sep module from `ControlMix`, since it's
     /// a quad-specific implementation, while `ControlMix` can be used more broadly.
-    /// todo: Reevaluate if you want clamping here or downstream)
-    fn to_power(&self, initial_power: &MotorPower, front_left_dir: RotationDir) -> MotorPower {
-        // let mut result = MotorPower {
-        //     front_left: self.throttle,
-        //     front_right: self.throttle,
-        //     aft_left: self.throttle,
-        //     aft_right: self.throttle,
-        // };
+    // fn to_power(&self, initial_power: &MotorPower, front_left_dir: RotationDir) -> MotorPower {
+    fn to_power(&self, front_left_dir: RotationDir) -> MotorPower {
+        let mut result = MotorPower {
+            front_left: self.throttle,
+            front_right: self.throttle,
+            aft_left: self.throttle,
+            aft_right: self.throttle,
+        };
 
-        let mut result = initial_power.clone();
+        // let mut result = initial_power.clone();
 
         // Start with a base, eg previous individual powers, but make their average equal
         // to the new throttle setting.
 
-        let initial_throttle = initial_power.total() / 4.;
+        // let initial_throttle = initial_power.total() / 4.;
 
         // todo: QC this.
-        let eps = 0.00001;
-        if initial_throttle < eps {
-            result = MotorPower {
-                front_left: self.throttle,
-                front_right: self.throttle,
-                aft_left: self.throttle,
-                aft_right: self.throttle,
-            };
-        } else {
-            let scaler = self.throttle / initial_throttle;
-            result.scale_all(scaler);
-        };
-
-        println!("Self throt: {}", self.throttle);
-
-        println!("pitch: {} roll: {}", self.pitch, self.roll);
+        // let eps = 0.00001;
+        // if initial_throttle < eps {
+        //     result = MotorPower {
+        //         front_left: self.throttle,
+        //         front_right: self.throttle,
+        //         aft_left: self.throttle,
+        //         aft_right: self.throttle,
+        //     };
+        // } else {
+        //     let scaler = self.throttle / initial_throttle;
+        //     result.scale_all(scaler);
+        // };
+        //
+        // println!("Self throt: {}", self.throttle);
+        //
+        // println!("pitch: {} roll: {}", self.pitch, self.roll);
 
         // Nose down for positive pitch.
         result.front_left -= self.pitch;
@@ -631,8 +631,6 @@ pub fn apply_controls(
     //     control_mix,
     // );
 
-    control_mix.clamp_deltas();
-
     *control_mix = ControlMix {
         pitch: pitch_delta,
         roll: roll_delta,
@@ -640,8 +638,11 @@ pub fn apply_controls(
         throttle: throttle,
     };
 
+    control_mix.clamp_deltas();
+
     // let mut pwr = control_mix.into();
-    let mut pwr = control_mix.to_power(current_pwr, mapping.frontleft_aftright_dir);
+    // let mut pwr = control_mix.to_power(current_pwr, mapping.frontleft_aftright_dir);
+    let mut pwr = control_mix.to_power(mapping.frontleft_aftright_dir);
 
     println!(
         "Power: FL {} FR {} AL {} AR {}",

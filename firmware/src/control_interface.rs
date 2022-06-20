@@ -128,7 +128,7 @@ pub struct LinkStats {
     /// Uplink - received signal strength antenna 1 (RSSI). RSSI dBm as reported by the RX. Values
     /// vary depending on mode, antenna quality, output power and distance. Ranges from -128 to 0.
     pub uplink_rssi_1: u8,
-    /// Uplink - received signal strength antenna 2 (RSSI).  	Second antenna RSSI, used in diversity mode
+    /// Uplink - received signal strength antenna 2 (RSSI). Second antenna RSSI, used in diversity mode
     /// (Same range as rssi_1)
     pub uplink_rssi_2: u8,
     /// Uplink - link quality (valid packets). The number of successful packets out of the last
