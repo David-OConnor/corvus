@@ -270,7 +270,7 @@ pub fn apply_controls(
     pitch_delta: f32,
     roll_delta: f32,
     throttle: f32,
-    control_mix: &mut ControlMix,
+    // control_mix: &mut ControlMix,
     control_posits: &mut ControlPositions,
     mapping: &ServoWingMapping,
     motor_tim: &mut Timer<TIM2>,
@@ -281,27 +281,29 @@ pub fn apply_controls(
     let mut elevon_left = 0.;
     let mut elevon_right = 0.;
 
-    // let mut elevon_left = control_posits.elevon_left;
-    // let mut elevon_right = control_posits.elevon_right;
-
     elevon_left += pitch_delta;
     elevon_right += pitch_delta;
 
     elevon_left += roll_delta * ROLL_COEFF;
     elevon_right -= roll_delta * ROLL_COEFF;
 
-    let mut posits = ControlPositions {
+    *control_posits = ControlPositions {
         motor: throttle,
         elevon_left,
         elevon_right,
     };
 
-    posits.clamp();
+    control_posits.clamp();
 
-    // Update the mix for use next loop.
-    *control_posits = posits.clone();
+    println!(
+        "L {:?}, R: {:?}",
+        control_posits.elevon_left, control_posits.elevon_right
+    );
 
-    posits.set(motor_tim, servo_tim, arm_status, mapping, dma);
+    // // Update the mix for use next loop.
+    // * posits.clone();
+
+    control_posits.set(motor_tim, servo_tim, arm_status, mapping, dma);
 }
 
 /// For a target pitch and roll rate, estimate the control positions required. Note that `throttle`

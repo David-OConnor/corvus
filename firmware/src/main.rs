@@ -943,10 +943,10 @@ mod app {
                         //     params.v_roll, params.v_pitch, params.v_yaw
                         // );
                         // //
-                        println!(
-                            "Attitude: roll {}, pitch: {}, yaw: {}\n",
-                            params.s_roll, params.s_pitch, params.s_yaw
-                        );
+                        // println!(
+                        //     "Attitude: roll {}, pitch: {}, yaw: {}\n",
+                        //     params.s_roll, params.s_pitch, params.s_yaw
+                        // );
 
                         // println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
                         // println!(

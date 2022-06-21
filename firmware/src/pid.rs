@@ -39,10 +39,10 @@ use defmt::println;
 
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
-// todo: What should these be? Taken from an example.
-// const INTEGRATOR_CLAMP_MAX: f32 = 0.17;
-const INTEGRATOR_CLAMP_MAX: f32 = 0.5;
-const INTEGRATOR_CLAMP_MIN: f32 = -INTEGRATOR_CLAMP_MAX;
+const INTEGRATOR_CLAMP_MAX_QUAD: f32 = 0.4;
+const INTEGRATOR_CLAMP_MIN_QUAD: f32 = -INTEGRATOR_CLAMP_MAX_QUAD;
+const INTEGRATOR_CLAMP_MAX_FIXED_WING: f32 = 0.4;
+const INTEGRATOR_CLAMP_MIN_FIXED_WING: f32 = -INTEGRATOR_CLAMP_MAX_FIXED_WING;
 
 // "TPA" stands for Throttle PID attenuation - reduction in D term (or more) past a certain
 // throttle setting, linearly. This only applies to the rate loop.
@@ -125,7 +125,6 @@ impl Default for CtrlCoeffsPR {
     fn default() -> Self {
         Self {
             k_p_rate: 0.10,
-            // k_i_rate: 0.0010,
             k_i_rate: 0.30,
             k_d_rate: 0.0030,
 
@@ -148,8 +147,10 @@ impl CtrlCoeffsPR {
     pub fn default_flying_wing() -> Self {
         Self {
             k_p_rate: 0.06,
-            k_i_rate: 0.60,
-            k_d_rate: 0.02,
+            // k_i_rate: 0.60,
+            k_i_rate: 0.0,
+            // k_d_rate: 0.02,
+            k_d_rate: 0.00,
 
             // Attitude not used.
 
@@ -275,14 +276,14 @@ impl PidState {
     pub fn anti_windup_clamp(&mut self, error_p: f32) {
         //  Dynamic integrator clamping, from https://www.youtube.com/watch?v=zOByx3Izf5U
 
-        let lim_max_int = if INTEGRATOR_CLAMP_MAX > error_p {
-            INTEGRATOR_CLAMP_MAX - error_p
+        let lim_max_int = if INTEGRATOR_CLAMP_MAX_QUAD > error_p {
+            INTEGRATOR_CLAMP_MAX_QUAD - error_p
         } else {
             0.
         };
 
-        let lim_min_int = if INTEGRATOR_CLAMP_MIN < error_p {
-            INTEGRATOR_CLAMP_MIN - error_p
+        let lim_min_int = if INTEGRATOR_CLAMP_MIN_QUAD < error_p {
+            INTEGRATOR_CLAMP_MIN_QUAD - error_p
         } else {
             0.
         };
@@ -1107,7 +1108,7 @@ pub fn run_rate_flying_wing(
         pitch,
         roll,
         throttle,
-        control_mix,
+        // control_mix,
         control_posits,
         mapping,
         motor_timer,

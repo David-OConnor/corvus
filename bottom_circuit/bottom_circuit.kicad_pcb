@@ -87,7 +87,7 @@
 
   (footprint "Anyleaf_Shared:Mouse bites_7mm" (layer "F.Cu")
     (tedit 626AFC7A) (tstamp 024cc201-4a12-4ae8-bfab-38147f08c82b)
-    (at 137.75 87.75 45)
+    (at 137.5 87.5 45)
     (property "Sheetfile" "bottom_circuit.kicad_sch")
     (property "Sheetname" "")
     (property "exclude_from_bom" "")
@@ -270,7 +270,7 @@
 
   (footprint "Anyleaf_Shared:Mouse bites_7mm" (layer "F.Cu")
     (tedit 626AFC7A) (tstamp 3f642266-c43d-457e-a3d0-ae48d6438db5)
-    (at 137.75 112.25 135)
+    (at 137.5 112.5 135)
     (property "Sheetfile" "bottom_circuit.kicad_sch")
     (property "Sheetname" "")
     (property "exclude_from_bom" "")
@@ -303,7 +303,7 @@
 
   (footprint "Anyleaf_Shared:Mouse bites_7mm" (layer "F.Cu")
     (tedit 626AFC7A) (tstamp 8bd335e3-f9cc-4141-b62c-89e6f2cea9b6)
-    (at 162.25 112.25 45)
+    (at 162.5 112.5 45)
     (property "Sheetfile" "bottom_circuit.kicad_sch")
     (property "Sheetname" "")
     (property "exclude_from_bom" "")
@@ -336,7 +336,7 @@
 
   (footprint "Anyleaf_Shared:Mouse bites_7mm" (layer "F.Cu")
     (tedit 626AFC7A) (tstamp 97a1499d-8f21-4661-8bed-0e1e89d0838c)
-    (at 162.343503 87.843503 135)
+    (at 162.5 87.5 135)
     (property "Sheetfile" "bottom_circuit.kicad_sch")
     (property "Sheetname" "")
     (property "exclude_from_bom" "")

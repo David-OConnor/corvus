@@ -50,7 +50,7 @@ const QUATERNION_SIZE: usize = F32_BYTES * 4; // Quaternion (4x4 + altimeter + v
 const PARAMS_SIZE: usize = QUATERNION_SIZE + F32_BYTES * 3; //
 const CONTROLS_SIZE: usize = 18;
 // const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
-const LINK_STATS_SIZE: usize = 4; // Only the first 4 fields.
+const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
 
 // Packet sizes are payload size + 2. Additional data are message type, and CRC.
 const PARAMS_PACKET_SIZE: usize = PARAMS_SIZE + 2;
@@ -191,6 +191,7 @@ impl From<&LinkStats> for [u8; LINK_STATS_SIZE] {
             p.uplink_rssi_2,
             p.uplink_link_quality,
             p.uplink_snr as u8,
+            p.uplink_tx_power as u8,
         ]
     }
 }

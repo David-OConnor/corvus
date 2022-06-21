@@ -37,7 +37,7 @@ use stm32_hal2::{
 };
 
 use crate::{
-    control_interface::{AltHoldSwitch, ChannelData, InputModeSwitch, LinkStats},
+    control_interface::{AltHoldSwitch, ChannelData, ElrsTxPower, InputModeSwitch, LinkStats},
     safety::ArmStatus,
     util,
 };
@@ -355,7 +355,7 @@ impl Packet {
         result.uplink_snr = data[3] as i8;
         result.active_antenna = data[4];
         result.rf_mode = data[5];
-        result.uplink_tx_power = data[6];
+        result.uplink_tx_power = data[6].try_into().unwrap();
         result.downlink_rssi = data[7];
         result.downlink_link_quality = data[8];
         result.downlink_snr = data[9] as i8;

@@ -163,7 +163,9 @@ pub fn setup_pins() {
 
     // todo temp!
     // let mut uart3_rx = Pin::new(Port::B, 11, PinMode::Output);
-    // uart3_rx.set_high();
+    // uart3_rx.set_low();
+    // let mut uart3_tx = Pin::new(Port::B, 10, PinMode::Output);
+    // uart3_tx.set_low();
     // loop {}
 
     // Used to trigger a PID update based on new IMU data.

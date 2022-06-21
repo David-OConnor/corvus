@@ -24,6 +24,8 @@
 //     Aux8(u8),
 // }
 
+use num_enum::TryFromPrimitive; // Enum from integer
+
 use crate::safety::ArmStatus;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -120,6 +122,29 @@ pub struct ChannelData {
     // todo: Auto-recover commanded, auto-TO/land/RTB, obstacle avoidance etc.
 }
 
+/// ELRS Transmit power. `u8` is the value reported over CRSF in the `uplink_tx_power` field.
+/// Note that you must use `Wide hybrid mode`, configured on the transmitter LUA to receive Tx power.
+#[repr(u8)]
+#[derive(Clone, Copy, Eq, PartialEq, TryFromPrimitive)]
+pub enum ElrsTxPower {
+    /// 10mW
+    P10 = 1,
+    /// 25mW
+    P25 = 2,
+    /// 50mW
+    P50 = 8,
+    /// 100mW
+    P100 = 3,
+    /// 250mW
+    P250 = 7,
+}
+
+impl Default for ElrsTxPower {
+    fn default() -> Self {
+        Self::P10
+    }
+}
+
 #[derive(Default)]
 /// https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support
 pub struct LinkStats {
@@ -140,8 +165,8 @@ pub struct LinkStats {
     /// Active antenna for diversity RX (0 - 1)
     pub active_antenna: u8,
     pub rf_mode: u8,
-    /// Uplink - transmitting power. (mW?) 50mW reported as 0, as CRSF/OpenTX do not have this option
-    pub uplink_tx_power: u8,
+    /// Uplink - transmitting power. See the `ElrsTxPower` enum and its docs for details.
+    pub uplink_tx_power: ElrsTxPower,
     /// Downlink - received signal strength (RSSI). RSSI dBm of telemetry packets received by TX.
     pub downlink_rssi: u8,
     /// Downlink - link quality (valid packets). An LQ indicator of telemetry packets received RX → TX
