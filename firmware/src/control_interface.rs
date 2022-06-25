@@ -122,7 +122,7 @@ pub struct ChannelData {
     // todo: Auto-recover commanded, auto-TO/land/RTB, obstacle avoidance etc.
 }
 
-/// ELRS Transmit power. `u8` is the value reported over CRSF in the `uplink_tx_power` field.
+/// ELRS Transmit power. `u8` is the value reported over CRSF in the uplink tx power field.
 /// Note that you must use `Wide hybrid mode`, configured on the transmitter LUA to receive Tx power.
 #[repr(u8)]
 #[derive(Clone, Copy, Eq, PartialEq, TryFromPrimitive)]

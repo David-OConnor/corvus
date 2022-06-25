@@ -141,7 +141,7 @@ pub fn interpret_gyro(val: i16) -> f32 {
     (val as f32 / i16::MAX as f32) * GYRO_FULLSCALE
 }
 
-/// Read all data
+/// Read all data, in blocking fashion. Deprecated in favor of DMA.
 pub fn read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> ImuReadings {
     let accel_x_upper = read_one(Reg::AccelDataX1, spi, cs);
     let accel_x_lower = read_one(Reg::AccelDataX0, spi, cs);

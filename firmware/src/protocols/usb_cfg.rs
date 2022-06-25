@@ -15,6 +15,7 @@ use crate::{
     dshot,
     flight_ctrls::quad::{Motor, RotorMapping, RotorPosition},
     lin_alg::Quaternion,
+    ppks::Location,
     safety::ArmStatus,
     state::OperationMode,
     util, LinkStats,
@@ -38,8 +39,11 @@ cfg_if! {
 
 use num_enum::TryFromPrimitive; // Enum from integer
 
+use crate::ppks::WAYPOINT_MAX_NAME_LEN;
+use crate::state::MAX_WAYPOINTS;
 use defmt::println;
 
+// These sizes are in bytes.
 const F32_BYTES: usize = 4;
 
 // Note: LUT is here, since it depends on the poly.
@@ -52,10 +56,15 @@ const CONTROLS_SIZE: usize = 18;
 // const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
 const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
 
+// 3 coords + option to indicate if used. (Some/None)
+pub const WAYPOINT_SIZE: usize = F32_BYTES * 3 + WAYPOINT_MAX_NAME_LEN + 1;
+pub const WAYPOINTS_SIZE: usize = crate::state::MAX_WAYPOINTS * WAYPOINT_SIZE;
+
 // Packet sizes are payload size + 2. Additional data are message type, and CRC.
 const PARAMS_PACKET_SIZE: usize = PARAMS_SIZE + 2;
 const CONTROLS_PACKET_SIZE: usize = CONTROLS_SIZE + 2;
 const LINK_STATS_PACKET_SIZE: usize = LINK_STATS_SIZE + 2;
+pub const WAYPOINTS_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
 
 struct _DecodeError {}
 
@@ -91,6 +100,9 @@ pub enum MsgType {
     StartMotor = 10,
     /// Stop a specific motor
     StopMotor = 11,
+    ReqWaypoints = 12,
+    Updatewaypoints = 13,
+    Waypoints = 14,
 }
 
 impl MsgType {
@@ -109,6 +121,9 @@ impl MsgType {
             Self::DisarmMotors => 0,
             Self::StartMotor => 1,
             Self::StopMotor => 1,
+            Self::ReqWaypoints => 0,
+            Self::Updatewaypoints => 10, // todo?
+            Self::Waypoints => WAYPOINTS_SIZE,
         }
     }
 }
@@ -178,14 +193,7 @@ impl From<&ChannelData> for [u8; CONTROLS_SIZE] {
 }
 
 impl From<&LinkStats> for [u8; LINK_STATS_SIZE] {
-    /// 4 f32s = 76. In the order we have defined in the struct.
     fn from(p: &LinkStats) -> Self {
-        // let mut result = [0; LINK_STATS_SIZE];
-
-        // result[0..4].clone_from_slice(&p.uplink_rssi_1.to_be_bytes());
-        // result[4..8].clone_from_slice(&p.uplink_rssi_2.to_be_bytes());
-        // result[8..12].clone_from_slice(&p.uplink_link_quality.to_be_bytes());
-        // result[12..16].clone_from_slice(&p.uplink_snr.to_be_bytes());
         [
             p.uplink_rssi_1,
             p.uplink_rssi_2,
@@ -195,6 +203,39 @@ impl From<&LinkStats> for [u8; LINK_STATS_SIZE] {
         ]
     }
 }
+
+// impl From<[Option<Location>; MAX_WAYPOINTS]> for [u8; WAYPOINTS_SIZE] {
+/// Standalone fn instead of impl due to a Rust restriction.
+fn waypoints_to_buf(w: &[Option<Location>; MAX_WAYPOINTS]) -> [u8; WAYPOINTS_SIZE] {
+    let mut result = [0; WAYPOINTS_SIZE];
+
+    for i in 0..MAX_WAYPOINTS {
+        let wp_start_i = i * WAYPOINT_SIZE;
+
+        match &w[wp_start_i] {
+            Some(wp) => {
+                result[wp_start_i] = 1;
+
+                result[wp_start_i + 1..wp_start_i + 1 + WAYPOINT_MAX_NAME_LEN]
+                    .clone_from_slice(&wp.name);
+
+                let coords_start_i = wp_start_i + 1 + WAYPOINT_MAX_NAME_LEN;
+
+                result[coords_start_i..coords_start_i + 4].clone_from_slice(&wp.x.to_be_bytes());
+                result[coords_start_i + 4..coords_start_i + 8]
+                    .clone_from_slice(&wp.y.to_be_bytes());
+                result[coords_start_i + 8..coords_start_i + 12]
+                    .clone_from_slice(&wp.z.to_be_bytes());
+            }
+            None => {
+                result[wp_start_i] = 0;
+            }
+        };
+    }
+
+    result
+}
+// }
 
 /// Handle incoming data from the PC
 pub fn handle_rx(
@@ -206,6 +247,7 @@ pub fn handle_rx(
     altimeter: f32,
     controls: &ChannelData,
     link_stats: &LinkStats,
+    waypoints: &[Option<Location>; MAX_WAYPOINTS],
     arm_status: &mut ArmStatus,
     rotor_mapping: &mut RotorMapping,
     op_mode: &mut OperationMode,
@@ -386,5 +428,25 @@ pub fn handle_rx(
                 }
             }
         }
+        MsgType::ReqWaypoints => {
+            // todo: DRY with above.
+            let mut tx_buf = [0; WAYPOINTS_PACKET_SIZE];
+            tx_buf[0] = MsgType::Waypoints as u8;
+
+            let payload: [u8; WAYPOINTS_SIZE] = waypoints_to_buf(waypoints);
+
+            tx_buf[1..(WAYPOINTS_SIZE + 1)].copy_from_slice(&payload);
+
+            let payload_size = MsgType::Waypoints.payload_size();
+            tx_buf[payload_size + 1] = util::calc_crc(
+                unsafe { &CRC_LUT },
+                &tx_buf[..payload_size + 1],
+                payload_size as u8 + 1,
+            );
+
+            usb_serial.write(&tx_buf).ok();
+        }
+        MsgType::Waypoints => {}
+        MsgType::Updatewaypoints => {}
     }
 }

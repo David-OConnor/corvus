@@ -125,7 +125,7 @@ impl Default for CtrlCoeffsPR {
     fn default() -> Self {
         Self {
             k_p_rate: 0.10,
-            k_i_rate: 0.30,
+            k_i_rate: 0.50,
             k_d_rate: 0.0030,
 
             // pid for controlling pitch and roll from commanded horizontal velocity
@@ -191,7 +191,7 @@ impl Default for CtrlCoeffsYT {
             // k_p_rate: 0.6 * K_U_YAW,
             // k_i_rate: 1.2 * K_U_YAW / T_U_YAW,
             // k_d_rate: 3. * K_U_YAW * T_U_YAW / 40.,
-            k_p_rate: 0.20,
+            k_p_rate: 0.30,
             k_i_rate: 0.01 * 0.,
             k_d_rate: 0.,
 

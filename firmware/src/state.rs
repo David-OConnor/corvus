@@ -1,6 +1,7 @@
 //! This module contains code related to state, both config stored to flash, and volatile data
 //! specific to the current flight, and cleared when power is removed.
 
+use crate::usb_cfg::WAYPOINT_SIZE;
 /// User-configurable settings. These get saved to and loaded from internal flash.
 use crate::{
     control_interface::{InputModeSwitch, LinkStats},
@@ -8,7 +9,11 @@ use crate::{
         flying_wing::{ControlPositions, ServoWingMapping},
         quad::{AxisLocks, MotorPower, RotorMapping},
     },
+    ppks::Location,
 };
+
+// The maximum number of waypoints available.
+pub const MAX_WAYPOINTS: usize = 30; // todo: Consider raising this.
 
 #[derive(Clone, Copy)]
 pub enum OperationMode {
@@ -40,6 +45,7 @@ pub enum SwarmRole {
     PersonFollower, // When your queen is human.
 }
 
+/// Persistent state; saved to onboard flash memory.
 pub struct UserCfg {
     pub aircraft_type: AircraftType,
     /// Set a ceiling the aircraft won't exceed. Defaults to 400' (Legal limit in US for drones).
@@ -69,10 +75,19 @@ pub struct UserCfg {
     // todo: We want to store this inst, but RTIC doesn't like it not being sync. Maybe static mut.
     // todo. For now, lives in the acro PID fn lol.
     // power_interp_inst: dsp_sys::arm_linear_interp_instance_f32,
+    // Elevation of the launch point, in MSL. Used for our (QFE) altimeter.
+    // pub launch_pt_msl: f32,
+    // Pressure at the surface at the launch point, in Pa.
+    // pub altimeter_setting: f32,
+    pub waypoints: [Option<Location>; MAX_WAYPOINTS],
+    /// The (index of the) waypoint we are currently steering to.
+    pub active_waypoint: usize,
 }
 
 impl Default for UserCfg {
     fn default() -> Self {
+        let waypoints = [(); MAX_WAYPOINTS].map(|_| Option::<Location>::default());
+
         Self {
             aircraft_type: AircraftType::Quadcopter,
             ceiling: Some(122.),
@@ -115,6 +130,10 @@ impl Default for UserCfg {
             //         POWER_LUT[10],
             //     ].as_mut_ptr()
             // },
+            // launch_pt_msl: 100.,
+            // altimeter_setting: 101_325.,
+            waypoints,
+            active_waypoint: 0,
         }
     }
 }

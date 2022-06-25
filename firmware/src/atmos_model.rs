@@ -3,6 +3,8 @@
 //!
 //! https://en.wikipedia.org/wiki/U.S._Standard_Atmosphere
 
+use num_traits::Float;
+
 // 1976 standard atmospheric model, first stage. We use a linear interpolation between these
 // points, and the initial ground point.
 pub const POINT_0: AltitudeCalPt = AltitudeCalPt {
@@ -28,21 +30,50 @@ const LAPSE_RATE_EXP: f32 = LAPSE_RATE_COEFF / TEMP_LAPSE_RATE;
 /// atmosphere model.
 /// The default impl is used when setting up the `Altimeter` struct, pre ground-initialization, where
 /// it's replaced with a measurement.
-#[derive(Default)]
 pub struct AltitudeCalPt {
     pub pressure: f32, // Pa
     pub altitude: f32, // MSL, via GPS, in meters
     pub temp: f32,     // K
 }
 
-// impl Default for AltitudeCalPt {
-//     /// Standard temperature and pressure, at sea level. Note that in practice, we zero to launch elevation
-//     /// instead of 0 MSL. ( todo: But as an adjustment for MSL, or with this model?)
-//     fn default() -> Self {
-//         Self {
-//             pressure: 101_325.,
-//             altitude: 0.,
-//             temp: 288.15,
-//         }
-//     }
-// }
+impl Default for AltitudeCalPt {
+    /// Standard temperature and pressure, at sea level. Note that in practice, we zero to launch elevation
+    /// instead of 0 MSL.
+    fn default() -> Self {
+        Self {
+            pressure: 101_325.,
+            altitude: 0.,
+            temp: 288.15,
+        }
+    }
+}
+
+/// Estimate barometric QFE altitude (Ie how far above ground), from pressure and temperature.
+/// Pressure is in Pa; temp is in K. Result is in m.
+/// Uses a linear map between 2 pointers: Either from the standard atmosphere model, or from
+/// GPS points, if available.
+/// `altimeter_setting` is the ground pressure in vacinityh of operation, in Pa. Temp is in K.
+/// https://en.wikipedia.org/wiki/Barometric_formula
+/// https://physics.stackexchange.com/questions/333475/how-to-calculate-altitude-from-current-temperature-and-pressure
+pub fn estimate_altitude_msl(pressure: f32, temp: f32, ground_cal: AltitudeCalPt) -> f32 {
+    // P = 101.29 * ((temp)/288.08)^5.256   (in kPa)
+    // T = 150.4 - .00649h
+
+    // let (point_0, point_1) = if self.gps_cal_init.is_some() && self.gps_cal_air.is_some() {
+    //     //     (
+    //     //         self.gps_cal_init.as_ref().unwrap(),
+    //     //         self.gps_cal_air.as_ref().unwrap(),
+    //     //     )
+    //     // } else {
+    //     //     (&POINT_0, &POINT_1)
+    //     // };
+
+    // todo: You need to take ground cal's temp into account, at minimum!
+    (((ground_cal.pressure / pressure).powf(1. / 5.257) - 1.) * temp) / 0.00649
+
+    // log_lapse_rate(P/POINT_0.pressure) = (POINT_0.temp + (alt - POINT_0.altitude) * )
+
+    // todo: Temp compensate!
+    // todo: You probably want a non-linear, eg exponential model.
+    // util::map_linear(pressure, (point_0.pressure, POINT_1.pressure), (point_0.altitude, point_1.altitude))
+}

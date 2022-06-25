@@ -73,7 +73,7 @@ mod sensor_fusion;
 mod setup;
 mod state;
 mod util;
-// todo: Can't get startup working separately since Shared and Local must be private per an RTIC restriction.
+// todo: Can't get startup code working separately since Shared and Local must be private per an RTIC restriction.
 // todo: See this GH issue: https://github.com/rtic-rs/cortex-m-rtic/issues/505
 // mod startup;
 
@@ -105,9 +105,21 @@ use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
 use state::{AircraftType, OperationMode, StateVolatile, UserCfg};
 
-// 512k flash. Page size 2kbyte. 72-bit data read (64 bits plus 8 ECC bits)
-// Each page is 8 rows of 256 bytes. 255 pages in main memory.
-const FLASH_CFG_PAGE: usize = 254;
+// todo: Cycle flash pages for even wear. Can postpone this.
+
+// H723: 1Mb of flash, in one bank.
+// 8 sectors of 128kb each.
+// (H743 is similar, but may have 2 banks, each with those properties)
+#[cfg(feature = "h7")]
+const FLASH_CFG_SECTOR: usize = 6;
+const FLASH_WAYPOINT_SECTOR: usize = 7;
+
+// G47x/G48x: 512k flash.
+// Assumes configured as a single bank: 128 pages of 4kb each.
+// (If using G4 dual bank mode: 128 pages of pages of 2kb each, per bank)
+#[cfg(feature = "g4")]
+const FLASH_CFG_PAGE: usize = 254; // todo: Set to 126 etc when on G474!
+const FLASH_WAYPOINT_PAGE: usize = 255; // todo: Set to 126 etc when on G474!
 
 // Our DT timer speed, in Hz.
 const DT_TIM_FREQ: u32 = 200_000_000;
@@ -257,10 +269,10 @@ fn init_sensors(
 
             *base_pt = Location::new(LocationType::LatLon, f.y, f.x, f.z);
 
-            altimeter.calibrate(Some(f.z), i2c2);
+            altimeter.calibrate_from_gps(Some(f.z), i2c2);
         }
         Err(_) => {
-            altimeter.calibrate(None, i2c2);
+            altimeter.calibrate_from_gps(None, i2c2);
         }
     }
     // todo: Use Rel0 location type if unable to get fix.
@@ -591,7 +603,7 @@ mod app {
 
         let mut user_cfg = UserCfg::default();
 
-        user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
+        // user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
 
         let mut ctrl_coeffs = Default::default();
         match user_cfg.aircraft_type {
@@ -690,11 +702,11 @@ mod app {
 
         // println!(
         //     "mem val: {}",
-        //     flash_onboard.read(ONBOARD_FLASH_START_PAGE, 0)
+        //     flash_onboard.read(FLASH_CFG_PAGE, 0)
         // );
 
         println!("Flash Buf ( should be 1, 2, 3, 0, 0): {:?}", flash_buf);
-        // flash_onboard.erase_write_page(Bank::B1, ONBOARD_FLASH_START_PAGE, &[10, 11, 12, 13, 14, 15, 16, 17]).ok();
+        // flash_onboard.erase_write_page(Bank::B1, FLASH_CFG_PAGE, &[10, 11, 12, 13, 14, 15, 16, 17]).ok();
         println!("Flash write complete");
 
         let mut params = Default::default();
@@ -1299,6 +1311,7 @@ mod app {
                                 params.s_z_msl,
                                 ch_data,
                                 &state_volatile.link_stats,
+                                &user_cfg.waypoints,
                                 &mut command_state.arm_status,
                                 &mut user_cfg.motor_mapping,
                                 &mut state_volatile.op_mode,

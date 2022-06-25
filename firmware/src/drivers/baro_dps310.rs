@@ -91,10 +91,11 @@ struct HardwareCoeffCal {
 /// but is in this hardware-specific module due to the factory-stored calibration coeffs.
 pub struct Altimeter {
     /// Calibration point taken during initialization; used to interpret pressure readings
-    /// as pseudo-AGL. This point's altitude field must be 0.
+    /// as pseudo-AGL. (QFE) This point's altitude field must be 0.
     ground_cal: AltitudeCalPt,
     /// Calibration point taken during initialization; Stores measured pressure and temperature
     /// at the GPS's reported MSL alt.
+    /// todo: Currently GPS cal is unused.
     gps_cal_init: Option<AltitudeCalPt>,
     gps_cal_air: Option<AltitudeCalPt>,
     hardware_coeff_cal: HardwareCoeffCal,
@@ -197,7 +198,7 @@ impl Altimeter {
 
         // println!("C0 {} C1 {} C10 {} C20 {} C30 {} C01 {} C11 {} C21 {} C30 {}", c0, c1, c10, c20, c30, c01, c11, c21, c30);
 
-        Self {
+        let mut result = Self {
             ground_cal: Default::default(),
             gps_cal_init: None,
             gps_cal_air: None,
@@ -212,10 +213,18 @@ impl Altimeter {
                 c21,
                 c30,
             },
-        }
+        };
+
+        result.ground_cal = AltitudeCalPt {
+            pressure: result.read_pressure(i2c),
+            altitude: 0.,
+            temp: result.read_temp(i2c),
+        };
+
+        result
     }
 
-    pub fn calibrate(&mut self, gps_alt: Option<f32>, i2c: &mut I2c<I2C2>) {
+    pub fn calibrate_from_gps(&mut self, gps_alt: Option<f32>, i2c: &mut I2c<I2C2>) {
         let pressure = self.read_pressure(i2c);
         let temp = self.read_temp(i2c);
 
@@ -229,7 +238,7 @@ impl Altimeter {
             Some(alt_msl) => Some(AltitudeCalPt {
                 pressure,
                 altitude: alt_msl,
-                temp,
+                temp, // todo: Convert to K if required!
             }),
             None => None,
         };
@@ -256,6 +265,8 @@ impl Altimeter {
         // (self.pressure_cal.c0 * 0.5 * self.pressure_call.c1 * t_raw_sc) as f32
         // todo: Should we be doing these operations (Here and above in pressure-from_reading
         // todo as floats, and storing the c vals as floats?
+
+        // todo: Is this C or K?
 
         (self.hardware_coeff_cal.c0 / 2 * self.hardware_coeff_cal.c1 * t_raw_sc) as f32
     }
@@ -308,32 +319,5 @@ impl Altimeter {
         fix_int_sign(&mut reading, 24);
 
         self.temp_from_reading(reading)
-    }
-
-    /// Estimate altitude MSL from pressure and temperature. Pressure is in Pa; temp is in K.
-    /// Uses a linear map between 2 pointers: Either from the standard atmosphere model, or from
-    /// GPS points, if available.
-    /// https://en.wikipedia.org/wiki/Barometric_formula
-    /// https://physics.stackexchange.com/questions/333475/how-to-calculate-altitude-from-current-temperature-and-pressure
-    pub fn estimate_altitude_msl(&self, pressure: f32, temp: f32) -> f32 {
-        // P = 101.29 * ((temp)/288.08)^5.256   (in kPa)
-        // T = 150.4 - .00649h
-
-        let (point_0, point_1) = if self.gps_cal_init.is_some() && self.gps_cal_air.is_some() {
-            (
-                self.gps_cal_init.as_ref().unwrap(),
-                self.gps_cal_air.as_ref().unwrap(),
-            )
-        } else {
-            (&POINT_0, &POINT_1)
-        };
-
-        (((POINT_0.pressure / pressure).powf(1. / 5.257) - 1.) * temp) / 0.00649
-
-        // log_lapse_rate(P/POINT_0.pressure) = (POINT_0.temp + (alt - POINT_0.altitude) * )
-
-        // todo: Temp compensate!
-        // todo: You probably want a non-linear, eg exponential model.
-        // util::map_linear(pressure, (point_0.pressure, POINT_1.pressure), (point_0.altitude, point_1.altitude))
     }
 }
