@@ -212,7 +212,7 @@ fn waypoints_to_buf(w: &[Option<Location>; MAX_WAYPOINTS]) -> [u8; WAYPOINTS_SIZ
     for i in 0..MAX_WAYPOINTS {
         let wp_start_i = i * WAYPOINT_SIZE;
 
-        match &w[wp_start_i] {
+        match &w[i] {
             Some(wp) => {
                 result[wp_start_i] = 1;
 
@@ -281,6 +281,7 @@ pub fn handle_rx(
             // todo
         }
         MsgType::ReqParams => {
+            println!("Req params");
             // todo: current behavior is to set preflight at first params request, and never set
             // todo it back. This could potentially be dangerous.
             *op_mode = OperationMode::Preflight;
@@ -429,6 +430,7 @@ pub fn handle_rx(
             }
         }
         MsgType::ReqWaypoints => {
+            println!("Req wps");
             // todo: DRY with above.
             let mut tx_buf = [0; WAYPOINTS_PACKET_SIZE];
             tx_buf[0] = MsgType::Waypoints as u8;

@@ -318,7 +318,7 @@ mod app {
         lost_link_timer: Timer<TIM17>,
         rotor_timer_a: Timer<TIM2>,
         rotor_timer_b: Timer<TIM3>,
-        elrs_timer: Timer<TIM4>,
+        // elrs_timer: Timer<TIM4>,
         // delay_timer: Timer<TIM5>,
         usb_dev: UsbDevice<'static, UsbBusType>,
         usb_serial: SerialPort<'static, UsbBusType>,
@@ -591,17 +591,25 @@ mod app {
         );
         lost_link_timer.enable_interrupt(TimerInterrupt::Update);
 
-        let elrs_timer = Timer::new_tim4(
-            dp.TIM4,
-            1.,
-            TimerConfig {
-                auto_reload_preload: true,
-                ..Default::default()
-            },
-            &clock_cfg,
-        );
+        // let elrs_timer = Timer::new_tim4(
+        //     dp.TIM4,
+        //     1.,
+        //     TimerConfig {
+        //         auto_reload_preload: true,
+        //         ..Default::default()
+        //     },
+        //     &clock_cfg,
+        // );
 
         let mut user_cfg = UserCfg::default();
+        // todo temp
+        user_cfg.waypoints[0] = Some(Location {
+            type_: LocationType::LatLon,
+            name: [0, 1, 2, 3, 4, 5, 6],
+            x: 1.,
+            y: 2.,
+            z: 3.,
+        });
 
         // user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
 
@@ -791,7 +799,7 @@ mod app {
                 lost_link_timer,
                 rotor_timer_a,
                 rotor_timer_b,
-                elrs_timer,
+                // elrs_timer,
                 // delay_timer,
                 #[cfg(feature = "g4")]
                 usb_dev,
@@ -859,6 +867,7 @@ mod app {
 
     // todo: Go through these tasks, and make sure they're not reserving unneded shared params.
 
+    // binds = TIM15,
     // todo: Remove rotor timers, spi, and dma from this ISR; we only use it for tresting DSHOT
     #[task(
     binds = TIM1_BRK_TIM15,
@@ -924,10 +933,6 @@ mod app {
                  i2c2,
                  state_volatile,
                  adc| {
-                    if let OperationMode::Preflight = state_volatile.op_mode {
-                        return;
-                    }
-
                     // Update barometric altitude
                     // todo: Put back.
                     // let pressure = altimeter.read_pressure(i2c2);
@@ -982,6 +987,11 @@ mod app {
                         //     state_volatile.link_stats.uplink_link_quality,
                         //     state_volatile.link_stats.uplink_snr,
                         // );
+                    }
+
+                    if let OperationMode::Preflight = state_volatile.op_mode {
+                        // exit this fn during preflight *after* measuring voltages using ADCs.
+                        return;
                     }
 
                     if *cx.local.update_loop_i % LOGGING_UPDATE_RATIO == 0 {
@@ -1091,6 +1101,7 @@ mod app {
         });
     }
 
+    // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, input_mode, control_channel_data, input_map, autopilot_status,
     rates_commanded, pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, command_state, cs_imu, user_cfg,
     rotor_timer_a, rotor_timer_b, ahrs, state_volatile, control_mix], local = [fixed_wing_rate_loop_i], priority = 5)]
@@ -1261,6 +1272,9 @@ mod app {
 
     // todo: Commented out USB ISR temporarily
 
+    // binds = OTG_HS
+    // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
+    // todo: NVIC interrupts missing here for H723 etc!
     #[cfg(feature = "g4")]
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data, command_state,
     user_cfg, state_volatile, rotor_timer_a, rotor_timer_b, batt_curr_adc, dma], local = [], priority = 7)]
@@ -1300,8 +1314,26 @@ mod app {
                     let mut buf = [0u8; 8];
                     match usb_serial.read(&mut buf) {
                         Ok(count) => {
-                            // usb_serial.write(&[1, 2, 3]).ok();
-                            // todo: Only pass params if needed?
+                            #[cfg(feature = "h7")]
+                            usb_cfg::handle_rx(
+                                usb_serial,
+                                &buf,
+                                count,
+                                // params,
+                                params.quaternion,
+                                params.s_z_msl,
+                                ch_data,
+                                &state_volatile.link_stats,
+                                &user_cfg.waypoints,
+                                &mut command_state.arm_status,
+                                &mut user_cfg.motor_mapping,
+                                &mut state_volatile.op_mode,
+                                rotor_timer_b,
+                                adc,
+                                dma,
+                            );
+
+                            #[cfg(feature = "g4")]
                             usb_cfg::handle_rx(
                                 usb_serial,
                                 &buf,
@@ -1331,6 +1363,7 @@ mod app {
 
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
     #[task(binds = DMA1_CH3, shared = [rotor_timer_a], priority = 6)]
+    // #[task(binds = DMA1_STR3, shared = [rotor_timer_a], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_a(mut cx: dshot_isr_a::Context) {
         #[cfg(feature = "h7")]
@@ -1357,7 +1390,9 @@ mod app {
         gpio::set_low(Port::A, 1);
     }
 
-    #[task(binds = DMA1_CH4, shared = [rotor_timer_b], priority = 6)]
+    // #[task(binds = DMA1_CH4, shared = [rotor_timer_b], priority = 6)]
+    #[task(binds = DMA1_STR4, shared = [rotor_timer_b], priority = 6)]
+    // #[task(binds = DMA1_STR4, shared = [rotor_timer_b], priority = 6)]
     /// We use this ISR to disable the DSHOT t
     /// imer upon completion of a packet send.
     fn dshot_isr_b(mut cx: dshot_isr_b::Context) {
@@ -1441,7 +1476,8 @@ mod app {
     // }
 
     /// If this triggers, it means we've lost the link. (Note that this is for TIM17)
-    #[task(binds = TIM1_TRG_COM, shared = [lost_link_timer], priority = 2)]
+    #[task(binds = TIM17, shared = [lost_link_timer], priority = 2)]
+    // #[task(binds = TIM1_TRG_COM, shared = [lost_link_timer], priority = 2)]
     fn lost_link_isr(mut cx: lost_link_isr::Context) {
         println!("Lost the link!");
 

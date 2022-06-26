@@ -60,6 +60,36 @@ const SERVO_DUTY_HIGH: f32 = ARR as f32 * 0.2;
 const SERVO_DUTY_LOW: f32 = ARR as f32 * 0.7;
 
 /// Sets the physical position of an elevon; commands a servo movement.
+#[cfg(feature = "h7")]
+pub fn set_elevon_posit(
+    elevon: ServoWing,
+    position: f32,
+    mapping: &ServoWingMapping,
+    servo_timer: &mut Timer<TIM8>,
+) {
+    let range_out = match elevon {
+        ServoWing::S1 => {
+            if mapping.s1_reversed {
+                (SERVO_DUTY_HIGH, SERVO_DUTY_LOW)
+            } else {
+                (SERVO_DUTY_LOW, SERVO_DUTY_HIGH)
+            }
+        }
+        ServoWing::S2 => {
+            if mapping.s2_reversed {
+                (SERVO_DUTY_HIGH, SERVO_DUTY_LOW)
+            } else {
+                (SERVO_DUTY_LOW, SERVO_DUTY_HIGH)
+            }
+        }
+    };
+
+    let duty_arr = util::map_linear(position, (ELEVON_MIN, ELEVON_MAX), range_out) as u32;
+    servo_timer.set_duty(elevon.tim_channel(), duty_arr as u16);
+}
+
+// todo DRY!!
+#[cfg(feature = "g4")]
 pub fn set_elevon_posit(
     elevon: ServoWing,
     position: f32,
@@ -266,6 +296,41 @@ impl ControlPositions {
 /// Positive pitch means nose up. Positive roll means left wing up.
 ///
 /// Input deltas as on an abitrary scale based on PID output; they're not in real units like radians/s.
+#[cfg(feature = "h7")]
+pub fn apply_controls(
+    pitch_delta: f32,
+    roll_delta: f32,
+    throttle: f32,
+    // control_mix: &mut ControlMix,
+    control_posits: &mut ControlPositions,
+    mapping: &ServoWingMapping,
+    motor_tim: &mut Timer<TIM3>,
+    servo_tim: &mut Timer<TIM8>,
+    arm_status: ArmStatus,
+    dma: &mut Dma<DMA1>,
+) {
+    let mut elevon_left = 0.;
+    let mut elevon_right = 0.;
+
+    elevon_left += pitch_delta;
+    elevon_right += pitch_delta;
+
+    elevon_left += roll_delta * ROLL_COEFF;
+    elevon_right -= roll_delta * ROLL_COEFF;
+
+    *control_posits = ControlPositions {
+        motor: throttle,
+        elevon_left,
+        elevon_right,
+    };
+
+    control_posits.clamp();
+
+    control_posits.set(motor_tim, servo_tim, arm_status, mapping, dma);
+}
+
+// todo DRY!!!
+#[cfg(feature = "g4")]
 pub fn apply_controls(
     pitch_delta: f32,
     roll_delta: f32,
@@ -294,14 +359,6 @@ pub fn apply_controls(
     };
 
     control_posits.clamp();
-
-    println!(
-        "L {:?}, R: {:?}",
-        control_posits.elevon_left, control_posits.elevon_right
-    );
-
-    // // Update the mix for use next loop.
-    // * posits.clone();
 
     control_posits.set(motor_tim, servo_tim, arm_status, mapping, dma);
 }

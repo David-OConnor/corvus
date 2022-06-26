@@ -2,7 +2,12 @@
 
 use stm32_hal2::flash::{Bank, Flash};
 
-use crate::{UserCfg, FLASH_CFG_PAGE};
+use crate::state::UserCfg;
+
+#[cfg(feature = "g4")]
+use crate::FLASH_CFG_PAGE;
+#[cfg(feature = "h7")]
+use crate::FLASH_CFG_SECTOR;
 
 // impl From<[u8; 69]> for UserCfg {
 //     fn from(v: [u8; 69]) -> Self {
@@ -26,7 +31,7 @@ impl UserCfg {
 
         #[cfg(feature = "h7")]
         flash
-            .erase_write_sector(Bank::B1, FLASH_CFG_PAGE, &data)
+            .erase_write_sector(Bank::B1, FLASH_CFG_SECTOR, &data)
             .ok();
         #[cfg(feature = "g4")]
         flash.erase_write_page(Bank::B1, FLASH_CFG_PAGE, &data).ok();

@@ -651,7 +651,7 @@ pub fn apply_controls(
 
     pwr.clamp_individual_rotors();
 
-    pwr.set(mapping, rotor_tim_a, rotor_tim_b, arm_status, dma);
+    pwr.set(mapping, rotor_tim_b, arm_status, dma);
     *current_pwr = pwr;
 }
 

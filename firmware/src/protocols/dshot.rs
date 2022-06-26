@@ -180,18 +180,7 @@ pub fn setup_timers(timer_a: &mut Timer<TIM2>, timer_b: &mut Timer<TIM3>) {
 #[cfg(feature = "h7")]
 pub fn stop_all(timer: &mut Timer<TIM3>, dma: &mut Dma<DMA1>) {
     // Note that the stop command (Command 0) is currently not implemented, so set throttles to 0.
-    set_power(
-        Motor::M1,
-        Motor::M2,
-        Motor::M3,
-        Motor::M4,
-        0.,
-        0.,
-        0.,
-        0.,
-        timer,
-        dma,
-    );
+    set_power(0., 0., 0., 0., timer, dma);
 }
 
 #[cfg(not(feature = "h7"))]
