@@ -5,9 +5,13 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use cfg_if::cfg_if;
-
 use cortex_m::{self, asm, delay::Delay};
-
+use defmt::println;
+use defmt_rtt as _;
+// global logger
+use panic_probe as _;
+#[cfg(feature = "h7")]
+use stm32_hal2::clocks::PllCfg;
 use stm32_hal2::{
     self,
     adc::{self, Adc, AdcConfig, AdcDevice},
@@ -25,34 +29,48 @@ use stm32_hal2::{
     timer::{OutputCompare, TimChannel, Timer, TimerConfig, TimerInterrupt},
     usart::{Usart, UsartInterrupt},
 };
+use usb_device::bus::UsbBusAllocator;
+use usb_device::prelude::*;
+use usbd_serial::{self, SerialPort};
 
-#[cfg(feature = "h7")]
-use stm32_hal2::clocks::PllCfg;
-
-use defmt::println;
-
-// todo: Low power mode when idle to save battery (minor), and perhaps improve lifetime.
-
-cfg_if! {
-    if #[cfg(feature = "g4")] {
-        use stm32_hal2::usb::{Peripheral, UsbBus, UsbBusType};
-
-        use usb_device::bus::UsbBusAllocator;
-        use usb_device::prelude::*;
-        use usbd_serial::{SerialPort, USB_CLASS_CDC};
-
-
-        // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
-        // In practice, we only mutate it at initialization.
-        static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
-    }
-}
+use atmos_model::AltitudeCalPt;
+use control_interface::{ChannelData, InputModeSwitch, LinkStats};
+use drivers::baro_dps310 as baro;
+use drivers::gps_x as gps;
+// pub use, so we can use this rename in `sensor_fusion` to interpret the DMA buf.
+pub use drivers::imu_icm426xx as imu;
+// use drivers::imu_ism330dhcx as imu;
+use drivers::tof_vl53l1 as tof;
+use filter_imu::ImuFilters;
+use flight_ctrls::{
+    common::{AutopilotStatus, CommandState, ControlMix, CtrlInputs, InputMap, Params},
+    flying_wing::{self, ControlPositions, ServoWingMapping},
+    quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
+};
+use lin_alg::{Mat3, Vec3};
+use madgwick::Ahrs;
+use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
+use ppks::{Location, LocationType};
+use protocols::{crsf, dshot, usb_cfg};
+use safety::ArmStatus;
+use state::{AircraftType, OperationMode, StateVolatile, UserCfg};
 
 #[cfg(feature = "h7")]
 use crate::clocks::VosRange;
 
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+// todo: Low power mode when idle to save battery (minor), and perhaps improve lifetime.
+
+// Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
+// In practice, we only mutate it at initialization.
+static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
+
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        use stm32_hal2::usb_otg::{UsbBus, pac::USB1};
+    } else if #[cfg(feature = "g4")] {
+        use stm32_hal2::usb::{self, UsbBus, UsbBusType};
+    }
+}
 
 mod atmos_model;
 mod control_interface;
@@ -76,34 +94,6 @@ mod util;
 // todo: Can't get startup code working separately since Shared and Local must be private per an RTIC restriction.
 // todo: See this GH issue: https://github.com/rtic-rs/cortex-m-rtic/issues/505
 // mod startup;
-
-use control_interface::{ChannelData, InputModeSwitch, LinkStats};
-
-use drivers::baro_dps310 as baro;
-use drivers::gps_x as gps;
-// pub use, so we can use this rename in `sensor_fusion` to interpret the DMA buf.
-pub use drivers::imu_icm426xx as imu;
-// use drivers::imu_ism330dhcx as imu;
-use drivers::tof_vl53l1 as tof;
-
-use atmos_model::AltitudeCalPt;
-
-use madgwick::Ahrs;
-
-use filter_imu::ImuFilters;
-
-use flight_ctrls::{
-    common::{AutopilotStatus, CommandState, ControlMix, CtrlInputs, InputMap, Params},
-    flying_wing::{self, ControlPositions, ServoWingMapping},
-    quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
-};
-
-use lin_alg::{Mat3, Vec3};
-use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
-use ppks::{Location, LocationType};
-use protocols::{crsf, dshot, usb_cfg};
-use safety::ArmStatus;
-use state::{AircraftType, OperationMode, StateVolatile, UserCfg};
 
 // todo: Cycle flash pages for even wear. Can postpone this.
 
@@ -675,26 +665,44 @@ mod app {
         // todo: ID connected sensors etc by checking their device ID etc.
         let mut state_volatile = StateVolatile::default();
 
-        cfg_if! {
-            if #[cfg(feature = "g4")] {
-                let usb = Peripheral { regs: dp.USB };
+        let usb_dev = UsbDeviceBuilder::new(
+            unsafe { USB_BUS.as_ref().unwrap() },
+            UsbVidPid(0x16c0, 0x27dd),
+        )
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
-                unsafe { USB_BUS = Some(UsbBus::new(usb)) };
+        let usb_serial = SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
 
-                let usb_serial = SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
+        #[cfg(feature = "h7")]
+        let usb = USB1::new(
+            dp.OTG1_HS_GLOBAL,
+            dp.OTG1_HS_DEVICE,
+            dp.OTG1_HS_PWRCLK,
+            pin_dm,
+            pin_dp,
+            ccdr.peripheral.USB1OTG,
+            &ccdr.clocks,
+        );
 
-                let usb_dev = UsbDeviceBuilder::new(unsafe { USB_BUS.as_ref().unwrap() }, UsbVidPid(0x16c0, 0x27dd))
-                    .manufacturer("Anyleaf")
-                    // .product("MercuryG4")
-                    .product("G4")
-                    // We use `serial_number` to identify the device to the PC. If it's too long,
-                    // we get permissions errors on the PC.
-                    .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-                    .device_class(USB_CLASS_CDC)
-                    .build();
-            }
-        }
+        #[cfg(feature = "g4")]
+        let usb = usb::Peripheral { regs: dp.USB };
+
+        unsafe { USB_BUS = Some(UsbBus::new(usb)) };
         usb_cfg::init_crc();
+
+        // cfg_if! {
+        //     if #[cfg(feature = "h7")] {
+        //
+        //     } else if #[cfg(feature = "g4")] {
+        //
+        //     }
+        // }
 
         // todo: DMA for voltage ADC (?)
 
