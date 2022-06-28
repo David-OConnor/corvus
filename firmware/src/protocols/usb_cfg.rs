@@ -18,9 +18,9 @@ use crate::{
         quad::{Motor, RotorMapping, RotorPosition},
     },
     lin_alg::Quaternion,
-    ppks::Location,
+    ppks::{Location, WAYPOINT_MAX_NAME_LEN},
     safety::ArmStatus,
-    state::OperationMode,
+    state::{OperationMode, MAX_WAYPOINTS},
     util, LinkStats,
 };
 
@@ -35,15 +35,12 @@ use stm32_hal2::{
 #[cfg(feature = "g4")]
 use stm32_hal2::usb::UsbBusType;
 #[cfg(feature = "h7")]
-use stm32_hal2::usb_otg::UsbBusType;
+use stm32_hal2::usb_otg::Usb1BusType as UsbBusType;
 
 use usbd_serial::SerialPort;
 
 use num_enum::TryFromPrimitive; // Enum from integer
 
-use crate::dshot::setup_motor_dir;
-use crate::ppks::WAYPOINT_MAX_NAME_LEN;
-use crate::state::MAX_WAYPOINTS;
 use defmt::println;
 
 // These sizes are in bytes.
@@ -242,7 +239,7 @@ fn waypoints_to_buf(w: &[Option<Location>; MAX_WAYPOINTS]) -> [u8; WAYPOINTS_SIZ
 
 /// Handle incoming data from the PC
 pub fn handle_rx(
-    #[cfg(feature = "g4")] usb_serial: &mut SerialPort<'static, UsbBusType>,
+    usb_serial: &mut SerialPort<'static, UsbBusType>,
     data: &[u8],
     count: usize,
     // params: &Params,
@@ -254,7 +251,7 @@ pub fn handle_rx(
     arm_status: &mut ArmStatus,
     rotor_mapping: &mut RotorMapping,
     op_mode: &mut OperationMode,
-    timers: &mut MotorTimers,
+    motor_timers: &mut MotorTimers,
     adc: &Adc<ADC2>,
     dma: &mut Dma<DMA1>,
 ) {
@@ -392,20 +389,12 @@ pub fn handle_rx(
             // todo: Don't hard-code rotor power. Let it be user-selected.
             let power = 0.05;
 
-            match rotor_mapping.motor_from_position(rotor_position) {
-                Motor::M1 => {
-                    dshot::set_power_single_a(Motor::M1, power, rotor_timer_a, dma);
-                }
-                Motor::M2 => {
-                    dshot::set_power_single_a(Motor::M2, power, rotor_timer_a, dma);
-                }
-                Motor::M3 => {
-                    dshot::set_power_single_b(Motor::M3, power, rotor_timer_b, dma);
-                }
-                Motor::M4 => {
-                    dshot::set_power_single_b(Motor::M4, power, rotor_timer_b, dma);
-                }
-            }
+            dshot::set_power_single(
+                rotor_mapping.motor_from_position(rotor_position),
+                power,
+                motor_timers,
+                dma,
+            );
         }
         MsgType::StopMotor => {
             let rotor_position = match data[1] {
@@ -416,20 +405,12 @@ pub fn handle_rx(
                 _ => panic!(),
             };
 
-            match rotor_mapping.motor_from_position(rotor_position) {
-                Motor::M1 => {
-                    dshot::set_power_single(Motor::M1, 0., timers, dma);
-                }
-                Motor::M2 => {
-                    dshot::set_power_single(Motor::M2, 0., timers, dma);
-                }
-                Motor::M3 => {
-                    dshot::set_power_single(Motor::M3, 0., timers, dma);
-                }
-                Motor::M4 => {
-                    dshot::set_power_single(Motor::M4, 0., timers, dma);
-                }
-            }
+            dshot::set_power_single(
+                rotor_mapping.motor_from_position(rotor_position),
+                0.,
+                motor_timers,
+                dma,
+            );
         }
         MsgType::ReqWaypoints => {
             println!("Req wps");

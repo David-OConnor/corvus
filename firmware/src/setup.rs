@@ -76,6 +76,10 @@ impl Motor {
     /// Calculate by taking the Adddress Offset for the associated CCR channel in the
     /// RM register table, and dividing by 4.
     pub fn base_addr_offset(&self) -> u8 {
+        #[cfg(feature = "h7")]
+        return 13;
+
+        #[cfg(feature = "g4")]
         match self.tim_channel() {
             TimChannel::C1 => 13, // CCR1
             TimChannel::C2 => 13, // CCR2 (starting with CCR1, burst len 2)

@@ -14,8 +14,6 @@ use stm32_hal2::{i2c::I2c, pac::I2C2};
 
 use defmt::println;
 
-use num_traits::Float; // power.
-
 // The sensor's address is 0x77 (if SDO pin is left floating or pulled-up to VDDIO) or 0x76 (if the SDO pin is
 // pulled-down to GND).
 const ADDR: u8 = 0x77;

@@ -5,7 +5,7 @@
 // todo to make maneuver initiation more responsive. Anticapates control. Perhaps something simple like
 // todo immediately initiating a power adjustment in response to control actuation? (derivative of ctrl position?)
 
-use stm32_hal2::dma::Dma;
+use stm32_hal2::{dma::Dma, pac::DMA1};
 
 use crate::{control_interface::InputModeSwitch, dshot, safety::ArmStatus, util, StateVolatile};
 

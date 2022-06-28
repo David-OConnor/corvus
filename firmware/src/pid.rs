@@ -8,11 +8,7 @@
 
 use core::f32::consts::TAU;
 
-use stm32_hal2::{
-    dma::Dma,
-    pac::{DMA1, TIM2, TIM3},
-    timer::Timer,
-};
+use stm32_hal2::{dma::Dma, pac::DMA1};
 
 use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as dsp_sys;
@@ -22,7 +18,8 @@ use crate::{
     flight_ctrls::{
         self,
         common::{
-            AltType, AutopilotStatus, CommandState, ControlMix, CtrlInputs, InputMap, Params,
+            AltType, AutopilotStatus, CommandState, ControlMix, CtrlInputs, InputMap, MotorTimers,
+            Params,
         },
         quad::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED},
     },
@@ -30,7 +27,7 @@ use crate::{
     ArmStatus, ControlPositions, RotorMapping, ServoWingMapping, UserCfg, DT_ATTITUDE,
 };
 
-use crate::flight_ctrls::quad::MAX_ROTOR_POWER;
+use crate::flight_ctrls::quad::{Motor, MAX_ROTOR_POWER};
 use defmt::println;
 
 // todo: You need to take derivative of control inputs into account. For example, when sticks are moved,
@@ -779,8 +776,7 @@ pub fn run_rate(
     filters: &mut PidDerivFilters,
     current_pwr: &mut crate::MotorPower,
     rotor_mapping: &RotorMapping,
-    rotor_timer_a: &mut Timer<TIM2>,
-    rotor_timer_b: &mut Timer<TIM3>,
+    motor_timers: &mut MotorTimers,
     dma: &mut Dma<DMA1>,
     coeffs: &CtrlCoeffGroup,
     max_speed_ver: f32,
@@ -951,8 +947,7 @@ pub fn run_rate(
         control_mix,
         current_pwr,
         rotor_mapping,
-        rotor_timer_a,
-        rotor_timer_b,
+        motor_timers,
         arm_status,
         dma,
     );
@@ -969,8 +964,7 @@ pub fn run_rate_flying_wing(
     filters: &mut PidDerivFilters,
     control_posits: &mut ControlPositions,
     mapping: &ServoWingMapping,
-    motor_timer: &mut Timer<TIM2>,
-    servo_timer: &mut Timer<TIM3>,
+    motor_timers: &mut MotorTimers,
     dma: &mut Dma<DMA1>,
     coeffs: &CtrlCoeffGroup,
     input_map: &InputMap,
@@ -1111,8 +1105,7 @@ pub fn run_rate_flying_wing(
         // control_mix,
         control_posits,
         mapping,
-        motor_timer,
-        servo_timer,
+        motor_timers,
         arm_status,
         dma,
     );

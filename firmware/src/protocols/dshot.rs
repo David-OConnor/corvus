@@ -149,20 +149,6 @@ pub enum CmdType {
 pub fn setup_timers(timers: &mut MotorTimers) {
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            timers.r12.set_prescaler(DSHOT_PSC_600);
-            timers.r12.set_auto_reload(DSHOT_ARR_600 as u32);
-            timers.r34.set_prescaler(DSHOT_PSC_600);
-            timers.r34.set_auto_reload(DSHOT_ARR_600 as u32);
-
-            timers.r12.enable_interrupt(TimerInterrupt::UpdateDma);
-            timers.r34.enable_interrupt(TimerInterrupt::UpdateDma);
-
-            // Arbitrary duty cycle set, since we'll override it with DMA bursts.
-           timers.r12.enable_pwm_output(Motor::M1.tim_channel(), OutputCompare::Pwm1, 0.);
-            timers.r12.enable_pwm_output(Motor::M2.tim_channel(), OutputCompare::Pwm1, 0.);
-            timers.r34.enable_pwm_output(Motor::M3.tim_channel(), OutputCompare::Pwm1, 0.);
-            timers.r34.enable_pwm_output(Motor::M4.tim_channel(), OutputCompare::Pwm1, 0.);
-        } else if #[cfg(feature = "g4")] {
             timers.r1234.set_prescaler(DSHOT_PSC_600);
             timers.r1234.set_auto_reload(DSHOT_ARR_600 as u32);
 
@@ -173,6 +159,20 @@ pub fn setup_timers(timers: &mut MotorTimers) {
             timers.r1234.enable_pwm_output(Motor::M2.tim_channel(), OutputCompare::Pwm1, 0.);
             timers.r1234.enable_pwm_output(Motor::M3.tim_channel(), OutputCompare::Pwm1, 0.);
             timers.r1234.enable_pwm_output(Motor::M4.tim_channel(), OutputCompare::Pwm1, 0.);
+        } else if #[cfg(feature = "g4")] {
+            timers.r12.set_prescaler(DSHOT_PSC_600);
+            timers.r12.set_auto_reload(DSHOT_ARR_600 as u32);
+            timers.r34_servos.set_prescaler(DSHOT_PSC_600);
+            timers.r34_servos.set_auto_reload(DSHOT_ARR_600 as u32);
+
+            timers.r12.enable_interrupt(TimerInterrupt::UpdateDma);
+            timers.r34_servos.enable_interrupt(TimerInterrupt::UpdateDma);
+
+            // Arbitrary duty cycle set, since we'll override it with DMA bursts.
+            timers.r12.enable_pwm_output(Motor::M1.tim_channel(), OutputCompare::Pwm1, 0.);
+            timers.r12.enable_pwm_output(Motor::M2.tim_channel(), OutputCompare::Pwm1, 0.);
+            timers.r34_servos.enable_pwm_output(Motor::M3.tim_channel(), OutputCompare::Pwm1, 0.);
+            timers.r34_servos.enable_pwm_output(Motor::M4.tim_channel(), OutputCompare::Pwm1, 0.);
         }
     }
 }
@@ -186,7 +186,6 @@ pub fn stop_all(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     set_power(0., 0., 0., 0., timers, dma);
 }
 
-#[cfg(feature = "h7")]
 /// Set up the direction for each motor, in accordance with user config.
 pub fn setup_motor_dir(
     motors_reversed: (bool, bool, bool, bool),
@@ -198,7 +197,7 @@ pub fn setup_motor_dir(
     let mut delay = Delay::new(cp.SYST, 170_000_000);
 
     // Throttle must be 0 with telemetry bit set to use commands.
-    stop_all(timer, dma);
+    stop_all(timers, dma);
     delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
 
     // setup_payload(Rotor::R1, CmdType::Command(Command::Led0On));
@@ -354,7 +353,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     // Note that timer enabling is handled by `write_dma_burst`.
 
     cfg_if! {
-        if #[cfg[feature = "h7"]] {
+        if #[cfg(feature = "h7")] {
              // Set back to alternate function.
             unsafe {
                 (*pac::GPIOC::ptr()).moder.modify(|_, w| {
@@ -364,7 +363,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     w.moder9().bits(0b10)
                 });
 
-                timer.write_dma_burst(
+                timers.r1234.write_dma_burst(
                     &PAYLOAD,
                     Motor::M1.base_addr_offset(),
                     4, // Burst len of 4, since we're updating 4 channels.
@@ -388,7 +387,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     w.moder1().bits(0b10)
                 });
 
-                timer.write_dma_burst(
+                timers.r12.write_dma_burst(
                     &PAYLOAD_R1_2,
                     Motor::M1.base_addr_offset(),
                     2, // Burst len of 2, since we're updating 2 channels.
@@ -397,7 +396,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     dma,
                     true,
                 );
-                timer.write_dma_burst(
+                timers.r34_servos.write_dma_burst(
                     &PAYLOAD_R3_4,
                     Motor::M3.base_addr_offset(),
                     2,
@@ -427,14 +426,14 @@ pub fn _enable_bidirectional(timers: &mut MotorTimers) {
         } else {
             timers.r12.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveHigh);
             timers.r12.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveHigh);
-            timers.r34.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveHigh);
-            timers.r34.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveHigh);
+            timers.r34_servos.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveHigh);
+            timers.r34_servos.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveHigh);
 
             timers.r12.cfg.direction = CountDir::Down;
-            timers.r34.cfg.direction = CountDir::Down;
+            timers.r34_servos.cfg.direction = CountDir::Down;
 
             timers.r12.set_dir();
-            timers.r34.set_dir();
+            timers.r34_servos.set_dir();
         }
     }
 }
@@ -455,14 +454,14 @@ pub fn _disable_bidirectional(timers: &mut MotorTimers) {
         } else {
             timers.r12.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveLow);
             timers.r12.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveLow);
-            timers.r34.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveLow);
-            timers.r34.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveLow);
+            timers.r34_servos.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveLow);
+            timers.r34_servos.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveLow);
 
             timers.r12.cfg.direction = CountDir::Up;
-            timers.r34.cfg.direction = CountDir::Up;
+            timers.r34_servos.cfg.direction = CountDir::Up;
 
             timers.r12.set_dir();
-            timers.r34.set_dir();
+            timers.r34_servos.set_dir();
         }
     }
 }

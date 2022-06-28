@@ -276,5 +276,5 @@ pub struct MotorTimers {
     pub r12: Timer<pac::TIM2>,
     #[cfg(feature = "g4")]
     /// Timer for rotors 3 and 4. Use for servos on fixed wing.
-    pub r34: Timer<pac::TIM3>,
+    pub r34_servos: Timer<pac::TIM3>,
 }

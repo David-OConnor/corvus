@@ -6,17 +6,18 @@
 
 // todo: For wing, consider lowering your main loop frequency to whatever the min servo update frequency is.
 
-use cfg_if::cfg_if;
-use defmt::println;
 use stm32_hal2::{
     dma::Dma,
-    pac,
-    timer::{OutputCompare, TimChannel, TimerInterrupt},
+    pac::{self, DMA1},
+    timer::{OutputCompare, TimerInterrupt},
 };
 
-use crate::{dshot, flight_ctrls::quad::Motor, safety::ArmStatus, util, RotorMapping};
+use crate::{dshot, flight_ctrls::quad::Motor, safety::ArmStatus, util};
 
 use super::common::{ControlMix, MotorTimers};
+
+use cfg_if::cfg_if;
+use defmt::println;
 
 // todo: We're going to assume the servos operate off pulse width, with frequency between 40 and 200hz.
 // todo: Unable to find DS for the specific servos used here.
@@ -36,23 +37,23 @@ const ROLL_COEFF: f32 = 1.;
 cfg_if! {
     if #[cfg(feature = "h7")] {
         // 480Mhz tim clock.
-        pub const PSC: u16 = 0; // todo
-        pub const ARR: u32 = 332; // todo
+        pub const PSC_SERVOS: u16 = 0; // todo
+        pub const ARR_SERVOS: u32 = 332; // todo
         // 520Mhz tim clock.
-        // pub const PSC: u16 = 0; // todo
-        // pub const ARR: u32 = 332; // todo
+        // pub const PSC_SERVOS: u16 = 0; // todo
+        // pub const ARR_SERVOS: u32 = 332; // todo
     } else if #[cfg(feature = "g4")] {
         // 170Mhz tim clock. Results in 500Hz.
         // (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period
-        pub const PSC: u16 = 6;
-        pub const ARR: u32 = 48_570;
+        pub const PSC_SERVOS: u16 = 6;
+        pub const ARR_SERVOS: u32 = 48_570;
     }
 }
 
 // These represent full scale deflection of the evelons, assuming 500kHz PWM frequency.
 // We don't use full ARR for max high, since that would be full high the whole time.
-const SERVO_DUTY_HIGH: f32 = ARR as f32 * 0.2;
-const SERVO_DUTY_LOW: f32 = ARR as f32 * 0.7;
+const SERVO_DUTY_HIGH: f32 = ARR_SERVOS as f32 * 0.2;
+const SERVO_DUTY_LOW: f32 = ARR_SERVOS as f32 * 0.7;
 
 /// Sets the physical position of an elevon; commands a servo movement.
 pub fn set_elevon_posit(
@@ -85,25 +86,25 @@ pub fn set_elevon_posit(
         .servos
         .set_duty(elevon.tim_channel(), duty_arr as u16);
     #[cfg(feature = "g4")]
-    timers.r34.set_duty(elevon.tim_channel(), duty_arr as u16);
+    timers.r34_servos.set_duty(elevon.tim_channel(), duty_arr);
 }
 
 /// See also: `dshot::setup_timers`.
 pub fn setup_timers(timers: &mut MotorTimers) {
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            let motor_tim = timers.r1234;
-            let servo_tim = timers.servos;
+            let mut motor_tim = &mut timers.r1234;
+            let mut servo_tim = &mut timers.servos;
         } else {
-            let motor_tim = timers.r12;
-            let servo_tim = timers.r34;
+            let mut motor_tim = &mut timers.r12;
+            let mut servo_tim = &mut timers.r34_servos;
         }
     }
 
     motor_tim.set_prescaler(dshot::DSHOT_PSC_600);
     motor_tim.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
-    servo_tim.servos.set_prescaler(PSC);
-    servo_tim.servos.set_auto_reload(ARR);
+    servo_tim.set_prescaler(PSC_SERVOS);
+    servo_tim.set_auto_reload(ARR_SERVOS);
 
     motor_tim.enable_interrupt(TimerInterrupt::UpdateDma);
     // servo_timer.enable_interrupt(TimerInterrupt::Update);
@@ -119,6 +120,14 @@ pub fn setup_timers(timers: &mut MotorTimers) {
     // Set servo pins to pull-down, to make sure they don't send an errant pulse that triggers a
     // movement out-of-range of the control surfaces.
     // todo: #1: Don't hard-code these pins. #2: Consider if this is helping and/or sufficient.
+    #[cfg(feature = "h7")]
+    unsafe {
+        (*pac::GPIOC::ptr()).pupdr.modify(|_, w| {
+            w.pupdr8().bits(0b10);
+            w.pupdr9().bits(0b10)
+        });
+    }
+    #[cfg(feature = "g4")]
     unsafe {
         (*pac::GPIOB::ptr()).pupdr.modify(|_, w| {
             w.pupdr0().bits(0b10);
@@ -206,7 +215,7 @@ impl ControlPositions {
                 set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, timers);
             }
             ArmStatus::Disarmed => {
-                dshot::stop_all(motor_tim, dma);
+                dshot::stop_all(timers, dma);
 
                 set_elevon_posit(ServoWing::S1, 0., mapping, timers);
                 set_elevon_posit(ServoWing::S2, 0., mapping, timers);

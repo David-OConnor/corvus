@@ -18,23 +18,19 @@ use stm32_hal2::{
     clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
     dma::{self, ChannelCfg, Dma, DmaChannel},
     flash::{Bank, Flash},
-    gpio::{self, Edge, Pin, PinMode, Port},
+    gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{
-        self, ADC2, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM16, TIM17, TIM2, TIM3, TIM4,
-        USART3,
-    },
+    pac::{self, ADC2, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM16, TIM17, USART3},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
-    timer::{OutputCompare, TimChannel, Timer, TimerConfig, TimerInterrupt},
+    timer::{Timer, TimerConfig, TimerInterrupt},
     usart::{Usart, UsartInterrupt},
 };
-use usb_device::bus::UsbBusAllocator;
-use usb_device::prelude::*;
+use usb_device::{bus::UsbBusAllocator, prelude::*};
+
 use usbd_serial::{self, SerialPort};
 
-use atmos_model::AltitudeCalPt;
-use control_interface::{ChannelData, InputModeSwitch, LinkStats};
+use control_interface::{ChannelData, LinkStats};
 use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
 // pub use, so we can use this rename in `sensor_fusion` to interpret the DMA buf.
@@ -62,10 +58,6 @@ use crate::clocks::VosRange;
 
 // todo: Low power mode when idle to save battery (minor), and perhaps improve lifetime.
 
-// Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
-// In practice, we only mutate it at initialization.
-static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
-
 cfg_if! {
     if #[cfg(feature = "h7")] {
         use stm32_hal2::{
@@ -74,9 +66,13 @@ cfg_if! {
             // OTG1_HS_DEVICE
         };
     } else if #[cfg(feature = "g4")] {
-        // use stm32_hal2::usb::{self, UsbBus, UsbBusType};
+        use stm32_hal2::usb::{self, UsbBus, UsbBusType};
     }
 }
+
+// Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
+// In practice, we only mutate it at initialization.
+static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 mod atmos_model;
 mod control_interface;
@@ -557,28 +553,22 @@ mod app {
         // Frequency here can be arbitrary; we set manually using PSC and ARR below.
         cfg_if! {
             if #[cfg(feature = "h7")] {
-                let rotor_timer = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
+                let r1234 = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
 
                 // For fixed wing on H7; need a separate timer from the 4 used for DSHOT.
                 // todo: PAC ommission??
-                let mut servo_timer = Timer::new_tim8(dp.TIM8, 1., Default::default(), &clock_cfg);
+                let mut servos = Timer::new_tim8(dp.TIM8, 1., Default::default(), &clock_cfg);
 
-                let motor_timers = MotorTimers {
-                    r1234: rotor_timer,
-                    servos: servo_timer,
-                };
+                let mut motor_timers = MotorTimers { r1234, servos };
 
             } else if #[cfg(feature = "mercury-g4")] {
 
-                let mut rotor_timer_12 =
+                let mut r12 =
                     Timer::new_tim2(dp.TIM2, 1., rotor_timer_cfg.clone(), &clock_cfg);
 
-                let mut rotor_timer_34 = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
+                let mut r34_servos = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
 
-                let motor_timers = MotorTimers {
-                    r12: rotor_timer_12,
-                    r34: rotor_timer_34,
-                };
+                let mut motor_timers = MotorTimers { r12, r34_servos };
             }
         }
 
@@ -618,13 +608,10 @@ mod app {
         let mut ctrl_coeffs = Default::default();
         match user_cfg.aircraft_type {
             AircraftType::Quadcopter => {
-                #[cfg(feature = "h7")]
-                dshot::setup_timers(&mut rotor_timer_b);
-                #[cfg(feature = "g4")]
-                dshot::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
+                dshot::setup_timers(&mut motor_timers);
             }
             AircraftType::FlyingWing => {
-                flying_wing::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
+                flying_wing::setup_timers(&mut motor_timers);
                 ctrl_coeffs = CtrlCoeffGroup::default_flying_wing();
             }
         }
@@ -842,17 +829,12 @@ mod app {
         )
     }
 
-    #[idle(shared = [user_cfg, rotor_timer_a, rotor_timer_b, dma])]
+    #[idle(shared = [user_cfg, motor_timers, dma])]
     fn idle(cx: idle::Context) -> ! {
         // Set up DSHOT here, since we need interrupts enabled.
 
-        (
-            cx.shared.user_cfg,
-            cx.shared.rotor_timer_a,
-            cx.shared.rotor_timer_b,
-            cx.shared.dma,
-        )
-            .lock(|user_cfg, rotor_timer_a, rotor_timer_b, dma| {
+        (cx.shared.user_cfg, cx.shared.motor_timers, cx.shared.dma).lock(
+            |user_cfg, motor_timers, dma| {
                 // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
 
                 let cp = unsafe { cortex_m::Peripherals::steal() };
@@ -861,21 +843,18 @@ mod app {
                 // Allow ESC to warm up and radio to connect before starting the main loop.
                 delay.delay_ms(2_000);
 
-                #[cfg(feature = "h7")]
-                dshot::stop_all(rotor_timer, dma);
-                #[cfg(feature = "g4")]
-                dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
+                dshot::stop_all(motor_timers, dma);
 
                 delay.delay_ms(1);
 
                 // todo still not working
                 // dshot::setup_motor_dir(
                 //     user_cfg.motors_reversed,
-                //     rotor_timer_a,
-                //     rotor_timer_b,
+                //     motor_timers,
                 //     dma,
                 // );
-            });
+            },
+        );
 
         loop {
             asm::nop();
@@ -1121,7 +1100,7 @@ mod app {
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, input_mode, control_channel_data, input_map, autopilot_status,
     rates_commanded, pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, command_state, cs_imu, user_cfg,
-    rotor_timer_a, rotor_timer_b, ahrs, state_volatile, control_mix], local = [fixed_wing_rate_loop_i], priority = 5)]
+   motor_timers, ahrs, state_volatile, control_mix], local = [fixed_wing_rate_loop_i], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
@@ -1149,8 +1128,7 @@ mod app {
             cx.shared.control_mix,
             cx.shared.pid_rate,
             cx.shared.pid_deriv_filters,
-            cx.shared.rotor_timer_a,
-            cx.shared.rotor_timer_b,
+            cx.shared.motor_timers,
             cx.shared.dma,
             cx.shared.ctrl_coeffs,
             cx.shared.user_cfg,
@@ -1169,8 +1147,7 @@ mod app {
                  control_mix,
                  pid_inner,
                  filters,
-                 rotor_timer_a,
-                 rotor_timer_b,
+                 motor_timers,
                  dma,
                  coeffs,
                  cfg,
@@ -1185,13 +1162,10 @@ mod app {
 
                     // todo: Temp TS code to verify rotordirection.
                     // if command_state.arm_status == ArmStatus::Armed {
-                    //     // dshot::set_power_a(Rotor::R1, Rotor::R2, 0.0, 0.00, rotor_timer_a, dma);
-                    //     // dshot::set_power_a(Rotor::R1, Rotor::R2, 0.05, 0.05, rotor_timer_a, dma);
-                    //     dshot::set_power_b(Rotor::R3, Rotor::R4, 0.00, 0.00, rotor_timer_b, dma);
-                    //     // dshot::set_power_b(Rotor::R3, Rotor::R4, 0.05, 0.05, rotor_timer_b, dma);
+                    //     // dshot::set_power(Rotor::R1, Rotor::R2, 0.0, 0.00, motor_timers, dma);
+                    //     dshot::set_power(Rotor::R3, Rotor::R4, 0.00, 0.00, motor_timers, dma);
                     // } else {
-                    //     dshot::set_power_a(Rotor::R1, Rotor::R2, 0., 0., rotor_timer_a, dma);
-                    //     dshot::set_power_b(Rotor::R3, Rotor::R4, 0., 0., rotor_timer_b, dma);
+                    //     dshot::set_power(Rotor::R1, Rotor::R2, 0., 0., motor_timers, dma);
                     // }
                     // return;
 
@@ -1223,10 +1197,7 @@ mod app {
                     // of disarm. Alternatively, we could neither return nor stop motors here, and
                     // let `set_power` handle it.
                     if command_state.arm_status != ArmStatus::Armed {
-                        #[cfg(feature = "h7")]
-                        dshot::stop_all(rotor_timer_b, dma);
-                        #[cfg(feature = "g4")]
-                        dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
+                        dshot::stop_all(motor_timers, dma);
                         return;
                     }
 
@@ -1246,8 +1217,7 @@ mod app {
                                 filters,
                                 &mut state_volatile.current_pwr,
                                 &cfg.motor_mapping,
-                                rotor_timer_a,
-                                rotor_timer_b,
+                                motor_timers,
                                 dma,
                                 coeffs,
                                 cfg.max_speed_ver,
@@ -1272,8 +1242,7 @@ mod app {
                                     filters,
                                     &mut state_volatile.ctrl_positions,
                                     &cfg.servo_wing_mapping,
-                                    rotor_timer_a,
-                                    rotor_timer_b,
+                                    motor_timers,
                                     dma,
                                     coeffs,
                                     input_map,
@@ -1376,8 +1345,8 @@ mod app {
         gpio::set_low(Port::A, 1);
     }
 
-    // #[task(binds = DMA1_CH4, shared = [motor_timers], priority = 6)]
-    #[task(binds = DMA1_STR4, shared = [motor_timers], priority = 6)]
+    #[task(binds = DMA1_CH4, shared = [motor_timers], priority = 6)]
+    // #[task(binds = DMA1_STR4, shared = [motor_timers], priority = 6)]
     /// We use this ISR to disable the DSHOT t
     /// imer upon completion of a packet send.
     fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
@@ -1395,7 +1364,7 @@ mod app {
             #[cfg(feature = "h7")]
             timers.r1234.disable();
             #[cfg(feature = "g4")]
-            timers.r34.disable();
+            timers.r34_servos.disable();
         });
 
         // Set to Output pin, low.
@@ -1429,29 +1398,20 @@ mod app {
         }
     }
 
-    #[task(binds = TIM8, shared = [motor_timers], priority = 6)] // H7
+    // #[task(binds = TIM8, shared = [motor_timers], priority = 6)] // H7
     #[task(binds = TIM3, shared = [motor_timers], priority = 6)] // G4
     /// We use this for fixed wing, to disable the timer after each pulse. We don't enable this interrupt
     /// on quadcopters.
     fn servo_isr(mut cx: servo_isr::Context) {
         cx.shared.motor_timers.lock(|timers| {
             #[cfg(feature = "h7")]
-            timers.servos.clear_interrupt(TimerInterrupt::Update);
+            let mut timer = &mut timers.servos;
             #[cfg(feature = "g4")]
-            timers.r34.clear_interrupt(TimerInterrupt::Update);
+            let mut timer = &mut timers.r34_servos;
 
+            timer.clear_interrupt(TimerInterrupt::Update);
             timer.disable();
         });
-
-        // Set to Output pin, low. Maybe overkill?
-        // unsafe {
-        //     (*pac::GPIOB::ptr()).moder.modify(|_, w| {
-        //         w.moder0().bits(0b01);
-        //         w.moder1().bits(0b01)
-        //     });
-        // }
-        // gpio::set_low(Port::B, 0);
-        // gpio::set_low(Port::B, 1);
     }
 
     // #[task(binds = TIM4, shared = [elrs_timer], priority = 4)]
@@ -1489,8 +1449,8 @@ mod app {
     // }
 
     /// If this triggers, it means we've lost the link. (Note that this is for TIM17)
-    #[task(binds = TIM17, shared = [lost_link_timer], priority = 2)]
-    // #[task(binds = TIM1_TRG_COM, shared = [lost_link_timer], priority = 2)]
+    // #[task(binds = TIM17, shared = [lost_link_timer], priority = 2)]
+    #[task(binds = TIM1_TRG_COM, shared = [lost_link_timer], priority = 2)]
     fn lost_link_isr(mut cx: lost_link_isr::Context) {
         println!("Lost the link!");
 
@@ -1507,7 +1467,7 @@ mod app {
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
-    fn crsf_isr(mut cx: crsf_isr::Context) {
+    fn crsf_isr(cx: crsf_isr::Context) {
         (
             cx.shared.uart3,
             cx.shared.dma,
