@@ -14,20 +14,33 @@ pub struct ImuCalibration {
 }
 
 impl Default for ImuCalibration {
+    #[rustfmt::skip]
     fn default() -> Self {
         Self {
             gyro_misalignment: Mat3 {
-                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                data: [
+                    1.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0,
+                    0.0, 0.0, 1.0
+                ],
             },
             gyro_sensitivity: Vec3::new(1.0, 1.0, 1.0),
             gyro_offset: Vec3::new(0.0, 0.0, 0.0),
             accel_misalignment: Mat3 {
-                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                data: [
+                    1.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0,
+                    0.0, 0.0, 1.0
+                ],
             },
             accel_sensitivity: Vec3::new(1.0, 1.0, 1.0),
             accel_offset: Vec3::new(0.0, 0.0, 0.0),
             soft_iron_matrix: Mat3 {
-                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                data: [
+                    1.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0,
+                    0.0, 0.0, 1.0
+                ],
             },
             hard_iron_offset: Vec3::new(0.0, 0.0, 0.0),
         }

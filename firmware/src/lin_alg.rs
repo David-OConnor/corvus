@@ -5,7 +5,7 @@
 
 use core::ops::{Add, Mul, Sub};
 
-use super::madgwick::fusion_asin;
+use super::ahrs_fusion::fusion_asin;
 
 use num_traits::float::Float;
 

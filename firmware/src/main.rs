@@ -46,7 +46,7 @@ use flight_ctrls::{
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
 use lin_alg::{Mat3, Vec3};
-use madgwick::Ahrs;
+use ahrs_fusion::Ahrs;
 use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
@@ -80,7 +80,7 @@ mod drivers;
 mod filter_imu;
 mod flight_ctrls;
 mod lin_alg;
-mod madgwick;
+mod ahrs_fusion;
 // mod osd;
 mod cfg_storage;
 mod imu_calibration;
@@ -664,20 +664,6 @@ mod app {
         // todo: ID connected sensors etc by checking their device ID etc.
         let mut state_volatile = StateVolatile::default();
 
-        let usb_dev = UsbDeviceBuilder::new(
-            unsafe { USB_BUS.as_ref().unwrap() },
-            UsbVidPid(0x16c0, 0x27dd),
-        )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
-
-        let usb_serial = SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
-
         #[cfg(feature = "h7")]
         let usb = Usb1::new(
             dp.OTG1_HS_GLOBAL,
@@ -690,17 +676,21 @@ mod app {
         let usb = usb::Peripheral { regs: dp.USB };
 
         unsafe { USB_BUS = Some(UsbBus::new(usb)) };
+
+        let usb_serial = SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
+
+        let usb_dev = UsbDeviceBuilder::new(
+            unsafe { USB_BUS.as_ref().unwrap() },
+            UsbVidPid(0x16c0, 0x27dd),
+        )
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
         usb_cfg::init_crc();
-
-        // cfg_if! {
-        //     if #[cfg(feature = "h7")] {
-        //
-        //     } else if #[cfg(feature = "g4")] {
-        //
-        //     }
-        // }
-
-        // todo: DMA for voltage ADC (?)
 
         // todo: Note that you may need to either increment the flash page offset, or cycle flash pages, to
         // todo avoid wear on a given sector from erasing each time. Note that you can still probably get 10k
@@ -749,20 +739,20 @@ mod app {
         // }
 
         // todo: Calibation proecedure, either in air or on ground.
-        let ahrs_settings = madgwick::Settings::default();
+        let ahrs_settings = ahrs_fusion::Settings::default();
 
         // Note: Calibration and offsets ares handled handled by their defaults currently.
         let imu_calibration = imu_calibration::ImuCalibration {
-            gyro_misalignment: Mat3 {
-                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
-            },
-            gyro_sensitivity: Vec3::new(1.0, 1.0, 1.0),
-            gyro_offset: Vec3::new(0.0, 0.0, 0.0),
-            accel_misalignment: Mat3 {
-                data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
-            },
-            accel_sensitivity: Vec3::new(1.0, 1.0, 1.0),
-            accel_offset: Vec3::new(0.0, 0.0, 0.0),
+            // gyro_misalignment: Mat3 {
+            //     data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            // },
+            // gyro_sensitivity: Vec3::new(1.0, 1.0, 1.0),
+            // gyro_offset: Vec3::new(0.0, 0.0, 0.0),
+            // accel_misalignment: Mat3 {
+            //     data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            // },
+            // accel_sensitivity: Vec3::new(1.0, 1.0, 1.0),
+            // accel_offset: Vec3::new(0.0, 0.0, 0.0),
             ..Default::default()
         }; // todo - load from flash
 
@@ -956,10 +946,10 @@ mod app {
                         //     params.v_roll, params.v_pitch, params.v_yaw
                         // );
                         // //
-                        // println!(
-                        //     "Attitude: roll {}, pitch: {}, yaw: {}\n",
-                        //     params.s_roll, params.s_pitch, params.s_yaw
-                        // );
+                        println!(
+                            "Attitude: roll {}, pitch: {}, yaw: {}\n",
+                            params.s_roll, params.s_pitch, params.s_yaw
+                        );
 
                         // println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
                         // println!(
@@ -1100,7 +1090,7 @@ mod app {
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, input_mode, control_channel_data, input_map, autopilot_status,
     rates_commanded, pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, command_state, cs_imu, user_cfg,
-   motor_timers, ahrs, state_volatile, control_mix], local = [fixed_wing_rate_loop_i], priority = 5)]
+    motor_timers, ahrs, state_volatile, control_mix], local = [fixed_wing_rate_loop_i], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
@@ -1261,7 +1251,6 @@ mod app {
     // binds = OTG_HS
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
-    #[cfg(feature = "g4")]
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data, command_state,
     user_cfg, state_volatile, motor_timers, batt_curr_adc, dma], local = [], priority = 7)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop

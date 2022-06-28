@@ -43,7 +43,7 @@ mercury-h7 = ["h7"]
 g4 = ["stm32-hal2/g4rt", "stm32-hal2/g491", "stm32-hal2/usb", "stm32-usbd"]
 h7 = ["stm32-hal2/h7rt", "stm32-hal2/h735", "stm32-hal2/usbotg_hs", "synopsys-usb-otg"]
 
-#default = ["mercury-g4"]
+default = ["mercury-g4"]
 
 # cargo build/run
 [profile.dev]

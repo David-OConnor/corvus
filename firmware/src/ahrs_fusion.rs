@@ -43,7 +43,7 @@ const TIMEOUT: u32 = 5;
 const THRESHOLD: f32 = 0.05236;
 
 // Initial gain used during the initialisation.
-const INITIAL_GAIN: f32 = 10.0;
+const INITIAL_GAIN: f32 = 10.0 * 360. / TAU;
 
 // Initialisation period in seconds.
 const INITIALISATION_PERIOD: f32 = 3.0;
@@ -56,8 +56,17 @@ fn sin(v: f32) -> f32 {
     unsafe { arm_sin_f32(v) }
 }
 
-/// AHRS algorithm settings.
+/// AHRS algorithm settings. Field doc comments here are from [the readme](https://github.com/xioTechnologies/Fusion).
 pub struct Settings {
+    /// The algorithm calculates the orientation as the integration of the gyroscope
+    /// summed with a feedback term. The feedback term is equal to the error in the current measurement
+    /// of orientation as determined by the other sensors, multiplied by a gain. The algorithm therefore
+    /// functions as a complementary filter that combines high-pass filtered gyroscope measurements
+    /// with low-pass filtered measurements from other sensors with a corner frequency determined by
+    /// the gain. A low gain will 'trust' the gyroscope more and so be more susceptible to drift. A
+    /// high gain will increase the influence of other sensors and the errors that result from
+    /// accelerations and magnetic distortions. A gain of zero will ignore the other sensors so that
+    /// the measurement of orientation is determined by only the gyroscope.
     pub gain: f32,
     /// The acceleration rejection feature reduces the errors that result from the accelerations
     /// of linear and rotational motion. Acceleration rejection works by comparing the
@@ -84,10 +93,13 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            gain: 50.,
+            // todo: I'm not sure why the default gain of 0.5 seemed too low. Maybe it also assumes
+            // todo degrees? This modified default seems to work.
+            gain: 0.5 * 360. / TAU,
             accel_rejection: TAU / 4.,
             magnetic_rejection: TAU / 4.,
-            rejection_timeout: (5. * crate::IMU_UPDATE_RATE) as u32,
+            // rejection_timeout: (5. * crate::IMU_UPDATE_RATE) as u32,
+            rejection_timeout: 0,
         }
     }
 }
