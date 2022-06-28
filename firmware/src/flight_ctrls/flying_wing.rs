@@ -6,25 +6,20 @@
 
 // todo: For wing, consider lowering your main loop frequency to whatever the min servo update frequency is.
 
+use cfg_if::cfg_if;
+use defmt::println;
 use stm32_hal2::{
     dma::Dma,
-    pac::{self, DMA1, TIM2, TIM3},
-    timer::{OutputCompare, TimChannel, Timer, TimerInterrupt},
+    pac,
+    timer::{OutputCompare, TimChannel, TimerInterrupt},
 };
-
-#[cfg(feature = "h7")]
-use stm32_hal2::pac::TIM8;
 
 use crate::{dshot, flight_ctrls::quad::Motor, safety::ArmStatus, util, RotorMapping};
 
-use super::common::ControlMix;
+use super::common::{ControlMix, MotorTimers};
 
 // todo: We're going to assume the servos operate off pulse width, with frequency between 40 and 200hz.
 // todo: Unable to find DS for the specific servos used here.
-
-use cfg_if::cfg_if;
-
-use defmt::println;
 
 const MIN_MOTOR_POWER: f32 = 0.02;
 
@@ -60,12 +55,11 @@ const SERVO_DUTY_HIGH: f32 = ARR as f32 * 0.2;
 const SERVO_DUTY_LOW: f32 = ARR as f32 * 0.7;
 
 /// Sets the physical position of an elevon; commands a servo movement.
-#[cfg(feature = "h7")]
 pub fn set_elevon_posit(
     elevon: ServoWing,
     position: f32,
     mapping: &ServoWingMapping,
-    servo_timer: &mut Timer<TIM8>,
+    timers: &mut MotorTimers,
 ) {
     let range_out = match elevon {
         ServoWing::S1 => {
@@ -85,57 +79,42 @@ pub fn set_elevon_posit(
     };
 
     let duty_arr = util::map_linear(position, (ELEVON_MIN, ELEVON_MAX), range_out) as u32;
-    servo_timer.set_duty(elevon.tim_channel(), duty_arr as u16);
-}
 
-// todo DRY!!
-#[cfg(feature = "g4")]
-pub fn set_elevon_posit(
-    elevon: ServoWing,
-    position: f32,
-    mapping: &ServoWingMapping,
-    servo_timer: &mut Timer<TIM3>,
-) {
-    let range_out = match elevon {
-        ServoWing::S1 => {
-            if mapping.s1_reversed {
-                (SERVO_DUTY_HIGH, SERVO_DUTY_LOW)
-            } else {
-                (SERVO_DUTY_LOW, SERVO_DUTY_HIGH)
-            }
-        }
-        ServoWing::S2 => {
-            if mapping.s2_reversed {
-                (SERVO_DUTY_HIGH, SERVO_DUTY_LOW)
-            } else {
-                (SERVO_DUTY_LOW, SERVO_DUTY_HIGH)
-            }
-        }
-    };
-
-    let duty_arr = util::map_linear(position, (ELEVON_MIN, ELEVON_MAX), range_out) as u32;
-    servo_timer.set_duty(elevon.tim_channel(), duty_arr);
+    #[cfg(feature = "h7")]
+    timers
+        .servos
+        .set_duty(elevon.tim_channel(), duty_arr as u16);
+    #[cfg(feature = "g4")]
+    timers.r34.set_duty(elevon.tim_channel(), duty_arr as u16);
 }
 
 /// See also: `dshot::setup_timers`.
-pub fn setup_timers(motor_timer: &mut Timer<TIM2>, servo_timer: &mut Timer<TIM3>) {
-    // todo: On H7, use TIM8 for the servos.
+pub fn setup_timers(timers: &mut MotorTimers) {
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            let motor_tim = timers.r1234;
+            let servo_tim = timers.servos;
+        } else {
+            let motor_tim = timers.r12;
+            let servo_tim = timers.r34;
+        }
+    }
 
-    motor_timer.set_prescaler(dshot::DSHOT_PSC_600);
-    motor_timer.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
-    servo_timer.set_prescaler(PSC);
-    servo_timer.set_auto_reload(ARR);
+    motor_tim.set_prescaler(dshot::DSHOT_PSC_600);
+    motor_tim.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
+    servo_tim.servos.set_prescaler(PSC);
+    servo_tim.servos.set_auto_reload(ARR);
 
-    motor_timer.enable_interrupt(TimerInterrupt::UpdateDma);
+    motor_tim.enable_interrupt(TimerInterrupt::UpdateDma);
     // servo_timer.enable_interrupt(TimerInterrupt::Update);
 
     // Arbitrary duty cycle set, since we'll override it with DMA bursts.
-    motor_timer.enable_pwm_output(Motor::M1.tim_channel(), OutputCompare::Pwm1, 0.);
-    servo_timer.enable_pwm_output(ServoWing::S1.tim_channel(), OutputCompare::Pwm1, 0.);
-    servo_timer.enable_pwm_output(ServoWing::S2.tim_channel(), OutputCompare::Pwm1, 0.);
+    motor_tim.enable_pwm_output(Motor::M1.tim_channel(), OutputCompare::Pwm1, 0.);
+    servo_tim.enable_pwm_output(ServoWing::S1.tim_channel(), OutputCompare::Pwm1, 0.);
+    servo_tim.enable_pwm_output(ServoWing::S2.tim_channel(), OutputCompare::Pwm1, 0.);
 
     // PAC, since our HAL currently only sets this on `new`.
-    servo_timer.regs.cr1.modify(|_, w| w.opm().set_bit());
+    servo_tim.regs.cr1.modify(|_, w| w.opm().set_bit());
 
     // Set servo pins to pull-down, to make sure they don't send an errant pulse that triggers a
     // movement out-of-range of the control surfaces.
@@ -148,7 +127,7 @@ pub fn setup_timers(motor_timer: &mut Timer<TIM2>, servo_timer: &mut Timer<TIM3>
     }
 
     // Motor timer is enabled in Timer burst DMA. We enable the servo timer here.
-    servo_timer.enable();
+    servo_tim.enable();
 }
 
 /// Equivalent of `Motor` for quadcopters.
@@ -210,11 +189,9 @@ pub struct ControlPositions {
 
 impl ControlPositions {
     /// Send this command to cause power to be applied to the motor and servos.
-    #[cfg(feature = "h7")]
     pub fn set(
         &self,
-        motor_tim: &mut Timer<TIM3>,
-        servo_tim: &mut Timer<TIM8>,
+        timers: &mut MotorTimers,
         arm_status: ArmStatus,
         mapping: &ServoWingMapping,
         dma: &mut Dma<DMA1>,
@@ -222,45 +199,17 @@ impl ControlPositions {
         // M2 isn't used here, but keeps our API similar to Quad.
         match arm_status {
             ArmStatus::Armed => {
-                dshot::set_power(self.motor, 0., 0., 0., motor_tim, dma);
+                dshot::set_power(self.motor, 0., 0., 0., timers, dma);
 
                 // todo: Apply to left and right wing by mapping etc! Here or upstream.
-                set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, servo_tim);
-                set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, servo_tim);
+                set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, timers);
+                set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, timers);
             }
             ArmStatus::Disarmed => {
                 dshot::stop_all(motor_tim, dma);
 
-                set_elevon_posit(ServoWing::S1, 0., mapping, servo_tim);
-                set_elevon_posit(ServoWing::S2, 0., mapping, servo_tim);
-            }
-        }
-    }
-
-    // todo: DRY with above!
-    #[cfg(feature = "g4")]
-    pub fn set(
-        &self,
-        motor_tim: &mut Timer<TIM2>,
-        servo_tim: &mut Timer<TIM3>,
-        arm_status: ArmStatus,
-        mapping: &ServoWingMapping,
-        dma: &mut Dma<DMA1>,
-    ) {
-        // M2 isn't used here, but keeps our API similar to Quad.
-        match arm_status {
-            ArmStatus::Armed => {
-                dshot::set_power_a(self.motor, 0., motor_tim, dma);
-
-                // todo: Apply to left and right wing by mapping etc! Here or upstream.
-                set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, servo_tim);
-                set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, servo_tim);
-            }
-            ArmStatus::Disarmed => {
-                dshot::set_power_a(0., 0., motor_tim, dma);
-
-                set_elevon_posit(ServoWing::S1, 0., mapping, servo_tim);
-                set_elevon_posit(ServoWing::S2, 0., mapping, servo_tim);
+                set_elevon_posit(ServoWing::S1, 0., mapping, timers);
+                set_elevon_posit(ServoWing::S2, 0., mapping, timers);
             }
         }
     }
@@ -296,7 +245,6 @@ impl ControlPositions {
 /// Positive pitch means nose up. Positive roll means left wing up.
 ///
 /// Input deltas as on an abitrary scale based on PID output; they're not in real units like radians/s.
-#[cfg(feature = "h7")]
 pub fn apply_controls(
     pitch_delta: f32,
     roll_delta: f32,
@@ -304,8 +252,7 @@ pub fn apply_controls(
     // control_mix: &mut ControlMix,
     control_posits: &mut ControlPositions,
     mapping: &ServoWingMapping,
-    motor_tim: &mut Timer<TIM3>,
-    servo_tim: &mut Timer<TIM8>,
+    timers: &mut MotorTimers,
     arm_status: ArmStatus,
     dma: &mut Dma<DMA1>,
 ) {
@@ -326,41 +273,7 @@ pub fn apply_controls(
 
     control_posits.clamp();
 
-    control_posits.set(motor_tim, servo_tim, arm_status, mapping, dma);
-}
-
-// todo DRY!!!
-#[cfg(feature = "g4")]
-pub fn apply_controls(
-    pitch_delta: f32,
-    roll_delta: f32,
-    throttle: f32,
-    // control_mix: &mut ControlMix,
-    control_posits: &mut ControlPositions,
-    mapping: &ServoWingMapping,
-    motor_tim: &mut Timer<TIM2>,
-    servo_tim: &mut Timer<TIM3>,
-    arm_status: ArmStatus,
-    dma: &mut Dma<DMA1>,
-) {
-    let mut elevon_left = 0.;
-    let mut elevon_right = 0.;
-
-    elevon_left += pitch_delta;
-    elevon_right += pitch_delta;
-
-    elevon_left += roll_delta * ROLL_COEFF;
-    elevon_right -= roll_delta * ROLL_COEFF;
-
-    *control_posits = ControlPositions {
-        motor: throttle,
-        elevon_left,
-        elevon_right,
-    };
-
-    control_posits.clamp();
-
-    control_posits.set(motor_tim, servo_tim, arm_status, mapping, dma);
+    control_posits.set(timers, arm_status, mapping, dma);
 }
 
 /// For a target pitch and roll rate, estimate the control positions required. Note that `throttle`

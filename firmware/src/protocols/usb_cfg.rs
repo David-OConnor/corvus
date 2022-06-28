@@ -13,7 +13,10 @@
 use crate::{
     control_interface::ChannelData,
     dshot,
-    flight_ctrls::quad::{Motor, RotorMapping, RotorPosition},
+    flight_ctrls::{
+        common::MotorTimers,
+        quad::{Motor, RotorMapping, RotorPosition},
+    },
     lin_alg::Quaternion,
     ppks::Location,
     safety::ArmStatus,
@@ -24,21 +27,21 @@ use crate::{
 use stm32_hal2::{
     adc::Adc,
     dma::Dma,
-    pac::{ADC2, DMA1, TIM2, TIM3},
-    timer::Timer,
+    pac::{ADC2, DMA1},
 };
 
-use cfg_if::cfg_if;
+// use cfg_if::cfg_if;
 
-cfg_if! {
-    if #[cfg(feature = "g4")] {
-        use stm32_hal2::usb::UsbBusType;
-        use usbd_serial::SerialPort;
-    }
-}
+#[cfg(feature = "g4")]
+use stm32_hal2::usb::UsbBusType;
+#[cfg(feature = "h7")]
+use stm32_hal2::usb_otg::UsbBusType;
+
+use usbd_serial::SerialPort;
 
 use num_enum::TryFromPrimitive; // Enum from integer
 
+use crate::dshot::setup_motor_dir;
 use crate::ppks::WAYPOINT_MAX_NAME_LEN;
 use crate::state::MAX_WAYPOINTS;
 use defmt::println;
@@ -251,8 +254,7 @@ pub fn handle_rx(
     arm_status: &mut ArmStatus,
     rotor_mapping: &mut RotorMapping,
     op_mode: &mut OperationMode,
-    rotor_timer_a: &mut Timer<TIM2>,
-    rotor_timer_b: &mut Timer<TIM3>,
+    timers: &mut MotorTimers,
     adc: &Adc<ADC2>,
     dma: &mut Dma<DMA1>,
 ) {
@@ -416,16 +418,16 @@ pub fn handle_rx(
 
             match rotor_mapping.motor_from_position(rotor_position) {
                 Motor::M1 => {
-                    dshot::set_power_single_a(Motor::M1, 0., rotor_timer_a, dma);
+                    dshot::set_power_single(Motor::M1, 0., timers, dma);
                 }
                 Motor::M2 => {
-                    dshot::set_power_single_a(Motor::M2, 0., rotor_timer_a, dma);
+                    dshot::set_power_single(Motor::M2, 0., timers, dma);
                 }
                 Motor::M3 => {
-                    dshot::set_power_single_b(Motor::M3, 0., rotor_timer_b, dma);
+                    dshot::set_power_single(Motor::M3, 0., timers, dma);
                 }
                 Motor::M4 => {
-                    dshot::set_power_single_b(Motor::M4, 0., rotor_timer_b, dma);
+                    dshot::set_power_single(Motor::M4, 0., timers, dma);
                 }
             }
         }

@@ -10,6 +10,8 @@ use core::f32::consts::TAU;
 
 use crate::{lin_alg::Quaternion, ppks::Location, safety::ArmStatus, util::map_linear};
 
+use stm32_hal2::{pac, timer::Timer};
+
 use super::{
     flying_wing::ControlPositions,
     quad::{MotorPower, THROTTLE_MAX_MNVR_CLAMP, THROTTLE_MIN_MNVR_CLAMP},
@@ -257,4 +259,22 @@ pub struct ControlMix {
     pub roll: f32,
     pub yaw: f32,
     pub throttle: f32,
+}
+
+/// Abstraction over timers, that allows us to feature-gate struct fields based on MCU; this is
+/// because we can't use feature gates on function arguments, so we're gating upstream.
+/// todo: Consider adding apt methods to this, if it makes sense.
+pub struct MotorTimers {
+    #[cfg(feature = "h7")]
+    /// Timer for all 4 rotors.
+    pub r1234: Timer<pac::TIM3>,
+    #[cfg(feature = "h7")]
+    /// Servo timer. Note that we don't always use this, but the cost to store it here is minimal.
+    pub servos: Timer<pac::TIM8>,
+    #[cfg(feature = "g4")]
+    /// Timer for rotors 1 and 2.
+    pub r12: Timer<pac::TIM2>,
+    #[cfg(feature = "g4")]
+    /// Timer for rotors 3 and 4. Use for servos on fixed wing.
+    pub r34: Timer<pac::TIM3>,
 }

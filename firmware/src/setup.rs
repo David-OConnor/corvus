@@ -62,11 +62,13 @@ impl Motor {
 
     /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
     pub fn dma_channel(&self) -> DmaChannel {
+        #[cfg(feature = "h7")]
+        return DmaChannel::C4;
+
+        #[cfg(feature = "g4")]
         match self {
-            Self::M1 => DmaChannel::C3,
-            Self::M2 => DmaChannel::C3,
-            Self::M3 => DmaChannel::C4,
-            Self::M4 => DmaChannel::C4,
+            Self::M1 | Self::M2 => DmaChannel::C3,
+            Self::M3 | Self::M4 => DmaChannel::C4,
         }
     }
 
@@ -218,9 +220,10 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     dma::mux(IMU_RX_CH, DmaInput::Spi1Rx, mux);
 
     // DSHOT, motors 1 and 2 (all 4 for H7)
+    #[cfg(feature = "g4")]
     dma::mux(Motor::M1.dma_channel(), Motor::M1.dma_input(), mux);
 
-    // DSHOT, motors 3 and 4
+    // DSHOT, motors 3 and 4 (not used on H7)
     #[cfg(not(feature = "h7"))]
     dma::mux(Motor::M3.dma_channel(), Motor::M3.dma_input(), mux);
 

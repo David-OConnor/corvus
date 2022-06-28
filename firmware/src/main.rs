@@ -43,7 +43,9 @@ pub use drivers::imu_icm426xx as imu;
 use drivers::tof_vl53l1 as tof;
 use filter_imu::ImuFilters;
 use flight_ctrls::{
-    common::{AutopilotStatus, CommandState, ControlMix, CtrlInputs, InputMap, Params},
+    common::{
+        AutopilotStatus, CommandState, ControlMix, CtrlInputs, InputMap, MotorTimers, Params,
+    },
     flying_wing::{self, ControlPositions, ServoWingMapping},
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
@@ -66,9 +68,13 @@ static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
-        use stm32_hal2::usb_otg::{UsbBus, pac::USB1};
+        use stm32_hal2::{
+            usb_otg::{Usb1, UsbBus, Usb1BusType as UsbBusType},
+            // pac::USB
+            // OTG1_HS_DEVICE
+        };
     } else if #[cfg(feature = "g4")] {
-        use stm32_hal2::usb::{self, UsbBus, UsbBusType};
+        // use stm32_hal2::usb::{self, UsbBus, UsbBusType};
     }
 }
 
@@ -306,8 +312,7 @@ mod app {
         update_timer: Timer<TIM15>,
         rf_limiter_timer: Timer<TIM16>,
         lost_link_timer: Timer<TIM17>,
-        rotor_timer_a: Timer<TIM2>,
-        rotor_timer_b: Timer<TIM3>,
+        motor_timers: MotorTimers,
         // elrs_timer: Timer<TIM4>,
         // delay_timer: Timer<TIM5>,
         usb_dev: UsbDevice<'static, UsbBusType>,
@@ -551,22 +556,29 @@ mod app {
         // timer with 4 channels would be ideal.
         // Frequency here can be arbitrary; we set manually using PSC and ARR below.
         cfg_if! {
-            if #[cfg(feature = "mercury-h7")] {
-                let mut rotor_timer_a =
-                    Timer::new_tim2(dp.TIM2, 1., rotor_timer_cfg.clone(), &clock_cfg);
-
-                let mut rotor_timer_b = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
+            if #[cfg(feature = "h7")] {
+                let rotor_timer = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
 
                 // For fixed wing on H7; need a separate timer from the 4 used for DSHOT.
                 // todo: PAC ommission??
-                // let mut servo_timer = Timer::new_tim8(dp.TIM8, 1., Default::default(), &clock_cfg);
+                let mut servo_timer = Timer::new_tim8(dp.TIM8, 1., Default::default(), &clock_cfg);
+
+                let motor_timers = MotorTimers {
+                    r1234: rotor_timer,
+                    servos: servo_timer,
+                };
 
             } else if #[cfg(feature = "mercury-g4")] {
 
-                let mut rotor_timer_a =
+                let mut rotor_timer_12 =
                     Timer::new_tim2(dp.TIM2, 1., rotor_timer_cfg.clone(), &clock_cfg);
 
-                let mut rotor_timer_b = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
+                let mut rotor_timer_34 = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
+
+                let motor_timers = MotorTimers {
+                    r12: rotor_timer_12,
+                    r34: rotor_timer_34,
+                };
             }
         }
 
@@ -680,14 +692,11 @@ mod app {
         let usb_serial = SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
 
         #[cfg(feature = "h7")]
-        let usb = USB1::new(
+        let usb = Usb1::new(
             dp.OTG1_HS_GLOBAL,
             dp.OTG1_HS_DEVICE,
             dp.OTG1_HS_PWRCLK,
-            pin_dm,
-            pin_dp,
-            ccdr.peripheral.USB1OTG,
-            &ccdr.clocks,
+            clock_cfg.hclk(),
         );
 
         #[cfg(feature = "g4")]
@@ -714,6 +723,9 @@ mod app {
         // todo: Testing flash
         let mut flash_buf = [0; 8];
         // let cfg_data =
+        #[cfg(feature = "h7")]
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+        #[cfg(feature = "g4")]
         flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
@@ -805,13 +817,10 @@ mod app {
                 update_timer,
                 rf_limiter_timer,
                 lost_link_timer,
-                rotor_timer_a,
-                rotor_timer_b,
+                motor_timers,
                 // elrs_timer,
                 // delay_timer,
-                #[cfg(feature = "g4")]
                 usb_dev,
-                #[cfg(feature = "g4")]
                 usb_serial,
                 flash_onboard,
                 power_used: 0.,
@@ -1285,11 +1294,10 @@ mod app {
     // todo: NVIC interrupts missing here for H723 etc!
     #[cfg(feature = "g4")]
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data, command_state,
-    user_cfg, state_volatile, rotor_timer_a, rotor_timer_b, batt_curr_adc, dma], local = [], priority = 7)]
+    user_cfg, state_volatile, motor_timers, batt_curr_adc, dma], local = [], priority = 7)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
-        // return; // todo temp!!!!
         (
             cx.shared.usb_dev,
             cx.shared.usb_serial,
@@ -1298,8 +1306,7 @@ mod app {
             cx.shared.command_state,
             cx.shared.user_cfg,
             cx.shared.state_volatile,
-            cx.shared.rotor_timer_a,
-            cx.shared.rotor_timer_b,
+            cx.shared.motor_timers,
             cx.shared.batt_curr_adc,
             cx.shared.dma,
         )
@@ -1311,8 +1318,7 @@ mod app {
                  command_state,
                  user_cfg,
                  state_volatile,
-                 rotor_timer_a,
-                 rotor_timer_b,
+                 motor_timers,
                  adc,
                  dma| {
                     if !usb_dev.poll(&mut [usb_serial]) {
@@ -1322,7 +1328,6 @@ mod app {
                     let mut buf = [0u8; 8];
                     match usb_serial.read(&mut buf) {
                         Ok(count) => {
-                            #[cfg(feature = "h7")]
                             usb_cfg::handle_rx(
                                 usb_serial,
                                 &buf,
@@ -1336,27 +1341,7 @@ mod app {
                                 &mut command_state.arm_status,
                                 &mut user_cfg.motor_mapping,
                                 &mut state_volatile.op_mode,
-                                rotor_timer_b,
-                                adc,
-                                dma,
-                            );
-
-                            #[cfg(feature = "g4")]
-                            usb_cfg::handle_rx(
-                                usb_serial,
-                                &buf,
-                                count,
-                                // params,
-                                params.quaternion,
-                                params.s_z_msl,
-                                ch_data,
-                                &state_volatile.link_stats,
-                                &user_cfg.waypoints,
-                                &mut command_state.arm_status,
-                                &mut user_cfg.motor_mapping,
-                                &mut state_volatile.op_mode,
-                                rotor_timer_a,
-                                rotor_timer_b,
+                                motor_timers,
                                 adc,
                                 dma,
                             );
@@ -1369,22 +1354,15 @@ mod app {
             )
     }
 
+    // Note: We don't use `dshot_isr_r12` on H7.
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
-    #[task(binds = DMA1_CH3, shared = [rotor_timer_a], priority = 6)]
-    // #[task(binds = DMA1_STR3, shared = [rotor_timer_a], priority = 6)]
+    #[task(binds = DMA1_CH3, shared = [motor_timers], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
-    fn dshot_isr_a(mut cx: dshot_isr_a::Context) {
-        #[cfg(feature = "h7")]
-        unsafe {
-            (*DMA1::ptr()).lifcr.write(|w| w.ctcif3().set_bit())
-        }
-        #[cfg(feature = "g4")]
-        unsafe {
-            (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit())
-        }
+    fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
+        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit()) }
 
-        cx.shared.rotor_timer_a.lock(|timer| {
-            timer.disable();
+        cx.shared.motor_timers.lock(|timers| {
+            timers.r12.disable();
         });
 
         // Set to Output pin, low.
@@ -1398,12 +1376,11 @@ mod app {
         gpio::set_low(Port::A, 1);
     }
 
-    // #[task(binds = DMA1_CH4, shared = [rotor_timer_b], priority = 6)]
-    #[task(binds = DMA1_STR4, shared = [rotor_timer_b], priority = 6)]
-    // #[task(binds = DMA1_STR4, shared = [rotor_timer_b], priority = 6)]
+    // #[task(binds = DMA1_CH4, shared = [motor_timers], priority = 6)]
+    #[task(binds = DMA1_STR4, shared = [motor_timers], priority = 6)]
     /// We use this ISR to disable the DSHOT t
     /// imer upon completion of a packet send.
-    fn dshot_isr_b(mut cx: dshot_isr_b::Context) {
+    fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
         // todo: Feature-gate this out on H7 or something? Not used.
         #[cfg(feature = "h7")]
         unsafe {
@@ -1414,27 +1391,55 @@ mod app {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit())
         }
 
-        cx.shared.rotor_timer_b.lock(|timer| {
-            timer.disable();
+        cx.shared.motor_timers.lock(|timers| {
+            #[cfg(feature = "h7")]
+            timers.r1234.disable();
+            #[cfg(feature = "g4")]
+            timers.r34.disable();
         });
 
         // Set to Output pin, low.
-        unsafe {
-            (*pac::GPIOB::ptr()).moder.modify(|_, w| {
-                w.moder0().bits(0b01);
-                w.moder1().bits(0b01)
-            });
+        cfg_if! {
+            if #[cfg(feature = "h7")] {
+                unsafe {
+                     (*pac::GPIOC::ptr()).moder.modify(|_, w| {
+                        w.moder6().bits(0b01);
+                        w.moder7().bits(0b01);
+                        w.moder8().bits(0b01);
+                        w.moder9().bits(0b01)
+                    });
+                }
+
+                gpio::set_low(Port::C, 6);
+                gpio::set_low(Port::C, 7);
+                gpio::set_low(Port::C, 8);
+                gpio::set_low(Port::C, 9);
+
+            } else {
+                unsafe {
+                    (*pac::GPIOB::ptr()).moder.modify(|_, w| {
+                        w.moder0().bits(0b01);
+                        w.moder1().bits(0b01)
+                    });
+                }
+
+                gpio::set_low(Port::B, 0);
+                gpio::set_low(Port::B, 1);
+            }
         }
-        gpio::set_low(Port::B, 0);
-        gpio::set_low(Port::B, 1);
     }
 
-    #[task(binds = TIM3, shared = [rotor_timer_b], priority = 6)]
+    #[task(binds = TIM8, shared = [motor_timers], priority = 6)] // H7
+    #[task(binds = TIM3, shared = [motor_timers], priority = 6)] // G4
     /// We use this for fixed wing, to disable the timer after each pulse. We don't enable this interrupt
     /// on quadcopters.
     fn servo_isr(mut cx: servo_isr::Context) {
-        cx.shared.rotor_timer_b.lock(|timer| {
-            timer.clear_interrupt(TimerInterrupt::Update);
+        cx.shared.motor_timers.lock(|timers| {
+            #[cfg(feature = "h7")]
+            timers.servos.clear_interrupt(TimerInterrupt::Update);
+            #[cfg(feature = "g4")]
+            timers.r34.clear_interrupt(TimerInterrupt::Update);
+
             timer.disable();
         });
 

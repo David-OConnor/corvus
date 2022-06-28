@@ -5,15 +5,11 @@
 // todo to make maneuver initiation more responsive. Anticapates control. Perhaps something simple like
 // todo immediately initiating a power adjustment in response to control actuation? (derivative of ctrl position?)
 
-use stm32_hal2::{
-    dma::Dma,
-    pac::{DMA1, TIM2, TIM3},
-    timer::Timer,
-};
+use stm32_hal2::dma::Dma;
 
 use crate::{control_interface::InputModeSwitch, dshot, safety::ArmStatus, util, StateVolatile};
 
-use super::common::{ControlMix, Params};
+use super::common::{ControlMix, MotorTimers, Params};
 
 use defmt::println;
 
@@ -81,21 +77,6 @@ impl AircraftProperties {
         0.1 // todo
     }
 }
-
-// /// In the event we lose our control link signal
-// /// todo: Consider removing this later once you settle on a procedure.
-// pub enum LostLinkProcedure {
-//     /// turn off all motors. Aircraft will drop to the ground and crash.
-//     Disarm,
-//     /// Command level attitude and/or louter, and auto land. TOF optional.
-//     LoiterAutoLand,
-//     /// Return to base, climbing as required, and land. Requires GPS. TOF optional.
-//     RtbLand,
-//     /// Climb, to attempt to re-acquire the link
-//     Climb,
-//     /// Hover
-//     Hover
-// }
 
 /// We use this to freeze an axis in acro mode, when the control for that axis is neutral.
 /// this prevents drift from accumulation of errors. Values are uuler angle locked at, in radians. Only used
@@ -302,32 +283,11 @@ impl MotorPower {
         }
     }
 
-    #[cfg(feature = "h7")]
-    pub fn set(
-        &self,
-        mapping: &RotorMapping,
-        rotor_timer: &mut Timer<TIM3>,
-        arm_status: ArmStatus,
-        dma: &mut Dma<DMA1>,
-    ) {
-        let (p1, p2, p3, p4) = self.by_rotor_num(mapping);
-        match arm_status {
-            ArmStatus::Armed => {
-                dshot::set_power(p1, p2, p3, p4, rotor_timer, dma);
-            }
-            ArmStatus::Disarmed => {
-                dshot::stop_all(rotor_timer_b, dma);
-            }
-        }
-    }
-
-    #[cfg(feature = "g4")]
     /// Send this power command to the rotors
     pub fn set(
         &self,
         mapping: &RotorMapping,
-        rotor_timer_a: &mut Timer<TIM2>,
-        rotor_timer_b: &mut Timer<TIM3>,
+        rotor_timers: &mut MotorTimers,
         arm_status: ArmStatus,
         dma: &mut Dma<DMA1>,
     ) {
@@ -335,11 +295,10 @@ impl MotorPower {
 
         match arm_status {
             ArmStatus::Armed => {
-                dshot::set_power_a(p1, p2, rotor_timer_a, dma);
-                dshot::set_power_b(p3, p4, rotor_timer_b, dma);
+                dshot::set_power(p1, p2, p3, p4, rotor_timers, dma);
             }
             ArmStatus::Disarmed => {
-                dshot::stop_all(rotor_timer_a, rotor_timer_b, dma);
+                dshot::stop_all(rotor_timers, dma);
             }
         }
     }
@@ -606,7 +565,6 @@ fn calc_rotor_powers(
 /// If a rotor exceeds min or max power settings, clamp it.
 ///
 /// Input deltas units are half-power-delta.  based on PID output; they're not in real units like radians/s.
-/// todo: Feature gate H7, or just pass the timer?
 pub fn apply_controls(
     pitch_delta: f32,
     roll_delta: f32,
@@ -615,8 +573,7 @@ pub fn apply_controls(
     control_mix: &mut ControlMix,
     current_pwr: &mut MotorPower,
     mapping: &RotorMapping,
-    rotor_tim_a: &mut Timer<TIM2>,
-    rotor_tim_b: &mut Timer<TIM3>,
+    rotor_timers: &mut MotorTimers,
     arm_status: ArmStatus,
     dma: &mut Dma<DMA1>,
 ) {
@@ -651,7 +608,7 @@ pub fn apply_controls(
 
     pwr.clamp_individual_rotors();
 
-    pwr.set(mapping, rotor_tim_b, arm_status, dma);
+    pwr.set(mapping, rotor_timers, arm_status, dma);
     *current_pwr = pwr;
 }
 
