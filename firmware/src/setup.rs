@@ -5,7 +5,6 @@ use cfg_if::cfg_if;
 
 use crate::flight_ctrls::{flying_wing::ServoWing, quad::Motor};
 
-use stm32_hal2::gpio::Port::A;
 use stm32_hal2::{
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
@@ -20,9 +19,13 @@ use stm32_hal2::pac::DMAMUX1 as DMAMUX;
 
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
 pub const IMU_RX_CH: DmaChannel = DmaChannel::C2;
+#[cfg(feature = "g4")]
+pub const MOTOR_CH_A: DmaChannel = DmaChannel::C3;
+pub const MOTOR_CH_B: DmaChannel = DmaChannel::C4;
 pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
-pub const ELRS_RX_CH: DmaChannel = DmaChannel::C6;
-pub const BATT_CURR_ADC_CH: DmaChannel = DmaChannel::C6; // todo: Note: Sharing ELRS/CRSF.
+pub const CRSF_TX_CH: DmaChannel = DmaChannel::C6;
+// pub const ELRS_RX_CH: DmaChannel = DmaChannel::C6;
+pub const BATT_CURR_CH: DmaChannel = DmaChannel::C7;
 
 pub const BATT_ADC_CH: u8 = 17;
 pub const CURR_ADC_CH: u8 = 12;
@@ -63,12 +66,12 @@ impl Motor {
     /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
     pub fn dma_channel(&self) -> DmaChannel {
         #[cfg(feature = "h7")]
-        return DmaChannel::C4;
+        return MOTOR_CH_B;
 
         #[cfg(feature = "g4")]
         match self {
-            Self::M1 | Self::M2 => DmaChannel::C3,
-            Self::M3 | Self::M4 => DmaChannel::C4,
+            Self::M1 | Self::M2 => MOTOR_CH_A,
+            Self::M3 | Self::M4 => MOTOR_CH_B4,
         }
     }
 
@@ -240,7 +243,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     // we only have it set up to respond to pings, and that's probably unecessary.
     // dma::mux(DmaChannel::C8, DmaInput::Usart3Tx, mux);
 
-    dma::mux(BATT_CURR_ADC_CH, DmaInput::Adc2, mux);
+    dma::mux(BATT_CURR_CH, DmaInput::Adc2, mux);
 
     // TOF sensor
     // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx, &mut dp.DMAMUX);
@@ -256,5 +259,5 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
 
     // Process ELRS control data
-    dma.enable_interrupt(ELRS_RX_CH, DmaInterrupt::TransferComplete);
+    // dma.enable_interrupt(ELRS_RX_CH, DmaInterrupt::TransferComplete);
 }

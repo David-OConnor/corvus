@@ -4,19 +4,20 @@
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use cfg_if::cfg_if;
 use cortex_m::{self, asm, delay::Delay};
+
 use defmt::println;
 use defmt_rtt as _;
 // global logger
 use panic_probe as _;
+
 #[cfg(feature = "h7")]
 use stm32_hal2::clocks::PllCfg;
 use stm32_hal2::{
     self,
     adc::{self, Adc, AdcConfig, AdcDevice},
     clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
-    dma::{self, ChannelCfg, Dma, DmaChannel},
+    dma::{self, ChannelCfg, Dma},
     flash::{Bank, Flash},
     gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
@@ -36,6 +37,7 @@ use drivers::gps_x as gps;
 // pub use, so we can use this rename in `sensor_fusion` to interpret the DMA buf.
 pub use drivers::imu_icm426xx as imu;
 // use drivers::imu_ism330dhcx as imu;
+use ahrs_fusion::Ahrs;
 use drivers::tof_vl53l1 as tof;
 use filter_imu::ImuFilters;
 use flight_ctrls::{
@@ -45,8 +47,7 @@ use flight_ctrls::{
     flying_wing::{self, ControlPositions, ServoWingMapping},
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
-use lin_alg::{Mat3, Vec3};
-use ahrs_fusion::Ahrs;
+
 use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
@@ -56,7 +57,7 @@ use state::{AircraftType, OperationMode, StateVolatile, UserCfg};
 #[cfg(feature = "h7")]
 use crate::clocks::VosRange;
 
-// todo: Low power mode when idle to save battery (minor), and perhaps improve lifetime.
+use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
@@ -74,18 +75,18 @@ cfg_if! {
 // In practice, we only mutate it at initialization.
 static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
+mod ahrs_fusion;
 mod atmos_model;
 mod control_interface;
 mod drivers;
 mod filter_imu;
 mod flight_ctrls;
 mod lin_alg;
-mod ahrs_fusion;
 // mod osd;
 mod cfg_storage;
 mod imu_calibration;
 mod pid;
-mod pid_tuning;
+// mod pid_tuning;
 mod ppks;
 mod protocols;
 mod safety;
@@ -135,6 +136,9 @@ const DT_ATTITUDE: f32 = 1. / UPDATE_RATE_ATTITUDE;
 const DT_VELOCITY: f32 = 1. / UPDATE_RATE_VELOCITY;
 
 static mut ADC_READ_BUF: [u16; 2] = [0; 2];
+
+#[cfg(feature = "h7")]
+static mut USB_EP_MEMORY: [u32; 1024] = [0; 1024];
 
 // These values correspond to how much the voltage divider on these ADC pins reduces the input
 // voltage. Multiply by these values to get the true readings.
@@ -513,7 +517,7 @@ mod app {
             batt_curr_adc.read_dma(
                 &mut ADC_READ_BUF,
                 &[setup::BATT_ADC_CH, setup::CURR_ADC_CH],
-                setup::BATT_CURR_ADC_CH,
+                setup::BATT_CURR_CH,
                 ChannelCfg {
                     circular: dma::Circular::Enabled,
                     ..Default::default()
@@ -664,18 +668,22 @@ mod app {
         // todo: ID connected sensors etc by checking their device ID etc.
         let mut state_volatile = StateVolatile::default();
 
-        #[cfg(feature = "h7")]
-        let usb = Usb1::new(
-            dp.OTG1_HS_GLOBAL,
-            dp.OTG1_HS_DEVICE,
-            dp.OTG1_HS_PWRCLK,
-            clock_cfg.hclk(),
-        );
+        cfg_if! {
+            if #[cfg(feature = "h7")] {
+                let usb = Usb1::new(
+                    dp.OTG1_HS_GLOBAL,
+                    dp.OTG1_HS_DEVICE,
+                    dp.OTG1_HS_PWRCLK,
+                    clock_cfg.hclk(),
+                );
 
-        #[cfg(feature = "g4")]
-        let usb = usb::Peripheral { regs: dp.USB };
+                unsafe { USB_BUS = Some(UsbBus::new(usb, unsafe { &mut USB_EP_MEMORY })) };
+            } else {
+                let usb = usb::Peripheral { regs: dp.USB };
 
-        unsafe { USB_BUS = Some(UsbBus::new(usb)) };
+                unsafe { USB_BUS = Some(UsbBus::new(usb)) };
+            }
+        }
 
         let usb_serial = SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
 
@@ -1148,6 +1156,7 @@ mod app {
                     // Note that these steps are mandatory, per STM32 RM.
                     // spi.stop_dma only can stop a single channel atm, hence the 2 calls here.
                     dma.stop(setup::IMU_TX_CH);
+
                     spi1.stop_dma(setup::IMU_RX_CH, dma);
 
                     // todo: Temp TS code to verify rotordirection.
@@ -1312,12 +1321,18 @@ mod app {
             )
     }
 
-    // Note: We don't use `dshot_isr_r12` on H7.
+    // Note: We don't use `dshot_isr_r12` on H7; this is associated with timer 2.
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
+    #[cfg(not(feature = "h7"))]
     #[task(binds = DMA1_CH3, shared = [motor_timers], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
-        unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit()) }
+        // Feature-gating this fn isn't working,
+        #[cfg(not(feature = "h7"))]
+        // todo: Why is this gate required when we have feature-gated the fn?
+        unsafe {
+            (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit())
+        }
 
         cx.shared.motor_timers.lock(|timers| {
             timers.r12.disable();
@@ -1432,8 +1447,8 @@ mod app {
     //
     //     (cx.shared.spi2, cx.shared.cs_elrs, cx.shared.dma).lock(|spi, cs, dma| {
     //         cs.set_high();
-    //         dma.stop(DmaChannel::C1); // spi.stop_dma only can stop a single channel atm.
-    //         spi.stop_dma(DmaChannel::C2, dma);
+    //         dma.stop(setup::ELRS_TX_CH); // spi.stop_dma only can stop a single channel atm.
+    //         spi.stop_dma(setup::ELRS_RX_CH, dma);
     //     });
     // }
 
@@ -1480,7 +1495,7 @@ mod app {
                     }
 
                     if let Some(crsf_data) =
-                        crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, DmaChannel::C8)
+                        crsf::handle_packet(uart, dma, setup::CRSF_RX_CH, setup::CRSF_TX_CH)
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {

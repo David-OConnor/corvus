@@ -15,7 +15,7 @@ use crate::{
     dshot,
     flight_ctrls::{
         common::MotorTimers,
-        quad::{Motor, RotorMapping, RotorPosition},
+        quad::{RotorMapping, RotorPosition},
     },
     lin_alg::Quaternion,
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},

@@ -15,8 +15,6 @@ use defmt::println;
 
 use cmsis_dsp_sys as dsp_sys;
 
-use cfg_if::cfg_if;
-
 // Min power setting for any individual rotor at idle setting.
 const MIN_ROTOR_POWER: f32 = 0.03;
 

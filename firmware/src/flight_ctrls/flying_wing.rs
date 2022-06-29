@@ -14,7 +14,7 @@ use stm32_hal2::{
 
 use crate::{dshot, flight_ctrls::quad::Motor, safety::ArmStatus, util};
 
-use super::common::{ControlMix, MotorTimers};
+use super::common::MotorTimers;
 
 use cfg_if::cfg_if;
 use defmt::println;

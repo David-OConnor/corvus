@@ -20,7 +20,7 @@ use stm32_hal2::{
     dma::Dma,
     pac,
     pac::DMA1,
-    timer::{CountDir, OutputCompare, Polarity, Timer, TimerInterrupt},
+    timer::{CountDir, OutputCompare, Polarity, TimerInterrupt},
 };
 
 use crate::flight_ctrls::{common::MotorTimers, quad::Motor};

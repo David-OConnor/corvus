@@ -37,7 +37,7 @@ use stm32_hal2::{
 };
 
 use crate::{
-    control_interface::{AltHoldSwitch, ChannelData, ElrsTxPower, InputModeSwitch, LinkStats},
+    control_interface::{AltHoldSwitch, ChannelData, InputModeSwitch, LinkStats},
     safety::ArmStatus,
     util,
 };
@@ -313,8 +313,8 @@ impl Packet {
         // raw_channels[14] = (data[19] >> 2 | data[20] << 6) & 0x07FF;
         // raw_channels[15] = (data[20] >> 5 | data[21] << 3) & 0x07FF;
 
-        ///https://www.expresslrs.org/2.0/software/switch-config/:
-        /// "WARNING: Put your arm switch on AUX1, and set it as ~1000 is disarmed, ~2000 is armed."
+        // https://www.expresslrs.org/2.0/software/switch-config/:
+        // "WARNING: Put your arm switch on AUX1, and set it as ~1000 is disarmed, ~2000 is armed."
         let arm_status = match raw_channels[4] {
             0..=1_500 => ArmStatus::Disarmed,
             _ => ArmStatus::Armed,
