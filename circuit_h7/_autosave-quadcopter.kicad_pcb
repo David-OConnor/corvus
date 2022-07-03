@@ -4396,7 +4396,7 @@
 
   (footprint "TestPoint:TestPoint_Pad_1.0x1.0mm" (layer "B.Cu")
     (tedit 5A0F774F) (tstamp 144df27e-e191-46ac-8390-010860d927e3)
-    (at 114.75 77.5 180)
+    (at 102.25 78 180)
     (descr "SMD rectangular pad as test Point, square 1.0mm side length")
     (tags "test point SMD pad rectangle square")
     (property "Sheetfile" "quadcopter.kicad_sch")

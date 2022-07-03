@@ -42,7 +42,7 @@ use drivers::tof_vl53l1 as tof;
 use filter_imu::ImuFilters;
 use flight_ctrls::{
     common::{
-        AutopilotStatus, CommandState, ControlMix, CtrlInputs, InputMap, MotorTimers, Params,
+        AutopilotStatus, CommandState, CtrlInputs, InputMap, MotorTimers, Params,
     },
     flying_wing::{self, ControlPositions, ServoWingMapping},
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
@@ -291,7 +291,7 @@ mod app {
         velocities_commanded: CtrlInputs,
         attitudes_commanded: CtrlInputs,
         rates_commanded: CtrlInputs,
-        control_mix: ControlMix,
+        // control_mix: ControlMix,
         pid_velocity: PidGroup,
         pid_attitude: PidGroup,
         pid_rate: PidGroup,
@@ -342,6 +342,7 @@ mod app {
     #[init]
     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
         // startup::init()
+
         // Cortex-M peripherals
         let mut cp = cx.core;
         // Set up microcontroller peripherals
@@ -782,7 +783,7 @@ mod app {
                 velocities_commanded: Default::default(),
                 attitudes_commanded: Default::default(),
                 rates_commanded: Default::default(),
-                control_mix: Default::default(),
+                // control_mix: Default::default(),
                 pid_velocity: Default::default(),
                 pid_attitude: Default::default(),
                 pid_rate: Default::default(),
@@ -1098,7 +1099,7 @@ mod app {
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, input_mode, control_channel_data, input_map, autopilot_status,
     rates_commanded, pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, command_state, cs_imu, user_cfg,
-    motor_timers, ahrs, state_volatile, control_mix], local = [fixed_wing_rate_loop_i], priority = 5)]
+    motor_timers, ahrs, state_volatile], local = [fixed_wing_rate_loop_i], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
@@ -1123,7 +1124,7 @@ mod app {
             cx.shared.input_mode,
             cx.shared.autopilot_status,
             cx.shared.rates_commanded,
-            cx.shared.control_mix,
+            // cx.shared.control_mix,
             cx.shared.pid_rate,
             cx.shared.pid_deriv_filters,
             cx.shared.motor_timers,
@@ -1142,7 +1143,7 @@ mod app {
                  input_mode,
                  autopilot_status,
                  rates_commanded,
-                 control_mix,
+                 // control_mix,
                  pid_inner,
                  filters,
                  motor_timers,
@@ -1211,7 +1212,7 @@ mod app {
                                 // cfg,
                                 control_channel_data,
                                 rates_commanded,
-                                control_mix,
+                                // control_mix,
                                 pid_inner,
                                 filters,
                                 &mut state_volatile.current_pwr,
@@ -1236,7 +1237,7 @@ mod app {
                                     // cfg,
                                     control_channel_data,
                                     rates_commanded,
-                                    control_mix,
+                                    // control_mix,
                                     pid_inner,
                                     filters,
                                     &mut state_volatile.ctrl_positions,

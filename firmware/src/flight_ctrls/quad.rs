@@ -9,7 +9,7 @@ use stm32_hal2::{dma::Dma, pac::DMA1};
 
 use crate::{control_interface::InputModeSwitch, dshot, safety::ArmStatus, util, StateVolatile};
 
-use super::common::{ControlMix, MotorTimers, Params};
+use super::common::{MotorTimers, Params};
 
 use defmt::println;
 
@@ -302,96 +302,96 @@ impl MotorPower {
     }
 }
 
-impl ControlMix {
-    /// Get quad individual power settings from a mix. Of note, we're doing no clamping here!
-    /// no differential clamping, and no individual power clamping. Don't send the results of
-    /// this to motors directly. (note that this is in a sep module from `ControlMix`, since it's
-    /// a quad-specific implementation, while `ControlMix` can be used more broadly.
-    // fn to_power(&self, initial_power: &MotorPower, front_left_dir: RotationDir) -> MotorPower {
-    fn to_power(&self, front_left_dir: RotationDir) -> MotorPower {
-        let mut result = MotorPower {
-            front_left: self.throttle,
-            front_right: self.throttle,
-            aft_left: self.throttle,
-            aft_right: self.throttle,
-        };
-
-        // let mut result = initial_power.clone();
-
-        // Start with a base, eg previous individual powers, but make their average equal
-        // to the new throttle setting.
-
-        // let initial_throttle = initial_power.total() / 4.;
-
-        // todo: QC this.
-        // let eps = 0.00001;
-        // if initial_throttle < eps {
-        //     result = MotorPower {
-        //         front_left: self.throttle,
-        //         front_right: self.throttle,
-        //         aft_left: self.throttle,
-        //         aft_right: self.throttle,
-        //     };
-        // } else {
-        //     let scaler = self.throttle / initial_throttle;
-        //     result.scale_all(scaler);
-        // };
-        //
-        // println!("Self throt: {}", self.throttle);
-        //
-        // println!("pitch: {} roll: {}", self.pitch, self.roll);
-
-        // Nose down for positive pitch.
-        result.front_left -= self.pitch;
-        result.front_right -= self.pitch;
-        result.aft_left += self.pitch;
-        result.aft_right += self.pitch;
-
-        // Left side up for positive roll
-        result.front_left += self.roll;
-        result.front_right -= self.roll;
-        result.aft_left += self.roll;
-        result.aft_right -= self.roll;
-
-        // Assumes positive yaw from the IMU means clockwise.
-        // If props rotate in, front-left/aft-right rotors induce a CCW torque on the aircraft.
-        // If props rotate out, these same rotors induce a CW torque.
-        // This code assumes props rotate inwards towards the front and back ends.
-        let yaw = if front_left_dir == RotationDir::Clockwise {
-            self.yaw * -1.
-        } else {
-            self.yaw
-        };
-
-        result.front_left += yaw;
-        result.front_right -= yaw;
-        result.aft_left -= yaw;
-        result.aft_right += yaw;
-
-        result
-    }
-
-    /// Clamp our mix to respect maximum rotor pair power deltas.
-    fn clamp_deltas(&mut self) {
-        if self.pitch > ROTOR_HALF_DELTA_CLAMP {
-            self.pitch = ROTOR_HALF_DELTA_CLAMP
-        } else if self.pitch < -ROTOR_HALF_DELTA_CLAMP {
-            self.pitch = -ROTOR_HALF_DELTA_CLAMP
-        }
-
-        if self.roll > ROTOR_HALF_DELTA_CLAMP {
-            self.roll = ROTOR_HALF_DELTA_CLAMP
-        } else if self.roll < -ROTOR_HALF_DELTA_CLAMP {
-            self.roll = -ROTOR_HALF_DELTA_CLAMP
-        }
-
-        if self.yaw > ROTOR_HALF_DELTA_CLAMP {
-            self.yaw = ROTOR_HALF_DELTA_CLAMP
-        } else if self.yaw < -ROTOR_HALF_DELTA_CLAMP {
-            self.yaw = -ROTOR_HALF_DELTA_CLAMP
-        }
-    }
-}
+// impl ControlMix {
+//     /// Get quad individual power settings from a mix. Of note, we're doing no clamping here!
+//     /// no differential clamping, and no individual power clamping. Don't send the results of
+//     /// this to motors directly. (note that this is in a sep module from `ControlMix`, since it's
+//     /// a quad-specific implementation, while `ControlMix` can be used more broadly.
+//     // fn to_power(&self, initial_power: &MotorPower, front_left_dir: RotationDir) -> MotorPower {
+//     fn to_power(&self, front_left_dir: RotationDir) -> MotorPower {
+//         let mut result = MotorPower {
+//             front_left: self.throttle,
+//             front_right: self.throttle,
+//             aft_left: self.throttle,
+//             aft_right: self.throttle,
+//         };
+//
+//         // let mut result = initial_power.clone();
+//
+//         // Start with a base, eg previous individual powers, but make their average equal
+//         // to the new throttle setting.
+//
+//         // let initial_throttle = initial_power.total() / 4.;
+//
+//         // todo: QC this.
+//         // let eps = 0.00001;
+//         // if initial_throttle < eps {
+//         //     result = MotorPower {
+//         //         front_left: self.throttle,
+//         //         front_right: self.throttle,
+//         //         aft_left: self.throttle,
+//         //         aft_right: self.throttle,
+//         //     };
+//         // } else {
+//         //     let scaler = self.throttle / initial_throttle;
+//         //     result.scale_all(scaler);
+//         // };
+//         //
+//         // println!("Self throt: {}", self.throttle);
+//         //
+//         // println!("pitch: {} roll: {}", self.pitch, self.roll);
+//
+//         // Nose down for positive pitch.
+//         result.front_left -= self.pitch;
+//         result.front_right -= self.pitch;
+//         result.aft_left += self.pitch;
+//         result.aft_right += self.pitch;
+//
+//         // Left side up for positive roll
+//         result.front_left += self.roll;
+//         result.front_right -= self.roll;
+//         result.aft_left += self.roll;
+//         result.aft_right -= self.roll;
+//
+//         // Assumes positive yaw from the IMU means clockwise.
+//         // If props rotate in, front-left/aft-right rotors induce a CCW torque on the aircraft.
+//         // If props rotate out, these same rotors induce a CW torque.
+//         // This code assumes props rotate inwards towards the front and back ends.
+//         let yaw = if front_left_dir == RotationDir::Clockwise {
+//             self.yaw * -1.
+//         } else {
+//             self.yaw
+//         };
+//
+//         result.front_left += yaw;
+//         result.front_right -= yaw;
+//         result.aft_left -= yaw;
+//         result.aft_right += yaw;
+//
+//         result
+//     }
+//
+//     /// Clamp our mix to respect maximum rotor pair power deltas.
+//     fn clamp_deltas(&mut self) {
+//         if self.pitch > ROTOR_HALF_DELTA_CLAMP {
+//             self.pitch = ROTOR_HALF_DELTA_CLAMP
+//         } else if self.pitch < -ROTOR_HALF_DELTA_CLAMP {
+//             self.pitch = -ROTOR_HALF_DELTA_CLAMP
+//         }
+//
+//         if self.roll > ROTOR_HALF_DELTA_CLAMP {
+//             self.roll = ROTOR_HALF_DELTA_CLAMP
+//         } else if self.roll < -ROTOR_HALF_DELTA_CLAMP {
+//             self.roll = -ROTOR_HALF_DELTA_CLAMP
+//         }
+//
+//         if self.yaw > ROTOR_HALF_DELTA_CLAMP {
+//             self.yaw = ROTOR_HALF_DELTA_CLAMP
+//         } else if self.yaw < -ROTOR_HALF_DELTA_CLAMP {
+//             self.yaw = -ROTOR_HALF_DELTA_CLAMP
+//         }
+//     }
+// }
 //
 // impl From<&ControlMix> for MotorPower {
 //     /// Get quad individual power settings from a mix. Of note, we're doing no clamping here!
@@ -461,10 +461,11 @@ fn calc_rotor_powers(
     throttle: f32,
     front_left_dir: RotationDir,
     // current_pwr: &mut MotorPower,
-    control_mix: &mut ControlMix,
+    // control_mix: &mut ControlMix,
 ) -> MotorPower {
     // todo: Consider putting back this half-delta clamping, either here, or in the to_power method().
 
+    // todo: Temporarily removed this clamp.
     // Clamp the output of our PIDs to respect maximum rotor pair power deltas.
     // if pitch_half_delta > ROTOR_HALF_DELTA_CLAMP {
     //     pitch_half_delta = ROTOR_HALF_DELTA_CLAMP
@@ -485,10 +486,10 @@ fn calc_rotor_powers(
     // }
 
     // Start by setting all powers equal to the overall throttle setting.
-    // let mut front_left = throttle;
-    // let mut front_right = throttle;
-    // let mut aft_left = throttle;
-    // let mut aft_right = throttle;
+    let mut front_left = throttle;
+    let mut front_right = throttle;
+    let mut aft_left = throttle;
+    let mut aft_right = throttle;
 
     // println!(
     //     "Pitch {} roll {} yaw {} throttle {}",
@@ -506,51 +507,51 @@ fn calc_rotor_powers(
 
     // todo? note: This doesn't take into account if the prev throttle setting was clamped.
     // let prev_throttle = (front_left + front_right + aft_left + aft_right) / 4.;
-    //
+
     // let throttle_dif_per_motor = (throttle - prev_throttle) / 4.; // todo??
-    //
-    // // let throttle_scale_factor = (throttle * 4.) / (front_left + front_right + aft_left + aft_right);
-    //
+
+    // let throttle_scale_factor = (throttle * 4.) / (front_left + front_right + aft_left + aft_right);
+
     // front_left *= throttle_scale_factor;
     // front_right *= throttle_scale_factor;
     // aft_left *= throttle_scale_factor;
     // aft_right *= throttle_scale_factor;
-    //
-    // // Now, apply differtials based on the PID-output deltas.
-    //
-    // // Nose down for positive pitch.
-    // front_left -= pitch_half_delta;
-    // front_right -= pitch_half_delta;
-    // aft_left += pitch_half_delta;
-    // aft_right += pitch_half_delta;
-    //
-    // // Left side up for positive roll
-    // front_left += roll_half_delta;
-    // front_right -= roll_half_delta;
-    // aft_left += roll_half_delta;
-    // aft_right -= roll_half_delta;
+
+    // Now, apply differtials based on the PID-output deltas.
+
+    // Nose down for positive pitch.
+    front_left -= pitch_half_delta;
+    front_right -= pitch_half_delta;
+    aft_left += pitch_half_delta;
+    aft_right += pitch_half_delta;
+
+    // Left side up for positive roll
+    front_left += roll_half_delta;
+    front_right -= roll_half_delta;
+    aft_left += roll_half_delta;
+    aft_right -= roll_half_delta;
 
     // Assumes positive yaw from the IMU means clockwise. // todo: Confirm this.
     // If props rotate in, front-left/aft-right rotors induce a CCW torque on the aircraft.
     // If props rotate out, these same rotors induce a CW torque.
     // This code assumes props rotate inwards towards the front and back ends.
-    // if front_left_dir == RotationDir::Clockwise {
-    //     yaw_half_delta *= -1.;
-    // }
-    //
-    // front_left += yaw_half_delta;
-    // front_right -= yaw_half_delta;
-    // aft_left -= yaw_half_delta;
-    // aft_right += yaw_half_delta;
-    //
-    // MotorPower {
-    //     front_left,
-    //     front_right,
-    //     aft_left,
-    //     aft_right,
-    // }
+    if front_left_dir == RotationDir::Clockwise {
+        yaw_half_delta *= -1.;
+    }
 
-    Default::default() // todo temp in case we keep this fn.
+    front_left += yaw_half_delta;
+    front_right -= yaw_half_delta;
+    aft_left -= yaw_half_delta;
+    aft_right += yaw_half_delta;
+
+    MotorPower {
+        front_left,
+        front_right,
+        aft_left,
+        aft_right,
+    }
+
+    // Default::default() // todo temp in case we keep this fn.
 }
 
 /// Set rotor speed for all 4 rotors. We model pitch, roll, and yaw based on target angular rates.
@@ -568,36 +569,36 @@ pub fn apply_controls(
     roll_delta: f32,
     yaw_delta: f32,
     throttle: f32,
-    control_mix: &mut ControlMix,
+    // control_mix: &mut ControlMix,
     current_pwr: &mut MotorPower,
     mapping: &RotorMapping,
     rotor_timers: &mut MotorTimers,
     arm_status: ArmStatus,
     dma: &mut Dma<DMA1>,
 ) {
-    // let mut pwr = calc_rotor_powers(
-    //     pitch_delta,
-    //     roll_delta,
-    //     yaw_delta,
-    //     throttle,
-    //     mapping.frontleft_aftright_dir,
-    //     // todo: We probably only want one of current_pwr and control mix?
-    //     // current_pwr,
-    //     control_mix,
-    // );
+    let mut pwr = calc_rotor_powers(
+        pitch_delta,
+        roll_delta,
+        yaw_delta,
+        throttle,
+        mapping.frontleft_aftright_dir,
+        // todo: We probably only want one of current_pwr and control mix?
+        // current_pwr,
+        // control_mix,
+    );
 
-    *control_mix = ControlMix {
-        pitch: pitch_delta,
-        roll: roll_delta,
-        yaw: yaw_delta,
-        throttle: throttle,
-    };
+    // *control_mix = ControlMix {
+    //     pitch: pitch_delta,
+    //     roll: roll_delta,
+    //     yaw: yaw_delta,
+    //     throttle: throttle,
+    // };
 
-    control_mix.clamp_deltas();
+    // control_mix.clamp_deltas();
 
     // let mut pwr = control_mix.into();
     // let mut pwr = control_mix.to_power(current_pwr, mapping.frontleft_aftright_dir);
-    let mut pwr = control_mix.to_power(mapping.frontleft_aftright_dir);
+    // let mut pwr = control_mix.to_power(mapping.frontleft_aftright_dir);
 
     println!(
         "Power: FL {} FR {} AL {} AR {}",

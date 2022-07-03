@@ -17,6 +17,7 @@ use stm32_hal2::pac::DMAMUX;
 #[cfg(feature = "h7")]
 use stm32_hal2::pac::DMAMUX1 as DMAMUX;
 
+// Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
 pub const IMU_RX_CH: DmaChannel = DmaChannel::C2;
 #[cfg(feature = "g4")]
@@ -24,7 +25,8 @@ pub const MOTOR_CH_A: DmaChannel = DmaChannel::C3;
 pub const MOTOR_CH_B: DmaChannel = DmaChannel::C4;
 pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
 pub const CRSF_TX_CH: DmaChannel = DmaChannel::C6;
-// pub const ELRS_RX_CH: DmaChannel = DmaChannel::C6;
+
+// pub const ELRS_RX_CH: DmaChannel = DmaChannel::C8; // C0 for H7, and C8 for G4.
 pub const BATT_CURR_CH: DmaChannel = DmaChannel::C7;
 
 pub const BATT_ADC_CH: u8 = 17;
@@ -71,7 +73,7 @@ impl Motor {
         #[cfg(feature = "g4")]
         match self {
             Self::M1 | Self::M2 => MOTOR_CH_A,
-            Self::M3 | Self::M4 => MOTOR_CH_B4,
+            Self::M3 | Self::M4 => MOTOR_CH_B,
         }
     }
 
@@ -154,9 +156,18 @@ pub fn setup_pins() {
     mosi2.output_speed(OutputSpeed::High);
 
     // SPI3 for flash
-    let _sck3 = Pin::new(Port::B, 3, PinMode::Alt(6));
-    let _miso3 = Pin::new(Port::B, 4, PinMode::Alt(6));
-    let _mosi3 = Pin::new(Port::B, 5, PinMode::Alt(6));
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            // Use use Uart 7 for the onboard ELRS MCU.
+            let _uart7_tx = Pin::new(Port::B, 3, PinMode::Alt(11));
+            let _uart7_rx = Pin::new(Port::B, 4, PinMode::Alt(11));
+        } else {
+            // G4 board uses onboard ELRS, on SPI3
+            let _sck3 = Pin::new(Port::B, 3, PinMode::Alt(6));
+            let _miso3 = Pin::new(Port::B, 4, PinMode::Alt(6));
+            let _mosi3 = Pin::new(Port::B, 5, PinMode::Alt(6));
+        }
+    }
 
     // We use UARTs for misc external devices, including ESC telemetry,
     // and VTX OSD.

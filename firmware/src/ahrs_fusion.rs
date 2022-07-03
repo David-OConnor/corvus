@@ -27,7 +27,10 @@ use num_traits::float::Float; // abs etc
 
 use cmsis_dsp_sys::{arm_cos_f32, arm_sin_f32};
 
-use super::lin_alg::{Quaternion, Vec3};
+use super::{
+    lin_alg::{Quaternion, Vec3},
+    flight_ctrls::common::CtrlInputs,
+};
 
 use defmt::println;
 
@@ -425,6 +428,18 @@ impl Ahrs {
             z: -1.0 * sin(half_iyaw_minus_heading),
         };
         self.quaternion = rotation * self.quaternion;
+    }
+
+    /// todo WIP
+    /// Not part of official AHRS fusion algorithm
+    fn apply_controls_quad(&mut self, controls: CtrlInputs) {
+
+    }
+
+    /// todo WIP
+    /// Not part of official AHRS fusion algorithm
+    fn apply_controls_fixed_wing(&mut self, controls: CtrlInputs) {
+
     }
 }
 

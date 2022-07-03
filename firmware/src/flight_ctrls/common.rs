@@ -248,18 +248,18 @@ pub struct ResponseDataPt {
 
 // todo: Separate module for control_mixer?
 
-/// todo: Fill this out as you sort it out
-/// Store this persistently, and use it as a starting point for future updates. Suitable for quad
-/// and fixed wing. This seems very similar to `CtrlInputs`, but that is scaled from -1. to 1. etc,
-/// and this is in terms of rotor half delta.
-/// todo: Currently unused, but passed ina  few places that will show as unused in clippy.
-#[derive(Default)]
-pub struct ControlMix {
-    pub pitch: f32,
-    pub roll: f32,
-    pub yaw: f32,
-    pub throttle: f32,
-}
+// /// todo: Fill this out as you sort it out
+// /// Store this persistently, and use it as a starting point for future updates. Suitable for quad
+// /// and fixed wing. This seems very similar to `CtrlInputs`, but that is scaled from -1. to 1. etc,
+// /// and this is in terms of rotor half delta.
+// /// todo: Currently unused, but passed ina  few places that will show as unused in clippy.
+// #[derive(Default)]
+// pub struct ControlMix {
+//     pub pitch: f32,
+//     pub roll: f32,
+//     pub yaw: f32,
+//     pub throttle: f32,
+// }
 
 /// Abstraction over timers, that allows us to feature-gate struct fields based on MCU; this is
 /// because we can't use feature gates on function arguments, so we're gating upstream.
