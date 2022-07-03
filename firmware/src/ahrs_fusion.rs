@@ -438,8 +438,8 @@ impl Ahrs {
 
     /// todo WIP
     /// Not part of official AHRS fusion algorithm
-    fn apply_controls_fixed_wing(&mut self, controls: CtrlInputs) {
-
+    fn apply_controls_fixed_wing(&mut self, controls: CtrlInputs, airspeed: f32) {
+        let g_estimated = airspeed * controls.pitch; // downward G forces from a maneuver. Actually in m/s^2
     }
 }
 
