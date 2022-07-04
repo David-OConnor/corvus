@@ -18,8 +18,7 @@ use crate::{
     flight_ctrls::{
         self,
         common::{
-            AltType, AutopilotStatus, CommandState, CtrlInputs, InputMap, MotorTimers,
-            Params,
+            AltType, AutopilotStatus, CommandState, CtrlInputs, InputMap, MotorTimers, Params,
         },
         quad::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED},
     },

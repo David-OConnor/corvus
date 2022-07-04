@@ -1,7 +1,4 @@
-// #![allow(uncommon_codepoints)] // eg ϕ
-
-//! This module contains code related to sensor fusion, eg using an extended kalman filter
-//! to combine inputs from multiple sensors. It also includes code for interpreting, integrating,
+//! This module contains code related to using sensor fusion to create an attitude platform. It also includes code for interpreting, integrating,
 //! and taking the derivatives of sensor readings. Code here is device-agnostic.
 //!
 //! Some IMUs can integrate with a magnetometer and do some sensor fusion; we use
@@ -25,13 +22,6 @@ use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sin_f32 as sin};
 
 use defmt::println;
 
-use stm32_hal2::{
-    dma::{Dma, DmaChannel},
-    gpio::Pin,
-    pac::{DMA1, SPI1},
-    spi::Spi,
-};
-
 use crate::{ahrs_fusion::Ahrs, flight_ctrls::common::Params, imu, lin_alg::Vec3};
 
 // C file with impl of EKF for quaternion rotation:
@@ -49,63 +39,22 @@ use crate::{ahrs_fusion::Ahrs, flight_ctrls::common::Params, imu, lin_alg::Vec3}
 // error-state EKF
 // http://www.iri.upc.edu/people/jsola/JoanSola/objectes/notes/kinematics.pdf
 
-const G: f32 = 9.8; // m/s
-
-// IMU readings buffer. 3 accelerometer, and 3 gyro measurements; 2 bytes each. 0-padded on the left,
-// since that's where we pass the register
-// in the write buffer.
-pub static mut IMU_READINGS: [u8; 13] = [0; 13];
-
-fn tan(val: f32) -> f32 {
-    unsafe { sin(val) / cos(val) }
-}
-
-// todo: Consider an `imu_shared` module.
-/// Represents sensor readings from a 6-axis accelerometer + gyro. Similar to
-/// `ParamsInst`.
-#[derive(Default)]
-pub struct ImuReadings {
-    pub a_x: f32,
-    pub a_y: f32,
-    pub a_z: f32,
-    pub v_pitch: f32,
-    pub v_roll: f32,
-    pub v_yaw: f32,
-}
-
-impl ImuReadings {
-    /// We use this to assemble readings from the DMA buffer.
-    pub fn from_buffer(buf: &[u8]) -> Self {
-        // todo: Note: this mapping may be different for diff IMUs, eg if they use a different reading register ordering.
-        // todo: Currently hard-set for ICM426xx.
-
-        // Ignore byte 0; it's for the first reg passed during the `write` transfer.
-        Self {
-            a_x: imu::interpret_accel(i16::from_be_bytes([buf[1], buf[2]])),
-            a_y: imu::interpret_accel(i16::from_be_bytes([buf[3], buf[4]])),
-            a_z: imu::interpret_accel(i16::from_be_bytes([buf[5], buf[6]])),
-            // Positive pitch nose down
-            v_pitch: -imu::interpret_gyro(i16::from_be_bytes([buf[7], buf[8]])),
-            // Positive roll: left wing up
-            v_roll: imu::interpret_gyro(i16::from_be_bytes([buf[9], buf[10]])),
-            // Positive yaw: CW rotation.
-            v_yaw: -imu::interpret_gyro(i16::from_be_bytes([buf[11], buf[12]])),
-        }
-    }
-}
-
 /// Update and get the attitude from the AHRS.
 pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     // Gyro measurements - not really a vector.
-    let mut gyro_data = Vec3 {
-        x: params.v_pitch,
-        y: params.v_roll,
-        z: params.v_yaw,
-    };
+    // In our IMU interpretation, we use direction references that make sense for our aircraft.
+    // See `imu_shared::ImuReadings` field descriptions for this. Here, we undo it: The AHRS
+    // fusion algorithm expects raw readings. (See the - signs there and here; they correspond)
     let mut accel_data = Vec3 {
         x: params.a_x,
         y: params.a_y,
         z: params.a_z,
+    };
+
+    let mut gyro_data = Vec3 {
+        x: params.v_pitch,
+        y: params.v_roll,
+        z: -params.v_yaw,
     };
 
     // Apply calibration
@@ -126,7 +75,7 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     // let magnetometer = madgwick::apply_cal_magnetic(magnetometer, softIronMatrix, hardIronOffset);
 
     // Update gyroscope offset correction algorithm
-    let gyro_data = ahrs.offset.update(gyro_data);
+    let gyro_data_with_offset = ahrs.offset.update(gyro_data);
 
     // todo: Can we use the hard-set 8kHz IMU-spec DT, or do we need to measure?
     ahrs.update_no_magnetometer(gyro_data, accel_data, crate::DT_IMU);
@@ -134,46 +83,22 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     let att_euler = ahrs.quaternion.to_euler();
     // let att_earth = ahrs.get_earth_accel();
 
-    // Update params with our calibrated gryo and accel data, in addition to attitude.
+    // Update params with our calibrated gryo data.
+    // Note that we re-apply our sign-changes per our chosen coordinate system.
+    params.v_pitch = gyro_data_with_offset.x;
+    params.v_roll = gyro_data_with_offset.y;
+    params.v_yaw = -gyro_data_with_offset.z;
 
-    params.v_roll = gyro_data.x;
-    params.v_pitch = gyro_data.y;
-    params.v_yaw = gyro_data.z;
-
-    params.a_x = accel_data.x;
-    params.a_y = accel_data.y;
-    params.a_z = accel_data.z;
-
-    // Note: Swapped pitch/roll swapped due to how the madgwick filter or quaternion -> euler angle
-    // is calculated.
-    params.s_roll = att_euler.pitch;
-    params.s_pitch = att_euler.roll;
+    // // Note: Swapped pitch/roll swapped due to how the madgwick filter or quaternion -> euler angle
+    // // is calculated.
+    // params.s_roll = att_euler.pitch;
+    // params.s_pitch = att_euler.roll;
+    params.s_pitch = att_euler.pitch;
+    params.s_roll = att_euler.roll;
     params.s_yaw = att_euler.yaw;
     params.quaternion = ahrs.quaternion;
 
     // params.s_roll = att_earth.x;
     // params.s_pitch = att_earth.y;
     // params.s_yaw = att_earth.z;
-}
-
-/// Read all 3 measurements, by commanding a DMA transfer. The transfer is closed, and readings
-/// are processed in the Transfer Complete ISR.
-pub fn read_imu_dma(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
-    // First byte is the first data reg, per this IMU's. Remaining bytes are empty, while
-    // the MISO line transmits readings.
-    let write_buf = [starting_addr, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-    cs.set_low();
-
-    unsafe {
-        spi.transfer_dma(
-            &write_buf,
-            &mut IMU_READINGS,
-            DmaChannel::C1,
-            DmaChannel::C2,
-            Default::default(),
-            Default::default(),
-            dma,
-        );
-    }
 }

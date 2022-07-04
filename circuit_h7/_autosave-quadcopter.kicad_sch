@@ -3981,6 +3981,10 @@
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid 17e3aec3-463a-413a-ad84-5d17666d7b02)
   )
+  (text "(Ground ELRS_BOOT to enable bootloader mode)" (at 457.2 330.2 0)
+    (effects (font (size 1.27 1.27)) (justify left bottom))
+    (uuid 18708989-5a8b-4190-81de-d546291879cd)
+  )
   (text "24-52Mhz crystal" (at 372.11 354.33 0)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid 254a27fb-3a5f-4530-bcc6-1bbe080b80e1)
@@ -7830,24 +7834,6 @@
     (pin "4" (uuid 0c1380fd-de9b-4527-a058-6db8cd40a0b5))
   )
 
-  (symbol (lib_id "power:GND") (at 462.28 330.2 90) (unit 1)
-    (in_bom yes) (on_board yes)
-    (uuid b98995ac-4e84-46ec-b29a-bcb09545e600)
-    (property "Reference" "#PWR0158" (id 0) (at 468.63 330.2 0)
-      (effects (font (size 1.27 1.27)) hide)
-    )
-    (property "Value" "GND" (id 1) (at 468.63 332.74 90)
-      (effects (font (size 1.27 1.27)) (justify left))
-    )
-    (property "Footprint" "" (id 2) (at 462.28 330.2 0)
-      (effects (font (size 1.27 1.27)) hide)
-    )
-    (property "Datasheet" "" (id 3) (at 462.28 330.2 0)
-      (effects (font (size 1.27 1.27)) hide)
-    )
-    (pin "1" (uuid 681085f0-932b-4bda-ae07-9a0d8600a43b))
-  )
-
   (symbol (lib_id "Connector:Conn_01x08_Male") (at 478.79 53.34 180) (unit 1)
     (in_bom yes) (on_board yes)
     (uuid b994fc1c-5d0d-417f-9a7e-a0a24fb22ae5)
@@ -7928,22 +7914,6 @@
       (effects (font (size 1.27 1.27)) hide)
     )
     (pin "1" (uuid 55682db2-7938-4dce-8387-bd311c347d4a))
-  )
-
-  (symbol (lib_id "Connector:Conn_01x01_Female") (at 457.2 330.2 180) (unit 1)
-    (in_bom no) (on_board yes)
-    (uuid ba99e4c2-0c03-4c8d-b4a3-70560b5a25fe)
-    (property "Reference" "J39" (id 0) (at 461.01 327.66 0))
-    (property "Value" "Conn_01x01_Female" (id 1) (at 457.835 327.66 0)
-      (effects (font (size 1.27 1.27)) hide)
-    )
-    (property "Footprint" "TestPoint:TestPoint_Pad_1.0x1.0mm" (id 2) (at 457.2 330.2 0)
-      (effects (font (size 1.27 1.27)) hide)
-    )
-    (property "Datasheet" "~" (id 3) (at 457.2 330.2 0)
-      (effects (font (size 1.27 1.27)) hide)
-    )
-    (pin "1" (uuid 33a8bf7e-8133-44f7-94f7-dd8614e44e65))
   )
 
   (symbol (lib_id "power:GND") (at 193.04 119.38 180) (unit 1)
@@ -9372,9 +9342,6 @@
     (path "/d4aa30a6-ae18-4978-93b9-b885bc85274d"
       (reference "#PWR0157") (unit 1) (value "GND") (footprint "")
     )
-    (path "/b98995ac-4e84-46ec-b29a-bcb09545e600"
-      (reference "#PWR0158") (unit 1) (value "GND") (footprint "")
-    )
     (path "/6e50da88-c872-42c7-9b4e-194a13623160"
       (reference "#PWR0160") (unit 1) (value "GND") (footprint "")
     )
@@ -9737,9 +9704,6 @@
     )
     (path "/eade017e-723d-44a4-bbbf-c52c84a30817"
       (reference "J38") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_1.0x1.0mm")
-    )
-    (path "/ba99e4c2-0c03-4c8d-b4a3-70560b5a25fe"
-      (reference "J39") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_1.0x1.0mm")
     )
     (path "/0567dae1-cf2c-438a-99dc-8576c8bfdd09"
       (reference "J40") (unit 1) (value "Conn_01x01_Female") (footprint "TestPoint:TestPoint_Pad_2.0x2.0mm")

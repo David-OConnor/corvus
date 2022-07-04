@@ -41,9 +41,7 @@ use ahrs_fusion::Ahrs;
 use drivers::tof_vl53l1 as tof;
 use filter_imu::ImuFilters;
 use flight_ctrls::{
-    common::{
-        AutopilotStatus, CommandState, CtrlInputs, InputMap, MotorTimers, Params,
-    },
+    common::{AutopilotStatus, CommandState, CtrlInputs, InputMap, MotorTimers, Params},
     flying_wing::{self, ControlPositions, ServoWingMapping},
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
@@ -81,16 +79,17 @@ mod control_interface;
 mod drivers;
 mod filter_imu;
 mod flight_ctrls;
+mod imu_shared;
 mod lin_alg;
 // mod osd;
 mod cfg_storage;
 mod imu_calibration;
 mod pid;
 // mod pid_tuning;
+mod attitude_platform;
 mod ppks;
 mod protocols;
 mod safety;
-mod sensor_fusion;
 mod setup;
 mod state;
 mod util;
@@ -348,28 +347,31 @@ mod app {
         // Set up microcontroller peripherals
         let mut dp = pac::Peripherals::take().unwrap();
 
-        let clock_cfg = Clocks {
-            // Config for 550Mhz full speed:
-            #[cfg(feature = "h7")]
-            pll_src: PllSrc::Hse(16_000_000),
-            #[cfg(feature = "g4")]
-            input_src: InputSrc::Pll(PllSrc::Hse(16_000_000)),
-            #[cfg(feature = "h7")]
-            pll1: PllCfg {
-                divm: 4, // To compensate with 16Mhz HSE instead of 64Mhz HSI // todo
-                ..Default::default()
-            },
-            hsi48_on: true,
-            #[cfg(feature = "h7")]
-            usb_src: clocks::UsbSrc::Hsi48,
-            #[cfg(feature = "g4")]
-            clk48_src: clocks::Clk48Src::Hsi48,
-            #[cfg(feature = "g4")]
-            boost_mode: true, // Required for speeds > 150Mhz.
-            ..Default::default()
-        };
-
-        // todo: Make sur eyou set up vos0 etc as requaired for 550Mhz H7.
+        // todo: H743 clocks if you end up using that to test with BF
+        cfg_if! {
+            if #[cfg(feature = "h7")] {
+                // todo: Make sur eyou set up vos0 etc as requaired for 550Mhz H7.
+                let clock_cfg = Clocks {
+                    // Config for 550Mhz full speed:
+                    pll_src: PllSrc::Hse(16_000_000),
+                    pll1: PllCfg {
+                        divm: 4, // To compensate with 16Mhz HSE instead of 64Mhz HSI // todo
+                        ..Default::default()
+                    },
+                    hsi48_on: true,
+                    usb_src: clocks::UsbSrc::Hsi48,
+                    ..Default::default()
+                };
+            } else {
+                let clock_cfg = Clocks {
+                    input_src: InputSrc::Pll(PllSrc::Hse(16_000_000)),
+                    hsi48_on: true,
+                    clk48_src: clocks::Clk48Src::Hsi48,
+                    boost_mode: true, // Required for speeds > 150Mhz.
+                    ..Default::default()
+                };
+            }
+        }
 
         clock_cfg.setup().unwrap();
 
@@ -945,15 +947,15 @@ mod app {
 
                         // println!("Batt V: {} Curr V: {}", batt_v, curr_v);
                         //
-                        // println!(
-                        //     "Accel: Ax {}, Ay: {}, Az: {}",
-                        //     params.a_x, params.a_y, params.a_z
-                        // );
+                        println!(
+                            "Accel: Ax {}, Ay: {}, Az: {}",
+                            params.a_x, params.a_y, params.a_z
+                        );
                         //
-                        // println!(
-                        //     "Gyro: roll {}, pitch: {}, yaw: {}",
-                        //     params.v_roll, params.v_pitch, params.v_yaw
-                        // );
+                        println!(
+                            "Gyro: roll {}, pitch: {}, yaw: {}",
+                            params.v_roll, params.v_pitch, params.v_yaw
+                        );
                         // //
                         println!(
                             "Attitude: roll {}, pitch: {}, yaw: {}\n",
@@ -1092,7 +1094,7 @@ mod app {
         gpio::clear_exti_interrupt(4);
 
         (cx.shared.dma, cx.shared.cs_imu, cx.shared.spi1).lock(|dma, cs_imu, spi| {
-            sensor_fusion::read_imu_dma(imu::READINGS_START_ADDR, spi, cs_imu, dma);
+            imu_shared::read_imu_dma(imu::READINGS_START_ADDR, spi, cs_imu, dma);
         });
     }
 
@@ -1169,9 +1171,8 @@ mod app {
                     // }
                     // return;
 
-                    let mut imu_data = sensor_fusion::ImuReadings::from_buffer(unsafe {
-                        &sensor_fusion::IMU_READINGS
-                    });
+                    let mut imu_data =
+                        imu_shared::ImuReadings::from_buffer(unsafe { &imu_shared::IMU_READINGS });
 
                     // todo: This is a good place to apply IMU calibration.
 
@@ -1190,7 +1191,7 @@ mod app {
 
                     // Note: Consider if you want to update the attitude using the primary update loop,
                     // vice each IMU update.
-                    sensor_fusion::update_get_attitude(ahrs, params);
+                    attitude_platform::update_get_attitude(ahrs, params);
 
                     // Note: There is an arm status primary handler is in the `set_power` fn, but if we abort
                     // here without it being set, power will remain at whatever state was set at time

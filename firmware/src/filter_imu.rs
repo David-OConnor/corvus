@@ -5,7 +5,7 @@
 
 use cmsis_dsp_api as dsp_api;
 
-use crate::{sensor_fusion::ImuReadings, util::IirInstWrapper};
+use crate::{imu_shared::ImuReadings, util::IirInstWrapper};
 
 static mut FILTER_STATE_ACCEL_X: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_ACCEL_Y: [f32; 4] = [0.; 4];

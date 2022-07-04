@@ -28,25 +28,26 @@ use num_traits::float::Float; // abs etc
 use cmsis_dsp_sys::{arm_cos_f32, arm_sin_f32};
 
 use super::{
-    lin_alg::{Quaternion, Vec3},
     flight_ctrls::common::CtrlInputs,
+    lin_alg::{Quaternion, Vec3},
 };
 
 use defmt::println;
 
 // const G: f32 = 9.80665; // Gravity, in m/s^2
 
-// Cutoff frequency in Hz.
+// Cutoff frequency in Hz. (from FusionOffset)
 const CUTOFF_FREQUENCY: f32 = 0.02;
 
-// Timeout in seconds.
+// Timeout in seconds. (from FusionOffset)
 const TIMEOUT: u32 = 5;
 
-// Threshold in radians per second.
+// Threshold in radians per second. (from FusionOffset)
 const THRESHOLD: f32 = 0.05236;
 
 // Initial gain used during the initialisation.
-const INITIAL_GAIN: f32 = 10.0 * 360. / TAU;
+// const INITIAL_GAIN: f32 = 10.0 * 360. / TAU;
+const INITIAL_GAIN: f32 = 10.0;
 
 // Initialisation period in seconds.
 const INITIALISATION_PERIOD: f32 = 3.0;
@@ -70,6 +71,9 @@ pub struct Settings {
     /// high gain will increase the influence of other sensors and the errors that result from
     /// accelerations and magnetic distortions. A gain of zero will ignore the other sensors so that
     /// the measurement of orientation is determined by only the gyroscope.
+    ///
+    /// Determines the influence of the gyroscope relative to other sensors. A value of 0.5 is
+    /// appropriate for most applications.
     pub gain: f32,
     /// The acceleration rejection feature reduces the errors that result from the accelerations
     /// of linear and rotational motion. Acceleration rejection works by comparing the
@@ -79,6 +83,9 @@ pub struct Settings {
     /// be ignored for this algorithm update. This is equivalent to a dynamic gain that
     /// deceases as accelerations increase.
     /// In radians.
+    ///
+    /// Threshold (in degrees) used by the acceleration rejection feature. A value of zero will
+    /// disable this feature. A value of 10 degrees is appropriate for most applications.
     pub accel_rejection: f32,
     /// The magnetic rejection feature reduces the errors that result from temporary magnetic
     /// distortions. Magnetic rejection works using the same principle as acceleration
@@ -88,21 +95,26 @@ pub struct Settings {
     /// the heading of the algorithm output will be set to the instantaneous measurement of heading
     /// provided by the magnetometer.
     /// In radians.
+    ///
+    /// Threshold (in degrees) used by the magnetic rejection feature. A value of zero will disable
+    /// the feature. A value of 20 degrees is appropriate for most applications.
     pub magnetic_rejection: f32,
-    /// In seconds.
+    /// Acceleration and magnetic rejection timeout period (in samples). A value of zero will
+    /// disable the acceleration and magnetic rejection features. A period of 5 seconds is
+    /// appropriate for most applications.
     pub rejection_timeout: u32,
 }
 
 impl Default for Settings {
+    /// See above field descriptions for why we use these defaults.
     fn default() -> Self {
         Self {
-            // todo: I'm not sure why the default gain of 0.5 seemed too low. Maybe it also assumes
-            // todo degrees? This modified default seems to work.
-            gain: 0.5 * 360. / TAU,
-            accel_rejection: TAU / 4.,
-            magnetic_rejection: TAU / 4.,
+            // gain: 0.5,
+            gain: 1000., // todo temp
+            accel_rejection: 0.1745,
+            magnetic_rejection: 0.35,
             // rejection_timeout: (5. * crate::IMU_UPDATE_RATE) as u32,
-            rejection_timeout: 0,
+            rejection_timeout: 0, // todo temp
         }
     }
 }
@@ -432,9 +444,7 @@ impl Ahrs {
 
     /// todo WIP
     /// Not part of official AHRS fusion algorithm
-    fn apply_controls_quad(&mut self, controls: CtrlInputs) {
-
-    }
+    fn apply_controls_quad(&mut self, controls: CtrlInputs) {}
 
     /// todo WIP
     /// Not part of official AHRS fusion algorithm
@@ -444,21 +454,42 @@ impl Ahrs {
 }
 
 /// AHRS algorithm internal states.
+/// Doc comments are from the Readme.
 struct InternalStates {
+    /// Angular error (in degrees) of the instantaneous measurement of inclination provided by the
+    /// accelerometer. The acceleration rejection feature will ignore the accelerometer if this
+    /// value exceeds the accelerationRejection threshold set in the algorithm settings.
     pub accel_error: f32,
+    /// true if the accelerometer was ignored by the previous algorithm update.
     pub accelerometer_ignored: bool,
+    /// Acceleration rejection timer value normalised to between 0.0 and 1.0. An acceleration
+    /// rejection timeout will occur when this value reaches 1.0.
     pub accel_rejection_timer: f32,
+    /// Angular error (in radians) of the instantaneous measurement of heading provided by the
+    /// magnetometer. The magnetic rejection feature will ignore the magnetometer if this value
+    /// exceeds the magneticRejection threshold set in the algorithm settings.
     pub magnetic_error: f32,
+    /// true if the magnetometer was ignored by the previous algorithm update.
     pub magnetometer_ignored: bool,
+    /// Magnetic rejection timer value normalised to between 0.0 and 1.0. A magnetic rejection
+    /// timeout will occur when this value reaches 1.0.
     pub magnetic_rejection_timer: f32,
 }
 
 /// AHRS algorithm flags.
+/// Doc comments are from the Readme.
 struct Flags {
+    /// true if the algorithm is initialising.
     pub initialising: bool,
+    /// true if the acceleration rejection timer has exceeded 25% of the rejectionTimeout value set
+    /// in the algorithm settings.
     pub accel_rejection_warning: bool,
+    /// true if an acceleration rejection timeout has occurred and the algorithm is initialising.
     pub accel_rejection_timeout: bool,
+    /// true if the magnetic rejection timer has exceeded 25% of the rejectionTimeout value
+    /// set in the algorithm settings.
     pub mag_rejection_warning: bool,
+    /// true if a magnetic rejection timeout has occurred during the previous algorithm update.
     pub mag_rejection_timeout: bool,
 }
 
@@ -636,6 +667,8 @@ impl Offset {
     /// Sample rate is in Hz.
     pub fn new(sample_rate: u32) -> Self {
         Self {
+            // filter_coefficient: TAU * CUTOFF_FREQUENCY * (1. / sample_rate as f32),
+            // todo: Do we want tau here? It's in the orig, but the orig uses degrees...
             filter_coefficient: TAU * CUTOFF_FREQUENCY * (1. / sample_rate as f32),
             timeout: TIMEOUT * sample_rate,
             timer: 0,

@@ -10,16 +10,11 @@ use stm32_hal2::{gpio::Pin, pac::SPI1, spi::Spi};
 
 use cortex_m::delay::Delay;
 
-use crate::sensor_fusion::ImuReadings;
-
-const GYRO_FULLSCALE: f32 = 34.90659; // 2,000 degrees/sec
-const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
+use crate::imu_shared::_ImuReadingsRaw;
 
 // todo: Consider hardware notch filter.
 
 // todo: Use WHOAMI etc to determine if we have this, or the ST IMU
-
-// todo: Calibration
 
 /// See Datasheet, Section 13.1 (Note: This doesn't include all regs)
 #[allow(dead_code)]
@@ -131,18 +126,8 @@ pub fn _read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> f32 {
     temp_data as f32 / 132.48 + 25.
 }
 
-/// Output: m/s^2
-pub fn interpret_accel(val: i16) -> f32 {
-    (val as f32 / i16::MAX as f32) * ACCEL_FULLSCALE
-}
-
-/// Output: rad/s
-pub fn interpret_gyro(val: i16) -> f32 {
-    (val as f32 / i16::MAX as f32) * GYRO_FULLSCALE
-}
-
 /// Read all data, in blocking fashion. Deprecated in favor of DMA.
-pub fn read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> ImuReadings {
+pub fn _read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> _ImuReadingsRaw {
     let accel_x_upper = read_one(Reg::AccelDataX1, spi, cs);
     let accel_x_lower = read_one(Reg::AccelDataX0, spi, cs);
     let accel_y_upper = read_one(Reg::AccelDataY1, spi, cs);
@@ -157,18 +142,16 @@ pub fn read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> ImuReadings {
     let gyro_z_upper = read_one(Reg::GyroDataZ1, spi, cs);
     let gyro_z_lower = read_one(Reg::GyroDataZ0, spi, cs);
 
-    let a_x = interpret_accel(i16::from_be_bytes([accel_x_upper, accel_x_lower]));
-    let a_y = interpret_accel(i16::from_be_bytes([accel_y_upper, accel_y_lower]));
-    let a_z = interpret_accel(i16::from_be_bytes([accel_z_upper, accel_z_lower]));
+    let a_x = i16::from_be_bytes([accel_x_upper, accel_x_lower]);
+    let a_y = i16::from_be_bytes([accel_y_upper, accel_y_lower]);
+    let a_z = i16::from_be_bytes([accel_z_upper, accel_z_lower]);
 
     // Positive yaw: CW rotation. Positive pitch: Nose down.
-    let v_pitch = -interpret_gyro(i16::from_be_bytes([gyro_x_upper, gyro_x_lower]));
-    let v_roll = interpret_gyro(i16::from_be_bytes([gyro_y_upper, gyro_y_lower]));
-    let v_yaw = -interpret_gyro(i16::from_be_bytes([gyro_z_upper, gyro_z_lower]));
+    let v_pitch = i16::from_be_bytes([gyro_x_upper, gyro_x_lower]);
+    let v_roll = i16::from_be_bytes([gyro_y_upper, gyro_y_lower]);
+    let v_yaw = i16::from_be_bytes([gyro_z_upper, gyro_z_lower]);
 
-    // todo: How do we map these to radians per second and m/s^2?
-
-    ImuReadings {
+    _ImuReadingsRaw {
         a_x,
         a_y,
         a_z,

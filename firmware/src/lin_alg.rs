@@ -193,7 +193,7 @@ impl Quaternion {
             roll: (self.w * self.x + self.y * self.z)
                 .atan2(half_minus_qy_squared - self.x * self.x),
             pitch: fusion_asin(2.0 * (self.w * self.y - self.z * self.x)),
-            yaw: (self.w * self.z - self.x * self.y).atan2(half_minus_qy_squared - self.z * self.z),
+            yaw: (self.w * self.z + self.x * self.y).atan2(half_minus_qy_squared - self.z * self.z),
         }
     }
 
