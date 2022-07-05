@@ -34,7 +34,7 @@ use super::{
 
 use defmt::println;
 
-// const G: f32 = 9.80665; // Gravity, in m/s^2
+const G: f32 = 9.80665; // Gravity, in m/s^2
 
 // Cutoff frequency in Hz. (from FusionOffset)
 const CUTOFF_FREQUENCY: f32 = 0.02;
@@ -110,7 +110,8 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             // gain: 0.5,
-            gain: 1000., // todo temp
+            // gain: 1000., // todo temp
+            gain: 0., // todo temp
             accel_rejection: 0.1745,
             magnetic_rejection: 0.35,
             // rejection_timeout: (5. * crate::IMU_UPDATE_RATE) as u32,
@@ -195,12 +196,11 @@ impl Ahrs {
 
     /// Updates the AHRS algorithm using the gyroscope, accelerometer, and
     /// magnetometer measurements.
-    /// Gyroscope measurement in radians per second
-    /// accelerometer Accelerometer measurement is in -g- m/s^2.
+    /// Gyroscope measurement is in radians per second
+    /// accelerometer Accelerometer measurement is in m/s^2.
     /// magnetometer Magnetometer measurement is in arbitrary units.
     /// dt is in seconds.
     pub fn update(&mut self, gyro_data: Vec3, accel_data: Vec3, mag_data: Vec3, dt: f32) {
-        let q = self.quaternion;
 
         // Store accelerometer
         self.accelerometer = accel_data;
@@ -216,10 +216,13 @@ impl Ahrs {
         }
 
         // Calculate direction of gravity indicated by algorithm
-        let half_gravity = Vec3 {
-            x: q.x * q.z - q.w * q.y,
-            y: q.y * q.z + q.w * q.x,
-            z: q.w * q.w - 0.5 + q.z * q.z,
+        let half_gravity = {
+            let q = self.quaternion;
+            Vec3 {
+                x: q.x * q.z - q.w * q.y,
+                y: q.y * q.z + q.w * q.x,
+                z: q.w * q.w - 0.5 + q.z * q.z,
+            }
         }; // third column of transposed rotation matrix scaled by 0.5
 
         // Calculate accelerometer feedback
@@ -268,10 +271,13 @@ impl Ahrs {
             }
 
             // Compute direction of west indicated by algorithm
-            let half_west = Vec3 {
-                x: q.x * q.y + q.w * q.z,
-                y: q.w * q.w - 0.5 + q.y * q.y,
-                z: q.y * q.z - q.w * q.x,
+            let half_west = {
+                let q = self.quaternion;
+                Vec3 {
+                    x: q.x * q.y + q.w * q.z,
+                    y: q.w * q.w - 0.5 + q.y * q.y,
+                    z: q.y * q.z - q.w * q.x,
+                }
             }; // second column of transposed rotation matrix scaled by 0.5
 
             // Calculate magnetometer feedback scaled by 0.5
@@ -357,7 +363,6 @@ impl Ahrs {
     fn get_linear_accel(&self) -> Vec3 {
         let q = self.quaternion;
 
-        // todo: Update this for m/s^2!!
         let gravity = Vec3 {
             x: 2.0 * (q.x * q.z - q.w * q.y),
             y: 2.0 * (q.y * q.z + q.w * q.x),
@@ -368,7 +373,7 @@ impl Ahrs {
     }
 
     /// Returns the Earth acceleration measurement equal to accelerometer
-    /// measurement in the Earth coordinate frame with the 1 g of gravity removed.
+    /// measurement in the Earth coordinate frame with the 9.8m/s^2 of gravity removed.
     /// ahrs AHRS algorithm structure.
     pub fn get_earth_accel(&self) -> Vec3 {
         let q = self.quaternion;
@@ -386,7 +391,8 @@ impl Ahrs {
             x: 2.0 * ((qwqw - 0.5 + q.x * q.x) * a.x + (qxqy - qwqz) * a.y + (qxqz + qwqy) * a.z),
             y: 2.0 * ((qxqy + qwqz) * a.x + (qwqw - 0.5 + q.y * q.y) * a.y + (qyqz - qwqx) * a.z),
             z: (2.0 * ((qxqz - qwqy) * a.x + (qyqz + qwqx) * a.y + (qwqw - 0.5 + q.z * q.z) * a.z))
-                - 1.0,
+                // - 1.0,
+                - G,
         }
     }
 
@@ -493,163 +499,6 @@ struct Flags {
     pub mag_rejection_timeout: bool,
 }
 
-/// Axes alignment describing the sensor axes relative to the body axes.
-/// For example, if the body X axis is aligned with the sensor Y axis and the
-/// body Y axis is aligned with sensor X axis but pointing the opposite direction
-/// then alignment is +Y-X+Z.
-#[derive(Clone, Copy)]
-enum AxesAlignment {
-    PxPyPz, /* +X+Y+Z */
-    PxNzPy, /* +X-Z+Y */
-    PxNyNz, /* +X-Y-Z */
-    PxPzNz, /* +X+Z-Y */
-    NxPyNz, /* -X+Y-Z */
-    NxPzPy, /* -X+Z+Y */
-    NxNyPz, /* -X-Y+Z */
-    NxNzNy, /* -X-Z-Y */
-    PyNxPz, /* +Y-X+Z */
-    PyNzNs, /* +Y-Z-X */
-    PyPxNz, /* +Y+X-Z */
-    PyPzPx, /* +Y+Z+X */
-    NyPxPz, /* -Y+X+Z */
-    NyNzPx, /* -Y-Z+X */
-    NyNxNz, /* -Y-X-Z */
-    NyPzNx, /* -Y+Z-X */
-    PzPyNx, /* +Z+Y-X */
-    PzPxPy, /* +Z+X+Y */
-    PzNyPx, /* +Z-Y+X */
-    PzNxNy, /* +Z-X-Y */
-    NzPyPx, /* -Z+Y+X */
-    NzNsPy, /* -Z-X+Y */
-    NzNyNx, /* -Z-Y-X */
-    NzPxNy, /* -Z+X-Y */
-}
-
-impl AxesAlignment {
-    /// Swaps sensor axes for alignment with the body axes.
-    /// Return Sensor axes aligned with the body axes.
-    pub fn axes_swap(&mut self, sensor: Vec3) -> Vec3 {
-        match self {
-            Self::PxPyPz => sensor,
-            Self::PxNzPy => Vec3 {
-                x: sensor.x,
-                y: -sensor.z,
-                z: sensor.y,
-            },
-            Self::PxNyNz => Vec3 {
-                x: sensor.x,
-                y: -sensor.y,
-                z: -sensor.z,
-            },
-            Self::PxPzNz => Vec3 {
-                x: sensor.x,
-                y: sensor.z,
-                z: -sensor.y,
-            },
-            Self::NxPyNz => Vec3 {
-                x: -sensor.x,
-                y: sensor.y,
-                z: -sensor.z,
-            },
-            Self::NxPzPy => Vec3 {
-                x: -sensor.x,
-                y: sensor.z,
-                z: sensor.y,
-            },
-            Self::NxNyPz => Vec3 {
-                x: -sensor.x,
-                y: -sensor.y,
-                z: sensor.z,
-            },
-            Self::NxNzNy => Vec3 {
-                x: -sensor.x,
-                y: -sensor.z,
-                z: -sensor.y,
-            },
-            Self::PyNxPz => Vec3 {
-                x: sensor.y,
-                y: -sensor.x,
-                z: sensor.z,
-            },
-            Self::PyNzNs => Vec3 {
-                x: sensor.y,
-                y: -sensor.z,
-                z: -sensor.x,
-            },
-            Self::PyPxNz => Vec3 {
-                x: sensor.y,
-                y: sensor.x,
-                z: -sensor.z,
-            },
-            Self::PyPzPx => Vec3 {
-                x: sensor.y,
-                y: sensor.z,
-                z: sensor.x,
-            },
-            Self::NyPxPz => Vec3 {
-                x: -sensor.y,
-                y: sensor.x,
-                z: sensor.z,
-            },
-            Self::NyNzPx => Vec3 {
-                x: -sensor.y,
-                y: -sensor.z,
-                z: sensor.x,
-            },
-            Self::NyNxNz => Vec3 {
-                x: -sensor.y,
-                y: -sensor.x,
-                z: -sensor.z,
-            },
-            Self::NyPzNx => Vec3 {
-                x: -sensor.y,
-                y: sensor.z,
-                z: -sensor.x,
-            },
-            Self::PzPyNx => Vec3 {
-                x: sensor.z,
-                y: sensor.y,
-                z: -sensor.x,
-            },
-            Self::PzPxPy => Vec3 {
-                x: sensor.z,
-                y: sensor.x,
-                z: sensor.y,
-            },
-            Self::PzNyPx => Vec3 {
-                x: sensor.z,
-                y: -sensor.y,
-                z: sensor.x,
-            },
-            Self::PzNxNy => Vec3 {
-                x: sensor.z,
-                y: -sensor.x,
-                z: -sensor.y,
-            },
-            Self::NzPyPx => Vec3 {
-                x: -sensor.z,
-                y: sensor.y,
-                z: sensor.x,
-            },
-            Self::NzNsPy => Vec3 {
-                x: -sensor.z,
-                y: -sensor.x,
-                z: sensor.y,
-            },
-            Self::NzNyNx => Vec3 {
-                x: -sensor.z,
-                y: -sensor.y,
-                z: -sensor.x,
-            },
-            Self::NzPxNy => Vec3 {
-                x: -sensor.z,
-                y: sensor.x,
-                z: -sensor.y,
-            },
-        }
-    }
-}
-
 // todo: Should this be with the calibration code in sensor_fusion?
 // todo: Should you have a separate imu_calibration module?
 /// Gyroscope offset algorithm structure. Structure members are used
@@ -700,7 +549,7 @@ impl Offset {
         }
 
         // Adjust offset if timer has elapsed
-        self.gyroscope_offset = self.gyroscope_offset + gyroscope * self.filter_coefficient;
+        self.gyroscope_offset = self.gyroscope_offset + (gyroscope * self.filter_coefficient);
         gyroscope
     }
 }

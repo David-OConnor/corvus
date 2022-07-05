@@ -46,15 +46,21 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     // See `imu_shared::ImuReadings` field descriptions for this. Here, we undo it: The AHRS
     // fusion algorithm expects raw readings. (See the - signs there and here; they correspond)
     let mut accel_data = Vec3 {
-        x: params.a_x,
-        y: params.a_y,
+        // todo: Experimenting
+        // x: params.a_x,
+        // y: params.a_y,
+        x: -params.a_y,
+        y: -params.a_x,
         z: params.a_z,
     };
 
     let mut gyro_data = Vec3 {
-        x: params.v_pitch,
-        y: params.v_roll,
-        z: -params.v_yaw,
+        // todo: Experimenting
+        x: params.v_roll,
+        y: params.v_pitch,
+        // x: params.v_pitch,
+        // y: params.v_roll,
+        z: params.v_yaw,
     };
 
     // Apply calibration
@@ -74,8 +80,10 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
 
     // let magnetometer = madgwick::apply_cal_magnetic(magnetometer, softIronMatrix, hardIronOffset);
 
+    // todo: Consider putting this offset bit back later
     // Update gyroscope offset correction algorithm
-    let gyro_data_with_offset = ahrs.offset.update(gyro_data);
+    // let gyro_data_with_offset = ahrs.offset.update(gyro_data);
+    let gyro_data_with_offset = gyro_data;
 
     // todo: Can we use the hard-set 8kHz IMU-spec DT, or do we need to measure?
     ahrs.update_no_magnetometer(gyro_data, accel_data, crate::DT_IMU);
@@ -85,9 +93,9 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
 
     // Update params with our calibrated gryo data.
     // Note that we re-apply our sign-changes per our chosen coordinate system.
-    params.v_pitch = gyro_data_with_offset.x;
-    params.v_roll = gyro_data_with_offset.y;
-    params.v_yaw = -gyro_data_with_offset.z;
+    // params.v_pitch = gyro_data_with_offset.x;
+    // params.v_roll = gyro_data_with_offset.y;
+    // params.v_yaw = -gyro_data_with_offset.z;
 
     // // Note: Swapped pitch/roll swapped due to how the madgwick filter or quaternion -> euler angle
     // // is calculated.
@@ -97,8 +105,4 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     params.s_roll = att_euler.roll;
     params.s_yaw = att_euler.yaw;
     params.quaternion = ahrs.quaternion;
-
-    // params.s_roll = att_earth.x;
-    // params.s_pitch = att_earth.y;
-    // params.s_yaw = att_earth.z;
 }
