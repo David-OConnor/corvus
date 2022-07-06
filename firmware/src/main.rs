@@ -36,7 +36,6 @@ use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
 // pub use, so we can use this rename in `sensor_fusion` to interpret the DMA buf.
 pub use drivers::imu_icm426xx as imu;
-// use drivers::imu_ism330dhcx as imu;
 use ahrs_fusion::Ahrs;
 use drivers::tof_vl53l1 as tof;
 use filter_imu::ImuFilters;
@@ -113,19 +112,22 @@ const FLASH_WAYPOINT_SECTOR: usize = 7;
 const FLASH_CFG_PAGE: usize = 254; // todo: Set to 126 etc when on G474!
 const FLASH_WAYPOINT_PAGE: usize = 255; // todo: Set to 126 etc when on G474!
 
-// Our DT timer speed, in Hz.
-const DT_TIM_FREQ: u32 = 200_000_000;
-
 // The rate our main program updates, in Hz.
-// Currently set to
-const IMU_UPDATE_RATE: f32 = 8_000.;
+// todo: Currently have it set to what we're measuring. Not sure why we don't get 8khz.
+// todo note that we will have to scale up values slightly on teh H7 board with 32.768kHz oscillator:
+// ICM-42688 DS: The ODR values shown in the
+// datasheet are supported with external clock input frequency of 32kHz. For any other external clock input frequency, these ODR
+// values will scale by a factor of (External clock value in kHz / 32). For example, if an external clock frequency of 32.768kHz is used,
+// instead of ODR value of 500Hz, it will be 500 * (32.768 / 32) = 512Hz.
+#[cfg(feature = "mercury-h7")]
+const IMU_UPDATE_RATE: f32 = 6_922.;
+#[cfg(feature = "mercury-g4")]
+const IMU_UPDATE_RATE: f32 = 6_760.;
 
 // todo: Set update rate attitude back to 1600 etc. Slower rate now since we're using this loop to TS.
 const UPDATE_RATE_ATTITUDE: f32 = 1_600.; // IMU rate / 5.
 const UPDATE_RATE_VELOCITY: f32 = 400.; // IMU rate / 20.
 
-// How many inner loop ticks occur between mid and outer loop.
-// const OUTER_LOOP_RATIO: usize = 10;
 
 // Every _ main update loops, log parameters etc to flash.
 const LOGGING_UPDATE_RATIO: usize = 100;
@@ -157,13 +159,6 @@ const DIRECT_AUTOPILOT_MAX_RNG: f32 = 500.;
 // loop.
 const VELOCITY_ATTITUDE_UPDATE_RATIO: usize = 4;
 const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500Hz; apt for servos.
-
-// We use this to make sure a received char equal to the FC destination value (eg as part
-// of channel data) doesn't interrupt our data receive.
-static CRSF_RX_IN_PROG: AtomicBool = AtomicBool::new(false);
-
-// Enable this to print parameters (eg location, altitude, attitude, angular rates etc) to the console.
-// const DEBUG_PARAMS: bool = true;
 
 // todo: Course set mode. Eg, point at thing using controls, activate a button,
 // todo then the thing flies directly at the target.
@@ -335,12 +330,13 @@ mod app {
         /// We use this counter to subdivide the main loop into longer intervals,
         /// for various tasks like logging, and outer loops.
         update_loop_i: usize,
+        update_loop_i2: usize, // todo d
         fixed_wing_rate_loop_i: usize,
     }
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
-        // startup::init()
+        // startup::init(&cx.core)
 
         // Cortex-M peripherals
         let mut cp = cx.core;
@@ -350,13 +346,18 @@ mod app {
         // todo: H743 clocks if you end up using that to test with BF
         cfg_if! {
             if #[cfg(feature = "h7")] {
-                // todo: Make sur eyou set up vos0 etc as requaired for 550Mhz H7.
+                // todo: Make sure eyou set up vos0 etc as required for 550Mhz H7.
                 let clock_cfg = Clocks {
-                    // Config for 550Mhz full speed:
+                    // Config for H723 at 520Mhz, or H743 at 480Mhz.
+                    // Note: to get H723 working at 550Mhz. You'll need to increase divn to 275,
+                    // and set CPU_FREQ_BOOST: "The CPU frequency boost can be enabled through the
+                    // CPUFREQ_BOOST option byte in the FLASH_OPTSR2_PRG register."
                     pll_src: PllSrc::Hse(16_000_000),
                     pll1: PllCfg {
-                        divm: 4, // To compensate with 16Mhz HSE instead of 64Mhz HSI // todo
-                        ..Default::default()
+                        // todo: Do we want a 64Mhz HSE for H7?
+                        divm: 4, // To compensate with 16Mhz HSE instead of 64Mhz HSI
+                        // divn: 275, // For 550Mhz with freq boost enabled.
+                        ..Clocks::full_speed(),
                     },
                     hsi48_on: true,
                     usb_src: clocks::UsbSrc::Hsi48,
@@ -400,17 +401,17 @@ mod app {
         setup::setup_dma(&mut dma, &mut dp.DMAMUX);
 
         // We use SPI1 for the IMU
-        // SPI input clock is 400MHz for H7, and 172Mhz for G4. 400MHz / 32 = 12.5 MHz. 170Mhz / 8 = 21.25Mhz.
+        // SPI input clock is 400MHz for H7, and 170Mhz for G4. 400MHz / 32 = 12.5 MHz. 170Mhz / 8 = 21.25Mhz.
         // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
         // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
         #[cfg(feature = "g4")]
         // todo: Switch to higher speed.
-        // let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
+        let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
         // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
-        let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
+        // let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
         #[cfg(feature = "h7")]
-        // let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
-        let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
+        let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
+        // let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
 
         let imu_spi_cfg = SpiConfig {
             // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
@@ -539,9 +540,12 @@ mod app {
         );
         update_timer.enable_interrupt(TimerInterrupt::Update);
 
+        // This timer is used to prevent a stream of continuous RF control signals, should they arrive
+        // at any reason, from crashing the FC. Ie, limit damage that can be done from external sources.
         let rf_limiter_timer = Timer::new_tim16(
             dp.TIM16,
-            MAX_RF_UPDATE_RATE,
+            // MAX_RF_UPDATE_RATE,
+            1_000., // todo temp while we coop this timer
             TimerConfig {
                 one_pulse_mode: true,
                 ..Default::default()
@@ -824,6 +828,7 @@ mod app {
                 arm_signals_received: 0,
                 disarm_signals_received: 0,
                 update_loop_i: 0,
+                update_loop_i2: 0, // todo
                 fixed_wing_rate_loop_i: 0,
             },
             init::Monotonics(),
@@ -947,16 +952,16 @@ mod app {
 
                         // println!("Batt V: {} Curr V: {}", batt_v, curr_v);
                         //
-                        println!(
-                            "Accel: Ax {}, Ay: {}, Az: {}",
-                            params.a_x, params.a_y, params.a_z
-                        );
-                        //
-                        println!(
-                            "Gyro: roll {}, pitch: {}, yaw: {}",
-                            params.v_roll, params.v_pitch, params.v_yaw
-                        );
+                        // println!(
+                        //     "Accel: Ax {}, Ay: {}, Az: {}",
+                        //     params.a_x, params.a_y, params.a_z
+                        // );
                         // //
+                        // println!(
+                        //     "Gyro: roll {}, pitch: {}, yaw: {}",
+                        //     params.v_roll, params.v_pitch, params.v_yaw
+                        // );
+                        // // //
                         println!(
                             "Attitude: roll {}, pitch: {}, yaw: {}\n",
                             params.s_roll, params.s_pitch, params.s_yaw
@@ -1101,9 +1106,11 @@ mod app {
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, input_mode, control_channel_data, input_map, autopilot_status,
     rates_commanded, pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, command_state, cs_imu, user_cfg,
-    motor_timers, ahrs, state_volatile], local = [fixed_wing_rate_loop_i], priority = 5)]
+    motor_timers, ahrs, state_volatile, rf_limiter_timer], local = [fixed_wing_rate_loop_i, update_loop_i2], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
+    /// Note: `rf_limiter_timer` is there, co-opted for use measuring this loop.
+    /// todo: Currently getting 6.67kHz instead of 8kHz.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         // Clear DMA interrupt this way due to RTIC conflict.
         #[cfg(feature = "h7")]
@@ -1136,6 +1143,7 @@ mod app {
             cx.shared.input_map,
             cx.shared.command_state,
             cx.shared.spi1,
+            // cx.shared.rf_limiter_timer, // todo temp
             cx.shared.state_volatile,
         )
             .lock(
@@ -1155,12 +1163,27 @@ mod app {
                  input_map,
                  command_state,
                  spi1,
+                 // rf_limiter_timer, // todo temp
                  state_volatile| {
                     // Note that these steps are mandatory, per STM32 RM.
                     // spi.stop_dma only can stop a single channel atm, hence the 2 calls here.
                     dma.stop(setup::IMU_TX_CH);
 
                     spi1.stop_dma(setup::IMU_RX_CH, dma);
+
+                    // // todo: TSing geting wrong freq. (3.5khz instead of 8)
+                    // if *cx.local.update_loop_i2 % 700 == 0 {
+                    //     let arr = rf_limiter_timer.get_max_duty();
+                    //     let count = rf_limiter_timer.read_count();
+                    //     let time = (count as f32 / arr as f32) / 1_000.;
+                    //
+                    //     defmt::println!("Time elapsed: {:?} Freq: {:?}", time, 1./time);
+                    // }
+                    // *cx.local.update_loop_i2 += 1;
+
+                    // rf_limiter_timer.disable();
+                    // rf_limiter_timer.reset_countdown();
+                    // rf_limiter_timer.enable();
 
                     // todo: Temp TS code to verify rotordirection.
                     // if command_state.arm_status == ArmStatus::Armed {

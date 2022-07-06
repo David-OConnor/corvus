@@ -40,15 +40,21 @@ use cfg_if::cfg_if;
 // so we can set duty cycle appropriately for DSHOT.
 // These are set for a 200MHz timer frequency.
 // (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period.
+// ARR = (TIMclk/Updatefrequency) / (PSC + 1) - 1
 
 pub const DSHOT_PSC_600: u16 = 0;
 
+// Update frequency: 600kHz
+// 170Mhz tim clock on G4.
+// 240Mhz tim clock on H743
+// 260Mhz tim clock on H723 @ 520Mhz. 275Mhz @ 550Mhz
 cfg_if! {
     if #[cfg(feature = "h7")] {
-        pub const DSHOT_ARR_600: u32 = 332;
+        // pub const DSHOT_ARR_600: u32 = 399;  // 240Mhz tim clock
+        pub const DSHOT_ARR_600: u32 = 432;  // 260Mhz tim clock
+        // pub const DSHOT_ARR_600: u32 = 457; // 275Mhz tim clock
     } else if #[cfg(feature = "g4")] {
-        // 170Mhz tim clock. Results in 600.707kHz.
-        pub const DSHOT_ARR_600: u32 = 282;
+        pub const DSHOT_ARR_600: u32 = 282; // 170Mhz tim clock
     }
 }
 

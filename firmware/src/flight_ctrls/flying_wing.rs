@@ -34,17 +34,22 @@ const ELEVON_MAX: f32 = 1.;
 // pitch coeffecient of 1.
 const ROLL_COEFF: f32 = 1.;
 
+// Update frequency: 500Hz. See `dshot.rs` for the calculation.
+// 170Mhz tim clock on G4.
+// 240Mhz tim clock on H743
+// 260Mhz tim clock on H723 @ 520Mhz. 275Mhz @ 550Mhz
 cfg_if! {
     if #[cfg(feature = "h7")] {
-        // 480Mhz tim clock.
-        pub const PSC_SERVOS: u16 = 0; // todo
-        pub const ARR_SERVOS: u32 = 332; // todo
-        // 520Mhz tim clock.
-        // pub const PSC_SERVOS: u16 = 0; // todo
-        // pub const ARR_SERVOS: u32 = 332; // todo
+        // 240Mhz tim clock.
+        // pub const PSC_SERVOS: u16 = 7;
+        // pub const ARR_SERVOS: u32 = 59_999;
+        // 260Mhz tim clock.
+        pub const PSC_SERVOS: u16 = 7;
+        pub const ARR_SERVOS: u32 = 64_999;
+        // 275Mhz tim clock.
+        // pub const PSC_SERVOS: u16 = 8;
+        // pub const ARR_SERVOS: u32 = 61_110;
     } else if #[cfg(feature = "g4")] {
-        // 170Mhz tim clock. Results in 500Hz.
-        // (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period
         pub const PSC_SERVOS: u16 = 6;
         pub const ARR_SERVOS: u32 = 48_570;
     }

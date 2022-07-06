@@ -50,12 +50,16 @@ pub enum Reg {
     GyroConfig1 = 0x51,
     GyroAccelConfig0 = 0x52,
 
+    IntConfig0 = 0x63,
+    IntConfig1 = 0x64,
+
     IntSource0 = 0x65,
     IntSource2 = 0x66,
     IntSource3 = 0x68,
     IntSource4 = 0x69,
 
     IntfConfig4 = 0x7a,
+    IntfConfig5 = 0x7b,
     IntfConfig6 = 0x7c,
 }
 
@@ -93,12 +97,16 @@ fn write_one(reg: Reg, word: u8, spi: &mut Spi<SPI1>, cs: &mut Pin) {
 pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) {
     // Leave default of SPI mode 0 and 3.
 
+    // Configure the IMU to use the external timing source.
+    // write_one(Reg::IntfConfig5, 0b0000_0100, spi, cs);
+
     // Enable gyros and accelerometers in low noise mode.
     write_one(Reg::PwrMgmt0, 0b0000_1111, spi, cs);
 
     // Set gyros and accelerometers to 8kHz update rate, 2000 DPS gyro full scale range,
     // and +-16g accelerometer full scale range.
     write_one(Reg::GyroConfig0, 0b0000_0011, spi, cs);
+
     // "When transitioning from OFF to any of the other modes, do not issue any
     // register writes for 200µs." (Gyro and accel)
     delay.delay_us(200);
@@ -106,7 +114,22 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) {
     write_one(Reg::AccelConfig0, 0b0000_0011, spi, cs);
     delay.delay_us(200);
 
-    // (Leave default interrupt settings of active low, push pull, pulsed.)
+    // Set both the accelerator and gyro filtesr to the low latency option.
+    // todo: This is what BF does. Do we want this?
+    write_one(Reg::GyroAccelConfig0, 14<<4 | 14, spi, cs);
+
+    // (Leave default INT_CONFIG settings of active low, push pull, pulsed.)
+
+    //  "Interrupt pulse duration is 8 µs. Required if ODR ≥ 4kHz, optional for ODR
+    // < 4kHz."
+    // "Disables de-assert duration. Required if ODR ≥ 4kHz, optional for ODR <
+    // 4kHz."
+    // "For register INT_CONFIG1 (bank 0 register 0x64) bit 4 INT_ASYNC_RESET, user should change
+    // setting to 0 from default setting of 1 for proper INT1 and INT2 pin operation."
+    write_one(Reg::IntConfig1, 0b0110_0000, spi, cs);
+
+    // todo Temp TS. BF uses this, but I think that only applies to latched from DS.
+    // write_one(Reg::IntConfig0, 0b0011_0000, spi, cs);
 
     // Enable UI data ready interrupt routed to the INT1 pin.
     write_one(Reg::IntSource0, 0b0000_1000, spi, cs);

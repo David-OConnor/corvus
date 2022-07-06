@@ -109,13 +109,10 @@ impl Default for Settings {
     /// See above field descriptions for why we use these defaults.
     fn default() -> Self {
         Self {
-            // gain: 0.5,
-            // gain: 1000., // todo temp
-            gain: 0., // todo temp
+            gain: 0.5,
             accel_rejection: 0.1745,
             magnetic_rejection: 0.35,
-            // rejection_timeout: (5. * crate::IMU_UPDATE_RATE) as u32,
-            rejection_timeout: 0, // todo temp
+            rejection_timeout: (5. * crate::IMU_UPDATE_RATE) as u32,
         }
     }
 }

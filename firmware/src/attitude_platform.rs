@@ -46,20 +46,14 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     // See `imu_shared::ImuReadings` field descriptions for this. Here, we undo it: The AHRS
     // fusion algorithm expects raw readings. (See the - signs there and here; they correspond)
     let mut accel_data = Vec3 {
-        // todo: Experimenting
-        // x: params.a_x,
-        // y: params.a_y,
         x: -params.a_y,
         y: -params.a_x,
         z: params.a_z,
     };
 
     let mut gyro_data = Vec3 {
-        // todo: Experimenting
         x: params.v_roll,
         y: params.v_pitch,
-        // x: params.v_pitch,
-        // y: params.v_roll,
         z: params.v_yaw,
     };
 
@@ -89,18 +83,7 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     ahrs.update_no_magnetometer(gyro_data, accel_data, crate::DT_IMU);
 
     let att_euler = ahrs.quaternion.to_euler();
-    // let att_earth = ahrs.get_earth_accel();
 
-    // Update params with our calibrated gryo data.
-    // Note that we re-apply our sign-changes per our chosen coordinate system.
-    // params.v_pitch = gyro_data_with_offset.x;
-    // params.v_roll = gyro_data_with_offset.y;
-    // params.v_yaw = -gyro_data_with_offset.z;
-
-    // // Note: Swapped pitch/roll swapped due to how the madgwick filter or quaternion -> euler angle
-    // // is calculated.
-    // params.s_roll = att_euler.pitch;
-    // params.s_pitch = att_euler.roll;
     params.s_pitch = att_euler.pitch;
     params.s_roll = att_euler.roll;
     params.s_yaw = att_euler.yaw;
