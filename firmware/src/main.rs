@@ -355,7 +355,7 @@ mod app {
                     pll_src: PllSrc::Hse(16_000_000),
                     pll1: PllCfg {
                         // todo: Do we want a 64Mhz HSE for H7?
-                        divm: 4, // To compensate with 16Mhz HSE instead of 64Mhz HSI
+                        divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
                         // divn: 275, // For 550Mhz with freq boost enabled.
                         ..Clocks::full_speed(),
                     },

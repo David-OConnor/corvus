@@ -355,8 +355,8 @@ impl Ahrs {
         self.update(gyroscope, accelerometer, magnetometer, dt);
     }
 
-    /// Returns the linear acceleration measurement equal to the accelerometer
-    /// measurement with the 9.8m/s^2 of gravity removed.
+    /// Returns the linear acceleration measurement in  equal to the accelerometer
+    /// measurement with the 9.8m/s^2 of gravity removed. Result is in m/2^2.
     fn get_linear_accel(&self) -> Vec3 {
         let q = self.quaternion;
 
@@ -371,7 +371,7 @@ impl Ahrs {
 
     /// Returns the Earth acceleration measurement equal to accelerometer
     /// measurement in the Earth coordinate frame with the 9.8m/s^2 of gravity removed.
-    /// ahrs AHRS algorithm structure.
+    /// ahrs AHRS algorithm structure. Result is in m/2^2.
     pub fn get_earth_accel(&self) -> Vec3 {
         let q = self.quaternion;
         let a = self.accelerometer;

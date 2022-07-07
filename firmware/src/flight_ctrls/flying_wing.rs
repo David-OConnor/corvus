@@ -114,7 +114,8 @@ pub fn setup_timers(timers: &mut MotorTimers) {
     motor_tim.enable_interrupt(TimerInterrupt::UpdateDma);
     // servo_timer.enable_interrupt(TimerInterrupt::Update);
 
-    // Arbitrary duty cycle set, since we'll override it with DMA bursts.
+    // Arbitrary duty cycle set, since we'll override it with DMA bursts for the motor, and
+    // position settings for the servos.
     motor_tim.enable_pwm_output(Motor::M1.tim_channel(), OutputCompare::Pwm1, 0.);
     servo_tim.enable_pwm_output(ServoWing::S1.tim_channel(), OutputCompare::Pwm1, 0.);
     servo_tim.enable_pwm_output(ServoWing::S2.tim_channel(), OutputCompare::Pwm1, 0.);

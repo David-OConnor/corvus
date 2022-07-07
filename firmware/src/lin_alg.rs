@@ -185,7 +185,7 @@ impl Quaternion {
         }
     }
 
-    /// Converts a Quaternion to Euler angles, in radians.
+    /// Converts a Quaternion to ZYX Euler angles, in radians.
     pub fn to_euler(self) -> EulerAngle {
         let half_minus_qy_squared = 0.5 - self.y * self.y; // calculate common terms to avoid repeated operations
 
@@ -274,7 +274,8 @@ impl Mat3 {
     }
 }
 
-/// Euler angles.
+/// Euler angles.  Roll, pitch, and yaw correspond to rotations around
+/// X, Y, and Z respectively.
 pub struct EulerAngle {
     pub roll: f32,
     pub pitch: f32,
