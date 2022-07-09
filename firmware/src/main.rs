@@ -13,17 +13,6 @@ use panic_probe as _;
 
 use cfg_if::cfg_if;
 
-cfg_if! {
-    if #[cfg(feature = "h7")] {
-        use stm32_hal2::{
-            clocks::{PllCfg, VosRange}
-            pac::USART7,
-        }
-    } else {
-        pac::USART3,
-    }
-}
-
 use stm32_hal2::{
     self,
     adc::{self, Adc, AdcConfig, AdcDevice},
@@ -38,6 +27,23 @@ use stm32_hal2::{
     timer::{Timer, TimerConfig, TimerInterrupt},
     usart::{Usart, UsartInterrupt},
 };
+
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        use stm32_hal2::{
+            clocks::{PllCfg, VosRange},
+            usb_otg::{Usb1, UsbBus, Usb1BusType as UsbBusType},
+            // pac::USB
+            // OTG1_HS_DEVICE
+        };
+        // This USART alias is made pub here, so we don't repeat this line in other modules.
+        pub use stm32_hal2::pac::UART7 as USART;
+    } else if #[cfg(feature = "g4")] {
+        use stm32_hal2::usb::{self, UsbBus, UsbBusType};
+        pub use stm32_hal2::pac::USART3 as USART;
+    }
+}
+
 use usb_device::{bus::UsbBusAllocator, prelude::*};
 
 use usbd_serial::{self, SerialPort};
@@ -46,8 +52,8 @@ use control_interface::{ChannelData, LinkStats};
 use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
 // pub use, so we can use this rename in `sensor_fusion` to interpret the DMA buf.
-pub use drivers::imu_icm426xx as imu;
 use ahrs_fusion::Ahrs;
+pub use drivers::imu_icm426xx as imu;
 use drivers::tof_vl53l1 as tof;
 use filter_imu::ImuFilters;
 use flight_ctrls::{
@@ -61,19 +67,6 @@ use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
 use state::{AircraftType, OperationMode, StateVolatile, UserCfg};
-
-
-cfg_if! {
-    if #[cfg(feature = "h7")] {
-        use stm32_hal2::{
-            usb_otg::{Usb1, UsbBus, Usb1BusType as UsbBusType},
-            // pac::USB
-            // OTG1_HS_DEVICE
-        };
-    } else if #[cfg(feature = "g4")] {
-        use stm32_hal2::usb::{self, UsbBus, UsbBusType};
-    }
-}
 
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.
@@ -134,7 +127,6 @@ const IMU_UPDATE_RATE: f32 = 6_760.;
 // todo: Set update rate attitude back to 1600 etc. Slower rate now since we're using this loop to TS.
 const UPDATE_RATE_ATTITUDE: f32 = 1_600.; // IMU rate / 5.
 const UPDATE_RATE_VELOCITY: f32 = 400.; // IMU rate / 20.
-
 
 // Every _ main update loops, log parameters etc to flash.
 const LOGGING_UPDATE_RATIO: usize = 100;
@@ -306,10 +298,7 @@ mod app {
         i2c1: I2c<I2C1>,
         i2c2: I2c<I2C2>,
         altimeter: baro::Altimeter,
-        #[cfg(feature = "h7")]
-        uart_elrs: Usart<USART7>, // for ELRS over CRSF.
-        #[cfg(feature = "g4")]
-        uart_elrs: Usart<USART3>, // for ELRS over CRSF.
+        uart_elrs: Usart<USART>, // for ELRS over CRSF.
         flash_onboard: Flash,
         batt_curr_adc: Adc<ADC2>,
         // rtc: Rtc,
@@ -367,7 +356,7 @@ mod app {
                         // todo: Do we want a 64Mhz HSE for H7?
                         divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
                         // divn: 275, // For 550Mhz with freq boost enabled.
-                        ..Clocks::full_speed(),
+                        ..Clocks::full_speed()
                     },
                     hsi48_on: true,
                     usb_src: clocks::UsbSrc::Hsi48,
@@ -416,12 +405,12 @@ mod app {
         // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
         #[cfg(feature = "g4")]
         // todo: Switch to higher speed.
-        let imu_baud_div = BaudRate::Div8;  // for ICM426xx, for 24Mhz limit
-        // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
-        // let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
+        let imu_baud_div = BaudRate::Div8; // for ICM426xx, for 24Mhz limit
+                                           // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
+                                           // let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
         #[cfg(feature = "h7")]
         let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
-        // let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
+                                            // let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
 
         let imu_spi_cfg = SpiConfig {
             // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
@@ -507,7 +496,7 @@ mod app {
         // The STM32-HAL default UART config includes stop bits = 1, parity disabled, and 8-bit words,
         // which is what we want.
         #[cfg(feature = "h7")]
-        let usart_regs = dp.USART7;
+        let usart_regs = dp.UART7;
         #[cfg(feature = "g4")]
         let usart_regs = dp.USART3;
         let mut uart_elrs = Usart::new(usart_regs, 420_000, Default::default(), &clock_cfg);

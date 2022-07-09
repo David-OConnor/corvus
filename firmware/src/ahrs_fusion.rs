@@ -198,7 +198,6 @@ impl Ahrs {
     /// magnetometer Magnetometer measurement is in arbitrary units.
     /// dt is in seconds.
     pub fn update(&mut self, gyro_data: Vec3, accel_data: Vec3, mag_data: Vec3, dt: f32) {
-
         // Store accelerometer
         self.accelerometer = accel_data;
 

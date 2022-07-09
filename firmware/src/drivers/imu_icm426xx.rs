@@ -116,7 +116,7 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) {
 
     // Set both the accelerator and gyro filtesr to the low latency option.
     // todo: This is what BF does. Do we want this?
-    write_one(Reg::GyroAccelConfig0, 14<<4 | 14, spi, cs);
+    write_one(Reg::GyroAccelConfig0, 14 << 4 | 14, spi, cs);
 
     // (Leave default INT_CONFIG settings of active low, push pull, pulsed.)
 

@@ -44,6 +44,37 @@ impl Default for AltHoldSwitch {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+/// For the switch position. We interpret actual mode from this, and other data, like prescense of GPS.
+/// val is for passing over USB serial.
+pub enum PidTuneMode {
+    Disabled = 0,
+    P = 1,
+    I = 2,
+    D = 3,
+}
+
+impl Default for PidTuneMode {
+    fn default() -> Self {
+        Self::Disabled
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// Command a change to PID eg airborne.
+pub enum PidTuneActuation {
+    Neutral = 0,
+    Increase = 1,
+    Decrease = 2,
+}
+
+impl Default for PidTuneActuation {
+    fn default() -> Self {
+        Self::Neutral
+    }
+}
+
 // todo: Consider putting these mode switches in `control_interface`.
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
@@ -105,21 +136,32 @@ pub struct _CrsfChannelData {
     pub aux_12: u16,
 }
 
-/// Represents channel data in our end-use format.
+/// Represents channel data in our end-use format. This is not constrained by
+/// ELRS or CRSF's formats.
 #[derive(Default)]
 pub struct ChannelData {
-    /// Aileron, -1. to 1.
+    /// "Aileron", -1. to 1.
     pub roll: f32,
-    /// Elevator, -1. to 1.
+    /// "Elevator", -1. to 1.
     pub pitch: f32,
     /// Throttle, 0. to 1., or -1. to 1. depending on if stick auto-centers.
     pub throttle: f32,
-    /// Rudder, -1. to 1.
+    /// "Rudder", -1. to 1.
     pub yaw: f32,
+    /// Master arm switch for rotor power and perhaps other systems. Ideally on 2-position non-spring
+    /// switch.
     pub arm_status: ArmStatus,
+    /// Ie angular-rate-based (Acro), or Command (with GPS present) or attitude-based
+    /// (no GPS present). Ideally on 2-position non-spring switch.
     pub input_mode: InputModeSwitch,
+    /// Eg disabled, AGL, or MSL.  Ideally on 3-position non-spring switch.
     pub alt_hold: AltHoldSwitch,
-    // todo: Auto-recover commanded, auto-TO/land/RTB, obstacle avoidance etc.
+    /// For live PID tuning, select P, I, or D to tune. Ideally on 3-position non-spring
+    /// switch.
+    /// todo: Disabled ideally too, but controllers don't usually have 4-posit switches?
+    pub pid_tune_mode: PidTuneMode,
+    /// For live PID tuning, ideally on 3-position spring switch. Could also be as 2 buttons.
+    pub pid_tune_actuation: PidTuneActuation, // todo: Auto-recover commanded, auto-TO/land/RTB, obstacle avoidance etc.
 }
 
 /// ELRS Transmit power. `u8` is the value reported over CRSF in the uplink tx power field.
