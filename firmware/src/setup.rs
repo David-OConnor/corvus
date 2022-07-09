@@ -172,21 +172,14 @@ pub fn setup_pins() {
     // We use UARTs for misc external devices, including ESC telemetry,
     // and VTX OSD.
 
-    let _uart1_tx = Pin::new(Port::B, 6, PinMode::Alt(7));
-    let _uart1_rx = Pin::new(Port::B, 7, PinMode::Alt(7));
-    let _uart2_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
-    let _uart2_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
-    let _uart3_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
-    let _uart3_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
-    let _uart4_tx = Pin::new(Port::C, 10, PinMode::Alt(7));
-    let _uart4_rx = Pin::new(Port::C, 11, PinMode::Alt(7));
-
-    // todo temp!
-    // let mut uart3_rx = Pin::new(Port::B, 11, PinMode::Output);
-    // uart3_rx.set_low();
-    // let mut uart3_tx = Pin::new(Port::B, 10, PinMode::Output);
-    // uart3_tx.set_low();
-    // loop {}
+    // let _uart1_tx = Pin::new(Port::B, 6, PinMode::Alt(7));
+    // let _uart1_rx = Pin::new(Port::B, 7, PinMode::Alt(7));
+    // let _uart2_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
+    // let _uart2_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
+    // let _uart3_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
+    // let _uart3_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
+    // let _uart4_tx = Pin::new(Port::C, 10, PinMode::Alt(7));
+    // let _uart4_rx = Pin::new(Port::C, 11, PinMode::Alt(7));
 
     // Used to trigger a PID update based on new IMU data.
     // We assume here the interrupt config uses default settings active low, push pull, pulsed.
@@ -248,8 +241,12 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     // LoRa (ELRS)
     // dma::mux(ELRS_RX_CH, DmaInput::Spi2Rx, mux);
 
-    // CRSF (ELRS backup)
-    dma::mux(CRSF_RX_CH, DmaInput::Usart3Rx, mux);
+    // CRSF (onboard ELRS)
+    #[cfg(feature = "h7")]
+    let elrs_dma_ch = DmaInput::Usart7Rx;
+    #[cfg(feature = "g4")]
+    let elrs_dma_ch = DmaInput::Usart3Rx;
+    dma::mux(CRSF_RX_CH, elrs_dma_ch, mux);
     // Note: If we run out of DMA channels, consider removing the CRSF transmit channel;
     // we only have it set up to respond to pings, and that's probably unecessary.
     // dma::mux(DmaChannel::C8, DmaInput::Usart3Tx, mux);

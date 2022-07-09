@@ -11,8 +11,19 @@ use defmt_rtt as _;
 // global logger
 use panic_probe as _;
 
-#[cfg(feature = "h7")]
-use stm32_hal2::clocks::PllCfg;
+use cfg_if::cfg_if;
+
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        use stm32_hal2::{
+            clocks::{PllCfg, VosRange}
+            pac::USART7,
+        }
+    } else {
+        pac::USART3,
+    }
+}
+
 use stm32_hal2::{
     self,
     adc::{self, Adc, AdcConfig, AdcDevice},
@@ -21,7 +32,7 @@ use stm32_hal2::{
     flash::{Bank, Flash},
     gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, ADC2, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM16, TIM17, USART3},
+    pac::{self, ADC2, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM16, TIM17},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{Timer, TimerConfig, TimerInterrupt},
@@ -51,10 +62,6 @@ use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
 use state::{AircraftType, OperationMode, StateVolatile, UserCfg};
 
-#[cfg(feature = "h7")]
-use crate::clocks::VosRange;
-
-use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
@@ -299,7 +306,10 @@ mod app {
         i2c1: I2c<I2C1>,
         i2c2: I2c<I2C2>,
         altimeter: baro::Altimeter,
-        uart3: Usart<USART3>, // for ELRS over CRSF.
+        #[cfg(feature = "h7")]
+        uart_elrs: Usart<USART7>, // for ELRS over CRSF.
+        #[cfg(feature = "g4")]
+        uart_elrs: Usart<USART3>, // for ELRS over CRSF.
         flash_onboard: Flash,
         batt_curr_adc: Adc<ADC2>,
         // rtc: Rtc,
@@ -496,8 +506,12 @@ mod app {
         // todo note: We'd like to move to ELRS long term, but use this for now.
         // The STM32-HAL default UART config includes stop bits = 1, parity disabled, and 8-bit words,
         // which is what we want.
-        let mut uart3 = Usart::new(dp.USART3, 420_000, Default::default(), &clock_cfg);
-        crsf::setup(&mut uart3, setup::CRSF_RX_CH, &mut dma); // Keep this channel in sync with `setup.rs`.
+        #[cfg(feature = "h7")]
+        let usart_regs = dp.USART7;
+        #[cfg(feature = "g4")]
+        let usart_regs = dp.USART3;
+        let mut uart_elrs = Usart::new(usart_regs, 420_000, Default::default(), &clock_cfg);
+        crsf::setup(&mut uart_elrs, setup::CRSF_RX_CH, &mut dma); // Keep this channel in sync with `setup.rs`.
 
         // We use the RTC to assist with power use measurement.
         let rtc = Rtc::new(dp.RTC, Default::default());
@@ -803,7 +817,7 @@ mod app {
                 i2c1,
                 i2c2,
                 altimeter,
-                uart3,
+                uart_elrs,
                 batt_curr_adc,
                 // rtc,
                 update_timer,
@@ -1491,14 +1505,15 @@ mod app {
         safety::LINK_LOST.store(true, Ordering::Release);
     }
 
-    #[task(binds = USART3, shared = [uart3, dma, control_channel_data,
+    // #[task(binds = USART7, shared = [uart_elrs, dma, control_channel_data,
+    #[task(binds = USART3, shared = [uart_elrs, dma, control_channel_data,
     lost_link_timer, rf_limiter_timer, state_volatile], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
     fn crsf_isr(cx: crsf_isr::Context) {
         (
-            cx.shared.uart3,
+            cx.shared.uart_elrs,
             cx.shared.dma,
             cx.shared.control_channel_data,
             cx.shared.lost_link_timer,

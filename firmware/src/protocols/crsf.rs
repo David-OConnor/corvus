@@ -30,9 +30,14 @@ use num_enum::TryFromPrimitive; // Enum from integer
 
 use defmt::println;
 
+#[cfg(feature = "h7")]
+use stm32_hal2::pac::USART7 as USART;
+#[cfg(feature = "g4")]
+use stm32_hal2::pac::USART3 as USART;
+
 use stm32_hal2::{
     dma::{ChannelCfg, Circular, Dma, DmaChannel},
-    pac::{DMA1, USART3},
+    pac::DMA1,
     usart::{Usart, UsartInterrupt},
 };
 
@@ -145,7 +150,7 @@ pub enum PacketData {
 
 /// Configure the Idle interrupt, and start the circular DMA transfer. Run this once, on initial
 /// firmware setup.
-pub fn setup(uart: &mut Usart<USART3>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
+pub fn setup(uart: &mut Usart<USART>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
     // Idle interrupt, in conjunction with circular DMA, to indicate we're received a message.
     uart.enable_interrupt(UsartInterrupt::Idle);
 
@@ -368,7 +373,7 @@ impl Packet {
 
 /// Handle an incomming packet. Triggered whenever the line goes idle.
 pub fn handle_packet(
-    uart: &mut Usart<USART3>,
+    uart: &mut Usart<USART>,
     dma: &mut Dma<DMA1>,
     rx_chan: DmaChannel,
     tx_chan: DmaChannel,
