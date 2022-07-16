@@ -293,7 +293,6 @@ mod app {
         spi1: Spi<SPI1>,
         spi2: Spi<SPI2>,
         cs_imu: Pin,
-        cs_elrs: Pin,
         i2c1: I2c<I2C1>,
         i2c2: I2c<I2C2>,
         altimeter: baro::Altimeter,
@@ -305,7 +304,6 @@ mod app {
         rf_limiter_timer: Timer<TIM16>,
         lost_link_timer: Timer<TIM17>,
         motor_timers: MotorTimers,
-        // elrs_timer: Timer<TIM4>,
         // delay_timer: Timer<TIM5>,
         usb_dev: UsbDevice<'static, UsbBusType>,
         usb_serial: SerialPort<'static, UsbBusType>,
@@ -434,17 +432,6 @@ mod app {
         // We use SPI2 for the LoRa ELRS chip. Uses mode0.  // todo: Find max speed.
         // Note that ELRS uses 9Mhz, although we could go higher if wanted. Div32 = 5.3125.
         let spi2 = Spi::new(dp.SPI2, Default::default(), BaudRate::Div32);
-
-        // See ELRS `SX1280_hal.cpp`, `init` fn for pin setup.
-        // todo: Move this as approp.
-        // Used to trigger a a control-data-received update based on new ELRS data.
-        let elrs_busy = Pin::new(Port::C, 14, PinMode::Input);
-
-        // todo: Put elrs_dio back. Currently disabled since we have accidentally shorted it to SCL2.
-        // let mut elrs_dio = Pin::new(Port::C, 13, PinMode::Input);
-        // elrs_dio.enable_interrupt(Edge::Rising);
-        let mut cs_elrs = Pin::new(Port::C, 15, PinMode::Input);
-        cs_elrs.set_high();
 
         // We use SPI3 for flash. // todo: Find max speed and supported modes.
         let spi3 = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
@@ -609,16 +596,6 @@ mod app {
             &clock_cfg,
         );
         lost_link_timer.enable_interrupt(TimerInterrupt::Update);
-
-        // let elrs_timer = Timer::new_tim4(
-        //     dp.TIM4,
-        //     1.,
-        //     TimerConfig {
-        //         auto_reload_preload: true,
-        //         ..Default::default()
-        //     },
-        //     &clock_cfg,
-        // );
 
         let mut user_cfg = UserCfg::default();
         // todo temp
@@ -815,7 +792,6 @@ mod app {
                 spi1,
                 spi2,
                 cs_imu,
-                cs_elrs,
                 i2c1,
                 i2c2,
                 altimeter,
@@ -826,7 +802,6 @@ mod app {
                 rf_limiter_timer,
                 lost_link_timer,
                 motor_timers,
-                // elrs_timer,
                 // delay_timer,
                 usb_dev,
                 usb_serial,
@@ -1460,16 +1435,6 @@ mod app {
         });
     }
 
-    // #[task(binds = TIM4, shared = [elrs_timer], priority = 4)]
-    // /// ELRS timer.
-    // fn elrs_timer_isr(mut cx: elrs_timer_isr::Context) {
-    //     cx.shared.elrs_timer.lock(|timer| {
-    //         timer.clear_interrupt(TimerInterrupt::Update);
-    //         // elrs::HWtimerCallbackTick(timer);
-    //         // elrs::HWtimerCallbackTock(timer);
-    //     });
-    // }
-
     // #[task(binds = EXTI15_10, shared = [user_cfg, control_channel_data], local = [spi3], priority = 5)]
     // /// We use this ISR when receiving data from the radio, via (direct) ELRS
     // fn radio_data_isr(mut cx: radio_data_isr::Context) {
@@ -1479,19 +1444,6 @@ mod app {
     //     //     // *manual_inputs = elrs::get_inputs(cx.local.spi3);
     //     //     // *ch_data = CtrlInputs::get_manual_inputs(cfg); // todo: this?
     //     // })
-    // }
-
-    // #[task(binds = DMA1_CH6, shared = [dma, spi2, cs_elrs], priority = 3)]
-    // /// Handle SPI ELRS data received.
-    // fn elrs_rx_isr(mut cx: elrs_rx_isr::Context) {
-    //     // Clear DMA interrupt this way due to RTIC conflict.
-    //     unsafe { (*DMA1::ptr()).ifcr.write(|w| w.tcif6().set_bit()) }
-    //
-    //     (cx.shared.spi2, cx.shared.cs_elrs, cx.shared.dma).lock(|spi, cs, dma| {
-    //         cs.set_high();
-    //         dma.stop(setup::ELRS_TX_CH); // spi.stop_dma only can stop a single channel atm.
-    //         spi.stop_dma(setup::ELRS_RX_CH, dma);
-    //     });
     // }
 
     /// If this triggers, it means we've lost the link. (Note that this is for TIM17)

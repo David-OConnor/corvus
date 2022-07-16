@@ -26,7 +26,6 @@ pub const MOTOR_CH_B: DmaChannel = DmaChannel::C4;
 pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
 pub const CRSF_TX_CH: DmaChannel = DmaChannel::C6;
 
-// pub const ELRS_RX_CH: DmaChannel = DmaChannel::C8; // C0 for H7, and C8 for G4.
 pub const BATT_CURR_CH: DmaChannel = DmaChannel::C7;
 
 pub const BATT_ADC_CH: u8 = 17;
@@ -238,9 +237,6 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     #[cfg(not(feature = "h7"))]
     dma::mux(Motor::M3.dma_channel(), Motor::M3.dma_input(), mux);
 
-    // LoRa (ELRS)
-    // dma::mux(ELRS_RX_CH, DmaInput::Spi2Rx, mux);
-
     // CRSF (onboard ELRS)
     #[cfg(feature = "h7")]
     let elrs_dma_ch = DmaInput::Usart7Rx;
@@ -265,7 +261,4 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
     #[cfg(not(feature = "h7"))]
     dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
-
-    // Process ELRS control data
-    // dma.enable_interrupt(ELRS_RX_CH, DmaInterrupt::TransferComplete);
 }
