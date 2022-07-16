@@ -36,7 +36,8 @@ use defmt::println;
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
 // Amount each airborne, (from controller) PID adjustment modifies a given PID term.
-pub const PID_CONTROL_ADJ_AMT: f32 = 0.001;
+pub const PID_CONTROL_ADJ_AMT: f32 = 0.001; // in whatever units are PID values are
+pub const PID_CONTROL_ADJ_TIMEOUT: f32 = 0.3; // seconds
 
 const INTEGRATOR_CLAMP_MAX_QUAD: f32 = 0.4;
 const INTEGRATOR_CLAMP_MIN_QUAD: f32 = -INTEGRATOR_CLAMP_MAX_QUAD;

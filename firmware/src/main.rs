@@ -20,7 +20,7 @@ use stm32_hal2::{
     flash::{Bank, Flash},
     gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, ADC2, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM15, TIM16, TIM17},
+    pac::{self, ADC2, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM1, TIM15, TIM16, TIM17},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{Timer, TimerConfig, TimerInterrupt},
@@ -61,7 +61,7 @@ use flight_ctrls::{
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
 
-use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT};
+use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT, PID_CONTROL_ADJ_TIMEOUT};
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
@@ -330,6 +330,7 @@ mod app {
         update_loop_i: usize,
         update_loop_i2: usize, // todo d
         fixed_wing_rate_loop_i: usize,
+        pid_adj_timer: Timer<TIM1>,
     }
 
     #[init]
@@ -548,6 +549,19 @@ mod app {
             dp.TIM16,
             // MAX_RF_UPDATE_RATE,
             1_000., // todo temp while we coop this timer
+            TimerConfig {
+                one_pulse_mode: true,
+                ..Default::default()
+            },
+            &clock_cfg,
+        );
+
+        // We use this PID adjustment timer to indicate the interval for updating PID from a controller
+        // while the switch or button is held. (Equivalently, the min allowed time between actuations)
+
+        let pid_adj_timer = Timer::new_tim1(
+            dp.TIM1,
+            1. / PID_CONTROL_ADJ_TIMEOUT,
             TimerConfig {
                 one_pulse_mode: true,
                 ..Default::default()
@@ -832,6 +846,7 @@ mod app {
                 update_loop_i: 0,
                 update_loop_i2: 0, // todo
                 fixed_wing_rate_loop_i: 0,
+                pid_adj_timer,
             },
             init::Monotonics(),
         )
@@ -1495,7 +1510,7 @@ mod app {
 
     // #[task(binds = USART7, shared = [uart_elrs, dma, control_channel_data,
     #[task(binds = USART3, shared = [uart_elrs, dma, control_channel_data,
-    lost_link_timer, rf_limiter_timer, state_volatile, pid_rate], priority = 5)]
+    lost_link_timer, rf_limiter_timer, state_volatile, pid_rate], local = [pid_adj_timer], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
@@ -1534,38 +1549,44 @@ mod app {
                             crsf::PacketData::ChannelData(data) => {
                                 *ch_data = data;
 
-                                let pid_adjustment = match ch_data.pid_tune_actuation {
-                                    PidTuneActuation::Increase => PID_CONTROL_ADJ_AMT,
-                                    PidTuneActuation::Decrease => -PID_CONTROL_ADJ_AMT,
-                                    PidTuneActuation::Neutral => 0.,
-                                };
+                                if cx.local.pid_adj_timer.is_enabled() {
+                                    println!("PID timer is still running.");
+                                } else {
+                                    let pid_adjustment = match ch_data.pid_tune_actuation {
+                                        PidTuneActuation::Increase => PID_CONTROL_ADJ_AMT,
+                                        PidTuneActuation::Decrease => -PID_CONTROL_ADJ_AMT,
+                                        PidTuneActuation::Neutral => 0.,
+                                    };
 
-                                match ch_data.pid_tune_actuation {
-                                    // todo: Timeout on these
-                                    PidTuneActuation::Neutral => (),
-                                    _ => {
-                                        match ch_data.pid_tune_mode {
-                                            PidTuneMode::Disabled => (),
-                                            PidTuneMode::P => {
-                                                // todo: for now or forever, adjust pitch, roll, yaw
-                                                // todo at once to keep UI simple
-                                                pid_rate.pitch.p += pid_adjustment;
-                                                pid_rate.roll.p += pid_adjustment;
-                                                // todo: Maybe skip yaw here?
-                                                pid_rate.yaw.p += pid_adjustment;
-                                            }
-                                            PidTuneMode::I => {
-                                                pid_rate.pitch.i += pid_adjustment;
-                                                pid_rate.roll.i += pid_adjustment;
-                                                pid_rate.yaw.i += pid_adjustment;
-                                            }
-                                            PidTuneMode::D => {
-                                                pid_rate.pitch.d += pid_adjustment;
-                                                pid_rate.roll.d += pid_adjustment;
-                                                pid_rate.yaw.d += pid_adjustment;
+                                    match ch_data.pid_tune_actuation {
+                                        PidTuneActuation::Neutral => (),
+                                        _ => {
+                                            println!("Adjusting PID");
+                                            match ch_data.pid_tune_mode {
+                                                PidTuneMode::Disabled => (),
+                                                PidTuneMode::P => {
+                                                    // todo: for now or forever, adjust pitch, roll, yaw
+                                                    // todo at once to keep UI simple
+                                                    pid_rate.pitch.p += pid_adjustment;
+                                                    pid_rate.roll.p += pid_adjustment;
+                                                    // todo: Maybe skip yaw here?
+                                                    pid_rate.yaw.p += pid_adjustment;
+                                                }
+                                                PidTuneMode::I => {
+                                                    pid_rate.pitch.i += pid_adjustment;
+                                                    pid_rate.roll.i += pid_adjustment;
+                                                    pid_rate.yaw.i += pid_adjustment;
+                                                }
+                                                PidTuneMode::D => {
+                                                    pid_rate.pitch.d += pid_adjustment;
+                                                    pid_rate.roll.d += pid_adjustment;
+                                                    pid_rate.yaw.d += pid_adjustment;
+                                                }
                                             }
                                         }
                                     }
+                                    cx.local.pid_adj_timer.reset_countdown();
+                                    cx.local.pid_adj_timer.enable();
                                 }
 
                                 lost_link_timer.reset_countdown();
