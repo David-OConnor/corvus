@@ -2,88 +2,113 @@
 // (From that: Found on https://github.com/d3ngit/djihdfpv_mavlink_to_msp_V2/blob/master/Arduino_libraries/MSP/MSP.h)
 
 
-const FLIGHT_CONTROLLER_IDENTIFIER_LENGTH: u16 =   4;
+const FLIGHT_CONTROLLER_IDENTIFIER_LENGTH: usize =   4;
 
-// requests & replies
-const MSP_API_VERSION   : u16 =           1;
-const MSP_FC_VARIANT    : u16 =           2;
-const MSP_FC_VERSION   : u16 =            3;
-const MSP_BOARD_INFO   : u16 =            4;
-const MSP_BUILD_INFO    : u16 =           5;
-const MSP_CALIBRATION_DATA  : u16 =      14;
-const MSP_FEATURE       : u16 =          36;
-const MSP_BOARD_ALIGNMENT  : u16 =       38;
-const MSP_CURRENT_METER_CONFIG : u16 =   40;
-const MSP_RX_CONFIG      : u16 =         44;
-const MSP_SONAR_ALTITUDE : u16 =         58;
-const MSP_ARMING_CONFIG  : u16 =         61;
-const MSP_RX_MAP     : u16 =             64; // get channel map (also returns number of channels total)
-const MSP_LOOP_TIME   : u16 =            73; // FC cycle time i.e looptime parameter
-const MSP_STATUS      : u16 =           101;
-const MSP_RAW_IMU   : u16 =             102;
-const MSP_SERVO     : u16 =             103;
-const MSP_MOTOR   : u16 =               104;
-const MSP_RC      : u16 =               105;
-const MSP_RAW_GPS   : u16 =             106;
-const MSP_COMP_GPS   : u16 =            107; // distance home, direction home
-const MSP_ATTITUDE   : u16 =            108;
-const MSP_ALTITUDE    : u16 =           109;
-const MSP_ANALOG     : u16 =            110;
-const MSP_RC_TUNING     : u16 =         111; // rc rate, rc expo, rollpitch rate, yaw rate, dyn throttle PID
-const MSP_PID      : u16 =              112; // P I D coeff
-const MSP_MISC      : u16 =             114;
-const MSP_SERVO_CONFIGURATIONS: u16 =   120;
-const MSP_NAV_STATUS   : u16 =          121; // navigation status
-const MSP_SENSOR_ALIGNMENT  : u16 =     126; // orientation of acc,gyro,mag
-const MSP_ESC_SENSOR_DATA  : u16 =      134;
-const MSP_MOTOR_TELEMETRY  : u16 =      139;
-const MSP_STATUS_EX     : u16 =         150;
-const MSP_SENSOR_STATUS    : u16 =      151;
-const MSP_BOXIDS   : u16 =              119;
-const MSP_UID       : u16 =             160; // Unique device ID
-const MSP_GPSSVINFO  : u16 =            164; // get Signal Strength (only U-Blox)
-const MSP_GPSSTATISTICS  : u16 =        166; // get GPS debugging data
-const MSP_SET_PID   : u16 =             202; // set P I D coeff
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// requests & replies
+enum ReqsResps {
+    API_VERSION = 1,
+    FC_VARIANT = 2,
+    FC_VERSION = 3,
+    BOARD_INFO = 4,
+    BUILD_INFO = 5,
+    CALIBRATION_DATA = 14,
+    FEATURE = 36,
+    BOARD_ALIGNMENT = 38,
+    CURRENT_METER_CONFIG = 40,
+    RX_CONFIG = 44,
+    SONAR_ALTITUDE = 58,
+    ARMING_CONFIG = 61,
+    RX_MAP = 64,
+    // get channel map (also returns number of channels total)
+    LOOP_TIME = 73,
+    // FC cycle time i.e looptime parameter
+    STATUS = 101,
+    RAW_IMU = 102,
+    SERVO = 103,
+    MOTOR = 104,
+    RC = 105,
+    RAW_GPS = 106,
+    COMP_GPS = 107,
+    // distance home, direction home
+    ATTITUDE = 108,
+    ALTITUDE = 109,
+    ANALOG = 110,
+    RC_TUNING = 111,
+    // rc rate, rc expo, rollpitch rate, yaw rate, dyn throttle PID
+    PID = 112,
+    // P I D coeff
+    MISC = 114,
+    SERVO_CONFIGURATIONS = 120,
+    NAV_STATUS = 121,
+    // navigation status
+    SENSOR_ALIGNMENT = 126,
+    // orientation of acc,gyro,mag
+    ESC_SENSOR_DATA = 134,
+    MOTOR_TELEMETRY = 139,
+    STATUS_EX = 150,
+    SENSOR_STATUS = 151,
+    BOXIDS = 119,
+    UID = 160,
+    // Unique device ID
+    GPSSVINFO = 164,
+    // get Signal Strength (only U-Blox)
+    GPSSTATISTICS = 166,
+    // get GPS debugging data
+    SET_PID = 202, // set P I D coeff
+}
 
-// commands
-const MSP_SET_HEAD   : u16 =            211; // define a new heading hold direction
-const MSP_SET_RAW_RC  : u16 =           200; // 8 rc chan
-const MSP_SET_RAW_GPS  : u16 =          201; // fix, numsat, lat, lon, alt, speed
-const MSP_SET_WP    : u16 =             209; // sets a given WP (WP#, lat, lon, alt, flags)
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// Commands
+enum Command {
+    HEAD = 211,
+    // define a new heading hold direction
+    RAW_RC = 200,
+    // 8 rc chan
+    RAW_GPS = 201,
+    // fix, numsat, lat, lon, alt, speed
+    WP = 209, // sets a given WP (WP#, lat, lon, alt, flags)
+}
 
-// bits of getActiveModes() return value
-const MSP_MODE_ARM  : u16 =          0;
-const MSP_MODE_ANGLE  : u16 =        1;
-const MSP_MODE_HORIZON  : u16 =      2;
-const MSP_MODE_NAVALTHOLD : u16 =    3; /* cleanflight BARO */
-const MSP_MODE_MAG      : u16 =      4;
-const MSP_MODE_HEADFREE  : u16 =     5;
-const MSP_MODE_HEADADJ  : u16 =      6;
-const MSP_MODE_CAMSTAB  : u16 =      7;
-const MSP_MODE_NAVRTH  : u16 =       8; /* cleanflight GPSHOME */
-const MSP_MODE_NAVPOSHOLD : u16 =    9; /* cleanflight GPSHOLD */
-const MSP_MODE_PASSTHRU : u16 =     10;
-const MSP_MODE_BEEPERON : u16 =     11;
-const MSP_MODE_LEDLOW  : u16 =      12;
-const MSP_MODE_LLIGHTS  : u16 =     13;
-const MSP_MODE_OSD   : u16 =        14;
-const MSP_MODE_TELEMETRY: u16 =     15;
-const MSP_MODE_GTUNE   : u16 =      16;
-const MSP_MODE_SONAR  : u16 =       17;
-const MSP_MODE_BLACKBOX : u16 =     18;
-const MSP_MODE_FAILSAFE : u16 =     19;
-const MSP_MODE_NAVWP  : u16 =       20; /* cleanflight AIRMODE */
-const MSP_MODE_AIRMODE: u16 =       21; /* cleanflight DISABLE3DSWITCH */
-const MSP_MODE_HOMERESET : u16 =    22; /* cleanflight FPVANGLEMIX */
-const MSP_MODE_GCSNAV : u16 =       23; /* cleanflight BLACKBOXERASE */
-const MSP_MODE_HEADINGLOCK: u16 =   24;
-const MSP_MODE_SURFACE  : u16 =     25;
-const MSP_MODE_FLAPERON : u16 =     26;
-const MSP_MODE_TURNASSIST: u16 =    27;
-const MSP_MODE_NAVLAUNCH: u16 =     28;
-const MSP_MODE_AUTOTRIM: u16 =    29;
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// bits of getActiveModes() return value
+enum Mode {
+    ARM = 0,
+    ANGLE = 1,
+    HORIZON = 2,
+    NAVALTHOLD = 3, /* cleanflight BARO */
+    MAG = 4,
+    HEADFREE = 5,
+    HEADADJ = 6,
+    CAMSTAB = 7,
+    NAVRTH = 8, /* cleanflight GPSHOME */
+    NAVPOSHOLD = 9, /* cleanflight GPSHOLD */
+    PASSTHRU = 10,
+    BEEPERON = 11,
+    LEDLOW = 12,
+    LLIGHTS = 13,
+    OSD = 14,
+    TELEMETRY = 15,
+    GTUNE = 16,
+    SONAR = 17,
+    BLACKBOX = 18,
+    FAILSAFE = 19,
+    NAVWP = 20, /* cleanflight AIRMODE */
+    AIRMODE = 21, /* cleanflight DISABLE3DSWITCH */
+    HOMERESET = 22, /* cleanflight FPVANGLEMIX */
+    GCSNAV = 23, /* cleanflight BLACKBOXERASE */
+    HEADINGLOCK = 24,
+    SURFACE = 25,
+    FLAPERON = 26,
+    TURNASSIST = 27,
+    NAVLAUNCH = 28,
+    AUTOTRIM = 29,
+}
 
-struct msp_esc_sensor_data_t {
+struct EscSensorData {
     motor_count: u8,
     temperature: u8,
     rpm: u16,
@@ -371,119 +396,138 @@ struct msp_comp_gps_t {
 }
 
 
-// values for msp_nav_status_t.mode
-#define MSP_NAV_STATUS_MODE_NONE   0
-#define MSP_NAV_STATUS_MODE_HOLD   1
-#define MSP_NAV_STATUS_MODE_RTH    2
-#define MSP_NAV_STATUS_MODE_NAV    3
-#define MSP_NAV_STATUS_MODE_EMERG 15
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// values for msp_nav_status_t.mode
+enum NavStatusMode {
+    NONE = 0,
+    HOLD =  1,
+    RTH   = 2,
+    NAV  =  3,
+    EMERG = 15,
+}
 
-// values for msp_nav_status_t.state
-#define MSP_NAV_STATUS_STATE_NONE                0  // None
-#define MSP_NAV_STATUS_STATE_RTH_START           1  // RTH Start
-#define MSP_NAV_STATUS_STATE_RTH_ENROUTE         2  // RTH Enroute
-#define MSP_NAV_STATUS_STATE_HOLD_INFINIT        3  // PosHold infinit
-#define MSP_NAV_STATUS_STATE_HOLD_TIMED          4  // PosHold timed
-#define MSP_NAV_STATUS_STATE_WP_ENROUTE          5  // WP Enroute
-#define MSP_NAV_STATUS_STATE_PROCESS_NEXT        6  // Process next
-#define MSP_NAV_STATUS_STATE_DO_JUMP             7  // Jump
-#define MSP_NAV_STATUS_STATE_LAND_START          8  // Start Land
-#define MSP_NAV_STATUS_STATE_LAND_IN_PROGRESS    9  // Land in Progress
-#define MSP_NAV_STATUS_STATE_LANDED             10  // Landed
-#define MSP_NAV_STATUS_STATE_LAND_SETTLE        11  // Settling before land
-#define MSP_NAV_STATUS_STATE_LAND_START_DESCENT 12  // Start descent
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// values for msp_nav_status_t.state
+enum NavStatusState {
+    NONE       =         0 , // None
+    RTH_START   =        1 , // RTH Start
+    RTH_ENROUTE   =      2 , // RTH Enroute
+    HOLD_INFINIT  =      3 , // PosHold infinit
+    HOLD_TIMED    =      4 , // PosHold timed
+    WP_ENROUTE    =      5 , // WP Enroute
+    PROCESS_NEXT    =    6 , // Process next
+    DO_JUMP     =        7 , // Jump
+    LAND_START  =        8 , // Start Land
+    LAND_IN_PROGRESS  =  9,  // Land in Progress
+    LANDED       =      10 , // Landed
+    LAND_SETTLE   =     11 , // Settling before land
+    LAND_START_DESCENT =12 , // Start descent
+}
 
 // values for msp_nav_status_t.activeWpAction, msp_set_wp_t.action
-#define MSP_NAV_STATUS_WAYPOINT_ACTION_WAYPOINT 0x01
-#define MSP_NAV_STATUS_WAYPOINT_ACTION_RTH      0x04
+const MSP_NAV_STATUS_WAYPOINT_ACTION_WAYPOINT 0x01;
+const MSP_NAV_STATUS_WAYPOINT_ACTION_RTH      0x04;
 
-// values for msp_nav_status_t.error
-#define MSP_NAV_STATUS_ERROR_NONE               0   // All systems clear
-#define MSP_NAV_STATUS_ERROR_TOOFAR             1   // Next waypoint distance is more than safety distance
-#define MSP_NAV_STATUS_ERROR_SPOILED_GPS        2   // GPS reception is compromised - Nav paused - copter is adrift !
-#define MSP_NAV_STATUS_ERROR_WP_CRC             3   // CRC error reading WP data from EEPROM - Nav stopped
-#define MSP_NAV_STATUS_ERROR_FINISH             4   // End flag detected, navigation finished
-#define MSP_NAV_STATUS_ERROR_TIMEWAIT           5   // Waiting for poshold timer
-#define MSP_NAV_STATUS_ERROR_INVALID_JUMP       6   // Invalid jump target detected, aborting
-#define MSP_NAV_STATUS_ERROR_INVALID_DATA       7   // Invalid mission step action code, aborting, copter is adrift
-#define MSP_NAV_STATUS_ERROR_WAIT_FOR_RTH_ALT   8   // Waiting to reach RTH Altitude
-#define MSP_NAV_STATUS_ERROR_GPS_FIX_LOST       9   // Gps fix lost, aborting mission
-#define MSP_NAV_STATUS_ERROR_DISARMED          10   // NAV engine disabled due disarm
-#define MSP_NAV_STATUS_ERROR_LANDING           11   // Landing
-
-
-// MSP_NAV_STATUS reply
-struct msp_nav_status_t {
-    uint8_t mode;           // one of MSP_NAV_STATUS_MODE_XXX
-    uint8_t state;          // one of MSP_NAV_STATUS_STATE_XXX
-    uint8_t activeWpAction; // combination of MSP_NAV_STATUS_WAYPOINT_ACTION_XXX
-    uint8_t activeWpNumber;
-    uint8_t error;          // one of MSP_NAV_STATUS_ERROR_XXX
-    int16_t magHoldHeading;
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// values for msp_nav_status_t.error
+enum NavStatusError {
+    NONE          =     0; // All systems clear
+    TOOFAR      =       1; // Next waypoint distance is more than safety distance
+    SPOILED_GPS   =     2; // GPS reception is compromised - Nav paused - copter is adrift !
+    WP_CRC     =        3; // CRC error reading WP data from EEPROM - Nav stopped
+    FINISH      =       4; // End flag detected, navigation finished
+    TIMEWAIT     =      5; // Waiting for poshold timer
+    INVALID_JUMP  =     6; // Invalid jump target detected, aborting
+    INVALID_DATA  =     7; // Invalid mission step action code, aborting, copter is adrift
+    WAIT_FOR_RTH_ALT =  8; // Waiting to reach RTH Altitude
+    GPS_FIX_LOST =      9; // Gps fix lost, aborting mission
+    DISARMED     =     10; // NAV engine disabled due disarm
+    LANDING    =       11;  // Landing
 }
 
 
-// MSP_GPSSVINFO reply
-struct msp_gpssvinfo_t {
-    uint8_t dummy1;
-    uint8_t dummy2;
-    uint8_t dummy3;
-    uint8_t dummy4;
-    uint8_t HDOP;
+/// MSP_NAV_STATUS reply
+struct NavStatus {
+    mode: u8,         // one of MSP_NAV_STATUS_MODE_XXX
+    state: u8,          // one of MSP_NAV_STATUS_STATE_XXX
+    activeWpAction: u8,  // combination of MSP_NAV_STATUS_WAYPOINT_ACTION_XXX
+    activeWpNumber: u8,
+    error: u8,           // one of MSP_NAV_STATUS_ERROR_XXX
+    magHoldHeading: i16,
 }
 
 
-// MSP_GPSSTATISTICS reply
+/// MSP_GPSSVINFO reply
+struct GpsSvInfo {
+    dummy1: u8,
+    dummy2: u8,
+    dummy3: u8,
+    dummy4: u8,
+    HDOP: u8,
+}
+
+
+/// MSP_GPSSTATISTICS reply
 struct msp_gpsstatistics_t {
-    uint16_t lastMessageDt;
-    uint32_t errors;
-    uint32_t timeouts;
-    uint32_t packetCount;
-    uint16_t hdop;
-    uint16_t eph;
-    uint16_t epv;
+    lastMessageDt: u16,
+    errors: u32,
+    timeouts: u32,
+    packetCount: u32,
+    hdop: u16,
+    eph: u16,
+    epv: u16,
 }
 
 
-// MSP_UID reply
-struct msp_uid_t {
-    uint32_t uid0;
-    uint32_t uid1;
-    uint32_t uid2;
+/// MSP_UID reply
+struct Uid {
+    uid0: u32,
+    uid1: u32,
+    uid2: u32,
 }
 
 
-// MSP_FEATURE mask
-const MSP_FEATURE_RX_PPM: u16 =              (1 <<  0);
-const MSP_FEATURE_VBAT   : u16 =                 (1 <<  1);
-const MSP_FEATURE_UNUSED_1     : u16 =           (1 <<  2);
-const MSP_FEATURE_RX_SERIAL     : u16 =          (1 <<  3);
-const MSP_FEATURE_MOTOR_STOP   : u16 =           (1 <<  4);
-const MSP_FEATURE_SERVO_TILT   : u16 =           (1 <<  5);
-const MSP_FEATURE_SOFTSERIAL  : u16 =            (1 <<  6);
-const MSP_FEATURE_GPS       : u16 =              (1 <<  7);
-const MSP_FEATURE_UNUSED_3   : u16 =             (1 <<  8);         // was FEATURE_FAILSAFE
-const MSP_FEATURE_UNUSED_4   : u16 =             (1 <<  9);         // was FEATURE_SONAR
-const MSP_FEATURE_TELEMETRY    : u16 =           (1 << 10);
-const MSP_FEATURE_CURRENT_METER  : u16 =         (1 << 11);
-const MSP_FEATURE_3D     : u16 =                 (1 << 12);
-const MSP_FEATURE_RX_PARALLEL_PWM : u16 =        (1 << 13);
-const MSP_FEATURE_RX_MSP     : u16 =             (1 << 14);
-const MSP_FEATURE_RSSI_ADC   : u16 =             (1 << 15);
-const MSP_FEATURE_LED_STRIP  : u16 =             (1 << 16);
-const MSP_FEATURE_DASHBOARD  : u16 =             (1 << 17);
-const MSP_FEATURE_UNUSED_2   : u16 =             (1 << 18);
-const MSP_FEATURE_BLACKBOX   : u16 =             (1 << 19);
-const MSP_FEATURE_CHANNEL_FORWARDING : u16 =     (1 << 20);
-const MSP_FEATURE_TRANSPONDER  : u16 =           (1 << 21);
-const MSP_FEATURE_AIRMODE     : u16 =            (1 << 22);
-const MSP_FEATURE_SUPEREXPO_RATES : u16 =        (1 << 23);
-const MSP_FEATURE_VTX      : u16 =               (1 << 24);
-const MSP_FEATURE_RX_SPI    : u16 =              (1 << 25);
-const MSP_FEATURE_SOFTSPI   : u16 =              (1 << 26);
-const MSP_FEATURE_PWM_SERVO_DRIVER : u16 =       (1 << 27);
-const MSP_FEATURE_PWM_OUTPUT_ENABLE : u16 =      (1 << 28);
-const MSP_FEATURE_OSD     : u16 =                (1 << 29);
+
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// MSP_FEATURE mask
+enum Feature {
+    RX_PPM: u16 = (1 << 0),
+    VBAT: u16 = (1 << 1),
+    UNUSED_1: u16 = (1 << 2),
+    RX_SERIAL: u16 = (1 << 3),
+    MOTOR_STOP: u16 = (1 << 4),
+    SERVO_TILT: u16 = (1 << 5),
+    SOFTSERIAL: u16 = (1 << 6),
+    GPS: u16 = (1 << 7),
+    UNUSED_3: u16 = (1 << 8),
+    // was FEATURE_FAILSAFE
+    UNUSED_4: u16 = (1 << 9),
+    // was FEATURE_SONAR
+    TELEMETRY: u16 = (1 << 10),
+    CURRENT_METER: u16 = (1 << 11),
+    3D: u16 = (1 << 12),
+    RX_PARALLEL_PWM: u16 = (1 << 13),
+    RX_MSP: u16 = (1 << 14),
+    RSSI_ADC: u16 = (1 << 15),
+    LED_STRIP: u16 = (1 << 16),
+    DASHBOARD: u16 = (1 << 17),
+    UNUSED_2: u16 = (1 << 18),
+    BLACKBOX: u16 = (1 << 19),
+    CHANNEL_FORWARDING: u16 = (1 << 20),
+    TRANSPONDER: u16 = (1 << 21),
+    AIRMODE: u16 = (1 << 22),
+    SUPEREXPO_RATES: u16 = (1 << 23),
+    VTX: u16 = (1 << 24),
+    RX_SPI: u16 = (1 << 25),
+    SOFTSPI: u16 = (1 << 26),
+    PWM_SERVO_DRIVER: u16 = (1 << 27),
+    PWM_OUTPUT_ENABLE: u16 = (1 << 28),
+    OSD: u16 = (1 << 29),
+}
 
 
 /// MSP_FEATURE reply
@@ -774,10 +818,9 @@ struct StatusBf {
 }
 
 /// ArduPlane
-#[derive(Clone, Copy,Debug)]
+#[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
-enum ArduPlaneModes
-{
+enum ArduPlaneModes {
     MANUAL        = 0,
     CIRCLE        = 1,
     STABILIZE     = 2,
@@ -803,9 +846,9 @@ enum ArduPlaneModes
     QACRO         = 23,
 }
 
-#[derive(Clone, Copy,Debug)]
+#[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
-enum betaflightDJIModesMask_e {
+enum BetaflightDjiModesMask {
     ARM_ACRO_BF = (1 << 0),
     STAB_BF     = (1 << 1),
     HOR_BF      = (1 << 2),

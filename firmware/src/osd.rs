@@ -50,6 +50,91 @@ struct OsdError {
     pub message: &'static str,
 }
 
+struct MspV1 {
+    _fd: usize,
+}
+
+struct MspMessageDescriptor {
+    message_id: u8,
+    fixed_size: bool,
+    message_size: u8,
+}
+
+impl MspV1 {
+    pub fn new(fd: usize) {
+        Self { _fd: fd }
+    }
+
+    fn GetMessageSize(&self, message_type: usize) -> usize {
+        0
+    }
+
+    # define MSP_DESCRIPTOR_COUNT 12
+    const msp_message_descriptor_t msp_message_descriptors[MSP_DESCRIPTOR_COUNT] =
+    {
+    {MSP_OSD_CONFIG, true, sizeof(msp_osd_config_t)},
+    {MSP_NAME, true, sizeof(msp_name_t)},
+    {MSP_ANALOG, true, sizeof(msp_analog_t)},
+    {MSP_STATUS, true, sizeof(msp_status_BF_t)},
+    {MSP_BATTERY_STATE, true, sizeof(msp_battery_state_t)},
+    {MSP_RAW_GPS, true, sizeof(msp_raw_gps_t)},
+    {MSP_ATTITUDE, true, sizeof(msp_attitude_t)},
+    {MSP_ALTITUDE, true, sizeof(msp_altitude_t)},
+    {MSP_COMP_GPS, true, sizeof(msp_comp_gps_t)},
+    {MSP_ESC_SENSOR_DATA, true, sizeof(msp_esc_sensor_data_dji_t)},
+    {MSP_MOTOR_TELEMETRY, true, sizeof(msp_motor_telemetry_t)},
+    {MSP_FC_VARIANT, true, sizeof(msp_fc_variant_t)},
+    };
+
+    # define MSP_FRAME_START_SIZE 5
+    # define MSP_CRC_SIZE 1
+    bool MspV1::Send(const uint8_t message_id, const void * payload)
+    {
+    let payload_size = 0;
+
+    msp_message_descriptor_t * desc = NULL;
+
+    for i in 0..MSP_DESCRIPTOR_COUNT {
+        if message_id == msp_message_descriptors[i].message_id {
+            desc = (msp_message_descriptor_t * ) & msp_message_descriptors[i];
+            break;
+        }
+    }
+
+    if !desc {
+        return false;
+    }
+
+    if !desc.fixed_size {
+        return false;
+    }
+
+    payload_size = desc -> message_size;
+
+    uint8_t packet[MSP_FRAME_START_SIZE + payload_size + MSP_CRC_SIZE];
+    uint8_t crc;
+
+    packet[0] = '$';
+    packet[1] = 'M';
+    packet[2] = '<';
+    packet[3] = payload_size;
+    packet[4] = message_id;
+
+    crc = payload_size ^ message_id;
+
+    memcpy(packet + MSP_FRAME_START_SIZE, payload, payload_size);
+
+    for i in 0_u32..payload_size {
+        crc ^= packet[MSP_FRAME_START_SIZE + i];
+    }
+
+    packet[MSP_FRAME_START_SIZE + payload_size] = crc;
+
+    int packet_size = MSP_FRAME_START_SIZE + payload_size + MSP_CRC_SIZE;
+        write(_fd, packet, packet_size) == packet_size
+    }
+}
+
 // struct MspOsd : public ModuleBase<MspOsd>, public ModuleParams, public px4::ScheduledWorkItem {
 struct MspOsd {
     _msp: MspV1,
