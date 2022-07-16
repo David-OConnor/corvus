@@ -35,6 +35,9 @@ use defmt::println;
 
 // todo: In rate/acro mode, instead of zeroing unused axes, have them store a value that they return to?'
 
+// Amount each airborne, (from controller) PID adjustment modifies a given PID term.
+pub const PID_CONTROL_ADJ_AMT: f32 = 0.001;
+
 const INTEGRATOR_CLAMP_MAX_QUAD: f32 = 0.4;
 const INTEGRATOR_CLAMP_MIN_QUAD: f32 = -INTEGRATOR_CLAMP_MAX_QUAD;
 const INTEGRATOR_CLAMP_MAX_FIXED_WING: f32 = 0.4;
@@ -232,10 +235,10 @@ impl CtrlCoeffGroup {
 
 #[derive(Default)]
 pub struct PidGroup {
-    pitch: PidState,
-    roll: PidState,
-    yaw: PidState,
-    thrust: PidState,
+    pub pitch: PidState,
+    pub roll: PidState,
+    pub yaw: PidState,
+    pub thrust: PidState,
 }
 
 impl PidGroup {

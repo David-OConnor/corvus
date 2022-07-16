@@ -1,6 +1,5 @@
 #![no_main]
 #![no_std]
-#![allow(mixed_script_confusables)] // eg variable names that include greek letters.
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -48,7 +47,7 @@ use usb_device::{bus::UsbBusAllocator, prelude::*};
 
 use usbd_serial::{self, SerialPort};
 
-use control_interface::{ChannelData, LinkStats};
+use control_interface::{ChannelData, LinkStats, PidTuneActuation, PidTuneMode};
 use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
 // pub use, so we can use this rename in `sensor_fusion` to interpret the DMA buf.
@@ -62,7 +61,7 @@ use flight_ctrls::{
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
 
-use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup};
+use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT};
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
@@ -1456,16 +1455,16 @@ mod app {
     //     });
     // }
 
-    #[task(binds = EXTI15_10, shared = [user_cfg, control_channel_data], local = [spi3], priority = 5)]
-    /// We use this ISR when receiving data from the radio, via ELRS
-    fn radio_data_isr(mut cx: radio_data_isr::Context) {
-        gpio::clear_exti_interrupt(14);
-        // todo: for when you impl native ELRS
-        // (cx.shared.user_cfg, cx.shared.control_channel_data).lock(|cfg, ch_data| {
-        //     // *manual_inputs = elrs::get_inputs(cx.local.spi3);
-        //     // *ch_data = CtrlInputs::get_manual_inputs(cfg); // todo: this?
-        // })
-    }
+    // #[task(binds = EXTI15_10, shared = [user_cfg, control_channel_data], local = [spi3], priority = 5)]
+    // /// We use this ISR when receiving data from the radio, via (direct) ELRS
+    // fn radio_data_isr(mut cx: radio_data_isr::Context) {
+    //     gpio::clear_exti_interrupt(14);
+    //     // todo: for when you impl native ELRS
+    //     // (cx.shared.user_cfg, cx.shared.control_channel_data).lock(|cfg, ch_data| {
+    //     //     // *manual_inputs = elrs::get_inputs(cx.local.spi3);
+    //     //     // *ch_data = CtrlInputs::get_manual_inputs(cfg); // todo: this?
+    //     // })
+    // }
 
     // #[task(binds = DMA1_CH6, shared = [dma, spi2, cs_elrs], priority = 3)]
     // /// Handle SPI ELRS data received.
@@ -1496,7 +1495,7 @@ mod app {
 
     // #[task(binds = USART7, shared = [uart_elrs, dma, control_channel_data,
     #[task(binds = USART3, shared = [uart_elrs, dma, control_channel_data,
-    lost_link_timer, rf_limiter_timer, state_volatile], priority = 5)]
+    lost_link_timer, rf_limiter_timer, state_volatile, pid_rate], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
@@ -1508,12 +1507,17 @@ mod app {
             cx.shared.lost_link_timer,
             cx.shared.rf_limiter_timer,
             cx.shared.state_volatile,
+            cx.shared.pid_rate,
         )
             .lock(
-                |uart, dma, ch_data, lost_link_timer, rf_limiter_timer, state_volatile| {
+                |uart,
+                 dma,
+                 ch_data,
+                 lost_link_timer,
+                 rf_limiter_timer,
+                 state_volatile,
+                 pid_rate| {
                     uart.clear_interrupt(UsartInterrupt::Idle);
-
-                    // println!("CRSF");
 
                     if rf_limiter_timer.is_enabled() {
                         // todo: Put this back and figure out why this keeps happening.
@@ -1529,6 +1533,40 @@ mod app {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {
                                 *ch_data = data;
+
+                                let pid_adjustment = match ch_data.pid_tune_actuation {
+                                    PidTuneActuation::Increase => PID_CONTROL_ADJ_AMT,
+                                    PidTuneActuation::Decrease => -PID_CONTROL_ADJ_AMT,
+                                    PidTuneActuation::Neutral => 0.,
+                                };
+
+                                match ch_data.pid_tune_actuation {
+                                    // todo: Timeout on these
+                                    PidTuneActuation::Neutral => (),
+                                    _ => {
+                                        match ch_data.pid_tune_mode {
+                                            PidTuneMode::Disabled => (),
+                                            PidTuneMode::P => {
+                                                // todo: for now or forever, adjust pitch, roll, yaw
+                                                // todo at once to keep UI simple
+                                                pid_rate.pitch.p += pid_adjustment;
+                                                pid_rate.roll.p += pid_adjustment;
+                                                // todo: Maybe skip yaw here?
+                                                pid_rate.yaw.p += pid_adjustment;
+                                            }
+                                            PidTuneMode::I => {
+                                                pid_rate.pitch.i += pid_adjustment;
+                                                pid_rate.roll.i += pid_adjustment;
+                                                pid_rate.yaw.i += pid_adjustment;
+                                            }
+                                            PidTuneMode::D => {
+                                                pid_rate.pitch.d += pid_adjustment;
+                                                pid_rate.roll.d += pid_adjustment;
+                                                pid_rate.yaw.d += pid_adjustment;
+                                            }
+                                        }
+                                    }
+                                }
 
                                 lost_link_timer.reset_countdown();
                                 lost_link_timer.enable();
