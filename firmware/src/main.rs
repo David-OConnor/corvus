@@ -79,7 +79,7 @@ mod filter_imu;
 mod flight_ctrls;
 mod imu_shared;
 mod lin_alg;
-// mod osd;
+mod osd;
 mod cfg_storage;
 mod imu_calibration;
 mod pid;

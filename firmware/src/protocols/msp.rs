@@ -1,8 +1,10 @@
 //! Multiwii Serial Protocol Version 2. We use this to send data to the DJI OSD.
 //! https://github.com/iNavFlight/inav/wiki/MSP-V2
 //!
-//! todo: Relation between this file and `osd.rs`. todo: Maybe keep this separate, since
+//! todo: Relation between this file and `osd_alt`. todo: Maybe keep this separate, since
 //! todo it may be also used for onboard ELRS?
+
+// todo: Trim this down to what you need, eg for OSD.
 
 use stm32_hal2::{pac::USART2, usart::Usart};
 
