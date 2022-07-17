@@ -8,7 +8,10 @@
 
 use stm32_hal2::{pac::USART2, usart::Usart};
 
-use crate::util;
+use crate::{
+    util,
+    protocols::msp_defines::Function,
+};
 
 static mut CRC_LUT: [u8; 256] = [0; 256];
 const CRC_POLY: u8 = 0xd;
@@ -16,9 +19,11 @@ const CRC_POLY: u8 = 0xd;
 const PREAMBLE_0: u8 = 0x24;
 const PREAMBLE_1: u8 = 0x58;
 
+const MAX_BUF_LEN: usize = 20; // todo what should this be?
+
 #[derive(Copy, Clone)]
 #[repr(u8)]
-pub enum MessageType {
+pub enum MsgType {
     /// Sent by master, processed by slave
     Request = 0x3c, // aka <
     /// Sent by slave, processed by master. Only sent in response to a request
@@ -31,11 +36,11 @@ pub enum MessageType {
 /// A MSP v2 packet
 pub struct Packet {
     /// Request, response, or error
-    pub message_type: MessageType,
+    pub message_type: MsgType,
     // /// uint8, flag, usage to be defined (set to zero)
     // pub flag: u8,
     /// (little endian). 0 - 255 is the same function as V1 for backwards compatibility
-    pub function: u16,
+    pub function: Function,
     /// (little endian) payload size in bytes
     pub payload_size: u16,
     // We don't store payload here, since it varies in size.
@@ -44,6 +49,10 @@ pub struct Packet {
 }
 
 impl Packet {
+    pub fn new(message_type: MsgType, function: Function, payload_size: u16) -> Self {
+        Self { message_type, function, payload_size }
+    }
+
     /// Convert this payload to a buffer in MSP V2 format, modifying the argument
     /// `buf` in place. Payload is passed here instead of as a struct field
     /// due to its variable size.
@@ -54,8 +63,8 @@ impl Packet {
         buf[2] = self.message_type as u8;
         buf[3] = 0; // Flag currently unimplemented in protocol
                     // todo: QC direction on this!
-        buf[4] = (self.function >> 8) as u8;
-        buf[5] = self.function as u8;
+        buf[4] = ((self.function as u16) >> 8) as u8;
+        buf[5] = (self.function as u16) as u8;
         buf[6] = (self.payload_size >> 8) as u8;
         buf[7] = self.payload_size as u8;
 
@@ -76,7 +85,7 @@ impl Packet {
 /// Send a packet on the UART line
 /// todo: Try to get this working with DMA.
 pub fn send_packet(uart: &mut Usart<USART2>, packet: &Packet, payload: &[u8]) {
-    let mut buf = [0; 69]; // todo: Size.
+    let mut buf = [0; MAX_BUF_LEN];
     packet.to_buf(payload, &mut buf);
 
     uart.write(&buf);

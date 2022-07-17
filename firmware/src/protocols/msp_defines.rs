@@ -5,37 +5,39 @@
 const FLIGHT_CONTROLLER_IDENTIFIER_LENGTH: usize =   4;
 
 #[derive(Clone, Copy, PartialEq)]
-#[repr(u8)]
-/// requests & replies
-enum ReqsResps {
-    API_VERSION = 1,
-    FC_VARIANT = 2,
-    FC_VERSION = 3,
+#[repr(u16)]
+/// Message type for requests and replies
+pub enum Function {
+    ApiVersion = 1,
+    FcVariant = 2,
+    FcVersion = 3,
     BOARD_INFO = 4,
     BUILD_INFO = 5,
-    CALIBRATION_DATA = 14,
-    FEATURE = 36,
+    Name = 10,
+    CalibrationData = 14,
+    Feature = 36,
     BOARD_ALIGNMENT = 38,
     CURRENT_METER_CONFIG = 40,
     RX_CONFIG = 44,
     SONAR_ALTITUDE = 58,
-    ARMING_CONFIG = 61,
-    RX_MAP = 64,
+    ArmingConfig = 61,
+    RxMap = 64,
     // get channel map (also returns number of channels total)
     LOOP_TIME = 73,
     // FC cycle time i.e looptime parameter
-    STATUS = 101,
-    RAW_IMU = 102,
+    OsdConfig = 84,
+    Status = 101,
+    RawImu = 102,
     SERVO = 103,
     MOTOR = 104,
     RC = 105,
-    RAW_GPS = 106,
-    COMP_GPS = 107,
+    RawGps = 106,
+    CompGps = 107,
     // distance home, direction home
-    ATTITUDE = 108,
-    ALTITUDE = 109,
-    ANALOG = 110,
-    RC_TUNING = 111,
+    Attitude = 108,
+    Altitude = 109,
+    Analog = 110,
+    RcTuning = 111,
     // rc rate, rc expo, rollpitch rate, yaw rate, dyn throttle PID
     PID = 112,
     // P I D coeff
@@ -45,10 +47,11 @@ enum ReqsResps {
     // navigation status
     SENSOR_ALIGNMENT = 126,
     // orientation of acc,gyro,mag
-    ESC_SENSOR_DATA = 134,
+    BatteryState = 130,
+    EscSensorData = 134,
     MOTOR_TELEMETRY = 139,
-    STATUS_EX = 150,
-    SENSOR_STATUS = 151,
+    StatusEx = 150,
+    SensorStatus = 151,
     BOXIDS = 119,
     UID = 160,
     // Unique device ID
@@ -57,6 +60,7 @@ enum ReqsResps {
     GPSSTATISTICS = 166,
     // get GPS debugging data
     SET_PID = 202, // set P I D coeff
+
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -114,7 +118,8 @@ struct EscSensorData {
     rpm: u16,
 }
 
-struct EscSensorDataDji {
+#[derive(Default)]
+pub struct EscSensorDataDji {
     temperature: u8,
     rpm: u16,
 }
@@ -138,7 +143,8 @@ struct ApiVersion {
 
 
 /// MSP_FC_VARIANT reply
-struct FcVariant {
+#[derive(Default)]
+pub struct FcVariant {
     flightControlIdentifier: [u8; 4],
 }
 
@@ -263,8 +269,8 @@ struct msp_servo_mix_rules_t {
 const MSP_MAX_SUPPORTED_MOTORS: usize = 8;
 
 /// MSP_MOTOR reply
-struct msp_motor_t {
-    uint16_t motor[MSP_MAX_SUPPORTED_MOTORS];
+struct Motor {
+    motor: [u16; MSP_MAX_SUPPORTED_MOTORS],
 }
 
 
@@ -285,7 +291,8 @@ struct Attitude {
 
 
 /// MSP_ALTITUDE reply
-struct Altitude {
+#[derive(Default)]
+pub struct Altitude {
     estimatedActualPosition: i32,  // cm
     estimatedActualVelocity: i16,  // cm/s
     baroLatestAltitude: i32,
@@ -299,11 +306,12 @@ struct SonarAltitude {
 
 
 /// MSP_ANALOG reply
-struct Analog {
-    vbat: u8,    // 0...255
-    mAhDrawn: u16, // milliamp hours drawn from battery
-    rssi: u16,     // 0..1023
-    amperage: i16, // send amperage in 0.01 A steps, range is -320A to 320A
+#[derive(Default)]
+pub struct Analog {
+    pub vbat: u8,    // 0...255
+    pub mAhDrawn: u16, // milliamp hours drawn from battery
+    pub rssi: u16,     // 0..1023
+    pub amperage: i16, // send amperage in 0.01 A steps, range is -320A to 320A
 }
 
 
@@ -314,85 +322,92 @@ struct ArmingConfig {
 }
 
 
-// MSP_LOOP_TIME reply
-struct msp_loop_time_t {
-    uint16_t looptime;
+/// MSP_LOOP_TIME reply
+struct LoopTime {
+    looptime: u16,
 }
 
 
-// MSP_RC_TUNING reply
-struct msp_rc_tuning_t {
-    uint8_t  rcRate8;  // no longer used
-    uint8_t  rcExpo8;
-    uint8_t  rates[3]; // R,P,Y
-    uint8_t  dynThrPID;
-    uint8_t  thrMid8;
-    uint8_t  thrExpo8;
-    uint16_t tpa_breakpoint;
-    uint8_t  rcYawExpo8;
+/// MSP_RC_TUNING reply
+struct RcTuning{
+      rcRate8: u8,  // no longer used
+      rcExpo8: u8,
+      rates: [u8; 3], // R,P,Y
+      dynThrPID: u8,
+      thrMid8: u8,
+      thrExpo8: u8,
+    tpa_breakpoint: u16,
+      rcYawExpo8: u8,
 }
 
 
-// MSP_PID reply
-struct msp_pid_t {
-    uint8_t roll[3];     // 0=P, 1=I, 2=D
-    uint8_t pitch[3];    // 0=P, 1=I, 2=D
-    uint8_t yaw[3];      // 0=P, 1=I, 2=D
-    uint8_t pos_z[3];    // 0=P, 1=I, 2=D
-    uint8_t pos_xy[3];   // 0=P, 1=I, 2=D
-    uint8_t vel_xy[3];   // 0=P, 1=I, 2=D
-    uint8_t surface[3];  // 0=P, 1=I, 2=D
-    uint8_t level[3];    // 0=P, 1=I, 2=D
-    uint8_t heading[3];  // 0=P, 1=I, 2=D
-    uint8_t vel_z[3];    // 0=P, 1=I, 2=D
+/// MSP_PID reply
+struct Pid {
+    roll: [u8; 3],     // 0=P, 1=I, 2=D
+    pitch: [u8; 3],    // 0=P, 1=I, 2=D
+    yaw: [u8; 3],      // 0=P, 1=I, 2=D
+    pos_z: [u8; 3],    // 0=P, 1=I, 2=D
+    pos_xy: [u8; 3],   // 0=P, 1=I, 2=D
+    vel_xy: [u8; 3],   // 0=P, 1=I, 2=D
+    surface: [u8; 3],  // 0=P, 1=I, 2=D
+    level: [u8; 3],    // 0=P, 1=I, 2=D
+    heading: [u8; 3],  // 0=P, 1=I, 2=D
+    vel_z: [u8; 3],    // 0=P, 1=I, 2=D
 }
 
 
-// MSP_MISC reply
+/// MSP_MISC reply
 struct msp_misc_t {
-    uint16_t midrc;
-    uint16_t minthrottle;
-    uint16_t maxthrottle;
-    uint16_t mincommand;
-    uint16_t failsafe_throttle;
-    uint8_t  gps_provider;
-    uint8_t  gps_baudrate;
-    uint8_t  gps_ubx_sbas;
-    uint8_t  multiwiiCurrentMeterOutput;
-    uint8_t  rssi_channel;
-    uint8_t  dummy;
-    uint16_t mag_declination;
-    uint8_t  vbatscale;
-    uint8_t  vbatmincellvoltage;
-    uint8_t  vbatmaxcellvoltage;
-    uint8_t  vbatwarningcellvoltage;
+     midrc: u16,
+     minthrottle: u16,
+     maxthrottle: u16,
+     mincommand: u16,
+     failsafe_throttle: u16,
+      gps_provider: u8,
+      gps_baudrate: u8,
+      gps_ubx_sbas: u8,
+      multiwiiCurrentMeterOutput: u8,
+      rssi_channel: u8,
+      dummy: u8,
+     mag_declination: u16,
+      vbatscale: u8,
+      vbatmincellvoltage: u8,
+      vbatmaxcellvoltage: u8,
+      vbatwarningcellvoltage: u8,
 }
 
 
-// values for msp_raw_gps_t.fixType
-#define MSP_GPS_NO_FIX 0
-#define MSP_GPS_FIX_2D 1
-#define MSP_GPS_FIX_3D 2
-
-
-// MSP_RAW_GPS reply
-struct msp_raw_gps_t {
-    uint8_t  fixType;       // MSP_GPS_NO_FIX, MSP_GPS_FIX_2D, MSP_GPS_FIX_3D
-    uint8_t  numSat;
-    int32_t  lat;           // 1 / 10000000 deg
-    int32_t  lon;           // 1 / 10000000 deg
-    int16_t  alt;           // meters
-    int16_t  groundSpeed;   // cm/s
-    int16_t  groundCourse;  // unit: degree x 10
-    uint16_t hdop;
+/// values for msp_raw_gps_t.fixType
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+enum GpsFixType {
+    NoFix = 0,
+    Fix2D = 1,
+    Fix3D = 2,
 }
 
 
-// MSP_COMP_GPS reply
-struct msp_comp_gps_t {
-    int16_t  distanceToHome;  // distance to home in meters
-    int16_t  directionToHome; // direction to home in degrees
-    uint8_t  heartbeat;       // toggles 0 and 1 for each change
+
+/// MSP_RAW_GPS reply
+#[derive(Default)]
+pub struct RawGps {
+    pub fixType: GpsFixType,       // MSP_GPS_NO_FIX, MSP_GPS_FIX_2D, MSP_GPS_FIX_3D
+    pub numSat: u8,
+    pub lat: i32,           // 1 / 10000000 deg
+    pub lon: i32,          // 1 / 10000000 deg
+    pub alt: i16,          // meters
+    pub groundSpeed: i16,  // cm/s
+    pub groundCourse: i16,  // unit: degree x 10
+    pub hdop: u16,
+}
+
+
+/// MSP_COMP_GPS reply
+#[derive(Default)]
+pub struct CompGps {
+    pub distanceToHome: i16,  // distance to home in meters
+    pub directionToHome: i16, // direction to home in degrees
+    pub heartbeat: u8,       // toggles 0 and 1 for each change
 }
 
 
@@ -427,25 +442,25 @@ enum NavStatusState {
 }
 
 // values for msp_nav_status_t.activeWpAction, msp_set_wp_t.action
-const MSP_NAV_STATUS_WAYPOINT_ACTION_WAYPOINT 0x01;
-const MSP_NAV_STATUS_WAYPOINT_ACTION_RTH      0x04;
+const MSP_NAV_STATUS_WAYPOINT_ACTION_WAYPOINT: u8 = 0x01;
+const MSP_NAV_STATUS_WAYPOINT_ACTION_RTH: u8 =      0x04;
 
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
 /// values for msp_nav_status_t.error
 enum NavStatusError {
-    NONE          =     0; // All systems clear
-    TOOFAR      =       1; // Next waypoint distance is more than safety distance
-    SPOILED_GPS   =     2; // GPS reception is compromised - Nav paused - copter is adrift !
-    WP_CRC     =        3; // CRC error reading WP data from EEPROM - Nav stopped
-    FINISH      =       4; // End flag detected, navigation finished
-    TIMEWAIT     =      5; // Waiting for poshold timer
-    INVALID_JUMP  =     6; // Invalid jump target detected, aborting
-    INVALID_DATA  =     7; // Invalid mission step action code, aborting, copter is adrift
-    WAIT_FOR_RTH_ALT =  8; // Waiting to reach RTH Altitude
-    GPS_FIX_LOST =      9; // Gps fix lost, aborting mission
-    DISARMED     =     10; // NAV engine disabled due disarm
-    LANDING    =       11;  // Landing
+    NONE          =     0, // All systems clear
+    TOOFAR      =       1, // Next waypoint distance is more than safety distance
+    SPOILED_GPS   =     2, // GPS reception is compromised - Nav paused - copter is adrift !
+    WP_CRC     =        3, // CRC error reading WP data from EEPROM - Nav stopped
+    FINISH      =       4, // End flag detected, navigation finished
+    TIMEWAIT     =      5, // Waiting for poshold timer
+    INVALID_JUMP  =     6, // Invalid jump target detected, aborting
+    INVALID_DATA  =     7, // Invalid mission step action code, aborting, copter is adrift
+    WAIT_FOR_RTH_ALT =  8, // Waiting to reach RTH Altitude
+    GPS_FIX_LOST =      9, // Gps fix lost, aborting mission
+    DISARMED     =     10, // NAV engine disabled due disarm
+    LANDING    =       11,  // Landing
 }
 
 
@@ -492,46 +507,46 @@ struct Uid {
 
 
 #[derive(Clone, Copy, PartialEq)]
-#[repr(u8)]
+#[repr(u32)]
 /// MSP_FEATURE mask
 enum Feature {
-    RX_PPM: u16 = (1 << 0),
-    VBAT: u16 = (1 << 1),
-    UNUSED_1: u16 = (1 << 2),
-    RX_SERIAL: u16 = (1 << 3),
-    MOTOR_STOP: u16 = (1 << 4),
-    SERVO_TILT: u16 = (1 << 5),
-    SOFTSERIAL: u16 = (1 << 6),
-    GPS: u16 = (1 << 7),
-    UNUSED_3: u16 = (1 << 8),
+    RX_PPM = (1 << 0),
+    VBAT = (1 << 1),
+    UNUSED_1 = (1 << 2),
+    RX_SERIAL = (1 << 3),
+    MOTOR_STOP = (1 << 4),
+    SERVO_TILT = (1 << 5),
+    SOFTSERIAL = (1 << 6),
+    GPS = (1 << 7),
+    UNUSED_3 = (1 << 8),
     // was FEATURE_FAILSAFE
-    UNUSED_4: u16 = (1 << 9),
+    UNUSED_4 = (1 << 9),
     // was FEATURE_SONAR
-    TELEMETRY: u16 = (1 << 10),
-    CURRENT_METER: u16 = (1 << 11),
-    3D: u16 = (1 << 12),
-    RX_PARALLEL_PWM: u16 = (1 << 13),
-    RX_MSP: u16 = (1 << 14),
-    RSSI_ADC: u16 = (1 << 15),
-    LED_STRIP: u16 = (1 << 16),
-    DASHBOARD: u16 = (1 << 17),
-    UNUSED_2: u16 = (1 << 18),
-    BLACKBOX: u16 = (1 << 19),
-    CHANNEL_FORWARDING: u16 = (1 << 20),
-    TRANSPONDER: u16 = (1 << 21),
-    AIRMODE: u16 = (1 << 22),
-    SUPEREXPO_RATES: u16 = (1 << 23),
-    VTX: u16 = (1 << 24),
-    RX_SPI: u16 = (1 << 25),
-    SOFTSPI: u16 = (1 << 26),
-    PWM_SERVO_DRIVER: u16 = (1 << 27),
-    PWM_OUTPUT_ENABLE: u16 = (1 << 28),
-    OSD: u16 = (1 << 29),
+    TELEMETRY = (1 << 10),
+    CURRENT_METER = (1 << 11),
+    _3D = (1 << 12),
+    RX_PARALLEL_PWM = (1 << 13),
+    RX_MSP = (1 << 14),
+    RSSI_ADC = (1 << 15),
+    LED_STRIP = (1 << 16),
+    DASHBOARD = (1 << 17),
+    UNUSED_2 = (1 << 18),
+    BLACKBOX = (1 << 19),
+    CHANNEL_FORWARDING = (1 << 20),
+    TRANSPONDER = (1 << 21),
+    AIRMODE = (1 << 22),
+    SUPEREXPO_RATES = (1 << 23),
+    VTX = (1 << 24),
+    RX_SPI = (1 << 25),
+    SOFTSPI = (1 << 26),
+    PWM_SERVO_DRIVER = (1 << 27),
+    PWM_OUTPUT_ENABLE = (1 << 28),
+    OSD = (1 << 29),
 }
 
 
 /// MSP_FEATURE reply
-struct Feature {
+struct FeatureS {
     featureMask: u32, // combination of MSP_FEATURE_XXX
 }
 
@@ -602,7 +617,7 @@ struct RxConfig {
 }
 
 
-const MSP_MAX_MAPPABLE_RX_INPUTS 8;
+const MSP_MAX_MAPPABLE_RX_INPUTS: usize = 8;
 
 /// MSP_RX_MAP reply
 struct RxMap {
@@ -682,139 +697,156 @@ struct SetWp {
     flag: i18,     // 0xa5 = last, otherwise set to 0
 }
 
-const MSP_OSD_CONFIG: u16 =            84;        //out message         Get osd settings - betaflight
-const MSP_NAME    : u16 =               10;
-const MSP_BATTERY_STATE  : u16 =        130;       //out message         Connected/Disconnected, Voltage, Current Used
-
-struct OsdConfig {
-    osdflags: u8,
-    video_system: u8,
-    units: u8,
-    rssi_alarm: u8,
-    cap_alarm: u16,
-    old_timer_alarm: u8,
-    osd_item_count: u8,                     //56
-    alt_alarm: u16,
-    osd_rssi_value_pos: u16,
-    osd_main_batt_voltage_pos: u16,
-    osd_crosshairs_pos: u16,
-    osd_artificial_horizon_pos: u16,
-    osd_horizon_sidebars_pos: u16,
-    osd_item_timer_1_pos: u16,
-    osd_item_timer_2_pos: u16,
-    osd_flymode_pos: u16,
-    osd_craft_name_pos: u16,
-    osd_throttle_pos_pos: u16,
-    osd_vtx_channel_pos: u16,
-    osd_current_draw_pos: u16,
-    osd_mah_drawn_pos: u16,
-    osd_gps_speed_pos: u16,
-    osd_gps_sats_pos: u16,
-    osd_altitude_pos: u16,
-    osd_roll_pids_pos: u16,
-    osd_pitch_pids_pos: u16,
-    osd_yaw_pids_pos: u16,
-    osd_power_pos: u16,
-    osd_pidrate_profile_pos: u16,
-    osd_warnings_pos: u16,
-    osd_avg_cell_voltage_pos: u16,
-    osd_gps_lon_pos: u16,
-    osd_gps_lat_pos: u16,
-    osd_debug_pos: u16,
-    osd_pitch_angle_pos: u16,
-    osd_roll_angle_pos: u16,
-    osd_main_batt_usage_pos: u16,
-    osd_disarmed_pos: u16,
-    osd_home_dir_pos: u16,
-    osd_home_dist_pos: u16,
-    osd_numerical_heading_pos: u16,
-    osd_numerical_vario_pos: u16,
-    osd_compass_bar_pos: u16,
-    osd_esc_tmp_pos: u16,
-    osd_esc_rpm_pos: u16,
-    osd_remaining_time_estimate_pos: u16,
-    osd_rtc_datetime_pos: u16,
-    osd_adjustment_range_pos: u16,
-    osd_core_temperature_pos: u16,
-    osd_anti_gravity_pos: u16,
-    osd_g_force_pos: u16,
-    osd_motor_diag_pos: u16,
-    osd_log_status_pos: u16,
-    osd_flip_arrow_pos: u16,
-    osd_link_quality_pos: u16,
-    osd_flight_dist_pos: u16,
-    osd_stick_overlay_left_pos: u16,
-    osd_stick_overlay_right_pos: u16,
-    osd_display_name_pos: u16,
-    osd_esc_rpm_freq_pos: u16,
-    osd_rate_profile_name_pos: u16,
-    osd_pid_profile_name_pos: u16,
-    osd_profile_name_pos: u16,
-    osd_rssi_dbm_value_pos: u16,
-    osd_rc_channels_pos: u16,
-    osd_stat_count: u8,                    //24
-    osd_stat_rtc_date_time: u8: u8,
-    osd_stat_timer_1: u8,
-    osd_stat_timer_2: u8,
-    osd_stat_max_speed: u8,
-    osd_stat_max_distance: u8,
-    osd_stat_min_battery: u8,
-    osd_stat_end_battery: u8,
-    osd_stat_battery: u8,
-    osd_stat_min_rssi: u8,
-    osd_stat_max_current: u8,
-    osd_stat_used_mah: u8,
-    osd_stat_max_altitude: u8,
-    osd_stat_blackbox: u8,
-    osd_stat_blackbox_number: u8,
-    osd_stat_max_g_force: u8,
-    osd_stat_max_esc_temp: u8,
-    osd_stat_max_esc_rpm: u8,
-    osd_stat_min_link_quality: u8,
-    osd_stat_flight_distance: u8,
-    osd_stat_max_fft: u8,
-    osd_stat_total_flights: u8,
-    osd_stat_total_time: u8,
-    osd_stat_total_dist: u8,
-    osd_stat_min_rssi_dbm: u8,
-    osd_timer_count: u16,
-    osd_timer_1: u16,
-    osd_timer_2: u16,
-    enabledwarnings: u16,
-    osd_warning_count: u8,              // 16
-    enabledwarnings_1_41_plus: u32,
-    osd_profile_count: u8,             // 1
-    osdprofileindex: u8,               // 1
-    overlay_radio_mode: u8,            //  0
+pub struct OsdConfig {
+    pub osdflags: u8,
+    pub video_system: u8,
+    pub units: u8,
+    pub rssi_alarm: u8,
+    pub cap_alarm: u16,
+    pub old_timer_alarm: u8,
+    pub item_count: u8,                     //56
+    pub alt_alarm: u16,
+    pub rssi_value_pos: u16,
+    pub main_batt_voltage_pos: u16,
+    pub crosshairs_pos: u16,
+    pub artificial_horizon_pos: u16,
+    pub horizon_sidebars_pos: u16,
+    pub item_timer_1_pos: u16,
+    pub item_timer_2_pos: u16,
+    pub flymode_pos: u16,
+    pub craft_name_pos: u16,
+    pub throttle_pos_pos: u16,
+    pub vtx_channel_pos: u16,
+    pub current_draw_pos: u16,
+    pub mah_drawn_pos: u16,
+    pub gps_speed_pos: u16,
+    pub gps_sats_pos: u16,
+    pub altitude_pos: u16,
+    pub roll_pids_pos: u16,
+    pub pitch_pids_pos: u16,
+    pub yaw_pids_pos: u16,
+    pub power_pos: u16,
+    pub pidrate_profile_pos: u16,
+    pub warnings_pos: u16,
+    pub avg_cell_voltage_pos: u16,
+    pub gps_lon_pos: u16,
+    pub gps_lat_pos: u16,
+    pub osd_debug_pos: u16,
+    pub pitch_angle_pos: u16,
+    pub roll_angle_pos: u16,
+    pub main_batt_usage_pos: u16,
+    pub disarmed_pos: u16,
+    pub home_dir_pos: u16,
+    pub home_dist_pos: u16,
+    pub numerical_heading_pos: u16,
+    pub numerical_vario_pos: u16,
+    pub compass_bar_pos: u16,
+    pub esc_tmp_pos: u16,
+    pub esc_rpm_pos: u16,
+    pub remaining_time_estimate_pos: u16,
+    pub rtc_datetime_pos: u16,
+    pub adjustment_range_pos: u16,
+    pub core_temperature_pos: u16,
+    pub anti_gravity_pos: u16,
+    pub g_force_pos: u16,
+    pub motor_diag_pos: u16,
+    pub log_status_pos: u16,
+    pub flip_arrow_pos: u16,
+    pub link_quality_pos: u16,
+    pub flight_dist_pos: u16,
+    pub stick_overlay_left_pos: u16,
+    pub stick_overlay_right_pos: u16,
+    pub display_name_pos: u16,
+    pub esc_rpm_freq_pos: u16,
+    pub rate_profile_name_pos: u16,
+    pub pid_profile_name_pos: u16,
+    pub profile_name_pos: u16,
+    pub rssi_dbm_value_pos: u16,
+    pub rc_channels_pos: u16,
+    pub stat_count: u8,                    //24
+    pub stat_rtc_date_time: u8,
+    pub stat_timer_1: u8,
+    pub stat_timer_2: u8,
+    pub stat_max_speed: u8,
+    pub stat_max_distance: u8,
+    pub stat_min_battery: u8,
+    pub stat_end_battery: u8,
+    pub stat_battery: u8,
+    pub stat_min_rssi: u8,
+    pub stat_max_current: u8,
+    pub stat_used_mah: u8,
+    pub stat_max_altitude: u8,
+    pub stat_blackbox: u8,
+    pub stat_blackbox_number: u8,
+    pub stat_max_g_force: u8,
+    pub stat_max_esc_temp: u8,
+    pub stat_max_esc_rpm: u8,
+    pub stat_min_link_quality: u8,
+    pub stat_flight_distance: u8,
+    pub stat_max_fft: u8,
+    pub stat_total_flights: u8,
+    pub stat_total_time: u8,
+    pub stat_total_dist: u8,
+    pub stat_min_rssi_dbm: u8,
+    pub timer_count: u16,
+    pub timer_1: u16,
+    pub timer_2: u16,
+    pub enabledwarnings: u16,
+    pub warning_count: u8,              // 16
+    pub enabledwarnings_1_41_plus: u32,
+    pub profile_count: u8,             // 1
+    pub osdprofileindex: u8,               // 1
+    pub overlay_radio_mode: u8,            //  0
 }
 
-struct Name {
-    craft_name: [u8; 15];                    //15 characters max possible displayed in the goggles
+#[derive(Default)]
+pub struct Name {
+    pub craft_name: [u8; 15],                   //15 characters max possible displayed in the goggles
 }
 
-struct BatteryState {
-    batteryCellCount: u8,
-    batteryCapacity: u16,
-    legacyBatteryVoltage: u8,
-    mAhDrawn: u16,
-    amperage: u16,
-    batteryState: u8,
-    batteryVoltage: u16,
+#[derive(Default)]
+pub struct BatteryState {
+    pub battery_cell_count: u8,
+    pub battery_capacity: u16,
+    pub legacy_battery_voltage: u8,
+    pub mAh_drawn: u16,
+    pub amperage: u16,
+    pub battery_state: u8,
+    pub battery_voltage: u16,
 }
 
-// MSP_STATUS reply customized for BF/DJI
-struct StatusBf {
-    task_delta_time: u16,
-    i2c_error_count: u16,
-    sensor_status: u16,
-    flight_mode_flags: u32,
-    pid_profile: u8,
-    system_load: u16,
-    gyro_cycle_time: u16,
-    box_mode_flags: u8,
-    arming_disable_flags_count: u8,
-    arming_disable_flags: u32,
-    extra_flags: u8,
+pub const BATTERY_STATE_SIZE: usize = 11;
+
+impl BatteryState {
+    pub fn to_buf(&self) -> [u8; 11] {
+        let mut result = [u8; 11];
+
+        result[0] = self.battery_cell_count;
+        result[1..3].clone_from_slice(self.battery_capacity);
+        result[3] = self.legacy_battery_voltage;
+        result[4..6].clone_from_slice(self.mAh_drawn);
+        result[6..8].clone_from_slice(self.amperage);
+        result[8] = self.battery_state;
+        result[9..11] = self.battery_voltage;
+
+        result
+    }
+}
+
+/// MSP_STATUS reply customized for BF/DJI
+#[derive(Default)]
+pub struct StatusBf {
+    pub task_delta_time: u16,
+    pub i2c_error_count: u16,
+    pub sensor_status: u16,
+    pub flight_mode_flags: u32,
+    pub pid_profile: u8,
+    pub system_load: u16,
+    pub gyro_cycle_time: u16,
+    pub box_mode_flags: u8,
+    pub arming_disable_flags_count: u8,
+    pub arming_disable_flags: u32,
+    pub extra_flags: u8,
 }
 
 /// ArduPlane

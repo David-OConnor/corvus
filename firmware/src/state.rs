@@ -45,6 +45,16 @@ pub enum SwarmRole {
     PersonFollower, // When your queen is human.
 }
 
+use crate::ppks::Location;
+
+// todo; MOve this ldg config elsewhere
+struct LandingCfgFixedWing {
+    pub heading: f32, // degrees magnetic
+    pub airspeed: f32, // m/s
+    pub glideslope: f32, // radians, down from level
+    pub touchdown_point: Location,
+}
+
 /// Persistent state; saved to onboard flash memory.
 pub struct UserCfg {
     pub aircraft_type: AircraftType,
@@ -82,6 +92,7 @@ pub struct UserCfg {
     pub waypoints: [Option<Location>; MAX_WAYPOINTS],
     /// The (index of the) waypoint we are currently steering to.
     pub active_waypoint: usize,
+    pub landing_cfg_fixed_wing: LandingConfigFixedWing,
 }
 
 impl Default for UserCfg {
