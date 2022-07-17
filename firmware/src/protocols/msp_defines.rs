@@ -1,5 +1,9 @@
-// https://github.com/chris1seto/PX4-Autopilot/blob/turbotimber/src/modules/msp_osd/msp_defines.h
-// (From that: Found on https://github.com/d3ngit/djihdfpv_mavlink_to_msp_V2/blob/master/Arduino_libraries/MSP/MSP.h)
+//! This module contains structs and associated enums that represent MSP functions.
+//! We use it for sending OSD data, eg for DJI goggles.
+//! For code to construct and send MSP packets, see the `msp` module.
+
+//! https://github.com/chris1seto/PX4-Autopilot/blob/turbotimber/src/modules/msp_osd/msp_defines.h
+//! (From that: Found on https://github.com/d3ngit/djihdfpv_mavlink_to_msp_V2/blob/master/Arduino_libraries/MSP/MSP.h)
 
 
 const FLIGHT_CONTROLLER_IDENTIFIER_LENGTH: usize =   4;
@@ -116,6 +120,21 @@ struct EscSensorData {
     motor_count: u8,
     temperature: u8,
     rpm: u16,
+}
+
+
+pub const EC_SENSOR_DATA_SIZE: usize = 4;
+
+impl EcSensorData {
+    pub fn to_buf(&self) -> [u8; EC_SENSOR_DATA_SIZE] {
+        let mut result = [u8; EC_SENSOR_DATA_SIZE];
+
+        result[0] = self.motor_count;
+        result[1] = self.temperature;
+        reuslt[2..4] = self.rpm.to_le_bytes();
+
+        result
+    }
 }
 
 #[derive(Default)]
@@ -282,20 +301,48 @@ struct Rc{
 }
 
 
-/// MSP_ATTITUDE reply
+/// Attitude, as Euler angles. In degrees, multiplied by 10.
 struct Attitude {
     roll: i16,
     pitch: i16,
     yaw: i16,
 }
 
+pub const ATTITUDE_SIZE: usize = 6;
+
+impl Attitude {
+    pub fn to_buf(&self) -> [u8; ATTITUDE_SIZE] {
+        let mut result = [u8; ATTITUDE_SIZE];
+
+        result[0..2] = self.roll.to_le_bytes();
+        result[2..4] = self.pitch.to_le_bytes();
+        result[4..6] = self.yaw.to_le_bytes();
+
+        result
+    }
+}
+
 
 /// MSP_ALTITUDE reply
 #[derive(Default)]
 pub struct Altitude {
-    estimatedActualPosition: i32,  // cm
-    estimatedActualVelocity: i16,  // cm/s
-    baroLatestAltitude: i32,
+    estimated_actual_position: i32,  // cm
+    estimated_actual_velocity: i16,  // cm/s
+    baro_latest_altitude: i32,
+}
+
+pub const ALTITUDE_SIZE: usize = 10;
+
+impl Altitude {
+    pub fn to_buf(&self) -> [u8; ALTITUDE_SIZE] {
+        let mut result = [u8; ALTITUDE_SIZE];
+
+        result[0..4] = self.estimated_actual_position.to_le_bytes();
+        result[4..6] = self.estimated_actual_velocity.to_le_bytes();
+        result[6..10] = self.baro_latest_altitude.to_le_bytes();
+
+        result
+    }
 }
 
 
@@ -388,17 +435,36 @@ enum GpsFixType {
 
 
 
-/// MSP_RAW_GPS reply
+/// Raw GPS data, ie directly from a GPS unit without further processing.
 #[derive(Default)]
 pub struct RawGps {
-    pub fixType: GpsFixType,       // MSP_GPS_NO_FIX, MSP_GPS_FIX_2D, MSP_GPS_FIX_3D
-    pub numSat: u8,
+    pub fix_type: GpsFixType,       // MSP_GPS_NO_FIX, MSP_GPS_FIX_2D, MSP_GPS_FIX_3D
+    pub num_sat: u8,
     pub lat: i32,           // 1 / 10000000 deg
     pub lon: i32,          // 1 / 10000000 deg
     pub alt: i16,          // meters
-    pub groundSpeed: i16,  // cm/s
-    pub groundCourse: i16,  // unit: degree x 10
+    pub ground_speed: i16,  // cm/s
+    pub ground_course: i16,  // unit: degree x 10
     pub hdop: u16,
+}
+
+const RAW_GPS_SIZE: usize = 18;
+
+impl RawGps {
+    pub fn to_buf(&self) -> [u8; RAW_GPS_SIZE] {
+        let mut result = [u8; RAW_GPS_SIZE];
+
+        result[0] = self.fix_type as u8;
+        result[1] = self.num_sat;
+        result[2..6] = self.lat.to_le_bytes();
+        result[6..10] = self.lon.to_le_bytes();
+        result[10..14] = self.alt.to_le_bytes();
+        result[14..16] = self.ground_speed.to_le_bytes();
+        result[16..18] = self.ground_course.to_le_bytes();
+        result[18] = self.hdop;
+
+        result
+    }
 }
 
 
@@ -801,7 +867,8 @@ pub struct OsdConfig {
 
 #[derive(Default)]
 pub struct Name {
-    pub craft_name: [u8; 15],                   //15 characters max possible displayed in the goggles
+    /// Craft name - up to 15 characters.
+    pub craft_name: [u8; 15],
 }
 
 #[derive(Default)]
@@ -818,14 +885,14 @@ pub struct BatteryState {
 pub const BATTERY_STATE_SIZE: usize = 11;
 
 impl BatteryState {
-    pub fn to_buf(&self) -> [u8; 11] {
-        let mut result = [u8; 11];
+    pub fn to_buf(&self) -> [u8; BATTERY_STATE_SIZE] {
+        let mut result = [u8; BATTERY_STATE_SIZE];
 
         result[0] = self.battery_cell_count;
-        result[1..3].clone_from_slice(self.battery_capacity);
+        result[1..3] = self.battery_capacity.to_le_bytes();
         result[3] = self.legacy_battery_voltage;
-        result[4..6].clone_from_slice(self.mAh_drawn);
-        result[6..8].clone_from_slice(self.amperage);
+        result[4..6] = self.mAh_drawn.to_le_bytes();
+        result[6..8] = self.amperage.to_le_bytes();
         result[8] = self.battery_state;
         result[9..11] = self.battery_voltage;
 

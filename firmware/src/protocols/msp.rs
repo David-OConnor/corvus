@@ -1,10 +1,10 @@
-//! Multiwii Serial Protocol Version 2. We use this to send data to the DJI OSD.
-//! https://github.com/iNavFlight/inav/wiki/MSP-V2
+//! Contains tools to construct and send MSP packets: Multiwii Serial Protocol Version 2.
+//! We use this to send data to the DJI OSD, but this module supports MSP broadly.
 //!
-//! todo: Relation between this file and `osd_alt`. todo: Maybe keep this separate, since
-//! todo it may be also used for onboard ELRS?
+//! For specific MSP 'function' types, and their serialization, see the `msp_defines` module.
+//!
+//! [Reference](https://github.com/iNavFlight/inav/wiki/MSP-V2)
 
-// todo: Trim this down to what you need, eg for OSD.
 
 use stm32_hal2::{pac::USART2, usart::Usart};
 

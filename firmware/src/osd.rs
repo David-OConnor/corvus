@@ -1,53 +1,65 @@
 //! This module contains code for interfacing with DJI's OSD system, via UART.
-//! It uses the MSP protocol.
+//! It uses the MSP protocol. Its API accepts a struct containing OSD data, passed from
+//! elsewhere in our program, and matches this to the MSP format. It sends this data, including
+//! a mandatory (for DJI) arm status; required for DJI to use high power mode.
+//!
 //! Note that this isn't ideal in that it doesn't support "canvas", or pixel buffers.
 //! Worry about that later as the ecosystem changes.
+//! Info on canvas and MSP: https://discuss.ardupilot.org/t/msp-displayport/73155/33
 //!
-//! https://discuss.ardupilot.org/t/msp-displayport/73155/33
-//!
-//! Note: MUst send arm MSP signal for DJI to use high power mode!
-//!
-//! Based on DeathByHotGlue's library. Should be full up!
+//! Based on DeathByHotGlue's library:
 //! https://github.com/chris1seto/PX4-Autopilot/tree/turbotimber/src/modules/msp_osd
+
+use core::f32::consts::TAU;
 
 use defmt::{println, warn, info};
 
-use crate::prtocols::{
-    msp::{self, MsgType, Packet},
-    msp_defines::*,
+use crate::{
+    prtocols::{
+        msp::{self, MsgType, Packet},
+        msp_defines::*,
+    },
+    ppks::Location,
 };
 
 use stm32_hal2::{
     usart::Usart,
     pac::USART2,
 };
+use protocols::msp_defines::Function::EscSensorData;
 
 // An OSD position of 234 indicates the element is not visible.
 const NOT_VISIBLE: u16 = 234;
 
+// These scale factors are used by MSP to store degrees as integers with suitable precision.
+const GPS_SCALE_FACTOR: f32 = 10_000_000.;
+const EULER_ANGLE_SCALE_FACTOR: f32 = 10.;
+
 /// Contains all data we pass to the OSD. Passed from the main FC firmware.
 struct OsdData {
     pub battery_voltage: f32,
-    pub current_draw: f32, // mA.
+    pub current_draw: f32, // mA
+    pub alt_msl_baro: f32, // m
+    pub gps_fix: Location,
+    pub motor_count: u8,
+    pub pitch: f32,
+    pub roll: f32,
+    pub yaw: f32,
 }
 
 /// Sends data for all relevant elements to the OSD. Accepts a data struct built from select
 /// elements from the rest of our program, and sends to the display in OSD format, using
 /// only elements supported by DJI's MSP implementation.
 pub fn send_osd_Data(uart: &mut Uart<USART2>, data: &OsdData){
-    matrix::Eulerf euler_attitude(matrix::Quatf(_vehicle_attitude_struct.q));
 
-    // let packet = Packet::new(MsgType::Request, Function::FcVariant, 4);
-    // msp::send_packet(uart, packet, &variant);
+    // todo: Consider if you want to pass fc variant and craft name. Skipping fnor now.
+    // let packet = Packet::new(MsgType::Request, Function::FcVariant, FC_VARIANT_SIZE);
+    // msp::send_packet(uart, packet, &variant.to_buf());
 
-    // MSP_NAME
-    // name.craft_name[14] = '\0';
+    // let packet = Packet::new(MsgType::Request, Function::Name, CRAFT_NAME_SIZE);
+    // msp::send_packet(uart, packet, &name.to_buf());
 
-    // let packet = Packet::new(MsgType::Request, Function::Name, 100);
-    // msp::send_packet(packet, &name);
-
-    // MSP_STATUS
-    if _vehicle_status_struct.arming_state == _vehicle_status_struct.ARMING_STATE_ARMED {
+        if _vehicle_status_struct.arming_state == _vehicle_status_struct.ARMING_STATE_ARMED {
         status_BF.flight_mode_flags |= ARM_ACRO_BF;
 
         match _vehicle_status_struct.nav_state {
@@ -144,62 +156,80 @@ pub fn send_osd_Data(uart: &mut Uart<USART2>, data: &OsdData){
         raw_gps.groundSpeed = 0;
     }
 
-    let packet = Packet::new(MsgType::Request, Function::RawGps, 100);
-    msp::send_packet(uart, packet &raw_gps);
+    // MSP format stores coordinates in 10^6 degrees. Our internal format is radians.
+    // TAU radians in 360 degrees. 1 degree = TAU/360 rad
 
-    if _home_position_struct.valid_hpos && _vehicle_gps_position_struct.fix_type >= 3 {
-        let lat = _vehicle_gps_position_struct.lat / 10_000_000.0_f64;
-        let lon = _vehicle_gps_position_struct.lon / 10000000.0_f64;
-        let bearing_to_home = math::degrees(get_bearing_to_next_waypoint(lat, lon,
-                                                                         _home_position_struct.lat, _home_position_struct.lon));
 
-        let distance_to_home = get_distance_to_next_waypoint(lat, lon,
-                                                             _home_position_struct.lat, _home_position_struct.lon);
-        comp_gps.distanceToHome = distance_to_home as i16; // meters
-        comp_gps.directionToHome = bearing_to_home; // degrees
 
-        if bearing_to_home < 0 {
-            bearing_to_home += 360.0;
-        }
+    let raw_gps = RawGps {
+        lat: ((data.gps_fix.y * TAU/360.) * GPS_SCALE_FACTOR) as i32,
+        lon: ((data.gps_fix.x * TAU/360.) * GPS_SCALE_FACTOR) as i32,
+        alt: data.gps_fix.z as i16,
+        ..Default::default()
+    };
 
-    } else {
-        comp_gps.distanceToHome = 0; // meters
-        comp_gps.directionToHome = 0; // degrees
-    }
+    let packet = Packet::new(MsgType::Request, Function::RawGps, RAW_GPS_SIZE);
+    msp::send_packet(uart, packet &raw_gps.to_buf());
 
-    // MSP_COMP_GPS
-    comp_gps.heartbeat = _heartbeat;
-    _heartbeat = !_heartbeat;
+    // todo Come back to this later.
+    // if _home_position_struct.valid_hpos && _vehicle_gps_position_struct.fix_type >= 3 {
+    //     let lat = _vehicle_gps_position_struct.lat / 10_000_000.0_f64;
+    //     let lon = _vehicle_gps_position_struct.lon / 10000000.0_f64;
+    //     let bearing_to_home = math::degrees(get_bearing_to_next_waypoint(lat, lon,
+    //                                                                      _home_position_struct.lat, _home_position_struct.lon));
+    //
+    //     let distance_to_home = get_distance_to_next_waypoint(lat, lon,
+    //                                                          _home_position_struct.lat, _home_position_struct.lon);
+    //     comp_gps.distanceToHome = distance_to_home as i16; // meters
+    //     comp_gps.directionToHome = bearing_to_home; // degrees
+    //
+    //     if bearing_to_home < 0 {
+    //         bearing_to_home += 360.0;
+    //     }
+    //
+    // } else {
+    //     comp_gps.distanceToHome = 0; // meters
+    //     comp_gps.directionToHome = 0; // degrees
+    // }
+    //
+    // // MSP_COMP_GPS
+    // comp_gps.heartbeat = _heartbeat;
+    // _heartbeat = !_heartbeat;
+    //
+    // let packet = Packet::new(MsgType::Request, Function::CompGps, 100);
+    // msp::send_packet(uart, packet, &comp_gps);
 
-    let packet = Packet::new(MsgType::Request, Function::CompGps, 100);
-    msp::send_packet(uart, packet, &comp_gps);
+    // todo: radiasn to degrees fn
 
-    // MSP_ATTITUDE
-    attitude.pitch = math::degrees(euler_attitude.theta()) * 10;
-    attitude.roll = math::degrees(euler_attitude.phi()) * 10;
-    //attitude.yaw = math::degrees(euler_attitude.psi()) * 10;
+    let attitude = Attitude {
+        roll: ((data.roll * TAU/360.) * EULER_ANGLE_SCALE_FACTOR) as i16,
+        pitch: ((data.pitch * TAU/360.) * EULER_ANGLE_SCALE_FACTOR) as i16,
+        yaw: ((data.yaw * TAU/360.) * EULER_ANGLE_SCALE_FACTOR) as i16,
+    };
 
-    let packet = Packet::new(MsgType::Request, Function::Attitude, 100);
-    msp::send_packet(uart, packet, &attitude);
+    let packet = Packet::new(MsgType::Request, Function::Attitude, ATTITUDE_SIZE);
+    msp::send_packet(uart, packet, &attitude.to_buf());
 
-    // MSP_ALTITUDE
-    if _estimator_status_struct.solution_status_flags & (1 << 5) {
-        altitude.estimatedActualVelocity = -_vehicle_local_position_struct.vz * 10.0; //m/s to cm/s
-    } else {
-        altitude.estimatedActualVelocity = 0;
-    }
+    let altitude = Altitude {
+        estimated_actual_position: 0, // todo
+        estimated_actual_velocity: 0, // todo
+        baro_latest_altitude: data.alt_msl_baro,
+    };
 
-    let packet = Packet::new(MsgType::Request, Function::Altitude, 100);
-    msp::send_packet(uart, packet, &altitude);
+    let packet = Packet::new(MsgType::Request, Function::Altitude, ALTITUDE_SIZE);
+    msp::send_packet(uart, packet, &altitude.to_buf());
 
-    // MSP_MOTOR_TELEMETRY
-    esc_sensor_data.rpm = 0;
-    esc_sensor_data.temperature = 50;
+    // todo: Fill this in once you have bidir dshot setup. Could add temp as well.
+    let esc_sensor_data = EscSensorData {
+        motor_count: data.motor_count,
+        temperature: 0,
+        rpm: 0,
+    };
 
-    let packet = Packet::new(MsgType::Request, Function::EscSensorData, 100);
-    msp::send_packet(uart, packet, &esc_sensor_data);
+    let packet = Packet::new(MsgType::Request, Function::EscSensorData, EC_SENSOR_DATA_SIZE);
+    msp::send_packet(uart, packet, &esc_sensor_data.to_buf());
 
-    SendConfig();
+    send_config(uart);
 }
 
 /// Send initial configuration data to the display. This positions each element, and sets elements
