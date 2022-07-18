@@ -24,7 +24,7 @@ const PREAMBLE_1: u8 = 0x58;
 
 const MAX_BUF_LEN: usize = OSD_CONFIG_SIZE;
 
-const FRAME_START_SIZE: u8 = 5;
+const FRAME_START_SIZE: usize = 5;
 
 const CRC_SIZE: usize = 1;
 
@@ -97,10 +97,10 @@ impl Packet {
         // let crc = util::crc8_dvb_s2(payload[0], self.payload_size as u8);
 
         let message_id = 0; // todo: What should this be?
-        let crc = self.payload_size ^ message_id;
+        let mut crc = self.payload_size as u8 ^ message_id;
 
         // QC this. Likely not correct?
-        for i in 0..self.payload_size {
+        for i in 0..self.payload_size as usize {
             crc ^= buf[FRAME_START_SIZE + i];
         }
 
