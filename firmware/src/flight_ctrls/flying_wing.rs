@@ -31,8 +31,9 @@ const ELEVON_MIN: f32 = -1.;
 const ELEVON_MAX: f32 = 1.;
 
 // ROLL_COEFF is used to balance pitch and roll input sensitivity, compared to the implied
-// pitch coeffecient of 1.
-const ROLL_COEFF: f32 = 1.;
+// pitch coeffecient of 1. A higher coefficient will cause a greater roll response for a given input command,
+// while leaving pitch response the same.
+const ROLL_COEFF: f32 = 5.;
 
 // Update frequency: 500Hz. See `dshot.rs` for the calculation.
 // 170Mhz tim clock on G4.

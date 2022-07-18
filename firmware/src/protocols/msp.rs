@@ -5,12 +5,15 @@
 //!
 //! [Reference](https://github.com/iNavFlight/inav/wiki/MSP-V2)
 
-
-use stm32_hal2::{pac::USART2, usart::Usart};
+use stm32_hal2::{
+    dma::{Dma, DmaChannel},
+    pac::{DMA1, USART2},
+    usart::Usart,
+};
 
 use crate::{
+    protocols::msp_defines::{Function, OSD_CONFIG_SIZE},
     util,
-    protocols::msp_defines::Function,
 };
 
 static mut CRC_LUT: [u8; 256] = [0; 256];
@@ -19,7 +22,11 @@ const CRC_POLY: u8 = 0xd;
 const PREAMBLE_0: u8 = 0x24;
 const PREAMBLE_1: u8 = 0x58;
 
-const MAX_BUF_LEN: usize = 20; // todo what should this be?
+const MAX_BUF_LEN: usize = OSD_CONFIG_SIZE;
+
+const FRAME_START_SIZE: u8 = 5;
+
+const CRC_SIZE: usize = 1;
 
 #[derive(Copy, Clone)]
 #[repr(u8)]
@@ -49,8 +56,12 @@ pub struct Packet {
 }
 
 impl Packet {
-    pub fn new(message_type: MsgType, function: Function, payload_size: u16) -> Self {
-        Self { message_type, function, payload_size }
+    pub fn new(message_type: MsgType, function: Function, payload_size: usize) -> Self {
+        Self {
+            message_type,
+            function,
+            payload_size: payload_size as u16,
+        }
     }
 
     /// Convert this payload to a buffer in MSP V2 format, modifying the argument
@@ -68,15 +79,30 @@ impl Packet {
         buf[6] = (self.payload_size >> 8) as u8;
         buf[7] = self.payload_size as u8;
 
+
+        // todo: A diff impl shows this conflicting format:
+        // 	packet[0] = '$';
+        // 	packet[1] = 'M';
+        // 	packet[2] = '<';
+        // 	packet[3] = payload_size;
+        // 	packet[4] = message_id;
+
         for i in 0..self.payload_size as usize {
             buf[i + 8] = payload[i];
         }
 
-        // todo: Is len whole packet len, or just payload?
         // todo: CRC init?? With what poly?
         // let crc = util::calc_crc(unsafe { &CRC_LUT }, &payload, self.payload_size as u8);
         // todo: What is the first argument to this CRC algo??
-        let crc = util::crc8_dvb_s2(payload[0], self.payload_size as u8);
+        // let crc = util::crc8_dvb_s2(payload[0], self.payload_size as u8);
+
+        let message_id = 0; // todo: What should this be?
+        let crc = self.payload_size ^ message_id;
+
+        // QC this. Likely not correct?
+        for i in 0..self.payload_size {
+            crc ^= buf[FRAME_START_SIZE + i];
+        }
 
         buf[8 + self.payload_size as usize] = crc;
     }
@@ -84,15 +110,17 @@ impl Packet {
 
 /// Send a packet on the UART line
 /// todo: Try to get this working with DMA.
-pub fn send_packet(uart: &mut Usart<USART2>, packet: &Packet, payload: &[u8]) {
+pub fn send_packet(
+    uart: &mut Usart<USART2>,
+    dma_chan: DmaChannel,
+    dma: &mut Dma<DMA1>,
+    packet: &Packet,
+    payload: &[u8],
+) {
+    // todo: Don't always send this max buffer size. Figure out the best way to send packets
+    // todo only of the required len.
     let mut buf = [0; MAX_BUF_LEN];
     packet.to_buf(payload, &mut buf);
 
-    uart.write(&buf);
-    // uart.write_dma(
-    //     &buf,
-    //     write_chan,
-    //     Default::default(),
-    //     dma,
-    // );
+    unsafe { uart.write_dma(&buf, dma_chan, Default::default(), dma) };
 }

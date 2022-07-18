@@ -706,7 +706,7 @@ pub struct UnsuitableParams {}
 
 /// Execute a profile designed to test PID and motor gain coefficients; update them.
 pub fn calibrate_coeffs(params: &Params) -> Result<(), UnsuitableParams> {
-    if params.s_z_agl < MIN_CAL_ALT {
+    if params.tof_alt < MIN_CAL_ALT {
         return Err(UnsuitableParams {});
     }
 

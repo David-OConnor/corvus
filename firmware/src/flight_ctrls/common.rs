@@ -199,8 +199,9 @@ pub struct Params {
     pub s_y: f32,
     // Note that we only need to specify MSL vs AGL for position; velocity and accel should
     // be equiv for them.
-    pub s_z_msl: f32,
-    pub s_z_agl: f32,
+    pub baro_alt_msl: f32, // meters
+    /// Time of flight altimeter
+    pub tof_alt: f32,
 
     pub s_pitch: f32,
     pub s_roll: f32,

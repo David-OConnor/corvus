@@ -1,12 +1,15 @@
 //! This module contains structs and associated enums that represent MSP functions.
 //! We use it for sending OSD data, eg for DJI goggles.
 //! For code to construct and send MSP packets, see the `msp` module.
+//!
+//! Some items have been updated with rust naming conventions, while others haven't. Some have
+//! code for creating a buffer to send, while others haven't. Ideally, all should, but we've only
+//! implmented ones currently used.
 
 //! https://github.com/chris1seto/PX4-Autopilot/blob/turbotimber/src/modules/msp_osd/msp_defines.h
 //! (From that: Found on https://github.com/d3ngit/djihdfpv_mavlink_to_msp_V2/blob/master/Arduino_libraries/MSP/MSP.h)
 
-
-const FLIGHT_CONTROLLER_IDENTIFIER_LENGTH: usize =   4;
+const FLIGHT_CONTROLLER_IDENTIFIER_LENGTH: usize = 4;
 
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u16)]
@@ -15,19 +18,19 @@ pub enum Function {
     ApiVersion = 1,
     FcVariant = 2,
     FcVersion = 3,
-    BOARD_INFO = 4,
-    BUILD_INFO = 5,
+    BoardInfo = 4,
+    BuildInfo = 5,
     Name = 10,
     CalibrationData = 14,
     Feature = 36,
-    BOARD_ALIGNMENT = 38,
-    CURRENT_METER_CONFIG = 40,
-    RX_CONFIG = 44,
-    SONAR_ALTITUDE = 58,
+    BoardAlignment = 38,
+    CurrentMeterConfig = 40,
+    RxConfig = 44,
+    SonarAltitude = 58,
     ArmingConfig = 61,
     RxMap = 64,
     // get channel map (also returns number of channels total)
-    LOOP_TIME = 73,
+    LoopTime = 73,
     // FC cycle time i.e looptime parameter
     OsdConfig = 84,
     Status = 101,
@@ -46,92 +49,90 @@ pub enum Function {
     PID = 112,
     // P I D coeff
     MISC = 114,
-    SERVO_CONFIGURATIONS = 120,
-    NAV_STATUS = 121,
+    ServoConfigurations = 120,
+    NavStatus = 121,
     // navigation status
-    SENSOR_ALIGNMENT = 126,
+    SensorAlignment = 126,
     // orientation of acc,gyro,mag
     BatteryState = 130,
     EscSensorData = 134,
-    MOTOR_TELEMETRY = 139,
+    MotorTelemetry = 139,
     StatusEx = 150,
     SensorStatus = 151,
-    BOXIDS = 119,
-    UID = 160,
+    Boxids = 119,
+    Uid = 160,
     // Unique device ID
-    GPSSVINFO = 164,
+    GpsSvInfo = 164,
     // get Signal Strength (only U-Blox)
-    GPSSTATISTICS = 166,
+    GpsStatistics = 166,
     // get GPS debugging data
-    SET_PID = 202, // set P I D coeff
-
+    SetPid = 202, // set P I D coeff
 }
 
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
 /// Commands
 enum Command {
-    HEAD = 211,
+    Head = 211,
     // define a new heading hold direction
-    RAW_RC = 200,
+    RawRc = 200,
     // 8 rc chan
-    RAW_GPS = 201,
+    RawGps = 201,
     // fix, numsat, lat, lon, alt, speed
-    WP = 209, // sets a given WP (WP#, lat, lon, alt, flags)
+    Wp = 209, // sets a given WP (WP#, lat, lon, alt, flags)
 }
 
-#[derive(Clone, Copy, PartialEq)]
-#[repr(u8)]
-/// bits of getActiveModes() return value
-enum Mode {
-    ARM = 0,
-    ANGLE = 1,
-    HORIZON = 2,
-    NAVALTHOLD = 3, /* cleanflight BARO */
-    MAG = 4,
-    HEADFREE = 5,
-    HEADADJ = 6,
-    CAMSTAB = 7,
-    NAVRTH = 8, /* cleanflight GPSHOME */
-    NAVPOSHOLD = 9, /* cleanflight GPSHOLD */
-    PASSTHRU = 10,
-    BEEPERON = 11,
-    LEDLOW = 12,
-    LLIGHTS = 13,
-    OSD = 14,
-    TELEMETRY = 15,
-    GTUNE = 16,
-    SONAR = 17,
-    BLACKBOX = 18,
-    FAILSAFE = 19,
-    NAVWP = 20, /* cleanflight AIRMODE */
-    AIRMODE = 21, /* cleanflight DISABLE3DSWITCH */
-    HOMERESET = 22, /* cleanflight FPVANGLEMIX */
-    GCSNAV = 23, /* cleanflight BLACKBOXERASE */
-    HEADINGLOCK = 24,
-    SURFACE = 25,
-    FLAPERON = 26,
-    TURNASSIST = 27,
-    NAVLAUNCH = 28,
-    AUTOTRIM = 29,
-}
+// #[derive(Clone, Copy, PartialEq)]
+// #[repr(u8)]
+// /// bits of getActiveModes() return value
+// enum Mode {
+//     ARM = 0,
+//     ANGLE = 1,
+//     HORIZON = 2,
+//     NAVALTHOLD = 3, /* cleanflight BARO */
+//     MAG = 4,
+//     HEADFREE = 5,
+//     HEADADJ = 6,
+//     CAMSTAB = 7,
+//     NAVRTH = 8,     /* cleanflight GPSHOME */
+//     NAVPOSHOLD = 9, /* cleanflight GPSHOLD */
+//     PASSTHRU = 10,
+//     BEEPERON = 11,
+//     LEDLOW = 12,
+//     LLIGHTS = 13,
+//     OSD = 14,
+//     TELEMETRY = 15,
+//     GTUNE = 16,
+//     SONAR = 17,
+//     BLACKBOX = 18,
+//     FAILSAFE = 19,
+//     NAVWP = 20,     /* cleanflight AIRMODE */
+//     AIRMODE = 21,   /* cleanflight DISABLE3DSWITCH */
+//     HOMERESET = 22, /* cleanflight FPVANGLEMIX */
+//     GCSNAV = 23,    /* cleanflight BLACKBOXERASE */
+//     HEADINGLOCK = 24,
+//     SURFACE = 25,
+//     FLAPERON = 26,
+//     TURNASSIST = 27,
+//     NAVLAUNCH = 28,
+//     AUTOTRIM = 29,
+// }
 
-struct EscSensorData {
-    motor_count: u8,
-    temperature: u8,
-    rpm: u16,
+pub struct EscSensorData {
+    pub motor_count: u8,
+    pub temperature: u8,
+    pub rpm: u16,
 }
-
 
 pub const EC_SENSOR_DATA_SIZE: usize = 4;
 
-impl EcSensorData {
+impl EscSensorData {
     pub fn to_buf(&self) -> [u8; EC_SENSOR_DATA_SIZE] {
-        let mut result = [u8; EC_SENSOR_DATA_SIZE];
+        let mut result = [0; EC_SENSOR_DATA_SIZE];
 
         result[0] = self.motor_count;
         result[1] = self.temperature;
-        reuslt[2..4] = self.rpm.to_le_bytes();
+        result[2..4].clone_from_slice(&self.rpm.to_le_bytes());
 
         result
     }
@@ -160,13 +161,11 @@ struct ApiVersion {
     APIMinor: u8,
 }
 
-
 /// MSP_FC_VARIANT reply
 #[derive(Default)]
 pub struct FcVariant {
     flightControlIdentifier: [u8; 4],
 }
-
 
 /// MSP_FC_VERSION reply
 struct FcVersion {
@@ -175,13 +174,11 @@ struct FcVersion {
     versionPatchLevel: u8,
 }
 
-
 /// MSP_BOARD_INFO reply
 struct BoardInfo {
     oardIdentifier: [u8; 4],
     hardwareRevision: u16,
 }
-
 
 /// MSP_BUILD_INFO reply
 struct BuildInfo {
@@ -190,7 +187,6 @@ struct BuildInfo {
     shortGitRevision: [u8; 7],
 }
 
-
 /// MSP_RAW_IMU reply
 struct RawImu {
     acc: [i16; 3],  // x, y, z
@@ -198,45 +194,41 @@ struct RawImu {
     mag: [i16; 3],  // x, y, z
 }
 
-
 // flags for msp_status_ex_t.sensor and msp_status_t.sensor
-const MSP_STATUS_SENSOR_ACC: u16 =    1;
-const MSP_STATUS_SENSOR_BARO: u16 =    2;
-const MSP_STATUS_SENSOR_MAG: u16 =     4;
-const MSP_STATUS_SENSOR_GPS: u16 =     8;
-const MSP_STATUS_SENSOR_SONAR: u16 =  16;
-
+const MSP_STATUS_SENSOR_ACC: u16 = 1;
+const MSP_STATUS_SENSOR_BARO: u16 = 2;
+const MSP_STATUS_SENSOR_MAG: u16 = 4;
+const MSP_STATUS_SENSOR_GPS: u16 = 8;
+const MSP_STATUS_SENSOR_SONAR: u16 = 16;
 
 /// MSP_STATUS_EX reply
 /// HHH I B HH BB I B
 struct StatusEx {
     cycleTime: u16,
     i2cErrorCounter: u16,
-    sensor: u16,                    // MSP_STATUS_SENSOR_...
-    flightModeFlags: u32,           // see getActiveModes()
+    sensor: u16,          // MSP_STATUS_SENSOR_...
+    flightModeFlags: u32, // see getActiveModes()
     nop_1: u8,
-    system_load: u16,  // 0...100
+    system_load: u16, // 0...100
     gyro_time: u16,
     nop_2: u8,
     nop_3: u32,
     extra: u8,
 }
 
-
 /// MSP_STATUS
 struct Status {
     cycleTime: u16,
     i2cErrorCounter: u16,
-    sensor: u16,             // MSP_STATUS_SENSOR_...
-    flightModeFlags: u32,        // see getActiveModes()
+    sensor: u16,          // MSP_STATUS_SENSOR_...
+    flightModeFlags: u32, // see getActiveModes()
     configProfileIndex: u8,
     gyroCycleTime: u16,
 }
 
-
 /// MSP_SENSOR_STATUS reply
 struct SensorStatus {
-    isHardwareHealthy: u8,  // 0...1
+    isHardwareHealthy: u8, // 0...1
     hwGyroStatus: u8,
     hwAccelerometerStatus: u8,
     hwCompassStatus: u8,
@@ -247,14 +239,12 @@ struct SensorStatus {
     hwOpticalFlowStatus: u8,
 }
 
-
 const MSP_MAX_SUPPORTED_SERVOS: usize = 8;
 
 /// MSP_SERVO reply
 struct Servo {
     servo: [u16; MSP_MAX_SUPPORTED_SERVOS],
 }
-
 
 /// MSP_SERVO_CONFIGURATIONS reply
 struct ServoConfigurations {
@@ -268,7 +258,6 @@ struct ServoConfigurations {
     reversedSources: u32,
     // conf[MSP_MAX_SUPPORTED_SERVOS]; // todo
 }
-
 
 /*#define MSP_MAX_SERVO_RULES (2 * MSP_MAX_SUPPORTED_SERVOS)
 
@@ -284,7 +273,6 @@ struct msp_servo_mix_rules_t {
   } mixRule[MSP_MAX_SERVO_RULES];
 }*/
 
-
 const MSP_MAX_SUPPORTED_MOTORS: usize = 8;
 
 /// MSP_MOTOR reply
@@ -292,75 +280,69 @@ struct Motor {
     motor: [u16; MSP_MAX_SUPPORTED_MOTORS],
 }
 
-
 const MSP_MAX_SUPPORTED_CHANNELS: usize = 16;
 
 /// MSP_RC reply
-struct Rc{
+struct Rc {
     channelValue: [u16; MSP_MAX_SUPPORTED_CHANNELS],
 }
 
-
 /// Attitude, as Euler angles. In degrees, multiplied by 10.
-struct Attitude {
-    roll: i16,
-    pitch: i16,
-    yaw: i16,
+pub struct Attitude {
+    pub roll: i16,
+    pub pitch: i16,
+    pub yaw: i16,
 }
 
 pub const ATTITUDE_SIZE: usize = 6;
 
 impl Attitude {
     pub fn to_buf(&self) -> [u8; ATTITUDE_SIZE] {
-        let mut result = [u8; ATTITUDE_SIZE];
+        let mut result = [0; ATTITUDE_SIZE];
 
-        result[0..2] = self.roll.to_le_bytes();
-        result[2..4] = self.pitch.to_le_bytes();
-        result[4..6] = self.yaw.to_le_bytes();
+        result[0..2].clone_from_slice(&self.roll.to_le_bytes());
+        result[2..4].clone_from_slice(&self.pitch.to_le_bytes());
+        result[4..6].clone_from_slice(&self.yaw.to_le_bytes());
 
         result
     }
 }
 
-
 /// MSP_ALTITUDE reply
 #[derive(Default)]
 pub struct Altitude {
-    estimated_actual_position: i32,  // cm
-    estimated_actual_velocity: i16,  // cm/s
-    baro_latest_altitude: i32,
+    pub estimated_actual_position: i32, // cm
+    pub estimated_actual_velocity: i16, // cm/s
+    pub baro_latest_altitude: i32,
 }
 
 pub const ALTITUDE_SIZE: usize = 10;
 
 impl Altitude {
     pub fn to_buf(&self) -> [u8; ALTITUDE_SIZE] {
-        let mut result = [u8; ALTITUDE_SIZE];
+        let mut result = [0; ALTITUDE_SIZE];
 
-        result[0..4] = self.estimated_actual_position.to_le_bytes();
-        result[4..6] = self.estimated_actual_velocity.to_le_bytes();
-        result[6..10] = self.baro_latest_altitude.to_le_bytes();
+        result[0..4].clone_from_slice(&self.estimated_actual_position.to_le_bytes());
+        result[4..6].clone_from_slice(&self.estimated_actual_velocity.to_le_bytes());
+        result[6..10].clone_from_slice(&self.baro_latest_altitude.to_le_bytes());
 
         result
     }
 }
-
 
 /// MSP_SONAR_ALTITUDE reply
 struct SonarAltitude {
     altitude: i32,
 }
 
-
 /// MSP_ANALOG reply
 #[derive(Default)]
 pub struct Analog {
-    pub vbat: u8,    // 0...255
+    pub vbat: u8,      // 0...255
     pub mAhDrawn: u16, // milliamp hours drawn from battery
     pub rssi: u16,     // 0..1023
     pub amperage: i16, // send amperage in 0.01 A steps, range is -320A to 320A
 }
-
 
 /// MSP_ARMING_CONFIG reply
 struct ArmingConfig {
@@ -368,178 +350,173 @@ struct ArmingConfig {
     disarm_kill_switch: u8,
 }
 
-
 /// MSP_LOOP_TIME reply
 struct LoopTime {
     looptime: u16,
 }
 
-
 /// MSP_RC_TUNING reply
-struct RcTuning{
-      rcRate8: u8,  // no longer used
-      rcExpo8: u8,
-      rates: [u8; 3], // R,P,Y
-      dynThrPID: u8,
-      thrMid8: u8,
-      thrExpo8: u8,
+struct RcTuning {
+    rcRate8: u8, // no longer used
+    rcExpo8: u8,
+    rates: [u8; 3], // R,P,Y
+    dynThrPID: u8,
+    thrMid8: u8,
+    thrExpo8: u8,
     tpa_breakpoint: u16,
-      rcYawExpo8: u8,
+    rcYawExpo8: u8,
 }
-
 
 /// MSP_PID reply
 struct Pid {
-    roll: [u8; 3],     // 0=P, 1=I, 2=D
-    pitch: [u8; 3],    // 0=P, 1=I, 2=D
-    yaw: [u8; 3],      // 0=P, 1=I, 2=D
-    pos_z: [u8; 3],    // 0=P, 1=I, 2=D
-    pos_xy: [u8; 3],   // 0=P, 1=I, 2=D
-    vel_xy: [u8; 3],   // 0=P, 1=I, 2=D
-    surface: [u8; 3],  // 0=P, 1=I, 2=D
-    level: [u8; 3],    // 0=P, 1=I, 2=D
-    heading: [u8; 3],  // 0=P, 1=I, 2=D
-    vel_z: [u8; 3],    // 0=P, 1=I, 2=D
+    roll: [u8; 3],    // 0=P, 1=I, 2=D
+    pitch: [u8; 3],   // 0=P, 1=I, 2=D
+    yaw: [u8; 3],     // 0=P, 1=I, 2=D
+    pos_z: [u8; 3],   // 0=P, 1=I, 2=D
+    pos_xy: [u8; 3],  // 0=P, 1=I, 2=D
+    vel_xy: [u8; 3],  // 0=P, 1=I, 2=D
+    surface: [u8; 3], // 0=P, 1=I, 2=D
+    level: [u8; 3],   // 0=P, 1=I, 2=D
+    heading: [u8; 3], // 0=P, 1=I, 2=D
+    vel_z: [u8; 3],   // 0=P, 1=I, 2=D
 }
-
 
 /// MSP_MISC reply
 struct msp_misc_t {
-     midrc: u16,
-     minthrottle: u16,
-     maxthrottle: u16,
-     mincommand: u16,
-     failsafe_throttle: u16,
-      gps_provider: u8,
-      gps_baudrate: u8,
-      gps_ubx_sbas: u8,
-      multiwiiCurrentMeterOutput: u8,
-      rssi_channel: u8,
-      dummy: u8,
-     mag_declination: u16,
-      vbatscale: u8,
-      vbatmincellvoltage: u8,
-      vbatmaxcellvoltage: u8,
-      vbatwarningcellvoltage: u8,
+    midrc: u16,
+    minthrottle: u16,
+    maxthrottle: u16,
+    mincommand: u16,
+    failsafe_throttle: u16,
+    gps_provider: u8,
+    gps_baudrate: u8,
+    gps_ubx_sbas: u8,
+    multiwiiCurrentMeterOutput: u8,
+    rssi_channel: u8,
+    dummy: u8,
+    mag_declination: u16,
+    vbatscale: u8,
+    vbatmincellvoltage: u8,
+    vbatmaxcellvoltage: u8,
+    vbatwarningcellvoltage: u8,
 }
 
-
 /// values for msp_raw_gps_t.fixType
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy)]
 #[repr(u8)]
-enum GpsFixType {
+pub enum GpsFixType {
     NoFix = 0,
     Fix2D = 1,
     Fix3D = 2,
 }
 
-
+impl Default for GpsFixType {
+    fn default() -> Self {
+        Self::NoFix
+    }
+}
 
 /// Raw GPS data, ie directly from a GPS unit without further processing.
 #[derive(Default)]
 pub struct RawGps {
-    pub fix_type: GpsFixType,       // MSP_GPS_NO_FIX, MSP_GPS_FIX_2D, MSP_GPS_FIX_3D
+    pub fix_type: GpsFixType, // MSP_GPS_NO_FIX, MSP_GPS_FIX_2D, MSP_GPS_FIX_3D
     pub num_sat: u8,
     pub lat: i32,           // 1 / 10000000 deg
-    pub lon: i32,          // 1 / 10000000 deg
-    pub alt: i16,          // meters
+    pub lon: i32,           // 1 / 10000000 deg
+    pub alt: i16,           // meters
     pub ground_speed: i16,  // cm/s
-    pub ground_course: i16,  // unit: degree x 10
+    pub ground_course: i16, // unit: degree x 10
     pub hdop: u16,
 }
 
-const RAW_GPS_SIZE: usize = 18;
+pub const RAW_GPS_SIZE: usize = 18;
 
 impl RawGps {
     pub fn to_buf(&self) -> [u8; RAW_GPS_SIZE] {
-        let mut result = [u8; RAW_GPS_SIZE];
+        let mut result = [0; RAW_GPS_SIZE];
 
         result[0] = self.fix_type as u8;
         result[1] = self.num_sat;
-        result[2..6] = self.lat.to_le_bytes();
-        result[6..10] = self.lon.to_le_bytes();
-        result[10..14] = self.alt.to_le_bytes();
-        result[14..16] = self.ground_speed.to_le_bytes();
-        result[16..18] = self.ground_course.to_le_bytes();
-        result[18] = self.hdop;
+        result[2..6].clone_from_slice(&self.lat.to_le_bytes());
+        result[6..10].clone_from_slice(&self.lon.to_le_bytes());
+        result[10..12].clone_from_slice(&self.alt.to_le_bytes());
+        result[12..14].clone_from_slice(&self.ground_speed.to_le_bytes());
+        result[14..16].clone_from_slice(&self.ground_course.to_le_bytes());
+        result[16..18].clone_from_slice(&self.hdop.to_le_bytes());
 
         result
     }
 }
-
 
 /// MSP_COMP_GPS reply
 #[derive(Default)]
 pub struct CompGps {
     pub distanceToHome: i16,  // distance to home in meters
     pub directionToHome: i16, // direction to home in degrees
-    pub heartbeat: u8,       // toggles 0 and 1 for each change
+    pub heartbeat: u8,        // toggles 0 and 1 for each change
 }
-
 
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
 /// values for msp_nav_status_t.mode
-enum NavStatusMode {
+pub enum NavStatusMode {
     NONE = 0,
-    HOLD =  1,
-    RTH   = 2,
-    NAV  =  3,
+    HOLD = 1,
+    RTH = 2,
+    NAV = 3,
     EMERG = 15,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-#[repr(u8)]
-/// values for msp_nav_status_t.state
-enum NavStatusState {
-    NONE       =         0 , // None
-    RTH_START   =        1 , // RTH Start
-    RTH_ENROUTE   =      2 , // RTH Enroute
-    HOLD_INFINIT  =      3 , // PosHold infinit
-    HOLD_TIMED    =      4 , // PosHold timed
-    WP_ENROUTE    =      5 , // WP Enroute
-    PROCESS_NEXT    =    6 , // Process next
-    DO_JUMP     =        7 , // Jump
-    LAND_START  =        8 , // Start Land
-    LAND_IN_PROGRESS  =  9,  // Land in Progress
-    LANDED       =      10 , // Landed
-    LAND_SETTLE   =     11 , // Settling before land
-    LAND_START_DESCENT =12 , // Start descent
-}
+// #[derive(Clone, Copy, PartialEq)]
+// #[repr(u8)]
+// /// values for msp_nav_status_t.state
+// enum NavStatusState {
+//     NONE = 0,                // None
+//     RTH_START = 1,           // RTH Start
+//     RTH_ENROUTE = 2,         // RTH Enroute
+//     HOLD_INFINIT = 3,        // PosHold infinit
+//     HOLD_TIMED = 4,          // PosHold timed
+//     WP_ENROUTE = 5,          // WP Enroute
+//     PROCESS_NEXT = 6,        // Process next
+//     DO_JUMP = 7,             // Jump
+//     LAND_START = 8,          // Start Land
+//     LAND_IN_PROGRESS = 9,    // Land in Progress
+//     LANDED = 10,             // Landed
+//     LAND_SETTLE = 11,        // Settling before land
+//     LAND_START_DESCENT = 12, // Start descent
+// }
 
 // values for msp_nav_status_t.activeWpAction, msp_set_wp_t.action
 const MSP_NAV_STATUS_WAYPOINT_ACTION_WAYPOINT: u8 = 0x01;
-const MSP_NAV_STATUS_WAYPOINT_ACTION_RTH: u8 =      0x04;
+const MSP_NAV_STATUS_WAYPOINT_ACTION_RTH: u8 = 0x04;
 
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
 /// values for msp_nav_status_t.error
-enum NavStatusError {
-    NONE          =     0, // All systems clear
-    TOOFAR      =       1, // Next waypoint distance is more than safety distance
-    SPOILED_GPS   =     2, // GPS reception is compromised - Nav paused - copter is adrift !
-    WP_CRC     =        3, // CRC error reading WP data from EEPROM - Nav stopped
-    FINISH      =       4, // End flag detected, navigation finished
-    TIMEWAIT     =      5, // Waiting for poshold timer
-    INVALID_JUMP  =     6, // Invalid jump target detected, aborting
-    INVALID_DATA  =     7, // Invalid mission step action code, aborting, copter is adrift
-    WAIT_FOR_RTH_ALT =  8, // Waiting to reach RTH Altitude
-    GPS_FIX_LOST =      9, // Gps fix lost, aborting mission
-    DISARMED     =     10, // NAV engine disabled due disarm
-    LANDING    =       11,  // Landing
+pub enum NavStatusError {
+    NONE = 0,             // All systems clear
+    TOOFAR = 1,           // Next waypoint distance is more than safety distance
+    SPOILED_GPS = 2,      // GPS reception is compromised - Nav paused - copter is adrift !
+    WP_CRC = 3,           // CRC error reading WP data from EEPROM - Nav stopped
+    FINISH = 4,           // End flag detected, navigation finished
+    TIMEWAIT = 5,         // Waiting for poshold timer
+    INVALID_JUMP = 6,     // Invalid jump target detected, aborting
+    INVALID_DATA = 7,     // Invalid mission step action code, aborting, copter is adrift
+    WAIT_FOR_RTH_ALT = 8, // Waiting to reach RTH Altitude
+    GPS_FIX_LOST = 9,     // Gps fix lost, aborting mission
+    DISARMED = 10,        // NAV engine disabled due disarm
+    LANDING = 11,         // Landing
 }
-
 
 /// MSP_NAV_STATUS reply
 struct NavStatus {
-    mode: u8,         // one of MSP_NAV_STATUS_MODE_XXX
+    mode: u8,           // one of MSP_NAV_STATUS_MODE_XXX
     state: u8,          // one of MSP_NAV_STATUS_STATE_XXX
-    activeWpAction: u8,  // combination of MSP_NAV_STATUS_WAYPOINT_ACTION_XXX
+    activeWpAction: u8, // combination of MSP_NAV_STATUS_WAYPOINT_ACTION_XXX
     activeWpNumber: u8,
-    error: u8,           // one of MSP_NAV_STATUS_ERROR_XXX
+    error: u8, // one of MSP_NAV_STATUS_ERROR_XXX
     magHoldHeading: i16,
 }
-
 
 /// MSP_GPSSVINFO reply
 struct GpsSvInfo {
@@ -549,7 +526,6 @@ struct GpsSvInfo {
     dummy4: u8,
     HDOP: u8,
 }
-
 
 /// MSP_GPSSTATISTICS reply
 struct msp_gpsstatistics_t {
@@ -562,7 +538,6 @@ struct msp_gpsstatistics_t {
     epv: u16,
 }
 
-
 /// MSP_UID reply
 struct Uid {
     uid0: u32,
@@ -570,12 +545,10 @@ struct Uid {
     uid2: u32,
 }
 
-
-
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u32)]
 /// MSP_FEATURE mask
-enum Feature {
+pub enum Feature {
     RX_PPM = (1 << 0),
     VBAT = (1 << 1),
     UNUSED_1 = (1 << 2),
@@ -610,12 +583,10 @@ enum Feature {
     OSD = (1 << 29),
 }
 
-
 /// MSP_FEATURE reply
 struct FeatureS {
     featureMask: u32, // combination of MSP_FEATURE_XXX
 }
-
 
 /// MSP_BOARD_ALIGNMENT reply
 struct BoardAlignment {
@@ -624,50 +595,49 @@ struct BoardAlignment {
     yawDeciDegrees: i16,
 }
 
-
-// values for msp_current_meter_config_t.currentMeterType
-const MSP_CURRENT_SENSOR_NONE: u16 =    0;
-const MSP_CURRENT_SENSOR_ADC: u16 =     1;
-const MSP_CURRENT_SENSOR_VIRTUAL: u16 = 2;
-const MSP_CURRENT_SENSOR_MAX: u16 =     CURRENT_SENSOR_VIRTUAL;
-
+/// values for `CurrentMeterConfig`, current_meter_type
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+pub enum CurrentMeterType {
+    SensorNone = 0,
+    SensorAdc = 1,
+    /// Virtual, or max
+    SensorVirtualMax = 2,
+}
 
 /// MSP_CURRENT_METER_CONFIG reply
 struct CurrentMeterConfig {
-    currentMeterScale: i16,
-    currentMeterOffset: i16,
-    currentMeterType: u8, // MSP_CURRENT_SENSOR_XXX
-    batteryCapacity: u16,
+    current_meter_scale: i16,
+    current_meter_offset: i16,
+    current_meter_type: CurrentMeterType,
+    battery_capacity: u16,
 }
 
-
 // msp_rx_config_t.serialrx_provider
-const MSP_SERIALRX_SPEKTRUM1024: u16 =      0;
-const MSP_SERIALRX_SPEKTRUM2048   : u16 =     1;
-const MSP_SERIALRX_SBUS     : u16 =           2;
-const MSP_SERIALRX_SUMD    : u16 =            3;
-const MSP_SERIALRX_SUMH    : u16 =            4;
-const MSP_SERIALRX_XBUS_MODE_B   : u16 =      5;
-const MSP_SERIALRX_XBUS_MODE_B_RJ01 : u16 =   6;
-const MSP_SERIALRX_IBUS       : u16 =         7;
-const MSP_SERIALRX_JETIEXBUS   : u16 =        8;
-const MSP_SERIALRX_CRSF   : u16 =             9;
-
+const MSP_SERIALRX_SPEKTRUM1024: u16 = 0;
+const MSP_SERIALRX_SPEKTRUM2048: u16 = 1;
+const MSP_SERIALRX_SBUS: u16 = 2;
+const MSP_SERIALRX_SUMD: u16 = 3;
+const MSP_SERIALRX_SUMH: u16 = 4;
+const MSP_SERIALRX_XBUS_MODE_B: u16 = 5;
+const MSP_SERIALRX_XBUS_MODE_B_RJ01: u16 = 6;
+const MSP_SERIALRX_IBUS: u16 = 7;
+const MSP_SERIALRX_JETIEXBUS: u16 = 8;
+const MSP_SERIALRX_CRSF: u16 = 9;
 
 // msp_rx_config_t.rx_spi_protocol values
-const MSP_SPI_PROT_NRF24RX_V202_250K : u16 =  0;
-const MSP_SPI_PROT_NRF24RX_V202_1M : u16 =    1;
-const MSP_SPI_PROT_NRF24RX_SYMA_X : u16 =     2;
-const MSP_SPI_PROT_NRF24RX_SYMA_X5C : u16 =   3;
-const MSP_SPI_PROT_NRF24RX_CX10 : u16 =       4;
-const MSP_SPI_PROT_NRF24RX_CX10A : u16 =      5;
-const MSP_SPI_PROT_NRF24RX_H8_3D : u16 =      6;
-const MSP_SPI_PROT_NRF24RX_INAV  : u16 =      7;
-
+const MSP_SPI_PROT_NRF24RX_V202_250K: u16 = 0;
+const MSP_SPI_PROT_NRF24RX_V202_1M: u16 = 1;
+const MSP_SPI_PROT_NRF24RX_SYMA_X: u16 = 2;
+const MSP_SPI_PROT_NRF24RX_SYMA_X5C: u16 = 3;
+const MSP_SPI_PROT_NRF24RX_CX10: u16 = 4;
+const MSP_SPI_PROT_NRF24RX_CX10A: u16 = 5;
+const MSP_SPI_PROT_NRF24RX_H8_3D: u16 = 6;
+const MSP_SPI_PROT_NRF24RX_INAV: u16 = 7;
 
 /// MSP_RX_CONFIG reply
 struct RxConfig {
-    serialrx_provider: u8,  // one of MSP_SERIALRX_XXX values
+    serialrx_provider: u8, // one of MSP_SERIALRX_XXX values
     maxcheck: u16,
     midrc: u16,
     mincheck: u16,
@@ -677,36 +647,34 @@ struct RxConfig {
     dummy1: u8,
     dummy2: u8,
     dummy3: u16,
-    rx_spi_protocol: u8,  // one of MSP_SPI_PROT_XXX values
+    rx_spi_protocol: u8, // one of MSP_SPI_PROT_XXX values
     rx_spi_id: u32,
     rx_spi_rf_channel_count: u8,
 }
-
 
 const MSP_MAX_MAPPABLE_RX_INPUTS: usize = 8;
 
 /// MSP_RX_MAP reply
 struct RxMap {
-    rxmap: [u8; MSP_MAX_MAPPABLE_RX_INPUTS],  // [0]=roll channel, [1]=pitch channel, [2]=yaw channel, [3]=throttle channel, [3+n]=aux n channel, etc...
+    rxmap: [u8; MSP_MAX_MAPPABLE_RX_INPUTS], // [0]=roll channel, [1]=pitch channel, [2]=yaw channel, [3]=throttle channel, [3+n]=aux n channel, etc...
 }
 
 // values for msp_sensor_alignment_t.gyro_align, acc_align, mag_align
-const MSP_SENSOR_ALIGN_CW0_DEG: u16 =        1;
-const MSP_SENSOR_ALIGN_CW90_DEG : u16 =       2;
-const MSP_SENSOR_ALIGN_CW180_DEG   : u16 =    3;
-const MSP_SENSOR_ALIGN_CW270_DEG  : u16 =     4;
-const MSP_SENSOR_ALIGN_CW0_DEG_FLIP : u16 =   5;
-const MSP_SENSOR_ALIGN_CW90_DEG_FLIP : u16 =  6;
-const MSP_SENSOR_ALIGN_CW180_DEG_FLIP: u16 =  7;
-const MSP_SENSOR_ALIGN_CW270_DEG_FLIP : u16 = 8;
+const MSP_SENSOR_ALIGN_CW0_DEG: u16 = 1;
+const MSP_SENSOR_ALIGN_CW90_DEG: u16 = 2;
+const MSP_SENSOR_ALIGN_CW180_DEG: u16 = 3;
+const MSP_SENSOR_ALIGN_CW270_DEG: u16 = 4;
+const MSP_SENSOR_ALIGN_CW0_DEG_FLIP: u16 = 5;
+const MSP_SENSOR_ALIGN_CW90_DEG_FLIP: u16 = 6;
+const MSP_SENSOR_ALIGN_CW180_DEG_FLIP: u16 = 7;
+const MSP_SENSOR_ALIGN_CW270_DEG_FLIP: u16 = 8;
 
 /// MSP_SENSOR_ALIGNMENT reply
 struct SensorAlignment {
-    gyro_align: u8,   // one of MSP_SENSOR_ALIGN_XXX
-    acc_align: u8,    // one of MSP_SENSOR_ALIGN_XXX
-    mag_align: u8,   // one of MSP_SENSOR_ALIGN_XXX
+    gyro_align: u8, // one of MSP_SENSOR_ALIGN_XXX
+    acc_align: u8,  // one of MSP_SENSOR_ALIGN_XXX
+    mag_align: u8,  // one of MSP_SENSOR_ALIGN_XXX
 }
-
 
 /// MSP_CALIBRATION_DATA reply
 struct CalibrationData {
@@ -721,48 +689,44 @@ struct CalibrationData {
     magZeroZ: i16,
 }
 
-
 /// MSP_SET_HEAD command
 struct SetHead {
     magHoldHeading: i16, // degrees
 }
-
 
 /// MSP_SET_RAW_RC command
 struct SetRawRc {
     channel: [u16; MSP_MAX_SUPPORTED_CHANNELS],
 }
 
-
 // MSP_SET_PID command
 // type msp_pid_t msp_set_pid_t;
 
-
 /// MSP_SET_RAW_GPS command
 struct SetRawGps {
-    fixType: u8,       // MSP_GPS_NO_FIX, MSP_GPS_FIX_2D, MSP_GPS_FIX_3D
+    fixType: u8, // MSP_GPS_NO_FIX, MSP_GPS_FIX_2D, MSP_GPS_FIX_3D
     numSat: u8,
-    lat: i32,          // 1 / 10000000 deg
+    lat: i32,         // 1 / 10000000 deg
     lon: i32,         // 1 / 10000000 deg
-    alt: i16,          // meters
-    groundSpeed: i16,   // cm/s
+    alt: i16,         // meters
+    groundSpeed: i16, // cm/s
 }
-
 
 /// MSP_SET_WP command
 /// Special waypoints are 0 and 255. 0 is the RTH position, 255 is the POSHOLD position (lat, lon, alt).
 struct SetWp {
     waypointNumber: u8,
-    action: u8,  // one of MSP_NAV_STATUS_WAYPOINT_ACTION_XXX
-    lat: i32,      // decimal degrees latitude * 10000000
-    lon: i32,        // decimal degrees longitude * 10000000
-    alt: i32,        // altitude (cm)
-    p1: i16,         // speed (cm/s) when action is MSP_NAV_STATUS_WAYPOINT_ACTION_WAYPOINT, or "land" (value 1) when action is MSP_NAV_STATUS_WAYPOINT_ACTION_RTH
-    p2: i16,       // not used
-    p3: i16,      // not used
-    flag: i18,     // 0xa5 = last, otherwise set to 0
+    action: u8, // one of MSP_NAV_STATUS_WAYPOINT_ACTION_XXX
+    lat: i32,   // decimal degrees latitude * 10000000
+    lon: i32,   // decimal degrees longitude * 10000000
+    alt: i32,   // altitude (cm)
+    p1: i16, // speed (cm/s) when action is MSP_NAV_STATUS_WAYPOINT_ACTION_WAYPOINT, or "land" (value 1) when action is MSP_NAV_STATUS_WAYPOINT_ACTION_RTH
+    p2: i16, // not used
+    p3: i16, // not used
+    flag: i8, // 0xa5 = last, otherwise set to 0
 }
 
+#[derive(Default)]
 pub struct OsdConfig {
     pub osdflags: u8,
     pub video_system: u8,
@@ -770,7 +734,7 @@ pub struct OsdConfig {
     pub rssi_alarm: u8,
     pub cap_alarm: u16,
     pub old_timer_alarm: u8,
-    pub item_count: u8,                     //56
+    pub item_count: u8, //56
     pub alt_alarm: u16,
     pub rssi_value_pos: u16,
     pub main_batt_voltage_pos: u16,
@@ -797,7 +761,7 @@ pub struct OsdConfig {
     pub avg_cell_voltage_pos: u16,
     pub gps_lon_pos: u16,
     pub gps_lat_pos: u16,
-    pub osd_debug_pos: u16,
+    pub debug_pos: u16,
     pub pitch_angle_pos: u16,
     pub roll_angle_pos: u16,
     pub main_batt_usage_pos: u16,
@@ -829,7 +793,7 @@ pub struct OsdConfig {
     pub profile_name_pos: u16,
     pub rssi_dbm_value_pos: u16,
     pub rc_channels_pos: u16,
-    pub stat_count: u8,                    //24
+    pub stat_count: u8, //24
     pub stat_rtc_date_time: u8,
     pub stat_timer_1: u8,
     pub stat_timer_2: u8,
@@ -858,11 +822,26 @@ pub struct OsdConfig {
     pub timer_1: u16,
     pub timer_2: u16,
     pub enabledwarnings: u16,
-    pub warning_count: u8,              // 16
+    pub warning_count: u8, // 16
     pub enabledwarnings_1_41_plus: u32,
-    pub profile_count: u8,             // 1
-    pub osdprofileindex: u8,               // 1
-    pub overlay_radio_mode: u8,            //  0
+    pub profile_count: u8,      // 1
+    pub osdprofileindex: u8,    // 1
+    pub overlay_radio_mode: u8, //  0
+}
+
+pub const OSD_CONFIG_SIZE: usize = 11;
+
+impl OsdConfig {
+    pub fn to_buf(&self) -> [u8; OSD_CONFIG_SIZE] {
+        let mut result = [0; OSD_CONFIG_SIZE];
+
+        // todo: You must fill this in.
+
+        // result[0] = self.battery_cell_count;
+        // result[1..3].clone_from_slice(&self.battery_capacity.to_le_bytes());
+
+        result
+    }
 }
 
 #[derive(Default)]
@@ -886,15 +865,15 @@ pub const BATTERY_STATE_SIZE: usize = 11;
 
 impl BatteryState {
     pub fn to_buf(&self) -> [u8; BATTERY_STATE_SIZE] {
-        let mut result = [u8; BATTERY_STATE_SIZE];
+        let mut result = [0; BATTERY_STATE_SIZE];
 
         result[0] = self.battery_cell_count;
-        result[1..3] = self.battery_capacity.to_le_bytes();
+        result[1..3].clone_from_slice(&self.battery_capacity.to_le_bytes());
         result[3] = self.legacy_battery_voltage;
-        result[4..6] = self.mAh_drawn.to_le_bytes();
-        result[6..8] = self.amperage.to_le_bytes();
+        result[4..6].clone_from_slice(&self.mAh_drawn.to_le_bytes());
+        result[6..8].clone_from_slice(&self.amperage.to_le_bytes());
         result[8] = self.battery_state;
-        result[9..11] = self.battery_voltage;
+        result[9..11].clone_from_slice(&self.battery_voltage.to_le_bytes());
 
         result
     }
@@ -916,45 +895,56 @@ pub struct StatusBf {
     pub extra_flags: u8,
 }
 
-/// ArduPlane
-#[derive(Clone, Copy, PartialEq)]
-#[repr(u8)]
-enum ArduPlaneModes {
-    MANUAL        = 0,
-    CIRCLE        = 1,
-    STABILIZE     = 2,
-    TRAINING      = 3,
-    ACRO          = 4,
-    FLY_BY_WIRE_A = 5,
-    FLY_BY_WIRE_B = 6,
-    CRUISE        = 7,
-    AUTOTUNE      = 8,
-    AUTO          = 10,
-    RTL           = 11,
-    LOITER        = 12,
-    TAKEOFF       = 13,
-    AVOID_ADSB    = 14,
-    GUIDED        = 15,
-    INITIALISING  = 16,
-    QSTABILIZE    = 17,
-    QHOVER        = 18,
-    QLOITER       = 19,
-    QLAND         = 20,
-    QRTL          = 21,
-    QAUTOTUNE     = 22,
-    QACRO         = 23,
+pub const STATUS_BF_SIZE: usize = 22;
+
+impl StatusBf {
+    pub fn to_buf(&self) -> [u8; STATUS_BF_SIZE] {
+        let mut result = [0; STATUS_BF_SIZE];
+
+        result[0..2].clone_from_slice(&self.task_delta_time.to_le_bytes());
+        result[2..4].clone_from_slice(&self.i2c_error_count.to_le_bytes());
+        result[4..6].clone_from_slice(&self.sensor_status.to_le_bytes());
+        result[6..10].clone_from_slice(&self.flight_mode_flags.to_le_bytes());
+        result[10] = self.pid_profile;
+        result[11..13].clone_from_slice(&self.system_load.to_le_bytes());
+        result[13..15].clone_from_slice(&self.gyro_cycle_time.to_le_bytes());
+        result[15] = self.box_mode_flags;
+        result[16] = self.arming_disable_flags_count;
+        result[17..21].clone_from_slice(&self.arming_disable_flags.to_le_bytes());
+        result[22] = self.extra_flags;
+
+        result
+    }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-#[repr(u8)]
-enum BetaflightDjiModesMask {
-    ARM_ACRO_BF = (1 << 0),
-    STAB_BF     = (1 << 1),
-    HOR_BF      = (1 << 2),
-    HEAD_BF     = (1 << 3),
-    FS_BF       = (1 << 4),
-    RESC_BF     = (1 << 5)
-}
+// /// ArduPlane
+// #[derive(Clone, Copy, PartialEq)]
+// #[repr(u8)]
+// enum ArduPlaneModes {
+//     Manual = 0,
+//     Circle = 1,
+//     Stabilize = 2,
+//     Training = 3,
+//     Acro = 4,
+//     FLY_BY_WIRE_A = 5,
+//     FLY_BY_WIRE_B = 6,
+//     CRUISE = 7,
+//     AUTOTUNE = 8,
+//     AUTO = 10,
+//     RTL = 11,
+//     LOITER = 12,
+//     TAKEOFF = 13,
+//     AVOID_ADSB = 14,
+//     GUIDED = 15,
+//     INITIALISING = 16,
+//     QSTABILIZE = 17,
+//     QHOVER = 18,
+//     QLOITER = 19,
+//     QLAND = 20,
+//     QRTL = 21,
+//     QAUTOTUNE = 22,
+//     QACRO = 23,
+// }
 
 //DJI supported flightModeFlags
 // 0b00000001 acro/arm
@@ -965,4 +955,3 @@ enum BetaflightDjiModesMask {
 // 0b00100000 resc
 // 0b01000000 acro
 // 0b10000000 acro
-

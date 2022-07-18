@@ -61,7 +61,9 @@ use flight_ctrls::{
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
 
-use pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT, PID_CONTROL_ADJ_TIMEOUT};
+use pid::{
+    CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT, PID_CONTROL_ADJ_TIMEOUT,
+};
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
@@ -73,15 +75,15 @@ static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 mod ahrs_fusion;
 mod atmos_model;
+mod cfg_storage;
 mod control_interface;
 mod drivers;
 mod filter_imu;
 mod flight_ctrls;
+mod imu_calibration;
 mod imu_shared;
 mod lin_alg;
 mod osd;
-mod cfg_storage;
-mod imu_calibration;
 mod pid;
 // mod pid_tuning;
 mod attitude_platform;
@@ -253,7 +255,7 @@ fn init_sensors(
         Ok(f) => {
             params.s_x = f.x;
             params.s_y = f.y;
-            params.s_z_msl = f.z;
+            params.baro_alt_msl = f.z;
 
             *base_pt = Location::new(LocationType::LatLon, f.y, f.x, f.z);
 
@@ -1318,7 +1320,7 @@ mod app {
                                 count,
                                 // params,
                                 params.quaternion,
-                                params.s_z_msl,
+                                params.baro_alt_msl,
                                 ch_data,
                                 &state_volatile.link_stats,
                                 &user_cfg.waypoints,

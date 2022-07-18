@@ -458,11 +458,11 @@ pub fn run_velocity(
 ) {
     // todo: GO over this whole function; it's not ready! And the autopilot modes for all 3 PID fns.
     if let Some(alt_msl_commanded) = autopilot_status.recover {
-        let dist_v = alt_msl_commanded - params.s_z_msl;
+        let dist_v = alt_msl_commanded - params.baro_alt_msl;
 
         // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
         let thrust =
-            flight_ctrls::quad::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.s_z_agl);
+            flight_ctrls::quad::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.tof_alt);
 
         // todo: DRY from alt_hold autopilot code.
 
@@ -481,12 +481,12 @@ pub fn run_velocity(
     if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
         // Set a vertical velocity for the inner loop to maintain, based on distance
         let dist = match alt_type {
-            AltType::Msl => alt_commanded - params.s_z_msl,
-            AltType::Agl => alt_commanded - params.s_z_agl,
+            AltType::Msl => alt_commanded - params.baro_alt_msl,
+            AltType::Agl => alt_commanded - params.tof_alt,
         };
         // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
         velocities_commanded.thrust =
-            flight_ctrls::quad::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
+            flight_ctrls::quad::enroute_speed_ver(dist, cfg.max_speed_ver, params.tof_alt);
     }
 
     match input_mode {
@@ -501,7 +501,7 @@ pub fn run_velocity(
                     pitch: 0.,
                     roll: 0.,
                     yaw: 0.,
-                    thrust: flight_ctrls::quad::takeoff_speed(params.s_z_agl, cfg.max_speed_ver),
+                    thrust: flight_ctrls::quad::takeoff_speed(params.tof_alt, cfg.max_speed_ver),
                 };
             }
             // AutopilotMode::Land => {
@@ -510,7 +510,7 @@ pub fn run_velocity(
                     pitch: 0.,
                     roll: 0.,
                     yaw: 0.,
-                    thrust: flight_ctrls::quad::landing_speed(params.s_z_agl, cfg.max_speed_ver),
+                    thrust: flight_ctrls::quad::landing_speed(params.tof_alt, cfg.max_speed_ver),
                 };
             }
         }
@@ -592,7 +592,7 @@ pub fn run_velocity(
     // todo: What should this be ??
     pid.thrust = calc_pid_error(
         velocities_commanded.thrust,
-        params.s_z_msl,
+        params.baro_alt_msl,
         &pid.thrust,
         0., // todo
         0., // todo
@@ -633,11 +633,11 @@ pub fn run_attitude(
     // Initiate a recovery, regardless of control mode.
     // todo: Set commanded alt to current alt.
     if let Some(alt_msl_commanded) = autopilot_status.recover {
-        let dist_v = alt_msl_commanded - params.s_z_msl;
+        let dist_v = alt_msl_commanded - params.baro_alt_msl;
 
         // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
         let thrust =
-            flight_ctrls::quad::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.s_z_agl);
+            flight_ctrls::quad::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.tof_alt);
 
         // todo: DRY from alt_hold autopilot code.
 
@@ -656,12 +656,12 @@ pub fn run_attitude(
     if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
         // Set a vertical velocity for the inner loop to maintain, based on distance
         let dist = match alt_type {
-            AltType::Msl => alt_commanded - params.s_z_msl,
-            AltType::Agl => alt_commanded - params.s_z_agl,
+            AltType::Msl => alt_commanded - params.baro_alt_msl,
+            AltType::Agl => alt_commanded - params.tof_alt,
         };
         // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
         attitudes_commanded.thrust =
-            flight_ctrls::quad::enroute_speed_ver(dist, cfg.max_speed_ver, params.s_z_agl);
+            flight_ctrls::quad::enroute_speed_ver(dist, cfg.max_speed_ver, params.tof_alt);
     }
 
     match input_mode {
@@ -689,7 +689,7 @@ pub fn run_attitude(
                     pitch: 0.,
                     roll: 0.,
                     yaw: 0.,
-                    thrust: flight_ctrls::quad::takeoff_speed(params.s_z_agl, cfg.max_speed_ver),
+                    thrust: flight_ctrls::quad::takeoff_speed(params.tof_alt, cfg.max_speed_ver),
                 };
             }
             // AutopilotMode::Land => {
@@ -698,7 +698,7 @@ pub fn run_attitude(
                     pitch: 0.,
                     roll: 0.,
                     yaw: 0.,
-                    thrust: flight_ctrls::quad::landing_speed(params.s_z_agl, cfg.max_speed_ver),
+                    thrust: flight_ctrls::quad::landing_speed(params.tof_alt, cfg.max_speed_ver),
                 };
             }
         }
@@ -743,7 +743,7 @@ pub fn run_attitude(
     // todo: Consider how you want to handle thrust/altitude.
     pid.thrust = calc_pid_error(
         attitudes_commanded.thrust,
-        params.s_z_msl,
+        params.baro_alt_msl,
         &pid.thrust,
         coeffs.thrust.k_p_attitude,
         coeffs.thrust.k_i_attitude,
@@ -829,12 +829,12 @@ pub fn run_rate(
 
             if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
                 let dist = match alt_type {
-                    AltType::Msl => alt_commanded - params.s_z_msl,
-                    AltType::Agl => alt_commanded - params.s_z_agl,
+                    AltType::Msl => alt_commanded - params.baro_alt_msl,
+                    AltType::Agl => alt_commanded - params.tof_alt,
                 };
                 // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
                 rates_commanded.thrust =
-                    flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.s_z_agl);
+                    flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.tof_alt);
             }
 
             if autopilot_status.yaw_assist {
@@ -1016,8 +1016,8 @@ pub fn run_rate_flying_wing(
 
             if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
                 let dist = match alt_type {
-                    AltType::Msl => alt_commanded - params.s_z_msl,
-                    AltType::Agl => alt_commanded - params.s_z_agl,
+                    AltType::Msl => alt_commanded - params.baro_alt_msl,
+                    AltType::Agl => alt_commanded - params.tof_alt,
                 };
                 // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
                 rates_commanded.thrust = 0.; // todo
