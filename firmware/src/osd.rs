@@ -107,34 +107,6 @@ pub fn send_osd_Data(
     let packet = Packet::new(MsgType::Request, Function::RawGps, RAW_GPS_SIZE);
     msp::send_packet(uart, dma_chan, dma, &packet, &raw_gps.to_buf());
 
-    // todo Come back to this later.
-    // if _home_position_struct.valid_hpos && _vehicle_gps_position_struct.fix_type >= 3 {
-    //     let lat = _vehicle_gps_position_struct.lat / 10_000_000.0_f64;
-    //     let lon = _vehicle_gps_position_struct.lon / 10000000.0_f64;
-    //     let bearing_to_home = math::degrees(get_bearing_to_next_waypoint(lat, lon,
-    //                                                                      _home_position_struct.lat, _home_position_struct.lon));
-    //
-    //     let distance_to_home = get_distance_to_next_waypoint(lat, lon,
-    //                                                          _home_position_struct.lat, _home_position_struct.lon);
-    //     comp_gps.distanceToHome = distance_to_home as i16; // meters
-    //     comp_gps.directionToHome = bearing_to_home; // degrees
-    //
-    //     if bearing_to_home < 0 {
-    //         bearing_to_home += 360.0;
-    //     }
-    //
-    // } else {
-    //     comp_gps.distanceToHome = 0; // meters
-    //     comp_gps.directionToHome = 0; // degrees
-    // }
-    //
-    // // MSP_COMP_GPS
-    // comp_gps.heartbeat = _heartbeat;
-    // _heartbeat = !_heartbeat;
-    //
-    // let packet = Packet::new(MsgType::Request, Function::CompGps, 100);
-    // msp::send_packet(uart, dma_chan, dma, &packet, &comp_gps);
-
     let attitude = Attitude {
         roll: (to_degrees(data.roll) * EULER_ANGLE_SCALE_FACTOR) as i16,
         pitch: (to_degrees(data.pitch) * EULER_ANGLE_SCALE_FACTOR) as i16,

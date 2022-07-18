@@ -79,7 +79,6 @@ impl Packet {
         buf[6] = (self.payload_size >> 8) as u8;
         buf[7] = self.payload_size as u8;
 
-
         // todo: A diff impl shows this conflicting format:
         // 	packet[0] = '$';
         // 	packet[1] = 'M';
