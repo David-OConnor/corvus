@@ -738,6 +738,8 @@ mod app {
             &mut i2c2,
         );
 
+        protocols::msp::setup_crc();
+
         // loop {
         //     let pressure = altimeter.read_pressure(&mut i2c2);
         //     println!("Pressure: {}", pressure);

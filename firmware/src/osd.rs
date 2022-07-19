@@ -60,7 +60,7 @@ pub struct OsdData {
 /// Sends data for all relevant elements to the OSD. Accepts a data struct built from select
 /// elements from the rest of our program, and sends to the display in OSD format, using
 /// only elements supported by DJI's MSP implementation.
-pub fn send_osd_Data(
+pub fn send_osd_data(
     uart: &mut Usart<USART2>,
     dma_chan: DmaChannel,
     dma: &mut Dma<DMA1>,
