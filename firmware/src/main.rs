@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::Ordering;
 
 use cortex_m::{self, asm, delay::Delay};
 

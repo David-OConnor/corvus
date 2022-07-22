@@ -41,7 +41,7 @@ pub fn crc_init(lut: &mut [u8; 256], poly: u8) {
     }
 }
 
-/// CRC8 using poly 0xD5, includes all bytes from type (buffer[2]) to end of payload.
+/// CRC8 using a specific poly, includes all bytes from type (buffer[2]) to end of payload.
 /// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c
 pub fn calc_crc(lut: &[u8; 256], data: &[u8], mut size: u8) -> u8 {
     let mut crc = 0;

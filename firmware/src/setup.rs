@@ -144,15 +144,26 @@ pub fn setup_pins() {
     miso1.output_speed(OutputSpeed::High);
     mosi1.output_speed(OutputSpeed::High);
 
-    // SPI2 for the LoRa chip
-    let mut sck2 = Pin::new(Port::B, 13, PinMode::Alt(5));
-    let mut miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
-    let mut mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
+    // SPI2 for the LoRa chip on G4; OctoSPI1 (in Quad mode) on H7.
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            let qspi_sck = Pin::new(Port::B, 13, PinMode::Alt(4)); // todo once you assign the pin
+            let qspi_nss = Pin::new(Port::E, 11, PinMode::Alt(11));
+            let io0 = Pin::new(Port::D, 11, PinMode::Alt(9));
+            let io1 = Pin::new(Port::D, 12, PinMode::Alt(9));
+            let io2 = Pin::new(Port::B, 13, PinMode::Alt(4));
+            let io3 = Pin::new(Port::D, 13, PinMode::Alt(9));
+        } else {
+            let sck2 = Pin::new(Port::B, 13, PinMode::Alt(5));
+            let miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
+            let mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
+        }
+    }
 
     // todo: Output speed on SPI pins?
-    sck2.output_speed(OutputSpeed::High);
-    miso2.output_speed(OutputSpeed::High);
-    mosi2.output_speed(OutputSpeed::High);
+    // sck2.output_speed(OutputSpeed::High);
+    // miso2.output_speed(OutputSpeed::High);
+    // mosi2.output_speed(OutputSpeed::High);
 
     // SPI3 for flash
     cfg_if! {
@@ -175,7 +186,7 @@ pub fn setup_pins() {
     // let _uart1_rx = Pin::new(Port::B, 7, PinMode::Alt(7));
     // let _uart2_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
     // let _uart2_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
-    // let _uart3_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
+    // let _uart3_tx = Pin::new(Port::D, 8, PinMode::Alt(7));
     // let _uart3_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
     // let _uart4_tx = Pin::new(Port::C, 10, PinMode::Alt(7));
     // let _uart4_rx = Pin::new(Port::C, 11, PinMode::Alt(7));

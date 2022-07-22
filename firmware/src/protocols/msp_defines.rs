@@ -494,18 +494,18 @@ const MSP_NAV_STATUS_WAYPOINT_ACTION_RTH: u8 = 0x04;
 #[repr(u8)]
 /// values for msp_nav_status_t.error
 pub enum NavStatusError {
-    NONE = 0,             // All systems clear
-    TOOFAR = 1,           // Next waypoint distance is more than safety distance
-    SPOILED_GPS = 2,      // GPS reception is compromised - Nav paused - copter is adrift !
-    WP_CRC = 3,           // CRC error reading WP data from EEPROM - Nav stopped
-    FINISH = 4,           // End flag detected, navigation finished
-    TIMEWAIT = 5,         // Waiting for poshold timer
-    INVALID_JUMP = 6,     // Invalid jump target detected, aborting
-    INVALID_DATA = 7,     // Invalid mission step action code, aborting, copter is adrift
-    WAIT_FOR_RTH_ALT = 8, // Waiting to reach RTH Altitude
-    GPS_FIX_LOST = 9,     // Gps fix lost, aborting mission
-    DISARMED = 10,        // NAV engine disabled due disarm
-    LANDING = 11,         // Landing
+    None = 0,          // All systems clear
+    TooFar = 1,        // Next waypoint distance is more than safety distance
+    SpoiledGps = 2,    // GPS reception is compromised - Nav paused - copter is adrift !
+    WpCrc = 3,         // CRC error reading WP data from EEPROM - Nav stopped
+    Finish = 4,        // End flag detected, navigation finished
+    TimeWait = 5,      // Waiting for poshold timer
+    InvalidJump = 6,   // Invalid jump target detected, aborting
+    InvalidData = 7,   // Invalid mission step action code, aborting, copter is adrift
+    WaitForRthAlt = 8, // Waiting to reach RTH Altitude
+    GpsFixLost = 9,    // Gps fix lost, aborting mission
+    Disarmed = 10,     // NAV engine disabled due disarm
+    Landing = 11,      // Landing
 }
 
 /// MSP_NAV_STATUS reply

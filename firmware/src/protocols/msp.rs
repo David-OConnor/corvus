@@ -1,4 +1,5 @@
-//! Contains tools to construct and send MSP packets: Multiwii Serial Protocol Version 2.
+//! Contains tools to construct and send MSP packets: Multiwii Serial Protocol. Supports
+//! both V1 and V2.
 //! We use this to send data to the DJI OSD, but this module supports MSP broadly.
 //!
 //! For specific MSP 'function' types, and their serialization, see the `msp_defines` module.
@@ -24,9 +25,10 @@ const PREAMBLE_0: u8 = 0x24;
 const PREAMBLE_1_V2: u8 = 0x58;
 const PREAMBLE_1_V1: u8 = 0x4d;
 
-const MAX_BUF_LEN: usize = OSD_CONFIG_SIZE;
-
-const FRAME_START_SIZE: usize = 5;
+// The size of the packet not including the payload. Used for initializing buffers for
+// individual messages.
+pub const METADATA_SIZE: usize = 9;
+pub const METADATA_SIZE_V1: usize = 6;
 
 const CRC_SIZE: usize = 1;
 
@@ -71,17 +73,22 @@ impl Packet {
         buf[1] = PREAMBLE_1_V2;
         buf[2] = self.message_type as u8;
         buf[3] = 0; // `Flag` is currently unimplemented in the protocol
-        buf[4..5].clone_from_slice((self.function as u16).to_le_bytes());
-        buf[5..6].clone_from_slice(self.payload_size.to_le_bytes());
+        buf[4..5].clone_from_slice(&(self.function as u16).to_le_bytes());
+        buf[5..6].clone_from_slice(&self.payload_size.to_le_bytes());
 
         for i in 0..self.payload_size as usize {
-            buf[i + 8] = payload[i];
+            buf[i + METADATA_SIZE - 1] = payload[i];
         }
 
-        let crc_payload = buf[3..self.payload_size + 3];
-        let crc = util::calc_crc(unsafe { &CRC_LUT }, &crc_payload, len(crc_payload) as u8);
+        // The CRC includes the payload size, frame ID, and payload.
+        let crc_payload = &buf[3..self.payload_size as usize + 3];
+        let crc = util::calc_crc(
+            unsafe { &CRC_LUT },
+            &crc_payload,
+            self.payload_size as u8 + 2,
+        );
 
-        buf[8 + self.payload_size as usize] = crc;
+        buf[METADATA_SIZE - 1 + self.payload_size as usize] = crc;
     }
 
     /// Convert this payload to a buffer in MSP V1 format. See `to_buf` for
@@ -90,35 +97,47 @@ impl Packet {
         buf[0] = PREAMBLE_0;
         buf[1] = PREAMBLE_1_V1;
         buf[2] = self.message_type as u8;
-        buf[3] = self.payload_size;
+        buf[3] = self.payload_size as u8;
         // `function` is called `message_id` in v1.
         buf[4] = self.function as u16 as u8;
 
         for i in 0..self.payload_size as usize {
-            buf[i + 5] = payload[i];
+            buf[i + METADATA_SIZE_V1 - 1] = payload[i];
         }
 
-        let crc_payload = buf[3..self.payload_size + 3];
-        let crc = util::calc_crc(unsafe { &CRC_LUT }, &crc_payload, len(crc_payload) as u8);
+        let mut crc = self.payload_size as u8 ^ (self.function as u16 as u8);
+        for i in 0..self.payload_size as usize {
+            crc ^= buf[METADATA_SIZE_V1 - 1 + i];
+        }
 
-        buf[5 + self.payload_size as usize] = crc;
+        buf[METADATA_SIZE_V1 - 1 + self.payload_size as usize] = crc;
     }
 }
 
 /// Send a packet on the UART line
-/// todo: Try to get this working with DMA.
 pub fn send_packet(
     uart: &mut Usart<USART2>,
     dma_chan: DmaChannel,
     dma: &mut Dma<DMA1>,
     packet: &Packet,
     payload: &[u8],
+    buf: &mut [u8],
 ) {
-    // todo: Don't always send this max buffer size. Figure out the best way to send packets
-    // todo only of the required len.
-    let mut buf = [0; MAX_BUF_LEN];
-    packet.to_buf(payload, &mut buf);
+    packet.to_buf(payload, buf);
+    unsafe { uart.write_dma(&buf, dma_chan, Default::default(), dma) };
+}
 
+/// Send a packet on the UART line
+pub fn send_packet_v1(
+    uart: &mut Usart<USART2>,
+    dma_chan: DmaChannel,
+    dma: &mut Dma<DMA1>,
+    packet: &Packet,
+    payload: &[u8],
+    buf: &mut [u8],
+) {
+    // todo: DRY with `send_packet`.
+    packet.to_buf_v1(payload, buf);
     unsafe { uart.write_dma(&buf, dma_chan, Default::default(), dma) };
 }
 
