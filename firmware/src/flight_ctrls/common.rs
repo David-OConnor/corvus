@@ -123,7 +123,6 @@ impl InputMap {
 
 #[derive(Default)]
 pub struct CommandState {
-    pub arm_status: ArmStatus, // todo: Why is this here?
     pub x: f32,
     pub y: f32,
     pub alt: f32, // m MSL

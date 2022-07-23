@@ -10,6 +10,7 @@ use crate::{
         quad::{AxisLocks, MotorPower, RotorMapping},
     },
     ppks::Location,
+    safety::ArmStatus,
 };
 
 // The maximum number of waypoints available.
@@ -152,6 +153,7 @@ impl Default for UserCfg {
 /// State that doesn't get saved to flash.
 #[derive(Default)]
 pub struct StateVolatile {
+    pub arm_status: ArmStatus,
     pub op_mode: OperationMode,
     pub input_mode_switch: InputModeSwitch,
     /// The GPS module is connected. Detected on init.

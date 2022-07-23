@@ -41,7 +41,7 @@ use crate::{
         AltHoldSwitch, ChannelData, InputModeSwitch, LinkStats, PidTuneActuation, PidTuneMode,
     },
     safety::ArmStatus,
-    util, USART,
+    util, USART_ELRS,
 };
 
 // todo: Maybe put in a struct etc? It's constant, but we use a function call to populate it.
@@ -147,7 +147,7 @@ pub enum PacketData {
 
 /// Configure the Idle interrupt, and start the circular DMA transfer. Run this once, on initial
 /// firmware setup.
-pub fn setup(uart: &mut Usart<USART>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
+pub fn setup(uart: &mut Usart<USART_ELRS>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
     // Idle interrupt, in conjunction with circular DMA, to indicate we're received a message.
     uart.enable_interrupt(UsartInterrupt::Idle);
 
@@ -385,7 +385,7 @@ impl Packet {
 
 /// Handle an incomming packet. Triggered whenever the line goes idle.
 pub fn handle_packet(
-    uart: &mut Usart<USART>,
+    uart: &mut Usart<USART_ELRS>,
     dma: &mut Dma<DMA1>,
     rx_chan: DmaChannel,
     tx_chan: DmaChannel,

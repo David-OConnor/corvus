@@ -20,13 +20,20 @@ use stm32_hal2::pac::DMAMUX1 as DMAMUX;
 // Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
 pub const IMU_RX_CH: DmaChannel = DmaChannel::C2;
+
 #[cfg(feature = "g4")]
 pub const MOTOR_CH_A: DmaChannel = DmaChannel::C3;
 pub const MOTOR_CH_B: DmaChannel = DmaChannel::C4;
+
 pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
 pub const CRSF_TX_CH: DmaChannel = DmaChannel::C6;
 
 pub const BATT_CURR_CH: DmaChannel = DmaChannel::C7;
+
+#[cfg(feature = "h7")]
+pub const OSD_CH: DmaChannel = DmaChannel::C0;
+#[cfg(feature = "g4")]
+pub const OSD_CH: DmaChannel = DmaChannel::C8;
 
 pub const BATT_ADC_CH: u8 = 17;
 pub const CURR_ADC_CH: u8 = 12;
@@ -254,11 +261,14 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
     #[cfg(feature = "g4")]
     let elrs_dma_ch = DmaInput::Usart3Rx;
     dma::mux(CRSF_RX_CH, elrs_dma_ch, mux);
+
     // Note: If we run out of DMA channels, consider removing the CRSF transmit channel;
     // we only have it set up to respond to pings, and that's probably unecessary.
     // dma::mux(DmaChannel::C8, DmaInput::Usart3Tx, mux);
 
     dma::mux(BATT_CURR_CH, DmaInput::Adc2, mux);
+
+    dma::mux(OSD_CH, DmaInput::Usart2Tx, mux);
 
     // TOF sensor
     // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx, &mut dp.DMAMUX);

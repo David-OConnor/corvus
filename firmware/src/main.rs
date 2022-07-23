@@ -20,7 +20,7 @@ use stm32_hal2::{
     flash::{Bank, Flash},
     gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, ADC2, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM1, TIM15, TIM16, TIM17},
+    pac::{self, ADC2, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM1, TIM15, TIM16, TIM17, USART2},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{Timer, TimerConfig, TimerInterrupt},
@@ -36,10 +36,10 @@ cfg_if! {
             // OTG1_HS_DEVICE
         };
         // This USART alias is made pub here, so we don't repeat this line in other modules.
-        pub use stm32_hal2::pac::UART7 as USART;
+        pub use stm32_hal2::pac::UART7 as USART_ELRS;
     } else if #[cfg(feature = "g4")] {
         use stm32_hal2::usb::{self, UsbBus, UsbBusType};
-        pub use stm32_hal2::pac::USART3 as USART;
+        pub use stm32_hal2::pac::USART3 as USART_ELRS;
     }
 }
 
@@ -60,7 +60,7 @@ use flight_ctrls::{
     flying_wing::{self, ControlPositions, ServoWingMapping},
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
-
+use osd::OsdData;
 use pid::{
     CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT, PID_CONTROL_ADJ_TIMEOUT,
 };
@@ -298,7 +298,7 @@ mod app {
         i2c1: I2c<I2C1>,
         i2c2: I2c<I2C2>,
         altimeter: baro::Altimeter,
-        uart_elrs: Usart<USART>, // for ELRS over CRSF.
+        uart_elrs: Usart<USART_ELRS>, // for ELRS over CRSF.
         flash_onboard: Flash,
         batt_curr_adc: Adc<ADC2>,
         // rtc: Rtc,
@@ -331,6 +331,7 @@ mod app {
         update_loop_i2: usize, // todo d
         fixed_wing_rate_loop_i: usize,
         pid_adj_timer: Timer<TIM1>,
+        uart_osd: Usart<USART2>, // for our DJI OSD, via MSP protocol
     }
 
     #[init]
@@ -342,10 +343,8 @@ mod app {
         // Set up microcontroller peripherals
         let mut dp = pac::Peripherals::take().unwrap();
 
-        // todo: H743 clocks if you end up using that to test with BF
         cfg_if! {
             if #[cfg(feature = "h7")] {
-                // todo: Make sure eyou set up vos0 etc as required for 550Mhz H7.
                 let clock_cfg = Clocks {
                     // Config for H723 at 520Mhz, or H743 at 480Mhz.
                     // Note: to get H723 working at 550Mhz. You'll need to increase divn to 275,
@@ -462,11 +461,8 @@ mod app {
         };
 
         // We use UART2 for the OSD, for DJI, via the MSP protocol.
-        let mut uart2 = Usart::new(dp.USART2, 115_200, Default::default(), &clock_cfg);
-        // todo: DMA for OSD?
-
-        // todo: Put back
-        // osd::setup(&mut uart2); // Keep this channel in sync with `setup.rs`.
+        // todo: QC baud.
+        let mut uart_osd = Usart::new(dp.USART2, 115_200, Default::default(), &clock_cfg);
 
         // We use `uart1` for the radio controller receiver, via CRSF protocol.
         // CRSF protocol uses a single wire half duplex uart connection.
@@ -826,6 +822,7 @@ mod app {
                 update_loop_i2: 0, // todo
                 fixed_wing_rate_loop_i: 0,
                 pid_adj_timer,
+                uart_osd,
             },
             init::Monotonics(),
         )
@@ -873,9 +870,9 @@ mod app {
     velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
     pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
     ahrs, control_channel_data,
-    lost_link_timer, altimeter, i2c2, state_volatile, batt_curr_adc,
+    lost_link_timer, altimeter, i2c2, state_volatile, batt_curr_adc, dma,
     ],
-    local = [arm_signals_received, disarm_signals_received, update_loop_i],
+    local = [arm_signals_received, disarm_signals_received, update_loop_i, uart_osd],
 
     priority = 2
     )]
@@ -907,6 +904,7 @@ mod app {
             cx.shared.i2c2,
             cx.shared.state_volatile,
             cx.shared.batt_curr_adc,
+            cx.shared.dma,
         )
             .lock(
                 |params,
@@ -930,7 +928,8 @@ mod app {
                  altimeter,
                  i2c2,
                  state_volatile,
-                 adc| {
+                 adc,
+                 dma| {
                     // Update barometric altitude
                     // todo: Put back.
                     // let pressure = altimeter.read_pressure(i2c2);
@@ -946,18 +945,19 @@ mod app {
                         let curr_v =
                             adc.reading_to_voltage(unsafe { ADC_READ_BUF }[1]) * ADC_CURR_DIVISION;
 
-                        // println!("Batt V: {} Curr V: {}", batt_v, curr_v);
-                        //
-                        // println!(
-                        //     "Accel: Ax {}, Ay: {}, Az: {}",
-                        //     params.a_x, params.a_y, params.a_z
-                        // );
-                        // //
-                        // println!(
-                        //     "Gyro: roll {}, pitch: {}, yaw: {}",
-                        //     params.v_roll, params.v_pitch, params.v_yaw
-                        // );
-                        // // //
+                        let current = curr_v; // mA. todo: Find the conversion factor.
+                                              // println!("Batt V: {} Curr V: {}", batt_v, curr_v);
+                                              //
+                                              // println!(
+                                              //     "Accel: Ax {}, Ay: {}, Az: {}",
+                                              //     params.a_x, params.a_y, params.a_z
+                                              // );
+                                              // //
+                                              // println!(
+                                              //     "Gyro: roll {}, pitch: {}, yaw: {}",
+                                              //     params.v_roll, params.v_pitch, params.v_yaw
+                                              // );
+                                              // // //
                         println!(
                             "Attitude: roll {}, pitch: {}, yaw: {}\n",
                             params.s_roll, params.s_pitch, params.s_yaw
@@ -1002,7 +1002,7 @@ mod app {
                         cx.local.arm_signals_received,
                         cx.local.disarm_signals_received,
                         control_channel_data.arm_status,
-                        &mut command_state.arm_status,
+                        &mut state_volatile.arm_status,
                         control_channel_data.throttle,
                         pid_rate,
                         pid_attitude,
@@ -1014,7 +1014,7 @@ mod app {
                         safety::link_lost_steady_state(
                             input_mode,
                             control_channel_data,
-                            &mut command_state.arm_status,
+                            &mut state_volatile.arm_status,
                             cx.local.arm_signals_received,
                         );
                         return;
@@ -1043,7 +1043,7 @@ mod app {
 
                     // Note: Arm status primary handler is in the `set_power` fn, but there's no reason
                     // to run the PIDs if not armed.
-                    if command_state.arm_status != ArmStatus::Armed {
+                    if state_volatile.arm_status != ArmStatus::Armed {
                         return;
                     }
 
@@ -1085,6 +1085,29 @@ mod app {
                             }
                         }
                     }
+
+                    // todo: Determine timing for OSD update, and if it should be in this loop,
+                    // todo, or slower.
+
+                    // todo: Store current adn batteyr in state_volatile if you end up using it elsewhere.
+                    let batt_v =
+                        adc.reading_to_voltage(unsafe { ADC_READ_BUF }[0]) * ADC_BATT_DIVISION;
+                    let curr_v =
+                        adc.reading_to_voltage(unsafe { ADC_READ_BUF }[1]) * ADC_CURR_DIVISION;
+                    let current = curr_v; // todo: Conversion factor.
+
+                    let osd_data = OsdData {
+                        arm_status: state_volatile.arm_status,
+                        battery_voltage: batt_v,
+                        current_draw: current,
+                        alt_msl_baro: 0., // todo
+                        gps_fix: Location::default(),
+                        motor_count: 4,
+                        pitch: params.s_pitch,
+                        roll: params.s_roll,
+                        yaw: params.s_yaw,
+                    };
+                    osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH, dma, &osd_data);
                 },
             )
     }
@@ -1182,7 +1205,7 @@ mod app {
                     // rf_limiter_timer.enable();
 
                     // todo: Temp TS code to verify rotordirection.
-                    // if command_state.arm_status == ArmStatus::Armed {
+                    // if state_volatile.arm_status == ArmStatus::Armed {
                     //     // dshot::set_power(Rotor::R1, Rotor::R2, 0.0, 0.00, motor_timers, dma);
                     //     dshot::set_power(Rotor::R3, Rotor::R4, 0.00, 0.00, motor_timers, dma);
                     // } else {
@@ -1216,7 +1239,7 @@ mod app {
                     // here without it being set, power will remain at whatever state was set at time
                     // of disarm. Alternatively, we could neither return nor stop motors here, and
                     // let `set_power` handle it.
-                    if command_state.arm_status != ArmStatus::Armed {
+                    if state_volatile.arm_status != ArmStatus::Armed {
                         dshot::stop_all(motor_timers, dma);
                         return;
                     }
@@ -1242,7 +1265,7 @@ mod app {
                                 coeffs,
                                 cfg.max_speed_ver,
                                 input_map,
-                                command_state.arm_status,
+                                state_volatile.arm_status,
                                 DT_IMU,
                             );
                         }
@@ -1266,7 +1289,7 @@ mod app {
                                     dma,
                                     coeffs,
                                     input_map,
-                                    command_state.arm_status,
+                                    state_volatile.arm_status,
                                     DT_IMU * FIXED_WING_RATE_UPDATE_RATIO as f32,
                                 );
                             }
@@ -1281,7 +1304,7 @@ mod app {
     // binds = OTG_HS
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
-    #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data, command_state,
+    #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data,
     user_cfg, state_volatile, motor_timers, batt_curr_adc, dma], local = [], priority = 7)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
@@ -1291,7 +1314,6 @@ mod app {
             cx.shared.usb_serial,
             cx.shared.current_params,
             cx.shared.control_channel_data,
-            cx.shared.command_state,
             cx.shared.user_cfg,
             cx.shared.state_volatile,
             cx.shared.motor_timers,
@@ -1303,7 +1325,6 @@ mod app {
                  usb_serial,
                  params,
                  ch_data,
-                 command_state,
                  user_cfg,
                  state_volatile,
                  motor_timers,
@@ -1326,7 +1347,7 @@ mod app {
                                 ch_data,
                                 &state_volatile.link_stats,
                                 &user_cfg.waypoints,
-                                &mut command_state.arm_status,
+                                &mut state_volatile.arm_status,
                                 &mut user_cfg.motor_mapping,
                                 &mut state_volatile.op_mode,
                                 motor_timers,
