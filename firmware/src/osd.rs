@@ -40,21 +40,17 @@ const EULER_ANGLE_SCALE_FACTOR: f32 = 10.;
 // If you need more BF status flags, see the ref library above.
 const ARM_ACRO_BF: u8 = 1;
 
-// These buffers are used in DMA writes for various OSD items
-static mut BUF_ATTITUDE: [u8; ATTITUDE_SIZE + METADATA_SIZE_V1] =
-    [0; ATTITUDE_SIZE + METADATA_SIZE_V1];
-static mut BUF_ALTITUDE: [u8; ALTITUDE_SIZE + METADATA_SIZE_V1] =
-    [0; ALTITUDE_SIZE + METADATA_SIZE_V1];
-static mut BUF_STATUS_BF: [u8; STATUS_BF_SIZE + METADATA_SIZE_V1] =
-    [0; STATUS_BF_SIZE + METADATA_SIZE_V1];
-static mut BUF_RAW_GPS: [u8; RAW_GPS_SIZE + METADATA_SIZE_V1] =
-    [0; RAW_GPS_SIZE + METADATA_SIZE_V1];
-static mut BUF_BATTERY_STATE: [u8; BATTERY_STATE_SIZE + METADATA_SIZE_V1] =
-    [0; BATTERY_STATE_SIZE + METADATA_SIZE_V1];
-static mut BUF_EC_SENSOR_DATA: [u8; EC_SENSOR_DATA_SIZE + METADATA_SIZE_V1] =
-    [0; EC_SENSOR_DATA_SIZE + METADATA_SIZE_V1];
-static mut BUF_OSD_CONFIG: [u8; OSD_CONFIG_SIZE + METADATA_SIZE_V1] =
-    [0; OSD_CONFIG_SIZE + METADATA_SIZE_V1];
+// This buffer is used to write all OSD items.
+const NUM_MSP_CMDS: usize = 7;
+const BUF_OSD_SIZE: usize = (METADATA_SIZE_V1 * NUM_MSP_CMDS)
+    + ATTITUDE_SIZE
+    + ALTITUDE_SIZE
+    + STATUS_BF_SIZE
+    + BATTERY_STATE_SIZE
+    + EC_SENSOR_DATA_SIZE
+    + OSD_CONFIG_SIZE;
+
+static mut BUF_OSD: [u8; BUF_OSD_SIZE] = [0; BUF_OSD_SIZE];
 
 /// Convert radians to degrees.
 fn to_degrees(val_rad: f32) -> f32 {
@@ -93,6 +89,8 @@ pub fn send_osd_data(
     // - Symbols on home plate, steerpoint etc?
     // - Land point data
 
+    let mut buf_i = 0;
+
     let status_bf = StatusBf {
         flight_mode_flags: ARM_ACRO_BF as u32,
         arming_disable_flags_count: 1,
@@ -100,14 +98,13 @@ pub fn send_osd_data(
         ..Default::default()
     };
 
-    let packet = Packet::new(MsgType::Request, Function::Status, STATUS_BF_SIZE);
-    msp::send_packet_v1(
-        uart,
-        dma_chan,
-        dma,
-        &packet,
+    let mut buf = [0; STATUS_BF_SIZE + METADATA_SIZE_V1];
+    add_to_buf(
+        Function::Status,
         &status_bf.to_buf(),
-        &mut unsafe { BUF_STATUS_BF },
+        STATUS_BF_SIZE,
+        &mut buf,
+        &mut buf_i,
     );
 
     let mut battery_state = BatteryState {
@@ -115,16 +112,6 @@ pub fn send_osd_data(
         battery_voltage: data.battery_voltage as u16, // todo: Find the conversion factor
         ..Default::default()
     };
-
-    let packet = Packet::new(MsgType::Request, Function::BatteryState, BATTERY_STATE_SIZE);
-    msp::send_packet_v1(
-        uart,
-        dma_chan,
-        dma,
-        &packet,
-        &battery_state.to_buf(),
-        &mut unsafe { BUF_BATTERY_STATE },
-    );
 
     // MSP format stores coordinates in 10^6 degrees. Our internal format is radians.
     // TAU radians in 360 degrees. 1 degree = TAU/360 rad
@@ -135,14 +122,13 @@ pub fn send_osd_data(
         ..Default::default()
     };
 
-    let packet = Packet::new(MsgType::Request, Function::RawGps, RAW_GPS_SIZE);
-    msp::send_packet_v1(
-        uart,
-        dma_chan,
-        dma,
-        &packet,
+    let mut buf = [0; RAW_GPS_SIZE + METADATA_SIZE_V1];
+    add_to_buf(
+        Function::RawGps,
         &raw_gps.to_buf(),
-        &mut unsafe { BUF_RAW_GPS },
+        RAW_GPS_SIZE,
+        &mut buf,
+        &mut buf_i,
     );
 
     let attitude = Attitude {
@@ -151,14 +137,13 @@ pub fn send_osd_data(
         yaw: (to_degrees(data.yaw) * EULER_ANGLE_SCALE_FACTOR) as i16,
     };
 
-    let packet = Packet::new(MsgType::Request, Function::Attitude, ATTITUDE_SIZE);
-    msp::send_packet_v1(
-        uart,
-        dma_chan,
-        dma,
-        &packet,
+    let mut buf = [0; ATTITUDE_SIZE + METADATA_SIZE_V1];
+    add_to_buf(
+        Function::Attitude,
         &attitude.to_buf(),
-        &mut unsafe { BUF_ATTITUDE },
+        ATTITUDE_SIZE,
+        &mut buf,
+        &mut buf_i,
     );
 
     let altitude = Altitude {
@@ -167,14 +152,13 @@ pub fn send_osd_data(
         baro_latest_altitude: data.alt_msl_baro as i32, // todo: Find conversion factor, if there is one.
     };
 
-    let packet = Packet::new(MsgType::Request, Function::Altitude, ALTITUDE_SIZE);
-    msp::send_packet_v1(
-        uart,
-        dma_chan,
-        dma,
-        &packet,
+    let mut buf = [0; ALTITUDE_SIZE + METADATA_SIZE_V1];
+    add_to_buf(
+        Function::Altitude,
         &altitude.to_buf(),
-        &mut unsafe { BUF_ALTITUDE },
+        ALTITUDE_SIZE,
+        &mut buf,
+        &mut buf_i,
     );
 
     // todo: Fill this in once you have bidir dshot setup. Could add temp as well.
@@ -184,25 +168,18 @@ pub fn send_osd_data(
         rpm: 0,
     };
 
-    let packet = Packet::new(
-        MsgType::Request,
+    let mut buf = [0; EC_SENSOR_DATA_SIZE + METADATA_SIZE_V1];
+    add_to_buf(
         Function::EscSensorData,
-        EC_SENSOR_DATA_SIZE,
-    );
-    msp::send_packet_v1(
-        uart,
-        dma_chan,
-        dma,
-        &packet,
         &esc_sensor_data.to_buf(),
-        &mut unsafe { BUF_EC_SENSOR_DATA },
+        EC_SENSOR_DATA_SIZE,
+        &mut buf,
+        &mut buf_i,
     );
-    send_config(uart, dma_chan, dma);
-}
 
-/// Send initial configuration data to the display. This positions each element, and sets elements
-/// unsupported by the DJI MSP API to not visible.
-fn send_config(uart: &mut Usart<USART2>, dma_chan: DmaChannel, dma: &mut Dma<DMA1>) {
+    // Send initial configuration data to the display. This positions each element, and sets elements
+    // unsupported by the DJI MSP API to not visible.
+
     // OSD elements positions.
     // Horizontally 2048-2074(spacing 1),
     // vertically 2048-2528(spacing 32). 26 characters X 15 lines
@@ -278,13 +255,34 @@ fn send_config(uart: &mut Usart<USART2>, dma_chan: DmaChannel, dma: &mut Dma<DMA
         ..Default::default()
     };
 
-    let packet = Packet::new(MsgType::Request, Function::OsdConfig, OSD_CONFIG_SIZE);
-    msp::send_packet_v1(
-        uart,
-        dma_chan,
-        dma,
-        &packet,
-        &config.to_buf(),
-        &mut unsafe { BUF_OSD_CONFIG },
+    let mut buf = [0; OSD_CONFIG_SIZE + METADATA_SIZE_V1];
+    add_to_buf(
+        Function::OsdConfig,
+        &esc_sensor_data.to_buf(),
+        OSD_CONFIG_SIZE,
+        &mut buf,
+        &mut buf_i,
     );
+
+    // Send all the data we've compiled into the buffer.
+    unsafe { uart.write_dma(&BUF_OSD, dma_chan, Default::default(), dma) };
+}
+
+fn add_to_buf(
+    function: Function,
+    payload: &[u8],
+    payload_size: usize,
+    buf: &mut [u8],
+    buf_i: &mut usize,
+) {
+    let packet = Packet::new(MsgType::Request, function, payload_size);
+
+    packet.to_buf_v1(payload, buf);
+
+    let buf_size = payload_size + METADATA_SIZE_V1;
+
+    unsafe {
+        BUF_OSD[*buf_i..*buf_i + buf_size].clone_from_slice(&buf);
+    }
+    *buf_i += buf_size;
 }

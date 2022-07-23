@@ -147,7 +147,7 @@ pub fn setup_pins() {
     // SPI2 for the LoRa chip on G4; OctoSPI1 (in Quad mode) on H7.
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            let qspi_sck = Pin::new(Port::B, 13, PinMode::Alt(4)); // todo once you assign the pin
+            let qspi_sck = Pin::new(Port::B, 2, PinMode::Alt(9));
             let qspi_nss = Pin::new(Port::E, 11, PinMode::Alt(11));
             let io0 = Pin::new(Port::D, 11, PinMode::Alt(9));
             let io1 = Pin::new(Port::D, 12, PinMode::Alt(9));

@@ -9,6 +9,9 @@
 //! https://github.com/chris1seto/PX4-Autopilot/blob/turbotimber/src/modules/msp_osd/msp_defines.h
 //! (From that: Found on https://github.com/d3ngit/djihdfpv_mavlink_to_msp_V2/blob/master/Arduino_libraries/MSP/MSP.h)
 
+// todo: temp until we convert all fields and enum variants
+#![allow(non_snake_case)]
+
 const FLIGHT_CONTROLLER_IDENTIFIER_LENGTH: usize = 4;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -382,7 +385,7 @@ struct Pid {
 }
 
 /// MSP_MISC reply
-struct msp_misc_t {
+struct Misc {
     midrc: u16,
     minthrottle: u16,
     maxthrottle: u16,
@@ -391,7 +394,7 @@ struct msp_misc_t {
     gps_provider: u8,
     gps_baudrate: u8,
     gps_ubx_sbas: u8,
-    multiwiiCurrentMeterOutput: u8,
+    multiwii_current_meter_output: u8,
     rssi_channel: u8,
     dummy: u8,
     mag_declination: u16,
@@ -451,9 +454,9 @@ impl RawGps {
 /// MSP_COMP_GPS reply
 #[derive(Default)]
 pub struct CompGps {
-    pub distanceToHome: i16,  // distance to home in meters
-    pub directionToHome: i16, // direction to home in degrees
-    pub heartbeat: u8,        // toggles 0 and 1 for each change
+    pub distance_to_home: i16,  // distance to home in meters
+    pub direction_to_home: i16, // direction to home in degrees
+    pub heartbeat: u8,          // toggles 0 and 1 for each change
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -510,12 +513,12 @@ pub enum NavStatusError {
 
 /// MSP_NAV_STATUS reply
 struct NavStatus {
-    mode: u8,           // one of MSP_NAV_STATUS_MODE_XXX
-    state: u8,          // one of MSP_NAV_STATUS_STATE_XXX
-    activeWpAction: u8, // combination of MSP_NAV_STATUS_WAYPOINT_ACTION_XXX
-    activeWpNumber: u8,
+    mode: u8,             // one of MSP_NAV_STATUS_MODE_XXX
+    state: u8,            // one of MSP_NAV_STATUS_STATE_XXX
+    active_wp_action: u8, // combination of MSP_NAV_STATUS_WAYPOINT_ACTION_XXX
+    active_wp_number: u8,
     error: u8, // one of MSP_NAV_STATUS_ERROR_XXX
-    magHoldHeading: i16,
+    mag_hold_heading: i16,
 }
 
 /// MSP_GPSSVINFO reply
@@ -524,15 +527,15 @@ struct GpsSvInfo {
     dummy2: u8,
     dummy3: u8,
     dummy4: u8,
-    HDOP: u8,
+    hdop: u8,
 }
 
 /// MSP_GPSSTATISTICS reply
-struct msp_gpsstatistics_t {
-    lastMessageDt: u16,
+struct GpsStatistics {
+    last_message_dt: u16,
     errors: u32,
     timeouts: u32,
-    packetCount: u32,
+    packet_count: u32,
     hdop: u16,
     eph: u16,
     epv: u16,
@@ -704,18 +707,18 @@ struct SetRawRc {
 
 /// MSP_SET_RAW_GPS command
 struct SetRawGps {
-    fixType: u8, // MSP_GPS_NO_FIX, MSP_GPS_FIX_2D, MSP_GPS_FIX_3D
-    numSat: u8,
-    lat: i32,         // 1 / 10000000 deg
-    lon: i32,         // 1 / 10000000 deg
-    alt: i16,         // meters
-    groundSpeed: i16, // cm/s
+    fix_type: u8, // MSP_GPS_NO_FIX, MSP_GPS_FIX_2D, MSP_GPS_FIX_3D
+    num_sat: u8,
+    lat: i32,          // 1 / 10000000 deg
+    lon: i32,          // 1 / 10000000 deg
+    alt: i16,          // meters
+    ground_speed: i16, // cm/s
 }
 
 /// MSP_SET_WP command
 /// Special waypoints are 0 and 255. 0 is the RTH position, 255 is the POSHOLD position (lat, lon, alt).
 struct SetWp {
-    waypointNumber: u8,
+    waypoint_number: u8,
     action: u8, // one of MSP_NAV_STATUS_WAYPOINT_ACTION_XXX
     lat: i32,   // decimal degrees latitude * 10000000
     lon: i32,   // decimal degrees longitude * 10000000

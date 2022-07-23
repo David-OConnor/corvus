@@ -32,8 +32,6 @@ use super::{
     lin_alg::{Quaternion, Vec3},
 };
 
-use defmt::println;
-
 const G: f32 = 9.80665; // Gravity, in m/s^2
 
 // Cutoff frequency in Hz. (from FusionOffset)

@@ -114,8 +114,9 @@ impl Packet {
     }
 }
 
-/// Send a packet on the UART line
-pub fn send_packet(
+/// Send a packet on the UART line. Note that we don't use this in practice, since we send
+/// a single buf in the `osd` module for all the OSD MSP commands together.
+pub fn _send_packet(
     uart: &mut Usart<USART2>,
     dma_chan: DmaChannel,
     dma: &mut Dma<DMA1>,
@@ -127,8 +128,8 @@ pub fn send_packet(
     unsafe { uart.write_dma(&buf, dma_chan, Default::default(), dma) };
 }
 
-/// Send a packet on the UART line
-pub fn send_packet_v1(
+/// Send a packet on the UART line. Unusd; see doc comment on `_send_packet`.
+pub fn _send_packet_v1(
     uart: &mut Usart<USART2>,
     dma_chan: DmaChannel,
     dma: &mut Dma<DMA1>,

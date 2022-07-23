@@ -26,7 +26,7 @@ use crate::{
     ArmStatus, ControlPositions, RotorMapping, ServoWingMapping, UserCfg, DT_ATTITUDE,
 };
 
-use crate::flight_ctrls::quad::{Motor, MAX_ROTOR_POWER};
+use crate::flight_ctrls::quad::MAX_ROTOR_POWER;
 use defmt::println;
 
 // todo: You need to take derivative of control inputs into account. For example, when sticks are moved,
