@@ -14,12 +14,11 @@ use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as dsp_sys;
 
 use crate::{
+    autopilot::AutopilotStatus,
     control_interface::ChannelData,
     flight_ctrls::{
         self,
-        common::{
-            AltType, AutopilotStatus, CommandState, CtrlInputs, InputMap, MotorTimers, Params,
-        },
+        common::{AltType, CommandState, CtrlInputs, InputMap, MotorTimers, Params},
         quad::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED},
     },
     util::IirInstWrapper,
@@ -92,7 +91,7 @@ static COEFFS_D: [f32; 5] = [
 
 /// Cutoff frequency for our PID lowpass frequency, in Hz
 #[derive(Clone, Copy)]
-enum LowpassCutoff {
+pub enum LowpassCutoff {
     // todo: What values should these be?
     H500,
     H1k,
@@ -105,20 +104,20 @@ enum LowpassCutoff {
 pub struct CtrlCoeffsPR {
     // These coefficients map desired change in flight parameters to rotor power change.
     // pitch, roll, and yaw s are in power / radians
-    k_p_rate: f32,
-    k_i_rate: f32,
-    k_d_rate: f32,
+    pub k_p_rate: f32,
+    pub k_i_rate: f32,
+    pub k_d_rate: f32,
 
-    k_p_attitude: f32,
-    k_i_attitude: f32,
-    k_d_attitude: f32,
+    pub k_p_attitude: f32,
+    pub k_i_attitude: f32,
+    pub k_d_attitude: f32,
 
-    k_p_velocity: f32,
-    k_i_velocity: f32,
+    pub k_p_velocity: f32,
+    pub k_i_velocity: f32,
     // k_d_velocity: f32,
     // Note that we don't use the D component for our velocity PID.
-    pid_deriv_lowpass_cutoff_rate: LowpassCutoff,
-    pid_deriv_lowpass_cutoff_attitude: LowpassCutoff,
+    pub pid_deriv_lowpass_cutoff_rate: LowpassCutoff,
+    pub pid_deriv_lowpass_cutoff_attitude: LowpassCutoff,
 }
 
 impl Default for CtrlCoeffsPR {
@@ -173,16 +172,16 @@ impl CtrlCoeffsPR {
 /// simpler than the variant for pitch and roll, since it's not coupled to X and Y motion.
 pub struct CtrlCoeffsYT {
     // PID for controlling yaw or thrust from a velocity directly applied to them. (Eg Acro and attitude)
-    k_p_rate: f32,
-    k_i_rate: f32,
-    k_d_rate: f32,
+    pub k_p_rate: f32,
+    pub k_i_rate: f32,
+    pub k_d_rate: f32,
 
     // PID for controlling yaw or thrust from an explicitly-commanded heading or altitude.
-    k_p_attitude: f32,
-    k_i_attitude: f32,
-    k_s_attitude: f32,
+    pub k_p_attitude: f32,
+    pub k_i_attitude: f32,
+    pub k_s_attitude: f32,
 
-    pid_deriv_lowpass_cutoff: LowpassCutoff,
+    pub pid_deriv_lowpass_cutoff: LowpassCutoff,
 }
 
 impl Default for CtrlCoeffsYT {
@@ -494,25 +493,23 @@ pub fn run_velocity(
         InputMode::Attitude => (),
         InputMode::Command => {
             // todo: Impl
-            // match autopilot_mode {
-            if autopilot_status.takeoff {
-                // AutopilotMode::Takeoff => {
-                *velocities_commanded = CtrlInputs {
-                    pitch: 0.,
-                    roll: 0.,
-                    yaw: 0.,
-                    thrust: flight_ctrls::quad::takeoff_speed(params.tof_alt, cfg.max_speed_ver),
-                };
-            }
-            // AutopilotMode::Land => {
-            else if autopilot_status.land {
-                *velocities_commanded = CtrlInputs {
-                    pitch: 0.,
-                    roll: 0.,
-                    yaw: 0.,
-                    thrust: flight_ctrls::quad::landing_speed(params.tof_alt, cfg.max_speed_ver),
-                };
-            }
+            // if autopilot_status.takeoff {
+            //     // AutopilotMode::Takeoff => {
+            //     *velocities_commanded = CtrlInputs {
+            //         pitch: 0.,
+            //         roll: 0.,
+            //         yaw: 0.,
+            //         thrust: flight_ctrls::quad::takeoff_speed(params.tof_alt, cfg.max_speed_ver),
+            //     };
+            // }
+            // else if autopilot_status.land {
+            //     *velocities_commanded = CtrlInputs {
+            //         pitch: 0.,
+            //         roll: 0.,
+            //         yaw: 0.,
+            //         thrust: flight_ctrls::quad::landing_speed(params.tof_alt, cfg.max_speed_ver),
+            //     };
+            // }
         }
     }
 
@@ -614,7 +611,7 @@ pub fn run_velocity(
 
 /// Run the attitude (mid) PID loop: This is used to determine angular velocities, based on commanded
 /// attitude.
-pub fn run_attitude(
+pub fn run_attitude_quad(
     params: &Params,
     // inputs: &CtrlInputs,
     ch_data: &ChannelData,
@@ -629,40 +626,7 @@ pub fn run_attitude(
     commands: &mut CommandState,
     coeffs: &CtrlCoeffGroup,
 ) {
-    // todo: Come back to these autopilot modes.
-    // Initiate a recovery, regardless of control mode.
-    // todo: Set commanded alt to current alt.
-    if let Some(alt_msl_commanded) = autopilot_status.recover {
-        let dist_v = alt_msl_commanded - params.baro_alt_msl;
-
-        // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-        let thrust =
-            flight_ctrls::quad::enroute_speed_ver(dist_v, cfg.max_speed_ver, params.tof_alt);
-
-        // todo: DRY from alt_hold autopilot code.
-
-        // todo: Figure out exactly what you need to pass for the autopilot modes to inner_flt_cmd
-        // todo while in acro mode.
-        *attitudes_commanded = CtrlInputs {
-            pitch: input_map.calc_pitch_angle(0.),
-            roll: input_map.calc_roll_angle(0.),
-            yaw: input_map.calc_yaw_rate(0.),
-            thrust,
-        };
-    }
-
-    // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
-    // either MSL or AGL.
-    if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
-        // Set a vertical velocity for the inner loop to maintain, based on distance
-        let dist = match alt_type {
-            AltType::Msl => alt_commanded - params.baro_alt_msl,
-            AltType::Agl => alt_commanded - params.tof_alt,
-        };
-        // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-        attitudes_commanded.thrust =
-            flight_ctrls::quad::enroute_speed_ver(dist, cfg.max_speed_ver, params.tof_alt);
-    }
+    autopilot_status.apply_attitude_quad(params, attitudes_commanded, input_map, cfg.max_speed_ver);
 
     match input_mode {
         InputMode::Acro => {
@@ -682,25 +646,6 @@ pub fn run_attitude(
         }
         InputMode::Command => {
             // todo: Impl
-            // match autopilot_mode {
-            if autopilot_status.takeoff {
-                // AutopilotMode::Takeoff => {
-                *attitudes_commanded = CtrlInputs {
-                    pitch: 0.,
-                    roll: 0.,
-                    yaw: 0.,
-                    thrust: flight_ctrls::quad::takeoff_speed(params.tof_alt, cfg.max_speed_ver),
-                };
-            }
-            // AutopilotMode::Land => {
-            else if autopilot_status.land {
-                *attitudes_commanded = CtrlInputs {
-                    pitch: 0.,
-                    roll: 0.,
-                    yaw: 0.,
-                    thrust: flight_ctrls::quad::landing_speed(params.tof_alt, cfg.max_speed_ver),
-                };
-            }
         }
     }
 
@@ -767,7 +712,7 @@ pub fn run_attitude(
 /// If acro, we get our inputs each IMU update; ie the inner loop. In other modes,
 /// (or with certain autopilot flags enabled?) the inner loop is commanded by the mid loop
 /// once per update cycle, eg to set commanded angular rates.
-pub fn run_rate(
+pub fn run_rate_quad(
     params: &Params,
     input_mode: InputMode,
     autopilot_status: &AutopilotStatus,
@@ -827,38 +772,7 @@ pub fn run_rate(
 
             // println!("throttle command: {:?}", rates_commanded.thrust);
 
-            if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
-                let dist = match alt_type {
-                    AltType::Msl => alt_commanded - params.baro_alt_msl,
-                    AltType::Agl => alt_commanded - params.tof_alt,
-                };
-                // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-                rates_commanded.thrust =
-                    flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.tof_alt);
-            }
-
-            if autopilot_status.yaw_assist {
-                // Blend manual inputs with the autocorrection factor. If there are no manual inputs,
-                // this autopilot mode should neutralize all sideslip.
-                let hor_dir = 0.; // radians
-                let hor_speed = 0.; // m/s
-
-                let yaw_correction_factor = ((hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
-
-                if hor_speed > YAW_ASSIST_MIN_SPEED {
-                    rates_commanded.yaw += yaw_correction_factor;
-                }
-            } else if autopilot_status.roll_assist {
-                // todo!
-                let hor_dir = 0.; // radians
-                let hor_speed = 0.; // m/s
-
-                let roll_correction_factor = (-(hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
-
-                if hor_speed > YAW_ASSIST_MIN_SPEED {
-                    rates_commanded.yaw += roll_correction_factor;
-                }
-            }
+            autopilot_status.apply_quad_rate(params, rates_commanded, max_speed_ver);
         }
         _ => (),
     }
@@ -921,6 +835,7 @@ pub fn run_rate(
     let throttle = match input_mode {
         InputMode::Acro => {
             if let Some((_, _)) = autopilot_status.alt_hold {
+                // todo: Delegate to ap module etc
                 pid.thrust = calc_pid_error(
                     rates_commanded.thrust,
                     params.v_z,
@@ -956,7 +871,7 @@ pub fn run_rate(
     );
 }
 
-pub fn run_rate_flying_wing(
+pub fn run_rate_fixed_wing(
     params: &Params,
     input_mode: InputMode,
     autopilot_status: &AutopilotStatus,
@@ -1014,37 +929,7 @@ pub fn run_rate_flying_wing(
 
             // println!("throttle command: {:?}", rates_commanded.thrust);
 
-            if let Some((alt_type, alt_commanded)) = autopilot_status.alt_hold {
-                let dist = match alt_type {
-                    AltType::Msl => alt_commanded - params.baro_alt_msl,
-                    AltType::Agl => alt_commanded - params.tof_alt,
-                };
-                // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-                rates_commanded.thrust = 0.; // todo
-            }
-
-            if autopilot_status.yaw_assist {
-                // Blend manual inputs with the autocorrection factor. If there are no manual inputs,
-                // this autopilot mode should neutralize all sideslip.
-                let hor_dir = 0.; // radians
-                let hor_speed = 0.; // m/s
-
-                let yaw_correction_factor = ((hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
-
-                if hor_speed > YAW_ASSIST_MIN_SPEED {
-                    rates_commanded.yaw += yaw_correction_factor;
-                }
-            } else if autopilot_status.roll_assist {
-                // todo!
-                let hor_dir = 0.; // radians
-                let hor_speed = 0.; // m/s
-
-                let roll_correction_factor = (-(hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
-
-                if hor_speed > YAW_ASSIST_MIN_SPEED {
-                    rates_commanded.yaw += roll_correction_factor;
-                }
-            }
+            autopilot_status.apply_fixed_wing_rate(params, rates_commanded);
         }
         _ => (),
     }

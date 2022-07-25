@@ -1,5 +1,31 @@
 //! This module contains code related to various autopilot modes.
 
+use core::f32::consts::TAU;
+
+use crate::{
+    flight_ctrls::{
+        self,
+        common::{AltType, CtrlInputs, InputMap, Params},
+        quad::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED},
+    },
+    ppks::Location,
+};
+
+pub enum OrbitShape {
+    Circular,
+    Racetrack,
+}
+
+/// Represents an autopilot orbit, centered around a point. The point may remain stationary, or
+/// move over time.
+pub struct Orbit {
+    shape: OrbitShape,
+    center_lat: f32,  // radians
+    center_lon: f32,  // radians
+    radius: f32,      // m
+    groundspeed: f32, // m/s
+}
+
 /// Categories of control mode, in regards to which parameters are held fixed.
 /// Note that some settings are mutually exclusive.
 #[derive(Default)]
@@ -33,18 +59,138 @@ pub struct AutopilotStatus {
     pub orbit: Option<Orbit>,
 }
 
-pub enum OrbitShape {
-    Circular,
-    Racetrack,
-}
+impl AutopilotStatus {
+    /// Apply the autopilot controls.
+    pub fn apply_quad_rate(
+        &self,
+        params: &Params,
+        rates_commanded: &mut CtrlInputs,
+        max_speed_ver: f32,
+    ) {
+        if let Some((alt_type, alt_commanded)) = self.alt_hold {
+            let dist = match alt_type {
+                AltType::Msl => alt_commanded - params.baro_alt_msl,
+                AltType::Agl => alt_commanded - params.tof_alt,
+            };
+            // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
+            rates_commanded.thrust =
+                flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.tof_alt);
+        }
 
+        if self.yaw_assist {
+            // Blend manual inputs with the autocorrection factor. If there are no manual inputs,
+            // this autopilot mode should neutralize all sideslip.
+            let hor_dir = 0.; // radians
+            let hor_speed = 0.; // m/s
 
-/// Represents an autopilot orbit, centered around a point. The point may remain stationary, or
-/// move over time.
-pub struct Orbit {
-    shape: OrbitShape,
-    center_lat: f32,  // radians
-    center_lon: f32,  // radians
-    radius: f32, // m
-    groundspeed: f32, // m/s
+            let yaw_correction_factor = ((hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
+
+            if hor_speed > YAW_ASSIST_MIN_SPEED {
+                rates_commanded.yaw += yaw_correction_factor;
+            }
+        } else if self.roll_assist {
+            // todo!
+            let hor_dir = 0.; // radians
+            let hor_speed = 0.; // m/s
+
+            let roll_correction_factor = (-(hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
+
+            if hor_speed > YAW_ASSIST_MIN_SPEED {
+                rates_commanded.yaw += roll_correction_factor;
+            }
+        }
+    }
+
+    pub fn apply_fixed_wing_rate(&self, params: &Params, rates_commanded: &mut CtrlInputs) {
+        if let Some((alt_type, alt_commanded)) = self.alt_hold {
+            let dist = match alt_type {
+                AltType::Msl => alt_commanded - params.baro_alt_msl,
+                AltType::Agl => alt_commanded - params.tof_alt,
+            };
+            // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
+            rates_commanded.thrust = 0.; // todo
+        }
+
+        if self.yaw_assist {
+            // Blend manual inputs with the autocorrection factor. If there are no manual inputs,
+            // this autopilot mode should neutralize all sideslip.
+            let hor_dir = 0.; // radians
+            let hor_speed = 0.; // m/s
+
+            let yaw_correction_factor = ((hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
+
+            if hor_speed > YAW_ASSIST_MIN_SPEED {
+                rates_commanded.yaw += yaw_correction_factor;
+            }
+        } else if self.roll_assist {
+            // todo!
+            let hor_dir = 0.; // radians
+            let hor_speed = 0.; // m/s
+
+            let roll_correction_factor = (-(hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
+
+            if hor_speed > YAW_ASSIST_MIN_SPEED {
+                rates_commanded.yaw += roll_correction_factor;
+            }
+        }
+    }
+
+    pub fn apply_attitude_quad(
+        &self,
+        params: &Params,
+        attitudes_commanded: &mut CtrlInputs,
+        input_map: &InputMap,
+        max_speed_ver: f32,
+    ) {
+        // todo: Come back to these autopilot modes.
+        // Initiate a recovery, regardless of control mode.
+        // todo: Set commanded alt to current alt.
+        if let Some(alt_msl_commanded) = self.recover {
+            let dist_v = alt_msl_commanded - params.baro_alt_msl;
+
+            // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
+            let thrust =
+                flight_ctrls::quad::enroute_speed_ver(dist_v, max_speed_ver, params.tof_alt);
+
+            // todo: DRY from alt_hold autopilot code.
+
+            // todo: Figure out exactly what you need to pass for the autopilot modes to inner_flt_cmd
+            // todo while in acro mode.
+            *attitudes_commanded = CtrlInputs {
+                pitch: input_map.calc_pitch_angle(0.),
+                roll: input_map.calc_roll_angle(0.),
+                yaw: input_map.calc_yaw_rate(0.),
+                thrust,
+            };
+        }
+
+        // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
+        // either MSL or AGL.
+        if let Some((alt_type, alt_commanded)) = self.alt_hold {
+            // Set a vertical velocity for the inner loop to maintain, based on distance
+            let dist = match alt_type {
+                AltType::Msl => alt_commanded - params.baro_alt_msl,
+                AltType::Agl => alt_commanded - params.tof_alt,
+            };
+            // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
+            attitudes_commanded.thrust =
+                flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.tof_alt);
+        }
+
+        if self.takeoff {
+            *attitudes_commanded = CtrlInputs {
+                pitch: 0.,
+                roll: 0.,
+                yaw: 0.,
+                thrust: flight_ctrls::quad::takeoff_speed(params.tof_alt, max_speed_ver),
+            };
+        } else if self.land {
+            *attitudes_commanded = CtrlInputs {
+                pitch: 0.,
+                roll: 0.,
+                yaw: 0.,
+                thrust: flight_ctrls::quad::landing_speed(params.tof_alt, max_speed_ver),
+            };
+        }
+    }
 }

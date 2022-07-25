@@ -68,6 +68,9 @@ pub struct OsdData {
     pub pitch: f32,
     pub roll: f32,
     pub yaw: f32,
+    pub pid_p: f32,
+    pub pid_i: f32,
+    pub pid_d: f32,
 }
 
 /// Sends data for all relevant elements to the OSD. Accepts a data struct built from select

@@ -20,7 +20,7 @@ use stm32_hal2::{
     flash::{Bank, Flash},
     gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, ADC2, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM1, TIM15, TIM16, TIM17, USART2},
+    pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM1, TIM15, TIM16, TIM17, USART2},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{Timer, TimerConfig, TimerInterrupt},
@@ -36,10 +36,13 @@ cfg_if! {
             // OTG1_HS_DEVICE
         };
         // This USART alias is made pub here, so we don't repeat this line in other modules.
-        pub use stm32_hal2::pac::UART7 as USART_ELRS;
+        pub use stm32_hal2::pac::{UART7 as UART_ELRS, ADC1 as ADC};
     } else if #[cfg(feature = "g4")] {
-        use stm32_hal2::usb::{self, UsbBus, UsbBusType};
-        pub use stm32_hal2::pac::USART3 as USART_ELRS;
+        use stm32_hal2::{
+            usb::{self, UsbBus, UsbBusType},
+        };
+
+        pub use stm32_hal2::pac::{USART3 as UART_ELRS, ADC2 as ADC};
     }
 }
 
@@ -47,6 +50,7 @@ use usb_device::{bus::UsbBusAllocator, prelude::*};
 
 use usbd_serial::{self, SerialPort};
 
+use autopilot::AutopilotStatus;
 use control_interface::{ChannelData, LinkStats, PidTuneActuation, PidTuneMode};
 use drivers::baro_dps310 as baro;
 use drivers::gps_x as gps;
@@ -56,7 +60,7 @@ pub use drivers::imu_icm426xx as imu;
 use drivers::tof_vl53l1 as tof;
 use filter_imu::ImuFilters;
 use flight_ctrls::{
-    common::{AutopilotStatus, CommandState, CtrlInputs, InputMap, MotorTimers, Params},
+    common::{CommandState, CtrlInputs, InputMap, MotorTimers, Params},
     flying_wing::{self, ControlPositions, ServoWingMapping},
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
@@ -74,8 +78,8 @@ use state::{AircraftType, OperationMode, StateVolatile, UserCfg};
 static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 mod ahrs_fusion;
-mod autopilot;
 mod atmos_model;
+mod autopilot;
 mod cfg_storage;
 mod control_interface;
 mod drivers;
@@ -299,9 +303,9 @@ mod app {
         i2c1: I2c<I2C1>,
         i2c2: I2c<I2C2>,
         altimeter: baro::Altimeter,
-        uart_elrs: Usart<USART_ELRS>, // for ELRS over CRSF.
+        uart_elrs: Usart<UART_ELRS>, // for ELRS over CRSF.
         flash_onboard: Flash,
-        batt_curr_adc: Adc<ADC2>,
+        batt_curr_adc: Adc<ADC>,
         // rtc: Rtc,
         update_timer: Timer<TIM15>,
         rf_limiter_timer: Timer<TIM16>,
@@ -498,9 +502,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
-        #[cfg(feature = "g4")]
         let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+
+        #[cfg(feature = "g4")]
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -1054,7 +1059,7 @@ mod app {
                     match input_mode {
                         InputMode::Acro => {}
                         _ => {
-                            pid::run_attitude(
+                            pid::run_attitude_quad(
                                 params,
                                 control_channel_data,
                                 input_map,
@@ -1110,6 +1115,9 @@ mod app {
                         pitch: params.s_pitch,
                         roll: params.s_roll,
                         yaw: params.s_yaw,
+                        pid_p: coeffs.roll.k_p_rate,
+                        pid_i: coeffs.roll.k_i_rate,
+                        pid_d: coeffs.roll.k_d_rate,
                     };
                     osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH, dma, &osd_data);
                 },
@@ -1252,7 +1260,7 @@ mod app {
                     // 1 out of 16 IMU updates.
                     match cfg.aircraft_type {
                         AircraftType::Quadcopter => {
-                            pid::run_rate(
+                            pid::run_rate_quad(
                                 params,
                                 *input_mode,
                                 autopilot_status,
@@ -1277,7 +1285,7 @@ mod app {
                             *cx.local.fixed_wing_rate_loop_i += 1;
                             if *cx.local.fixed_wing_rate_loop_i % FIXED_WING_RATE_UPDATE_RATIO == 0
                             {
-                                pid::run_rate_flying_wing(
+                                pid::run_rate_fixed_wing(
                                     params,
                                     *input_mode,
                                     autopilot_status,
