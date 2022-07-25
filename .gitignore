@@ -9,7 +9,7 @@ __pypackages__/
 */*.iws
 */workspace.xml
 
-*/target
+/target
 
 Cargo.lock
 

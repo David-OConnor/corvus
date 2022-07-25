@@ -1,5 +1,5 @@
 [package]
-name = "anyleaf_quadcopter_firmware"
+name = "anyleaf_corvus"
 version = "0.1.0"
 authors = ["David O'Connor <david.alan.oconnor@gmail.com>"]
 edition = "2021"

@@ -74,6 +74,7 @@ use state::{AircraftType, OperationMode, StateVolatile, UserCfg};
 static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 mod ahrs_fusion;
+mod autopilot;
 mod atmos_model;
 mod cfg_storage;
 mod control_interface;
@@ -496,7 +497,10 @@ mod app {
             ..Default::default()
         };
 
+        #[cfg(feature = "h7")]
         let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        #[cfg(feature = "g4")]
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);

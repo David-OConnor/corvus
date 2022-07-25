@@ -30,13 +30,23 @@ pub const CRSF_TX_CH: DmaChannel = DmaChannel::C6;
 
 pub const BATT_CURR_CH: DmaChannel = DmaChannel::C7;
 
-#[cfg(feature = "h7")]
-pub const OSD_CH: DmaChannel = DmaChannel::C0;
-#[cfg(feature = "g4")]
-pub const OSD_CH: DmaChannel = DmaChannel::C8;
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        pub const OSD_CH: DmaChannel = DmaChannel::C0;
+        pub const BATT_ADC_CH: u8 = 16;
+        pub const CURR_ADC_CH: u8 = 18;
+    } else {
+        pub const OSD_CH: DmaChannel = DmaChannel::C8;
+        pub const BATT_ADC_CH: u8 = 17;
+        pub const CURR_ADC_CH: u8 = 12;
+    }
+}
 
-pub const BATT_ADC_CH: u8 = 17;
-pub const CURR_ADC_CH: u8 = 12;
+
+#[cfg(feature = "g4")]
+
+
+
 
 impl Motor {
     // todo: Feature gate these methods based on board, as required.
