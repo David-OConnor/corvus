@@ -4,6 +4,7 @@
 use crate::usb_cfg::WAYPOINT_SIZE;
 /// User-configurable settings. These get saved to and loaded from internal flash.
 use crate::{
+    autopilot::{LandingCfgFixedWing, LandingCfgQuad},
     control_interface::{InputModeSwitch, LinkStats},
     flight_ctrls::{
         fixed_wing::{ControlPositions, ServoWingMapping},
@@ -46,15 +47,6 @@ pub enum SwarmRole {
     PersonFollower, // When your queen is human.
 }
 
-// todo; MOve this ldg config elsewhere
-#[derive(Default)]
-pub struct LandingCfgFixedWing {
-    pub heading: f32,    // degrees magnetic
-    pub airspeed: f32,   // m/s
-    pub glideslope: f32, // radians, down from level
-    pub touchdown_point: Location,
-}
-
 /// Persistent state; saved to onboard flash memory.
 pub struct UserCfg {
     pub aircraft_type: AircraftType,
@@ -92,6 +84,7 @@ pub struct UserCfg {
     pub waypoints: [Option<Location>; MAX_WAYPOINTS],
     /// The (index of the) waypoint we are currently steering to.
     pub active_waypoint: usize,
+    pub landing_cfg_quad: LandingCfgQuad,
     pub landing_cfg_fixed_wing: LandingCfgFixedWing,
 }
 
@@ -145,6 +138,7 @@ impl Default for UserCfg {
             // altimeter_setting: 101_325.,
             waypoints,
             active_waypoint: 0,
+            landing_cfg_quad: Default::default(),
             landing_cfg_fixed_wing: Default::default(),
         }
     }

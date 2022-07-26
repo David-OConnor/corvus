@@ -179,7 +179,7 @@ pub struct CtrlCoeffsYT {
     // PID for controlling yaw or thrust from an explicitly-commanded heading or altitude.
     pub k_p_attitude: f32,
     pub k_i_attitude: f32,
-    pub k_s_attitude: f32,
+    pub k_d_attitude: f32,
 
     pub pid_deriv_lowpass_cutoff: LowpassCutoff,
 }
@@ -196,7 +196,7 @@ impl Default for CtrlCoeffsYT {
 
             k_p_attitude: 0.1,
             k_i_attitude: 0.0,
-            k_s_attitude: 0.0,
+            k_d_attitude: 0.0,
 
             pid_deriv_lowpass_cutoff: LowpassCutoff::H1k,
         }
@@ -583,7 +583,8 @@ pub fn run_velocity(
     };
 }
 
-/// To reduce DRY between `run_attitude_quad` and `run_attitude_fixed_wing`.
+/// To reduce DRY between `run_attitude_quad` and `run_attitude_fixed_wing`. The main purpose of
+/// this fn is to modify `rates_commanded`.
 fn attitude_apply_common(
     pid_attitude: &mut PidGroup,
     rates_commanded: &mut CtrlInputs,
@@ -592,6 +593,8 @@ fn attitude_apply_common(
     coeffs: &CtrlCoeffGroup,
     filters: &mut PidDerivFilters,
 ) {
+    // If an attitude has been commanded (eg a velocity loop,autopilot mode, or if the aircraft
+    // is in attitude mode), apply the PID to it.
     if let Some(pitch_commanded) = attitudes_commanded.pitch {
         pid_attitude.pitch = calc_pid_error(
             pitch_commanded,
@@ -612,7 +615,6 @@ fn attitude_apply_common(
             roll_commanded,
             params.s_roll,
             &pid_attitude.roll,
-            // coeffs,
             coeffs.roll.k_p_attitude,
             coeffs.roll.k_i_attitude,
             coeffs.roll.k_d_attitude,
@@ -630,7 +632,7 @@ fn attitude_apply_common(
             &pid_attitude.yaw,
             coeffs.yaw.k_p_attitude,
             coeffs.yaw.k_i_attitude,
-            coeffs.yaw.k_s_attitude,
+            coeffs.yaw.k_d_attitude,
             &mut filters.yaw_attitude,
             DT_ATTITUDE,
         );
@@ -639,7 +641,7 @@ fn attitude_apply_common(
 }
 
 /// Run the attitude (mid) PID loop: This is used to determine angular velocities, based on commanded
-/// attitude.
+/// attitude. Modifies `rates_commanded`, which is used by the rate PID loop.
 pub fn run_attitude_quad(
     params: &Params,
     ch_data: &ChannelData,
@@ -654,10 +656,10 @@ pub fn run_attitude_quad(
     coeffs: &CtrlCoeffGroup,
 ) {
     match input_mode {
-        InputMode::Acro => {}
+        InputMode::Acro => (),
 
         // If in Attitude control mode, command our initial (pre-autopilot) attitudes based on
-        // congtrol positions.
+        // control positions.
         InputMode::Attitude => {
             *attitudes_commanded = CtrlInputs {
                 pitch: Some(input_map.calc_pitch_angle(ch_data.pitch)),
@@ -671,7 +673,16 @@ pub fn run_attitude_quad(
         }
     }
 
-    autopilot_status.apply_attitude_quad(params, attitudes_commanded, input_map, cfg.max_speed_ver);
+    autopilot_status.apply_attitude_quad(
+        params,
+        attitudes_commanded,
+        rates_commanded,
+        pid_attitude,
+        filters,
+        coeffs,
+        input_map,
+        cfg.max_speed_ver,
+    );
 
     attitude_apply_common(
         pid_attitude,
@@ -685,7 +696,8 @@ pub fn run_attitude_quad(
 
 /// Run the attitude (mid) PID loop: This is used to determine angular velocities, based on commanded
 /// attitude. Note that for fixed wing, we have no direct attitude mode, so this is entirely determined
-/// by the variou autopilot modes.
+/// by the various autopilot modes, or if we're mapping throttle to airspeed etc.
+/// Modifies `rates_commanded`, which is used by the rate PID loop.
 pub fn run_attitude_fixed_wing(
     params: &Params,
     // ch_data: &ChannelData,
@@ -699,7 +711,15 @@ pub fn run_attitude_fixed_wing(
     // cfg: &UserCfg,
     coeffs: &CtrlCoeffGroup,
 ) {
-    autopilot_status.apply_attitude_fixed_wing(params, attitudes_commanded);
+    // Note that for fixed wing, we don't have attitude mode.
+    autopilot_status.apply_attitude_fixed_wing(
+        params,
+        attitudes_commanded,
+        rates_commanded,
+        pid_attitude,
+        filters,
+        coeffs,
+    );
 
     attitude_apply_common(
         pid_attitude,
@@ -723,8 +743,8 @@ fn rate_apply_common(
     tpa_scaler: f32,
     dt: f32,
 ) {
-    // If a given rate (or throttle) hasn't been defined by an outer loop, apply using the control
-    // inputs.
+    // If a given rate (or throttle) hasn't been defined by an outer loop or autopilot mode, apply
+    // using the control inputs.
     if rates_commanded.pitch.is_none() {
         pid_rate.pitch = calc_pid_error(
             input_map.calc_pitch_rate(ch_data.pitch),
@@ -771,6 +791,7 @@ fn rate_apply_common(
     }
 
     if rates_commanded.thrust.is_none() {
+        // Apply manual throttle.
         rates_commanded.thrust = Some(input_map.calc_manual_throttle(ch_data.throttle));
     }
 }
@@ -893,6 +914,7 @@ pub fn run_rate_fixed_wing(
     // For now, we don't have a TPA scaler for fixed, but perhaps adding one or something similar
     // wouldn't be a bad idea.
     let tpa_scaler = 1.;
+
     rate_apply_common(
         pid,
         rates_commanded,
@@ -907,7 +929,7 @@ pub fn run_rate_fixed_wing(
 
     let pitch = rates_commanded.pitch.unwrap();
     let roll = rates_commanded.roll.unwrap();
-    let yaw = rates_commanded.yaw.unwrap();
+    let _yaw = rates_commanded.yaw.unwrap();
     let throttle = rates_commanded.thrust.unwrap();
 
     flight_ctrls::fixed_wing::apply_controls(
