@@ -1,5 +1,7 @@
 //! This module contains code related to various autopilot modes.
 
+use num_traits::float::Float;
+
 use crate::{
     flight_ctrls::{
         self,
@@ -10,6 +12,43 @@ use crate::{
     ppks::Location,
     DT_ATTITUDE,
 };
+
+const R: f32 = 6_371_000.; // Earth's radius in meters. (ellipsoid?)
+
+// Tolerances we use when setting up a glideslope for landing. Compaerd to the landing structs,
+// these are independent of the specific landing spot and aircraft.
+
+// The aircraft's heading must be within this range of the landing heading to initiate the descent.
+// (Also must have the minimum ground track, as set in the struct.)
+const GLIDESLOPE_START_HEADING_TOLERANCE: f32 = 0.17; // ranians. (0.17 = ~10°)
+
+// The angle distance from landing point to aircraft, and landing point to a point abeam
+// the aircraft on glideslope
+const GLIDESLOPE_START_LATERAL_TOLERANCE: f32 = 0.17; // radians.
+
+/// Calculate the heading to fly to arrive at a point, given the aircraft's current position.
+/// Params and output are in radians. Does not take into account turn radius.
+fn heading_between_points(target: (f32, f32), aircraft: (f32, f32)) -> f32 {
+    // todo
+}
+
+/// Calculate the distance between two points, in meters.
+/// Params are in radians. Uses the 'haversine' formula
+fn distance_between_points(target: (f32, f32), aircraft: (f32, f32)) -> f32 {
+    // todo: LatLon struct with named fields.
+    
+    let φ1 = aircraft.0; // φ, λ in radians
+    let φ2 = target.0;
+    let Δφ = (target.0-aircraft.0);
+    let Δλ = (target.1-aircraft.1);
+
+    let a = (Δφ/2.).sin() * (Δφ/2.).sin() +
+        (φ1).cos() * (φ2).cos() * (Δλ/2.).sin() * (Δλ/2.).sin();
+
+    let c = 2 * (a).sqrt().atan2((1-a).sqrt());
+
+    R * c
+}
 
 pub enum OrbitShape {
     Circular,
@@ -23,7 +62,7 @@ pub struct Orbit {
     center_lat: f32,  // radians
     center_lon: f32,  // radians
     radius: f32,      // m
-    groundspeed: f32, // m/s
+    ground_speed: f32, // m/s
 }
 
 #[derive(Default)]
@@ -37,10 +76,22 @@ pub struct LandingCfgQuad {
 
 #[derive(Default)]
 pub struct LandingCfgFixedWing {
-    pub heading: f32,    // degrees magnetic
-    pub airspeed: f32,   // m/s
-    pub glideslope: f32, // radians, down from level
+    /// Radians magnetic.
+    pub heading: f32,
+    /// radians, down from level
+    pub glideslope: f32,
+    /// Touchdown location, ideally with GPS (requirement?)
     pub touchdown_point: Location,
+    /// Groundspeed in m/s
+    /// todo: Remove ground_speed in favor of AOA once you figure out how to measure AOA.
+    pub ground_speed: f32,
+    /// Angle of attack in radians
+    /// todo: Include AOA later once you figure out how to measure it.
+    pub angle_of_attack: f32,
+    /// Altitude to start the flare in AGL. Requires TOF sensor or similar.
+    pub flare_alt_agl: f32,
+    /// Minimum ground track distance in meters the craft must fly while aligned on the heading
+    pub min_ground_track: f32,
 }
 
 /// Categories of control mode, in regards to which parameters are held fixed.
@@ -165,11 +216,21 @@ impl AutopilotStatus {
             // };
         } else if let Some(ldg_cfg) = &self.land_fixed_wing {
             // *attitudes_commanded = CtrlInputs {
-            //     pitch: Some(0.),
-            //     roll: Some(0.),
-            //     yaw: Some(0.),
-            //     thrust: Some(flight_ctrls::quad::landing_speed(params.tof_alt, max_speed_ver)),
-            // };
+            //             //     pitch: Some(0.),
+            //             //     roll: Some(0.),
+            //             //     yaw: Some(0.),
+            //             //     thrust: Some(flight_ctrls::quad::landing_speed(params.tof_alt, max_speed_ver)),
+            //             // };
+
+            // todo: for Now: assume we're lined up at the start of our descent.
+            // todo: Put code to fly direct to a point and arrive at a specific heading here.
+            // todo eg:
+
+            // todo:
+            let mut established = false;
+            // if distance_between_points(ldg_cfg.touchdown_point)
+
+
             // todo: DRY between quad and FC here, although the diff is power vs pitch.
         } else if let Some((alt_type, alt_commanded)) = self.alt_hold {
             // Set a vertical velocity for the inner loop to maintain, based on distance
@@ -202,6 +263,25 @@ impl AutopilotStatus {
             // We must reset the commanded pitch if not using one of these modes, so control can
             // be handed back to manual controls etc.
             attitudes_commanded.pitch = None;
+        }
+
+        // todo: Interaction between orbit etc and incompatible modes. Ie, we can enable orbit and
+        // todo alt hold independently. They're compatible with each other. But not TO and landing for example.
+
+        if let Some(orbit) = &self.orbit {
+            // todo: You'll get a smoother entry if you initially calculate, and fly to a point on the radius
+            // todo on a heading similar to your own angle to it. For now, fly directly to the point for
+            // todo simpler logic and good-enough.
+
+            let established = distance_between_points(
+                (orbit.center_lat, orbit.center_lon), (params.latitude, params.longitude)
+            );
+
+            let target_heading = if established {
+                find_heading((params.latitude, params.longitude), (orbit.center_lat, orbit.center_lon));
+            } else {
+                find_heading((params.latitude, params.longitude), (orbit.center_lat, orbit.center_lon));
+            };
         }
     }
 
