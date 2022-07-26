@@ -532,10 +532,10 @@ pub fn run_velocity(
     let eps2 = 0.01;
     // todo: Commanded velocity 0 to trigger loiter logic, or actual velocity?
     // if mid_flight_cmd.y_pitch.unwrap().2 < eps && mid_flight_cmd.x_roll.unwrap().2 < eps {
-    if params.s_x < eps2 && params.s_y < eps2 {
+    if params.longitude < eps2 && params.latitude < eps2 {
         if !commands.loiter_set {
-            commands.x = params.s_x;
-            commands.y = params.s_y;
+            commands.x = params.longitude;
+            commands.y = params.latitude;
             commands.loiter_set = true;
         }
 
@@ -818,7 +818,15 @@ pub fn run_rate_quad(
     let roll = pid.roll.out();
     let yaw = pid.yaw.out();
 
-    autopilot_status.apply_rate_quad(params, rates_commanded, max_speed_ver, pid, filters, coeffs, dt);
+    autopilot_status.apply_rate_quad(
+        params,
+        rates_commanded,
+        max_speed_ver,
+        pid,
+        filters,
+        coeffs,
+        dt,
+    );
 
     flight_ctrls::quad::apply_controls(
         pitch,

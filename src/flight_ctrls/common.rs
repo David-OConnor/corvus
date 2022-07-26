@@ -162,12 +162,13 @@ pub struct CtrlInputs {
 /// frame of reference.
 #[derive(Default)]
 pub struct Params {
-    pub s_x: f32,
-    pub s_y: f32,
-    // Note that we only need to specify MSL vs AGL for position; velocity and accel should
-    // be equiv for them.
-    pub baro_alt_msl: f32, // meters
-    /// Time of flight altimeter
+    /// Longitude in radians. From GPS alone, or blended with accelerometer data.
+    pub longitude: f32,
+    /// Latitude in radians. From GPS alone, or blended with accelerometer data.
+    pub latitude: f32,
+    /// MSL altitude in meters QFE (takeoff location is 0), from a barometer.
+    pub baro_alt_msl: f32,
+    /// AGL altitude in meters, from the Time of flight sensor.
     pub tof_alt: f32,
 
     pub s_pitch: f32,

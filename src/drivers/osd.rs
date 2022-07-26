@@ -116,12 +116,21 @@ pub fn send_osd_data(
         ..Default::default()
     };
 
+    let mut buf = [0; BATTERY_STATE_SIZE + METADATA_SIZE_V1];
+    add_to_buf(
+        Function::BatteryState,
+        &battery_state.to_buf(),
+        BATTERY_STATE_SIZE,
+        &mut buf,
+        &mut buf_i,
+    );
+
     // MSP format stores coordinates in 10^6 degrees. Our internal format is radians.
     // TAU radians in 360 degrees. 1 degree = TAU/360 rad
     let raw_gps = RawGps {
-        lat: (to_degrees(data.gps_fix.y) * GPS_SCALE_FACTOR) as i32,
-        lon: (to_degrees(data.gps_fix.x) * GPS_SCALE_FACTOR) as i32,
-        alt: data.gps_fix.z as i16,
+        lat: (to_degrees(data.gps_fix.latitude) * GPS_SCALE_FACTOR) as i32,
+        lon: (to_degrees(data.gps_fix.longitude) * GPS_SCALE_FACTOR) as i32,
+        alt: data.gps_fix.alt_msl as i16,
         ..Default::default()
     };
 
@@ -189,7 +198,7 @@ pub fn send_osd_data(
     // todo: Clarify how this works.
     // in betaflight configurator set OSD elements to your desired positions and in CLI type
     // "set osd" to retreieve the numbers.
-    let config = OsdConfig {
+    let osd_config = OsdConfig {
         units: 0,
         item_count: 56,
         stat_count: 24,
@@ -261,7 +270,7 @@ pub fn send_osd_data(
     let mut buf = [0; OSD_CONFIG_SIZE + METADATA_SIZE_V1];
     add_to_buf(
         Function::OsdConfig,
-        &esc_sensor_data.to_buf(),
+        &osd_config.to_buf(),
         OSD_CONFIG_SIZE,
         &mut buf,
         &mut buf_i,

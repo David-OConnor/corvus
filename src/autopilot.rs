@@ -190,28 +190,5 @@ impl AutopilotStatus {
             // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
             rates_commanded.thrust = 0.; // todo
         }
-
-        if self.yaw_assist {
-            // Blend manual inputs with the autocorrection factor. If there are no manual inputs,
-            // this autopilot mode should neutralize all sideslip.
-            let hor_dir = 0.; // radians
-            let hor_speed = 0.; // m/s
-
-            let yaw_correction_factor = ((hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
-
-            if hor_speed > YAW_ASSIST_MIN_SPEED {
-                rates_commanded.yaw += yaw_correction_factor;
-            }
-        } else if self.roll_assist {
-            // todo!
-            let hor_dir = 0.; // radians
-            let hor_speed = 0.; // m/s
-
-            let roll_correction_factor = (-(hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
-
-            if hor_speed > YAW_ASSIST_MIN_SPEED {
-                rates_commanded.yaw += roll_correction_factor;
-            }
-        }
     }
 }

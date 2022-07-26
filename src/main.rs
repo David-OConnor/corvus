@@ -20,7 +20,7 @@ use stm32_hal2::{
     flash::{Bank, Flash},
     gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, I2C1, I2C2, SPI1, SPI2, SPI3, TIM1, TIM15, TIM16, TIM17, USART2},
+    pac::{self, DMA1, I2C1, I2C2, SPI1, TIM1, TIM15, TIM16, TIM17, USART2},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{Timer, TimerConfig, TimerInterrupt},
@@ -32,39 +32,44 @@ cfg_if! {
         use stm32_hal2::{
             clocks::{PllCfg, VosRange},
             usb_otg::{Usb1, UsbBus, Usb1BusType as UsbBusType},
-            // pac::USB
-            // OTG1_HS_DEVICE
+            pac::OCTOSPI,
+            qspi::{Qspi},
         };
         // This USART alias is made pub here, so we don't repeat this line in other modules.
         pub use stm32_hal2::pac::{UART7 as UART_ELRS, ADC1 as ADC};
+
+        type SpiFlash = Qspi<OCTOSPI>;
     } else if #[cfg(feature = "g4")] {
         use stm32_hal2::{
             usb::{self, UsbBus, UsbBusType},
+            pac::SPI3,
         };
 
         pub use stm32_hal2::pac::{USART3 as UART_ELRS, ADC2 as ADC};
+
+        type SpiFlash = Spi<SPI3>;
     }
 }
 
 use usb_device::{bus::UsbBusAllocator, prelude::*};
-
 use usbd_serial::{self, SerialPort};
 
 use autopilot::AutopilotStatus;
 use control_interface::{ChannelData, LinkStats, PidTuneActuation, PidTuneMode};
-use drivers::baro_dps310 as baro;
-use drivers::gps_x as gps;
-// pub use, so we can use this rename in `sensor_fusion` to interpret the DMA buf.
+
+use drivers::{
+    baro_dps310 as baro, gps_x as gps, imu_icm426xx as imu,
+    osd::{self, OsdData},
+    tof_vl53l1 as tof,
+};
+
 use ahrs_fusion::Ahrs;
-pub use drivers::imu_icm426xx as imu;
-use drivers::tof_vl53l1 as tof;
 use filter_imu::ImuFilters;
 use flight_ctrls::{
     common::{CommandState, CtrlInputs, InputMap, MotorTimers, Params},
     flying_wing::{self, ControlPositions, ServoWingMapping},
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
-use osd::OsdData;
 use pid::{
     CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT, PID_CONTROL_ADJ_TIMEOUT,
 };
@@ -88,7 +93,6 @@ mod flight_ctrls;
 mod imu_calibration;
 mod imu_shared;
 mod lin_alg;
-mod osd;
 mod pid;
 // mod pid_tuning;
 mod attitude_platform;
@@ -258,13 +262,13 @@ fn init_sensors(
 
     match fix {
         Ok(f) => {
-            params.s_x = f.x;
-            params.s_y = f.y;
-            params.baro_alt_msl = f.z;
+            params.longitude = f.longitude;
+            params.latitude = f.latitude;
+            params.baro_alt_msl = f.alt_msl;
 
-            *base_pt = Location::new(LocationType::LatLon, f.y, f.x, f.z);
+            *base_pt = Location::new(LocationType::LatLon, f.latitude, f.longitude, f.alt_msl);
 
-            altimeter.calibrate_from_gps(Some(f.z), i2c2);
+            altimeter.calibrate_from_gps(Some(f.alt_msl), i2c2);
         }
         Err(_) => {
             altimeter.calibrate_from_gps(None, i2c2);
@@ -298,7 +302,6 @@ mod app {
         // manual_inputs: CtrlInputs,
         dma: Dma<DMA1>,
         spi1: Spi<SPI1>,
-        spi2: Spi<SPI2>,
         cs_imu: Pin,
         i2c1: I2c<I2C1>,
         i2c2: I2c<I2C2>,
@@ -327,7 +330,7 @@ mod app {
 
     #[local]
     struct Local {
-        spi3: Spi<SPI3>,
+        spi_flash: SpiFlash,
         arm_signals_received: u8, // todo: Put in state volatile.
         disarm_signals_received: u8,
         /// We use this counter to subdivide the main loop into longer intervals,
@@ -435,12 +438,16 @@ mod app {
 
         imu::setup(&mut spi1, &mut cs_imu, &mut delay);
 
-        // We use SPI2 for the LoRa ELRS chip. Uses mode0.  // todo: Find max speed.
-        // Note that ELRS uses 9Mhz, although we could go higher if wanted. Div32 = 5.3125.
-        let spi2 = Spi::new(dp.SPI2, Default::default(), BaudRate::Div32);
+        // We use SPI3 for SPI flash on G4. On H7, we use octospi instead.
+        // todo: Find max speed and supported modes.
+        cfg_if! {
+            if #[cfg(feature = "h7")] {
+                let spi_flash = Octospi::new(dp.OCTOSPI, Default::default(), BaudRate::Div32);
 
-        // We use SPI3 for flash. // todo: Find max speed and supported modes.
-        let spi3 = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
+            } else {
+                let spi_flash = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
+            }
+        }
 
         #[cfg(feature = "h7")]
         let flash_pin = 10;
@@ -609,9 +616,9 @@ mod app {
         user_cfg.waypoints[0] = Some(Location {
             type_: LocationType::LatLon,
             name: [0, 1, 2, 3, 4, 5, 6],
-            x: 1.,
-            y: 2.,
-            z: 3.,
+            longitude: 1.,
+            latitude: 2.,
+            alt_msl: 3.,
         });
 
         // user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
@@ -799,7 +806,6 @@ mod app {
                 // manual_inputs: Default::default(),
                 dma,
                 spi1,
-                spi2,
                 cs_imu,
                 i2c1,
                 i2c2,
@@ -824,7 +830,7 @@ mod app {
                 imu_calibration,
             },
             Local {
-                spi3,
+                spi_flash,
                 arm_signals_received: 0,
                 disarm_signals_received: 0,
                 update_loop_i: 0,
@@ -954,7 +960,7 @@ mod app {
                         let curr_v =
                             adc.reading_to_voltage(unsafe { ADC_READ_BUF }[1]) * ADC_CURR_DIVISION;
 
-                        let current = curr_v; // mA. todo: Find the conversion factor.
+                        let current = curr_v; // mA.
                                               // println!("Batt V: {} Curr V: {}", batt_v, curr_v);
                                               //
                                               // println!(
@@ -1103,13 +1109,15 @@ mod app {
                         adc.reading_to_voltage(unsafe { ADC_READ_BUF }[0]) * ADC_BATT_DIVISION;
                     let curr_v =
                         adc.reading_to_voltage(unsafe { ADC_READ_BUF }[1]) * ADC_CURR_DIVISION;
-                    let current = curr_v; // todo: Conversion factor.
+
+                    // todo: Find the current conversion factor. Probably slope + y int
+                    let current = curr_v;
 
                     let osd_data = OsdData {
                         arm_status: state_volatile.arm_status,
                         battery_voltage: batt_v,
                         current_draw: current,
-                        alt_msl_baro: 0., // todo
+                        alt_msl_baro: params.baro_alt_msl,
                         gps_fix: Location::default(),
                         motor_count: 4,
                         pitch: params.s_pitch,
@@ -1164,7 +1172,6 @@ mod app {
             cx.shared.input_mode,
             cx.shared.autopilot_status,
             cx.shared.rates_commanded,
-            // cx.shared.control_mix,
             cx.shared.pid_rate,
             cx.shared.pid_deriv_filters,
             cx.shared.motor_timers,
@@ -1184,7 +1191,6 @@ mod app {
                  input_mode,
                  autopilot_status,
                  rates_commanded,
-                 // control_mix,
                  pid_inner,
                  filters,
                  motor_timers,
@@ -1353,7 +1359,6 @@ mod app {
                                 usb_serial,
                                 &buf,
                                 count,
-                                // params,
                                 params.quaternion,
                                 params.baro_alt_msl,
                                 ch_data,
@@ -1478,7 +1483,7 @@ mod app {
     //     gpio::clear_exti_interrupt(14);
     //     // todo: for when you impl native ELRS
     //     // (cx.shared.user_cfg, cx.shared.control_channel_data).lock(|cfg, ch_data| {
-    //     //     // *manual_inputs = elrs::get_inputs(cx.local.spi3);
+    //     //     // *manual_inputs = elrs::get_inputs(cx.local.spi_flash);
     //     //     // *ch_data = CtrlInputs::get_manual_inputs(cfg); // todo: this?
     //     // })
     // }

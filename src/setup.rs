@@ -185,10 +185,10 @@ pub fn setup_pins() {
             let _uart7_tx = Pin::new(Port::B, 3, PinMode::Alt(11));
             let _uart7_rx = Pin::new(Port::B, 4, PinMode::Alt(11));
         } else {
-            // G4 board uses onboard ELRS, on SPI3
-            let _sck3 = Pin::new(Port::B, 3, PinMode::Alt(6));
-            let _miso3 = Pin::new(Port::B, 4, PinMode::Alt(6));
-            let _mosi3 = Pin::new(Port::B, 5, PinMode::Alt(6));
+            // // G4 board uses onboard ELRS, on SPI3
+            // let _sck3 = Pin::new(Port::B, 3, PinMode::Alt(6));
+            // let _miso3 = Pin::new(Port::B, 4, PinMode::Alt(6));
+            // let _mosi3 = Pin::new(Port::B, 5, PinMode::Alt(6));
         }
     }
 
