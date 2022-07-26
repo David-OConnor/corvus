@@ -13,7 +13,7 @@ use crate::{lin_alg::Quaternion, ppks::Location, safety::ArmStatus, util::map_li
 use stm32_hal2::{pac, timer::Timer};
 
 use super::{
-    flying_wing::ControlPositions,
+    fixed_wing::ControlPositions,
     quad::{MotorPower, THROTTLE_MAX_MNVR_CLAMP, THROTTLE_MIN_MNVR_CLAMP},
 };
 

@@ -5,5 +5,5 @@
 //! Note that this is just an example, and isn't necesssarily something to emulate.
 
 pub mod common;
-pub mod flying_wing;
+pub mod fixed_wing;
 pub mod quad;

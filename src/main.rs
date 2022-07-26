@@ -67,7 +67,7 @@ use ahrs_fusion::Ahrs;
 use filter_imu::ImuFilters;
 use flight_ctrls::{
     common::{CommandState, CtrlInputs, InputMap, MotorTimers, Params},
-    flying_wing::{self, ControlPositions, ServoWingMapping},
+    fixed_wing::{self, ControlPositions, ServoWingMapping},
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
 use pid::{
@@ -629,7 +629,7 @@ mod app {
                 dshot::setup_timers(&mut motor_timers);
             }
             AircraftType::FixedWing => {
-                flying_wing::setup_timers(&mut motor_timers);
+                fixed_wing::setup_timers(&mut motor_timers);
                 ctrl_coeffs = CtrlCoeffGroup::default_flying_wing();
             }
         }

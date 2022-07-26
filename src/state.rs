@@ -6,7 +6,7 @@ use crate::usb_cfg::WAYPOINT_SIZE;
 use crate::{
     control_interface::{InputModeSwitch, LinkStats},
     flight_ctrls::{
-        flying_wing::{ControlPositions, ServoWingMapping},
+        fixed_wing::{ControlPositions, ServoWingMapping},
         quad::{AxisLocks, MotorPower, RotorMapping},
     },
     ppks::Location,
