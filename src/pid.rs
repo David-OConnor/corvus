@@ -390,7 +390,7 @@ impl Default for PidDerivFilters {
 /// command.
 /// Example: https://github.com/pms67/PID/blob/master/PID.c
 /// Example 2: https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Pid.c
-fn calc_pid_error(
+pub fn calc_pid_error(
     set_pt: f32,
     measurement: f32,
     prev_pid: &PidState,
@@ -601,19 +601,20 @@ pub fn run_velocity(
     // Determine commanded pitch and roll positions, and z velocity,
     // based on our middle-layer PID.
 
-    *attitude_commanded = CtrlInputs {
-        pitch: pid.pitch.out(),
-        roll: pid.roll.out(),
-        yaw: pid.yaw.out(),
-        thrust: pid.thrust.out(),
-    };
+    // todo: the actual modification ofn attitude is commented out for now (july 27 2022)
+    // todo until we get attitude, rate, and various autopilot modes sorted out.
+    // *attitude_commanded = CtrlInputs {
+    //     pitch: pid.pitch.out(),
+    //     roll: pid.roll.out(),
+    //     yaw: pid.yaw.out(),
+    //     thrust: pid.thrust.out(),
+    // };
 }
 
 /// Run the attitude (mid) PID loop: This is used to determine angular velocities, based on commanded
 /// attitude.
 pub fn run_attitude_quad(
     params: &Params,
-    // inputs: &CtrlInputs,
     ch_data: &ChannelData,
     input_map: &InputMap,
     attitudes_commanded: &mut CtrlInputs,
@@ -623,7 +624,6 @@ pub fn run_attitude_quad(
     input_mode: &InputMode,
     autopilot_status: &AutopilotStatus,
     cfg: &UserCfg,
-    commands: &mut CommandState,
     coeffs: &CtrlCoeffGroup,
 ) {
     autopilot_status.apply_attitude_quad(params, attitudes_commanded, input_map, cfg.max_speed_ver);
@@ -716,10 +716,8 @@ pub fn run_rate_quad(
     params: &Params,
     input_mode: InputMode,
     autopilot_status: &AutopilotStatus,
-    // cfg: &UserCfg,
     ch_data: &ChannelData,
     rates_commanded: &mut CtrlInputs,
-    // control_mix: &mut ControlMix,
     pid: &mut PidGroup,
     filters: &mut PidDerivFilters,
     current_pwr: &mut crate::MotorPower,
@@ -732,31 +730,33 @@ pub fn run_rate_quad(
     arm_status: ArmStatus,
     dt: f32,
 ) {
+    // If in Acro mode, use control data to determine rates commanded. Otherwise, use the
+    // `rates_commanded` data passed in as an argument.
     match input_mode {
         InputMode::Acro => {
             // todo: Power interp not yet implemented.
-            let power_interp_inst = dsp_sys::arm_linear_interp_instance_f32 {
-                nValues: 11,
-                x1: 0.,
-                xSpacing: 0.1,
-                pYData: [
-                    // Idle power.
-                    0.02, // Make sure this matches the above.
-                    POWER_LUT[0],
-                    POWER_LUT[1],
-                    POWER_LUT[2],
-                    POWER_LUT[3],
-                    POWER_LUT[4],
-                    POWER_LUT[5],
-                    POWER_LUT[6],
-                    POWER_LUT[7],
-                    POWER_LUT[8],
-                    POWER_LUT[9],
-                ]
-                .as_mut_ptr(),
-            };
+            // let power_interp_inst = dsp_sys::arm_linear_interp_instance_f32 {
+            //     nValues: 11,
+            //     x1: 0.,
+            //     xSpacing: 0.1,
+            //     pYData: [
+            //         // Idle power.
+            //         0.02, // Make sure this matches the above.
+            //         POWER_LUT[0],
+            //         POWER_LUT[1],
+            //         POWER_LUT[2],
+            //         POWER_LUT[3],
+            //         POWER_LUT[4],
+            //         POWER_LUT[5],
+            //         POWER_LUT[6],
+            //         POWER_LUT[7],
+            //         POWER_LUT[8],
+            //         POWER_LUT[9],
+            //     ]
+            //     .as_mut_ptr(),
+            // };
 
-            // todo: It pitch or roll stick is neutral, hold that attitude (quaternion)
+            // todo: If pitch or roll stick is neutral, hold that attitude (quaternion)
 
             // Note: We may not need to modify the `rates_commanded` resource in place here; we don't
             // use it upstream.
@@ -769,19 +769,14 @@ pub fn run_rate_quad(
                 // thrust: flight_ctrls::power_from_throttle(ch_data.throttle, &power_interp_inst),
                 thrust: input_map.calc_manual_throttle(ch_data.throttle),
             };
-
-            // println!("throttle command: {:?}", rates_commanded.thrust);
-
-            autopilot_status.apply_quad_rate(params, rates_commanded, max_speed_ver);
         }
         _ => (),
     }
 
-    // let manual_throttle = flight_ctrls::apply_throttle_idle(ch_data.throttle);
-    let manual_throttle = ch_data.throttle;
+    let throttle = rates_commanded.thrust;
 
-    let tpa_scaler = if manual_throttle > TPA_BREAKPOINT {
-        tpa_adjustment(manual_throttle)
+    let tpa_scaler = if throttle > TPA_BREAKPOINT {
+        tpa_adjustment(throttle)
     } else {
         1.
     };
@@ -819,50 +814,17 @@ pub fn run_rate_quad(
         dt,
     );
 
-    // Adjust gains to map control range and pid out in radians/s to the -1. to 1 rates used by the motor
-    // control logic, in `flight_ctrls::apply_controls`.
-    // todo: Is this right?? Do we want this??
-
-    // let pitch = input_map.calc_pitch_rate_pwr(pid.pitch.out());
-    // let roll = input_map.calc_roll_rate_pwr(pid.roll.out());
-    // let yaw = input_map.calc_yaw_rate_pwr(pid.yaw.out());
-
     let pitch = pid.pitch.out();
     let roll = pid.roll.out();
     let yaw = pid.yaw.out();
 
-    // todo: Work on this.
-    let throttle = match input_mode {
-        InputMode::Acro => {
-            if let Some((_, _)) = autopilot_status.alt_hold {
-                // todo: Delegate to ap module etc
-                pid.thrust = calc_pid_error(
-                    rates_commanded.thrust,
-                    params.v_z,
-                    &pid.thrust,
-                    coeffs.thrust.k_p_rate,
-                    coeffs.thrust.k_i_rate,
-                    coeffs.thrust.k_d_rate,
-                    &mut filters.thrust,
-                    dt,
-                );
-
-                // input_map.calc_thrust_pwr(pid.thrust.out());
-                pid.thrust.out()
-            } else {
-                manual_throttle
-            }
-        }
-        InputMode::Attitude => ch_data.throttle,
-        InputMode::Command => rates_commanded.thrust,
-    };
+    autopilot_status.apply_rate_quad(params, rates_commanded, max_speed_ver, pid, filters, coeffs, dt);
 
     flight_ctrls::quad::apply_controls(
         pitch,
         roll,
         yaw,
         throttle,
-        // control_mix,
         current_pwr,
         rotor_mapping,
         motor_timers,
@@ -877,7 +839,6 @@ pub fn run_rate_fixed_wing(
     autopilot_status: &AutopilotStatus,
     ch_data: &ChannelData,
     rates_commanded: &mut CtrlInputs,
-    // control_mix: &mut ControlMix,
     pid: &mut PidGroup,
     filters: &mut PidDerivFilters,
     control_posits: &mut ControlPositions,
@@ -892,26 +853,26 @@ pub fn run_rate_fixed_wing(
     match input_mode {
         InputMode::Acro => {
             // todo: Power interp not yet implemented.
-            let power_interp_inst = dsp_sys::arm_linear_interp_instance_f32 {
-                nValues: 11,
-                x1: 0.,
-                xSpacing: 0.1,
-                pYData: [
-                    // Idle power.
-                    0.02, // Make sure this matches the above.
-                    POWER_LUT[0],
-                    POWER_LUT[1],
-                    POWER_LUT[2],
-                    POWER_LUT[3],
-                    POWER_LUT[4],
-                    POWER_LUT[5],
-                    POWER_LUT[6],
-                    POWER_LUT[7],
-                    POWER_LUT[8],
-                    POWER_LUT[9],
-                ]
-                .as_mut_ptr(),
-            };
+            // let power_interp_inst = dsp_sys::arm_linear_interp_instance_f32 {
+            //     nValues: 11,
+            //     x1: 0.,
+            //     xSpacing: 0.1,
+            //     pYData: [
+            //         // Idle power.
+            //         0.02, // Make sure this matches the above.
+            //         POWER_LUT[0],
+            //         POWER_LUT[1],
+            //         POWER_LUT[2],
+            //         POWER_LUT[3],
+            //         POWER_LUT[4],
+            //         POWER_LUT[5],
+            //         POWER_LUT[6],
+            //         POWER_LUT[7],
+            //         POWER_LUT[8],
+            //         POWER_LUT[9],
+            //     ]
+            //     .as_mut_ptr(),
+            // };
 
             // todo: It pitch or roll stick is neutral, hold that attitude (quaternion)
 
@@ -926,16 +887,9 @@ pub fn run_rate_fixed_wing(
                 // thrust: flight_ctrls::power_from_throttle(ch_data.throttle, &power_interp_inst),
                 thrust: input_map.calc_manual_throttle(ch_data.throttle),
             };
-
-            // println!("throttle command: {:?}", rates_commanded.thrust);
-
-            autopilot_status.apply_fixed_wing_rate(params, rates_commanded);
         }
         _ => (),
     }
-
-    // let manual_throttle = flight_ctrls::apply_throttle_idle(ch_data.throttle);
-    let manual_throttle = ch_data.throttle;
 
     pid.pitch = calc_pid_error(
         rates_commanded.pitch,
@@ -973,24 +927,14 @@ pub fn run_rate_fixed_wing(
     let pitch = pid.pitch.out();
     let roll = pid.roll.out();
     let yaw = pid.yaw.out();
-    //
-    // println!("\nYaw rate measured: {:?}", params.v_yaw);
-    // println!("Yaw rate commanded: {:?}", rates_commanded.yaw);
-    // println!("Yaw power: {:?}", yaw);
-    //
-    // println!("Pitch out: {:?}", pitch);
-    // println!("Roll out: {:?}", roll);
-    // println!("PID Yaw out: {:?}", yaw);
+    let throttle = rates_commanded.thrust;
 
-    // todo: Work on this.
-    let throttle = manual_throttle;
+    autopilot_status.apply_rate_fixed_wing(params, rates_commanded);
 
-    // println!("PITCH {} ROLL {}", pitch, roll);
     flight_ctrls::flying_wing::apply_controls(
         pitch,
         roll,
         throttle,
-        // control_mix,
         control_posits,
         mapping,
         motor_timers,

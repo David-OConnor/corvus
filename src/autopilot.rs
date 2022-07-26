@@ -8,6 +8,7 @@ use crate::{
         common::{AltType, CtrlInputs, InputMap, Params},
         quad::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED},
     },
+    pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::Location,
 };
 
@@ -34,10 +35,10 @@ pub struct AutopilotStatus {
     pub alt_hold: Option<(AltType, f32)>,
     /// Heading is fixed.
     pub hdg_hold: Option<f32>,
-    /// Automatically adjust raw to zero out slip
+    /// Automatically adjust raw to zero out slip. Quad only.
     pub yaw_assist: bool,
     /// Automatically adjust roll (rate? angle?) to zero out slip, ie based on rudder inputs.
-    /// Don't enable both yaw assist and roll assist at the same time.
+    /// Don't enable both yaw assist and roll assist at the same time. Quad only.
     pub roll_assist: bool,
     /// Continuously fly towards a path. Note that `pitch` and `yaw` for the
     /// parameters here correspond to the flight path; not attitude.
@@ -60,81 +61,6 @@ pub struct AutopilotStatus {
 }
 
 impl AutopilotStatus {
-    /// Apply the autopilot controls.
-    pub fn apply_quad_rate(
-        &self,
-        params: &Params,
-        rates_commanded: &mut CtrlInputs,
-        max_speed_ver: f32,
-    ) {
-        if let Some((alt_type, alt_commanded)) = self.alt_hold {
-            let dist = match alt_type {
-                AltType::Msl => alt_commanded - params.baro_alt_msl,
-                AltType::Agl => alt_commanded - params.tof_alt,
-            };
-            // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-            rates_commanded.thrust =
-                flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.tof_alt);
-        }
-
-        if self.yaw_assist {
-            // Blend manual inputs with the autocorrection factor. If there are no manual inputs,
-            // this autopilot mode should neutralize all sideslip.
-            let hor_dir = 0.; // radians
-            let hor_speed = 0.; // m/s
-
-            let yaw_correction_factor = ((hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
-
-            if hor_speed > YAW_ASSIST_MIN_SPEED {
-                rates_commanded.yaw += yaw_correction_factor;
-            }
-        } else if self.roll_assist {
-            // todo!
-            let hor_dir = 0.; // radians
-            let hor_speed = 0.; // m/s
-
-            let roll_correction_factor = (-(hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
-
-            if hor_speed > YAW_ASSIST_MIN_SPEED {
-                rates_commanded.yaw += roll_correction_factor;
-            }
-        }
-    }
-
-    pub fn apply_fixed_wing_rate(&self, params: &Params, rates_commanded: &mut CtrlInputs) {
-        if let Some((alt_type, alt_commanded)) = self.alt_hold {
-            let dist = match alt_type {
-                AltType::Msl => alt_commanded - params.baro_alt_msl,
-                AltType::Agl => alt_commanded - params.tof_alt,
-            };
-            // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-            rates_commanded.thrust = 0.; // todo
-        }
-
-        if self.yaw_assist {
-            // Blend manual inputs with the autocorrection factor. If there are no manual inputs,
-            // this autopilot mode should neutralize all sideslip.
-            let hor_dir = 0.; // radians
-            let hor_speed = 0.; // m/s
-
-            let yaw_correction_factor = ((hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
-
-            if hor_speed > YAW_ASSIST_MIN_SPEED {
-                rates_commanded.yaw += yaw_correction_factor;
-            }
-        } else if self.roll_assist {
-            // todo!
-            let hor_dir = 0.; // radians
-            let hor_speed = 0.; // m/s
-
-            let roll_correction_factor = (-(hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
-
-            if hor_speed > YAW_ASSIST_MIN_SPEED {
-                rates_commanded.yaw += roll_correction_factor;
-            }
-        }
-    }
-
     pub fn apply_attitude_quad(
         &self,
         params: &Params,
@@ -191,6 +117,101 @@ impl AutopilotStatus {
                 yaw: 0.,
                 thrust: flight_ctrls::quad::landing_speed(params.tof_alt, max_speed_ver),
             };
+        }
+    }
+
+    /// Apply the autopilot controls.
+    pub fn apply_rate_quad(
+        &self,
+        params: &Params,
+        rates_commanded: &mut CtrlInputs,
+        max_speed_ver: f32,
+        pid: &mut PidGroup,
+        filters: &mut PidDerivFilters,
+        coeffs: &CtrlCoeffGroup,
+        dt: f32,
+    ) {
+        if let Some((alt_type, alt_commanded)) = self.alt_hold {
+            let dist = match alt_type {
+                AltType::Msl => alt_commanded - params.baro_alt_msl,
+                AltType::Agl => alt_commanded - params.tof_alt,
+            };
+            // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
+            rates_commanded.thrust =
+                flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.tof_alt);
+        }
+
+        if self.yaw_assist {
+            // Blend manual inputs with the autocorrection factor. If there are no manual inputs,
+            // this autopilot mode should neutralize all sideslip.
+            let hor_dir = 0.; // radians
+            let hor_speed = 0.; // m/s
+
+            let yaw_correction_factor = ((hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
+
+            if hor_speed > YAW_ASSIST_MIN_SPEED {
+                rates_commanded.yaw += yaw_correction_factor;
+            }
+        } else if self.roll_assist {
+            // todo!
+            let hor_dir = 0.; // radians
+            let hor_speed = 0.; // m/s
+
+            let roll_correction_factor = (-(hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
+
+            if hor_speed > YAW_ASSIST_MIN_SPEED {
+                rates_commanded.yaw += roll_correction_factor;
+            }
+        }
+
+        // We use the rate thrust PID component here; it's not used elsewhere, so this is fine.
+        if let Some((_, _)) = self.alt_hold {
+            pid.thrust = pid::calc_pid_error(
+                rates_commanded.thrust,
+                params.v_z,
+                &pid.thrust,
+                coeffs.thrust.k_p_rate,
+                coeffs.thrust.k_i_rate,
+                coeffs.thrust.k_d_rate,
+                &mut filters.thrust,
+                dt,
+            );
+
+            rates_commanded.thrust = pid.thrust.out();
+        }
+    }
+
+    pub fn apply_rate_fixed_wing(&self, params: &Params, rates_commanded: &mut CtrlInputs) {
+        if let Some((alt_type, alt_commanded)) = self.alt_hold {
+            let dist = match alt_type {
+                AltType::Msl => alt_commanded - params.baro_alt_msl,
+                AltType::Agl => alt_commanded - params.tof_alt,
+            };
+            // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
+            rates_commanded.thrust = 0.; // todo
+        }
+
+        if self.yaw_assist {
+            // Blend manual inputs with the autocorrection factor. If there are no manual inputs,
+            // this autopilot mode should neutralize all sideslip.
+            let hor_dir = 0.; // radians
+            let hor_speed = 0.; // m/s
+
+            let yaw_correction_factor = ((hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
+
+            if hor_speed > YAW_ASSIST_MIN_SPEED {
+                rates_commanded.yaw += yaw_correction_factor;
+            }
+        } else if self.roll_assist {
+            // todo!
+            let hor_dir = 0.; // radians
+            let hor_speed = 0.; // m/s
+
+            let roll_correction_factor = (-(hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
+
+            if hor_speed > YAW_ASSIST_MIN_SPEED {
+                rates_commanded.yaw += roll_correction_factor;
+            }
         }
     }
 }

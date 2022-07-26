@@ -1070,7 +1070,7 @@ mod app {
                                 input_mode,
                                 autopilot_status,
                                 cfg,
-                                command_state,
+                                // command_state,
                                 coeffs,
                             );
 
