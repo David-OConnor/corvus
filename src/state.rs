@@ -35,7 +35,7 @@ pub enum AircraftType {
     /// Angry bumblebee
     Quadcopter,
     /// Baby B-2
-    FlyingWing,
+    FixedWing,
 }
 
 #[derive(Clone, Copy)]

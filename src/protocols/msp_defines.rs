@@ -12,6 +12,8 @@
 //! Note that we have many commented out data structures: These are currently unused, but we keep
 //! for reference, if needed later.
 
+#![allow(dead_code)]
+
 const FLIGHT_CONTROLLER_IDENTIFIER_LENGTH: usize = 4;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -146,16 +148,16 @@ pub struct EscSensorDataDji {
     temperature: u8,
     rpm: u16,
 }
-
-struct MotorTelemetry {
-    motor_count: u8,
-    rpm: u32,
-    invalid_percent: u16,
-    temperature: u8,
-    voltage: u16,
-    current: u16,
-    consumption: u16,
-}
+//
+// struct MotorTelemetry {
+//     motor_count: u8,
+//     rpm: u32,
+//     invalid_percent: u16,
+//     temperature: u8,
+//     voltage: u16,
+//     current: u16,
+//     consumption: u16,
+// }
 
 // /// MSP_API_VERSION reply
 // struct ApiVersion {
@@ -275,13 +277,13 @@ struct msp_servo_mix_rules_t {
     uint8_t max;
   } mixRule[MSP_MAX_SERVO_RULES];
 }*/
-
-const MSP_MAX_SUPPORTED_MOTORS: usize = 8;
-
-/// MSP_MOTOR reply
-struct Motor {
-    motor: [u16; MSP_MAX_SUPPORTED_MOTORS],
-}
+//
+// const MSP_MAX_SUPPORTED_MOTORS: usize = 8;
+//
+// /// MSP_MOTOR reply
+// struct Motor {
+//     motor: [u16; MSP_MAX_SUPPORTED_MOTORS],
+// }
 
 // const MSP_MAX_SUPPORTED_CHANNELS: usize = 16;
 //
@@ -384,25 +386,25 @@ struct ArmingConfig {
 //     vel_z: [u8; 3],   // 0=P, 1=I, 2=D
 // }
 
-/// MSP_MISC reply
-struct Misc {
-    midrc: u16,
-    minthrottle: u16,
-    maxthrottle: u16,
-    mincommand: u16,
-    failsafe_throttle: u16,
-    gps_provider: u8,
-    gps_baudrate: u8,
-    gps_ubx_sbas: u8,
-    multiwii_current_meter_output: u8,
-    rssi_channel: u8,
-    dummy: u8,
-    mag_declination: u16,
-    vbatscale: u8,
-    vbatmincellvoltage: u8,
-    vbatmaxcellvoltage: u8,
-    vbatwarningcellvoltage: u8,
-}
+// /// MSP_MISC reply
+// struct Misc {
+//     midrc: u16,
+//     minthrottle: u16,
+//     maxthrottle: u16,
+//     mincommand: u16,
+//     failsafe_throttle: u16,
+//     gps_provider: u8,
+//     gps_baudrate: u8,
+//     gps_ubx_sbas: u8,
+//     multiwii_current_meter_output: u8,
+//     rssi_channel: u8,
+//     dummy: u8,
+//     mag_declination: u16,
+//     vbatscale: u8,
+//     vbatmincellvoltage: u8,
+//     vbatmaxcellvoltage: u8,
+//     vbatwarningcellvoltage: u8,
+// }
 
 /// values for msp_raw_gps_t.fixType
 #[derive(Clone, Copy)]
@@ -550,7 +552,6 @@ pub struct CompGps {
 
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u32)]
-#[allow(dead_code)]
 /// MSP_FEATURE mask
 pub enum Feature {
     RxPpm = 1 << 0,
@@ -841,8 +842,110 @@ impl OsdConfig {
 
         // todo: You must fill this in.
 
-        // result[0] = self.battery_cell_count;
-        // result[1..3].clone_from_slice(&self.battery_capacity.to_le_bytes());
+        // todo: We only include values we use.
+        result[0] = self.osdflags;
+        result[1] = self.video_system;
+        result[2] = self.units;
+        result[3] = self.rssi_alarm;
+        result[4..6].clone_from_slice(&self.cap_alarm.to_le_bytes());
+        result[6] = self.old_timer_alarm;
+        result[7] = self.item_count;
+        result[8..10].clone_from_slice(&self.alt_alarm.to_le_bytes());
+        result[10..12].clone_from_slice(&self.rssi_value_pos.to_le_bytes());
+        result[12..14].clone_from_slice(&self.main_batt_voltage_pos.to_le_bytes());
+        result[14..16].clone_from_slice(&self.crosshairs_pos.to_le_bytes());
+        result[16..18].clone_from_slice(&self.artificial_horizon_pos.to_le_bytes());
+        result[18..20].clone_from_slice(&self.horizon_sidebars_pos.to_le_bytes());
+        result[20..22].clone_from_slice(&self.item_timer_1_pos.to_le_bytes());
+        result[22..24].clone_from_slice(&self.item_timer_2_pos.to_le_bytes());
+        result[24..26].clone_from_slice(&self.craft_name_pos.to_le_bytes());
+        result[26..28].clone_from_slice(&self.throttle_pos_pos.to_le_bytes());
+        result[28..30].clone_from_slice(&self.vtx_channel_pos.to_le_bytes());
+        result[30..32].clone_from_slice(&self.current_draw_pos.to_le_bytes());
+        result[32..34].clone_from_slice(&self.mah_drawn_pos.to_le_bytes());
+        result[34..36].clone_from_slice(&self.gps_speed_pos.to_le_bytes());
+        result[36..38].clone_from_slice(&self.gps_sats_pos.to_le_bytes());
+        result[38..40].clone_from_slice(&self.altitude_pos.to_le_bytes());
+        result[40..42].clone_from_slice(&self.roll_pids_pos.to_le_bytes());
+        result[42..44].clone_from_slice(&self.pitch_pids_pos.to_le_bytes());
+        result[44..46].clone_from_slice(&self.yaw_pids_pos.to_le_bytes());
+        result[46..48].clone_from_slice(&self.power_pos.to_le_bytes());
+        result[48..50].clone_from_slice(&self.pidrate_profile_pos.to_le_bytes());
+
+        // todo: Finish this.
+
+        // pub power_pos: u16,
+        // pub pidrate_profile_pos: u16,
+        // pub warnings_pos: u16,
+        // pub avg_cell_voltage_pos: u16,
+        // pub gps_lon_pos: u16,
+        // pub gps_lat_pos: u16,
+        // pub debug_pos: u16,
+        // pub pitch_angle_pos: u16,
+        // pub roll_angle_pos: u16,
+        // pub main_batt_usage_pos: u16,
+        // pub disarmed_pos: u16,
+        // pub home_dir_pos: u16,
+        // pub home_dist_pos: u16,
+        // pub numerical_heading_pos: u16,
+        // pub numerical_vario_pos: u16,
+        // pub compass_bar_pos: u16,
+        // pub esc_tmp_pos: u16,
+        // pub esc_rpm_pos: u16,
+        // pub remaining_time_estimate_pos: u16,
+        // pub rtc_datetime_pos: u16,
+        // pub adjustment_range_pos: u16,
+        // pub core_temperature_pos: u16,
+        // pub anti_gravity_pos: u16,
+        // pub g_force_pos: u16,
+        // pub motor_diag_pos: u16,
+        // pub log_status_pos: u16,
+        // pub flip_arrow_pos: u16,
+        // pub link_quality_pos: u16,
+        // pub flight_dist_pos: u16,
+        // pub stick_overlay_left_pos: u16,
+        // pub stick_overlay_right_pos: u16,
+        // pub display_name_pos: u16,
+        // pub esc_rpm_freq_pos: u16,
+        // pub rate_profile_name_pos: u16,
+        // pub pid_profile_name_pos: u16,
+        // pub profile_name_pos: u16,
+        // pub rssi_dbm_value_pos: u16,
+        // pub rc_channels_pos: u16,
+        // pub stat_count: u8, //24
+        // pub stat_rtc_date_time: u8,
+        // pub stat_timer_1: u8,
+        // pub stat_timer_2: u8,
+        // pub stat_max_speed: u8,
+        // pub stat_max_distance: u8,
+        // pub stat_min_battery: u8,
+        // pub stat_end_battery: u8,
+        // pub stat_battery: u8,
+        // pub stat_min_rssi: u8,
+        // pub stat_max_current: u8,
+        // pub stat_used_mah: u8,
+        // pub stat_max_altitude: u8,
+        // pub stat_blackbox: u8,
+        // pub stat_blackbox_number: u8,
+        // pub stat_max_g_force: u8,
+        // pub stat_max_esc_temp: u8,
+        // pub stat_max_esc_rpm: u8,
+        // pub stat_min_link_quality: u8,
+        // pub stat_flight_distance: u8,
+        // pub stat_max_fft: u8,
+        // pub stat_total_flights: u8,
+        // pub stat_total_time: u8,
+        // pub stat_total_dist: u8,
+        // pub stat_min_rssi_dbm: u8,
+        // pub timer_count: u16,
+        // pub timer_1: u16,
+        // pub timer_2: u16,
+        // pub enabledwarnings: u16,
+        // pub warning_count: u8, // 16
+        // pub enabledwarnings_1_41_plus: u32,
+        // pub profile_count: u8,      // 1
+        // pub osdprofileindex: u8,    // 1
+        // pub overlay_radio_mode: u8, //  0
 
         result
     }

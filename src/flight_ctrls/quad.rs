@@ -32,9 +32,9 @@ pub const THROTTLE_MAX_MNVR_CLAMP: f32 = 0.80;
 // and have it higher otherwise.
 pub const THROTTLE_MIN_MNVR_CLAMP: f32 = 0.06;
 
-// Even if PID output for a given axis is higher than this, don't allow more than this
-// half-pair-delta between rotor power levels.
-const ROTOR_HALF_DELTA_CLAMP: f32 = 0.15;
+// // Even if PID output for a given axis is higher than this, don't allow more than this
+// // half-pair-delta between rotor power levels.
+// const ROTOR_HALF_DELTA_CLAMP: f32 = 0.15;
 
 // Don't execute the calibration procedure from below this altitude, in meters AGL, eg for safety.
 const MIN_CAL_ALT: f32 = 6.;

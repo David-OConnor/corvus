@@ -120,6 +120,15 @@ impl AutopilotStatus {
         }
     }
 
+    pub fn apply_attitude_fixed_wing(
+        &self,
+        params: &Params,
+        attitudes_commanded: &mut CtrlInputs,
+        // input_map: &InputMap,
+        // max_speed_ver: f32,
+    ) {
+    }
+
     /// Apply the autopilot controls.
     pub fn apply_rate_quad(
         &self,

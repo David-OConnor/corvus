@@ -137,25 +137,27 @@ pub enum AltType {
     Msl,
 }
 
-/// Stores the current manual inputs to the system. `pitch`, `yaw`, and `roll` are in range -1. to +1.
+/// Stores inputs to the system. `pitch`, `yaw`, and `roll` are in range -1. to +1.
 /// `thrust` is in range 0. to 1. Corresponds to stick positions on a controller, but can
 /// also be used as a model for autonomous flight.
 /// The interpretation of these depends on the current input mode.
 /// These inputs, (if directly from flight control radio inputs), are translated from raw inputs from the radio
 /// to -1. to 1. (0. to 1. for thrust)
+///
+/// A value of `None` indicates no value is commanded.
 #[derive(Clone, Default)]
 pub struct CtrlInputs {
     /// Acro mode: Change pitch angle
     /// Attitude mode: Command forward and aft motion
-    pub pitch: f32,
+    pub pitch: Option<f32>,
     /// Acro mode: Change roll angle
     /// Attitude mode: Command left and right motion
-    pub roll: f32,
+    pub roll: Option<f32>,
     /// Yaw, in either mode
-    pub yaw: f32,
+    pub yaw: Option<f32>,
     /// Acro mode: Change overall power (Altitude, or speed depending on orientation)
     /// Attitude mode: Change altitude
-    pub thrust: f32,
+    pub thrust: Option<f32>,
 }
 
 /// Aircraft flight parameters, at a given instant. Pitch and roll rates are in the aircraft's

@@ -34,6 +34,7 @@ const CRC_SIZE: usize = 1;
 
 #[derive(Copy, Clone)]
 #[repr(u8)]
+#[allow(dead_code)]
 pub enum MsgType {
     /// Sent by master, processed by slave
     Request = 0x3c, // aka <

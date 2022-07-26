@@ -628,7 +628,7 @@ mod app {
             AircraftType::Quadcopter => {
                 dshot::setup_timers(&mut motor_timers);
             }
-            AircraftType::FlyingWing => {
+            AircraftType::FixedWing => {
                 flying_wing::setup_timers(&mut motor_timers);
                 ctrl_coeffs = CtrlCoeffGroup::default_flying_wing();
             }
@@ -1056,51 +1056,6 @@ mod app {
                     // *power_used += current_pwr.total() * DT;
                     // }
 
-                    // Note: Arm status primary handler is in the `set_power` fn, but there's no reason
-                    // to run the PIDs if not armed.
-                    if state_volatile.arm_status != ArmStatus::Armed {
-                        return;
-                    }
-
-                    match input_mode {
-                        InputMode::Acro => {}
-                        _ => {
-                            pid::run_attitude_quad(
-                                params,
-                                control_channel_data,
-                                input_map,
-                                attitudes_commanded,
-                                rates_commanded,
-                                pid_attitude,
-                                filters,
-                                input_mode,
-                                autopilot_status,
-                                cfg,
-                                // command_state,
-                                coeffs,
-                            );
-
-                            if input_mode == &InputMode::Command {
-                                if *cx.local.update_loop_i % VELOCITY_ATTITUDE_UPDATE_RATIO == 0 {
-                                    pid::run_velocity(
-                                        params,
-                                        control_channel_data,
-                                        input_map,
-                                        velocities_commanded,
-                                        attitudes_commanded,
-                                        pid_velocity,
-                                        filters,
-                                        input_mode,
-                                        autopilot_status,
-                                        cfg,
-                                        command_state,
-                                        coeffs,
-                                    );
-                                }
-                            }
-                        }
-                    }
-
                     // todo: Determine timing for OSD update, and if it should be in this loop,
                     // todo, or slower.
 
@@ -1128,6 +1083,69 @@ mod app {
                         pid_d: coeffs.roll.k_d_rate,
                     };
                     osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH, dma, &osd_data);
+
+                    // Note: Arm status primary handler is in the `set_power` fn, but there's no reason
+                    // to run the PIDs if not armed.
+                    if state_volatile.arm_status != ArmStatus::Armed {
+                        return;
+                    }
+
+                    match cfg.aircraft_type {
+                        AircraftType::Quadcopter => {
+                            pid::run_attitude_quad(
+                                params,
+                                control_channel_data,
+                                input_map,
+                                attitudes_commanded,
+                                rates_commanded,
+                                pid_attitude,
+                                filters,
+                                input_mode,
+                                autopilot_status,
+                                cfg,
+                                // command_state,
+                                coeffs,
+                            );
+                        }
+                        AircraftType::FixedWing => {
+                            pid::run_attitude_fixed_wing(
+                                params,
+                                // control_channel_data,
+                                // input_map,
+                                attitudes_commanded,
+                                rates_commanded,
+                                pid_attitude,
+                                filters,
+                                // input_mode,
+                                autopilot_status,
+                                // cfg,
+                                // command_state,
+                                coeffs,
+                            );
+                        }
+                    }
+
+                    match input_mode {
+                        InputMode::Acro => {}
+                        _ => {} //     if input_mode == &InputMode::Command {
+                                //         if *cx.local.update_loop_i % VELOCITY_ATTITUDE_UPDATE_RATIO == 0 {
+                                //             pid::run_velocity(
+                                //                 params,
+                                //                 control_channel_data,
+                                //                 input_map,
+                                //                 velocities_commanded,
+                                //                 attitudes_commanded,
+                                //                 pid_velocity,
+                                //                 filters,
+                                //                 input_mode,
+                                //                 autopilot_status,
+                                //                 cfg,
+                                //                 command_state,
+                                //                 coeffs,
+                                //             );
+                                //     }
+                                // }
+                    }
                 },
             )
     }
@@ -1287,7 +1305,7 @@ mod app {
                                 DT_IMU,
                             );
                         }
-                        AircraftType::FlyingWing => {
+                        AircraftType::FixedWing => {
                             *cx.local.fixed_wing_rate_loop_i += 1;
                             if *cx.local.fixed_wing_rate_loop_i % FIXED_WING_RATE_UPDATE_RATIO == 0
                             {

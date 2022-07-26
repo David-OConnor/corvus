@@ -5,6 +5,8 @@
 //!
 //! Note that both this and the ICM-42605 IMU read temperature.
 
+#![allow(dead_code)]
+
 use crate::{
     atmos_model::{AltitudeCalPt, POINT_0, POINT_1},
     util,

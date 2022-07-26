@@ -48,7 +48,7 @@ const INTEGRATOR_CLAMP_MIN_FIXED_WING: f32 = -INTEGRATOR_CLAMP_MAX_FIXED_WING;
 // https://github-wiki-see.page/m/betaflight/betaflight/wiki/PID-Tuning-Guide
 pub const TPA_MIN_ATTEN: f32 = 0.5; // At full throttle, D term is attenuated to this value.
 pub const TPA_BREAKPOINT: f32 = 0.3; // Start engaging TPA at this value.
-                                     // `TPA_SLOPE` and `TPA_Y_INT` are cached calculations.
+// `TPA_SLOPE` and `TPA_Y_INT` are cached calculations.
 const TPA_SLOPE: f32 = (TPA_MIN_ATTEN - 1.) / (MAX_ROTOR_POWER - TPA_BREAKPOINT);
 const TPA_Y_INT: f32 = -(TPA_SLOPE * TPA_BREAKPOINT - 1.);
 
@@ -274,6 +274,8 @@ impl PidState {
     /// Anti-windup integrator clamp
     pub fn anti_windup_clamp(&mut self, error_p: f32) {
         //  Dynamic integrator clamping, from https://www.youtube.com/watch?v=zOByx3Izf5U
+
+        // todo: Ac type; use clamp fixed wing
 
         let lim_max_int = if INTEGRATOR_CLAMP_MAX_QUAD > error_p {
             INTEGRATOR_CLAMP_MAX_QUAD - error_p
@@ -611,6 +613,55 @@ pub fn run_velocity(
     // };
 }
 
+/// To reduce DRY between `run_attitude_quad` and `run_attitude_fixed_wing`.
+fn attitude_apply_common(pid_attitude: &mut PidGroup, rates_commanded: &mut CtrlInputs, params: &Params,
+                         attitudes_commanded: &CtrlInputs, coeffs: &CtrlCoeffGroup, filters: &mut PidDerivFilters) {
+    if let some(pitch_commanded) = attitudes_commanded.pitch {
+        pid_attitude.pitch = calc_pid_error(
+            pitch_commanded,
+            params.s_pitch,
+            &pid_attitude.pitch,
+            coeffs.pitch.k_p_attitude,
+            coeffs.pitch.k_i_attitude,
+            coeffs.pitch.k_d_attitude,
+            &mut filters.pitch_attitude,
+            DT_ATTITUDE,
+        );
+
+        rates_commanded.pitch = Some(pid_attitude.pitch.out());
+    }
+
+    if let some(roll_commanded) = attitudes_commanded.roll {
+        pid_attitude.roll = calc_pid_error(
+            roll_commanded,
+            params.s_roll,
+            &pid_attitude.roll,
+            // coeffs,
+            coeffs.roll.k_p_attitude,
+            coeffs.roll.k_i_attitude,
+            coeffs.roll.k_d_attitude,
+            &mut filters.roll_attitude,
+            DT_ATTITUDE,
+        );
+
+        rates_commanded.roll = Some(pid_attitude.roll.out());
+    }
+
+    if let some(yaw_commanded) = attitudes_commanded.yaw {
+        pid_attitude.yaw = calc_pid_error(
+            yaw_commanded,
+            params.s_yaw,
+            &pid_attitude.yaw,
+            coeffs.yaw.k_p_attitude,
+            coeffs.yaw.k_i_attitude,
+            coeffs.yaw.k_s_attitude,
+            &mut filters.yaw_attitude,
+            DT_ATTITUDE,
+        );
+        rates_commanded.yaw = Some(pid_attitude.yaw.out());
+    }
+}
+
 /// Run the attitude (mid) PID loop: This is used to determine angular velocities, based on commanded
 /// attitude.
 pub fn run_attitude_quad(
@@ -626,22 +677,17 @@ pub fn run_attitude_quad(
     cfg: &UserCfg,
     coeffs: &CtrlCoeffGroup,
 ) {
-    autopilot_status.apply_attitude_quad(params, attitudes_commanded, input_map, cfg.max_speed_ver);
-
     match input_mode {
-        InputMode::Acro => {
-            // (Acro mode has handled by the rates loop)
+        InputMode::Acro => {}
 
-            // todo: If a rate axis is centered. command an attitude where that
-            // todo position was left off. (quaternion)
-        }
-
+        // If in Attitude control mode, command our initial (pre-autopilot) attitudes based on
+        // congtrol positions.
         InputMode::Attitude => {
             *attitudes_commanded = CtrlInputs {
-                pitch: input_map.calc_pitch_angle(ch_data.pitch),
-                roll: input_map.calc_roll_angle(ch_data.roll),
-                yaw: input_map.calc_yaw_rate(ch_data.yaw),
-                thrust: ch_data.throttle,
+                pitch: Some(input_map.calc_pitch_angle(ch_data.pitch)),
+                roll: Some(input_map.calc_roll_angle(ch_data.roll)),
+                yaw: Some(input_map.calc_yaw_rate(ch_data.yaw)),
+                thrust: None,
             };
         }
         InputMode::Command => {
@@ -649,60 +695,30 @@ pub fn run_attitude_quad(
         }
     }
 
-    pid.pitch = calc_pid_error(
-        attitudes_commanded.pitch,
-        params.s_pitch,
-        &pid.pitch,
-        coeffs.pitch.k_p_attitude,
-        coeffs.pitch.k_i_attitude,
-        coeffs.pitch.k_d_attitude,
-        &mut filters.pitch_attitude,
-        DT_ATTITUDE,
-    );
+    autopilot_status.apply_attitude_quad(params, attitudes_commanded, input_map, cfg.max_speed_ver);
 
-    pid.roll = calc_pid_error(
-        attitudes_commanded.roll,
-        params.s_roll,
-        &pid.roll,
-        // coeffs,
-        coeffs.roll.k_p_attitude,
-        coeffs.roll.k_i_attitude,
-        coeffs.roll.k_d_attitude,
-        &mut filters.roll_attitude,
-        DT_ATTITUDE,
-    );
+    attitude_apply_common(pid_attitude, rates_commanded, params, attitudes_commanded, coeffs, filters);
+}
 
-    // Note that for attitude mode, we ignore commanded yaw attitude, and treat it
-    // as a rate.
-    pid.yaw = calc_pid_error(
-        attitudes_commanded.yaw,
-        params.s_yaw,
-        &pid.yaw,
-        coeffs.yaw.k_p_attitude,
-        coeffs.yaw.k_i_attitude,
-        coeffs.yaw.k_s_attitude,
-        &mut filters.yaw_attitude,
-        DT_ATTITUDE,
-    );
+/// Run the attitude (mid) PID loop: This is used to determine angular velocities, based on commanded
+/// attitude. Note that for fixed wing, we have no direct attitude mode, so this is entirely determined
+/// by the variou autopilot modes.
+pub fn run_attitude_fixed_wing(
+    params: &Params,
+    // ch_data: &ChannelData,
+    // input_map: &InputMap,
+    attitudes_commanded: &mut CtrlInputs,
+    rates_commanded: &mut CtrlInputs,
+    pid_attitude: &mut PidGroup,
+    filters: &mut PidDerivFilters,
+    // input_mode: &InputMode,
+    autopilot_status: &AutopilotStatus,
+    // cfg: &UserCfg,
+    coeffs: &CtrlCoeffGroup,
+) {
+    autopilot_status.apply_attitude_fixed_wing(params, attitudes_commanded);
 
-    // todo: Consider how you want to handle thrust/altitude.
-    pid.thrust = calc_pid_error(
-        attitudes_commanded.thrust,
-        params.baro_alt_msl,
-        &pid.thrust,
-        coeffs.thrust.k_p_attitude,
-        coeffs.thrust.k_i_attitude,
-        coeffs.thrust.k_s_attitude,
-        &mut filters.thrust,
-        DT_ATTITUDE,
-    );
-
-    *rates_commanded = CtrlInputs {
-        pitch: pid.pitch.out(),
-        roll: pid.roll.out(),
-        yaw: pid.yaw.out(),
-        thrust: pid.thrust.out(),
-    };
+    attitude_apply_common(pid_attitude, rates_commanded, params, attitudes_commanded, coeffs, filters);
 }
 
 /// Run the rate (inner) PID loop: This is what directly affects motor output by commanding pitch, roll, and
@@ -767,7 +783,8 @@ pub fn run_rate_quad(
                 yaw: input_map.calc_yaw_rate(ch_data.yaw),
                 // todo: If you do a non-linear throttle-to-thrust map, put something like this back.
                 // thrust: flight_ctrls::power_from_throttle(ch_data.throttle, &power_interp_inst),
-                thrust: input_map.calc_manual_throttle(ch_data.throttle),
+                // thrust: input_map.calc_manual_throttle(ch_data.throttle),
+                thrust: 0., // handled later in this fn.
             };
         }
         _ => (),
@@ -817,6 +834,7 @@ pub fn run_rate_quad(
     let pitch = pid.pitch.out();
     let roll = pid.roll.out();
     let yaw = pid.yaw.out();
+    let throttle = input_map.calc_manual_throttle(ch_data.throttle);
 
     autopilot_status.apply_rate_quad(
         params,
@@ -858,46 +876,58 @@ pub fn run_rate_fixed_wing(
     arm_status: ArmStatus,
     dt: f32,
 ) {
-    match input_mode {
-        InputMode::Acro => {
-            // todo: Power interp not yet implemented.
-            // let power_interp_inst = dsp_sys::arm_linear_interp_instance_f32 {
-            //     nValues: 11,
-            //     x1: 0.,
-            //     xSpacing: 0.1,
-            //     pYData: [
-            //         // Idle power.
-            //         0.02, // Make sure this matches the above.
-            //         POWER_LUT[0],
-            //         POWER_LUT[1],
-            //         POWER_LUT[2],
-            //         POWER_LUT[3],
-            //         POWER_LUT[4],
-            //         POWER_LUT[5],
-            //         POWER_LUT[6],
-            //         POWER_LUT[7],
-            //         POWER_LUT[8],
-            //         POWER_LUT[9],
-            //     ]
-            //     .as_mut_ptr(),
-            // };
+    // match input_mode {
+    //     InputMode::Acro => {
+    //         // todo: Power interp not yet implemented.
+    //         // let power_interp_inst = dsp_sys::arm_linear_interp_instance_f32 {
+    //         //     nValues: 11,
+    //         //     x1: 0.,
+    //         //     xSpacing: 0.1,
+    //         //     pYData: [
+    //         //         // Idle power.
+    //         //         0.02, // Make sure this matches the above.
+    //         //         POWER_LUT[0],
+    //         //         POWER_LUT[1],
+    //         //         POWER_LUT[2],
+    //         //         POWER_LUT[3],
+    //         //         POWER_LUT[4],
+    //         //         POWER_LUT[5],
+    //         //         POWER_LUT[6],
+    //         //         POWER_LUT[7],
+    //         //         POWER_LUT[8],
+    //         //         POWER_LUT[9],
+    //         //     ]
+    //         //     .as_mut_ptr(),
+    //         // };
+    //
+    //         // todo: It pitch or roll stick is neutral, hold that attitude (quaternion)
+    //
+    //         // Note: We may not need to modify the `rates_commanded` resource in place here; we don't
+    //         // use it upstream.
+    //         // Map the manual input rates (eg -1. to +1. etc) to real units, eg radians/s.
+    //         *rates_commanded = CtrlInputs {
+    //             pitch: Some(input_map.calc_pitch_rate(ch_data.pitch)),
+    //             roll: Some(input_map.calc_roll_rate(ch_data.roll)),
+    //             yaw: Some(input_map.calc_yaw_rate(ch_data.yaw)),
+    //             // todo: If you do a non-linear throttle-to-thrust map, put something like this back.
+    //             // thrust: flight_ctrls::power_from_throttle(ch_data.throttle, &power_interp_inst),
+    //             // thrust: input_map.calc_manual_throttle(ch_data.throttle),
+    //             thrust: None, // handled later in this fn.
+    //         };
+    //     }
+    //     _ => (),
+    // }
 
-            // todo: It pitch or roll stick is neutral, hold that attitude (quaternion)
+    *rates_commanded = CtrlInputs {
+        pitch: Some(input_map.calc_pitch_rate(ch_data.pitch)),
+        roll: Some(input_map.calc_roll_rate(ch_data.roll)),
+        yaw: Some(input_map.calc_yaw_rate(ch_data.yaw)),
+        // todo: If you do a non-linear throttle-to-thrust map, put something like this back.
+        // thrust: flight_ctrls::power_from_throttle(ch_data.throttle, &power_interp_inst),
+        // thrust: input_map.calc_manual_throttle(ch_data.throttle),
+        thrust: None, // handled later in this fn.
+    };
 
-            // Note: We may not need to modify the `rates_commanded` resource in place here; we don't
-            // use it upstream.
-            // Map the manual input rates (eg -1. to +1. etc) to real units, eg radians/s.
-            *rates_commanded = CtrlInputs {
-                pitch: input_map.calc_pitch_rate(ch_data.pitch),
-                roll: input_map.calc_roll_rate(ch_data.roll),
-                yaw: input_map.calc_yaw_rate(ch_data.yaw),
-                // todo: If you do a non-linear throttle-to-thrust map, put something like this back.
-                // thrust: flight_ctrls::power_from_throttle(ch_data.throttle, &power_interp_inst),
-                thrust: input_map.calc_manual_throttle(ch_data.throttle),
-            };
-        }
-        _ => (),
-    }
 
     pid.pitch = calc_pid_error(
         rates_commanded.pitch,
@@ -934,8 +964,9 @@ pub fn run_rate_fixed_wing(
 
     let pitch = pid.pitch.out();
     let roll = pid.roll.out();
-    let yaw = pid.yaw.out();
-    let throttle = rates_commanded.thrust;
+    // let yaw = pid.yaw.out();
+
+    let throttle = input_map.calc_manual_throttle(ch_data.throttle);
 
     autopilot_status.apply_rate_fixed_wing(params, rates_commanded);
 
