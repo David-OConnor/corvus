@@ -673,7 +673,7 @@ pub fn run_attitude_quad(
         }
     }
 
-    autopilot_status.apply_attitude_quad(
+    autopilot_status.apply_quad(
         params,
         attitudes_commanded,
         rates_commanded,
@@ -712,7 +712,7 @@ pub fn run_attitude_fixed_wing(
     coeffs: &CtrlCoeffGroup,
 ) {
     // Note that for fixed wing, we don't have attitude mode.
-    autopilot_status.apply_attitude_fixed_wing(
+    autopilot_status.apply_fixed_wing(
         params,
         attitudes_commanded,
         rates_commanded,

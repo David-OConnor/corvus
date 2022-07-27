@@ -36,16 +36,16 @@ fn heading_between_points(target: (f32, f32), aircraft: (f32, f32)) -> f32 {
 /// Params are in radians. Uses the 'haversine' formula
 fn distance_between_points(target: (f32, f32), aircraft: (f32, f32)) -> f32 {
     // todo: LatLon struct with named fields.
-    
+
     let φ1 = aircraft.0; // φ, λ in radians
     let φ2 = target.0;
-    let Δφ = (target.0-aircraft.0);
-    let Δλ = (target.1-aircraft.1);
+    let Δφ = (target.0 - aircraft.0);
+    let Δλ = (target.1 - aircraft.1);
 
-    let a = (Δφ/2.).sin() * (Δφ/2.).sin() +
-        (φ1).cos() * (φ2).cos() * (Δλ/2.).sin() * (Δλ/2.).sin();
+    let a = (Δφ / 2.).sin() * (Δφ / 2.).sin()
+        + (φ1).cos() * (φ2).cos() * (Δλ / 2.).sin() * (Δλ / 2.).sin();
 
-    let c = 2 * (a).sqrt().atan2((1-a).sqrt());
+    let c = 2 * (a).sqrt().atan2((1 - a).sqrt());
 
     R * c
 }
@@ -59,9 +59,9 @@ pub enum OrbitShape {
 /// move over time.
 pub struct Orbit {
     shape: OrbitShape,
-    center_lat: f32,  // radians
-    center_lon: f32,  // radians
-    radius: f32,      // m
+    center_lat: f32,   // radians
+    center_lon: f32,   // radians
+    radius: f32,       // m
     ground_speed: f32, // m/s
 }
 
@@ -134,7 +134,7 @@ pub struct AutopilotStatus {
 // todo make sure you set it back to none A/R.
 
 impl AutopilotStatus {
-    pub fn apply_attitude_quad(
+    pub fn apply_quad(
         &self,
         params: &Params,
         attitudes_commanded: &mut CtrlInputs,
@@ -164,7 +164,11 @@ impl AutopilotStatus {
             //     yaw: Some(0.),
             //     thrust: Some(flight_ctrls::quad::landing_speed(params.tof_alt, max_speed_ver)),
             // };
-        } else if let Some((alt_type, alt_commanded)) = self.alt_hold {
+        }
+
+        if self.alt_hold.is_some() && !self.takeoff && self.land_quad.is_none() {
+            let (alt_type, alt_commanded) = self.alt_hold.unwrap();
+
             // Set a vertical velocity for the inner loop to maintain, based on distance
             let dist = match alt_type {
                 AltType::Msl => alt_commanded - params.baro_alt_msl,
@@ -183,17 +187,16 @@ impl AutopilotStatus {
                 DT_ATTITUDE,
             );
 
-            // todo: Set this at rate or attitude level?
+            // Note that thrust is set using the rate loop.
+            rates_commanded.thrust = Some(pid.thrust.out());
+        }
 
-            attitudes_commanded.thrust = Some(pid.thrust.out());
-        } else {
-            // We must reset the commanded pitch if not using one of these modes, so control can
-            // be handed back to manual controls etc.
-            attitudes_commanded.thrust = None;
+        if self.alt_hold.is_none() && !self.takeoff && self.quad.is_none() {
+            attitudes_commanded.pitch = None;
         }
     }
 
-    pub fn apply_attitude_fixed_wing(
+    pub fn apply_fixed_wing(
         &self,
         params: &Params,
         attitudes_commanded: &mut CtrlInputs,
@@ -230,9 +233,33 @@ impl AutopilotStatus {
             let mut established = false;
             // if distance_between_points(ldg_cfg.touchdown_point)
 
-
             // todo: DRY between quad and FC here, although the diff is power vs pitch.
-        } else if let Some((alt_type, alt_commanded)) = self.alt_hold {
+        } else if let Some(orbit) = &self.orbit {
+            // todo: You'll get a smoother entry if you initially calculate, and fly to a point on the radius
+            // todo on a heading similar to your own angle to it. For now, fly directly to the point for
+            // todo simpler logic and good-enough.
+
+            let established = distance_between_points(
+                (orbit.center_lat, orbit.center_lon),
+                (params.latitude, params.longitude),
+            );
+
+            let target_heading = if established {
+                find_heading(
+                    (params.latitude, params.longitude),
+                    (orbit.center_lat, orbit.center_lon),
+                );
+            } else {
+                find_heading(
+                    (params.latitude, params.longitude),
+                    (orbit.center_lat, orbit.center_lon),
+                );
+            };
+        }
+
+        if self.alt_hold.is_some() && !self.takeoff && self.land_fixed_wing.is_none() {
+            let (alt_type, alt_commanded) = self.alt_hold.unwrap();
+
             // Set a vertical velocity for the inner loop to maintain, based on distance
             let dist = match alt_type {
                 AltType::Msl => alt_commanded - params.baro_alt_msl,
@@ -259,85 +286,12 @@ impl AutopilotStatus {
             // // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
             // attitudes_commanded.pitch =
             //     Some(flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.tof_alt));
-        } else {
-            // We must reset the commanded pitch if not using one of these modes, so control can
-            // be handed back to manual controls etc.
+        }
+
+        // If not in an autopilot mode, reset commands that may have been set by the autopilot, and
+        // wouldn't have been reset by manual controls. For now, this only applie to throttle.
+        if self.alt_hold.is_none() && !self.takeoff && self.land_fixed_wing.is_none() {
             attitudes_commanded.pitch = None;
         }
-
-        // todo: Interaction between orbit etc and incompatible modes. Ie, we can enable orbit and
-        // todo alt hold independently. They're compatible with each other. But not TO and landing for example.
-
-        if let Some(orbit) = &self.orbit {
-            // todo: You'll get a smoother entry if you initially calculate, and fly to a point on the radius
-            // todo on a heading similar to your own angle to it. For now, fly directly to the point for
-            // todo simpler logic and good-enough.
-
-            let established = distance_between_points(
-                (orbit.center_lat, orbit.center_lon), (params.latitude, params.longitude)
-            );
-
-            let target_heading = if established {
-                find_heading((params.latitude, params.longitude), (orbit.center_lat, orbit.center_lon));
-            } else {
-                find_heading((params.latitude, params.longitude), (orbit.center_lat, orbit.center_lon));
-            };
-        }
     }
-
-    // /// Apply the autopilot controls.
-    // pub fn _apply_rate_quad(
-    //     &self,
-    //     params: &Params,
-    //     rates_commanded: &mut CtrlInputs,
-    //     max_speed_ver: f32,
-    //     pid: &mut PidGroup,
-    //     filters: &mut PidDerivFilters,
-    //     coeffs: &CtrlCoeffGroup,
-    //     dt: f32,
-    // ) {
-    //     if let Some((alt_type, alt_commanded)) = self.alt_hold {
-    //         let dist = match alt_type {
-    //             AltType::Msl => alt_commanded - params.baro_alt_msl,
-    //             AltType::Agl => alt_commanded - params.tof_alt,
-    //         };
-    //         // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-    //         rates_commanded.thrust =
-    //             flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.tof_alt);
-    //     }
-    //
-    //     if self.yaw_assist {
-    //         // Blend manual inputs with the autocorrection factor. If there are no manual inputs,
-    //         // this autopilot mode should neutralize all sideslip.
-    //         let hor_dir = 0.; // radians
-    //         let hor_speed = 0.; // m/s
-    //
-    //         let yaw_correction_factor = ((hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
-    //
-    //         if hor_speed > YAW_ASSIST_MIN_SPEED {
-    //             rates_commanded.yaw += yaw_correction_factor;
-    //         }
-    //     } else if self.roll_assist {
-    //         // todo!
-    //         let hor_dir = 0.; // radians
-    //         let hor_speed = 0.; // m/s
-    //
-    //         let roll_correction_factor = (-(hor_dir - params.s_yaw) / TAU) * YAW_ASSIST_COEFF;
-    //
-    //         if hor_speed > YAW_ASSIST_MIN_SPEED {
-    //             rates_commanded.yaw += roll_correction_factor;
-    //         }
-    //     }
-    //
-
-    // pub fn _apply_rate_fixed_wing(&self, params: &Params, rates_commanded: &mut CtrlInputs) {
-    //     if let Some((alt_type, alt_commanded)) = self.alt_hold {
-    //         let dist = match alt_type {
-    //             AltType::Msl => alt_commanded - params.baro_alt_msl,
-    //             AltType::Agl => alt_commanded - params.tof_alt,
-    //         };
-    //         // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-    //         rates_commanded.thrust = 0.; // todo
-    //     }
-    // }
 }
