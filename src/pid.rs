@@ -69,11 +69,6 @@ static mut FILTER_STATE_YAW_RATE: [f32; 4] = [0.; 4];
 
 static mut FILTER_STATE_THRUST: [f32; 4] = [0.; 4];
 
-// todo temp: BF constants, for use with BF code translation while figuring this uot
-const BF_P: f32 = 10.;
-const BF_I: f32 = 10.;
-const BF_D: f32 = 10.;
-
 // filter_ = signal.iirfilter(1, 100, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
 // coeffs = []
 // for row in filter_:
@@ -504,10 +499,10 @@ pub fn run_velocity(
     let eps2 = 0.01;
     // todo: Commanded velocity 0 to trigger loiter logic, or actual velocity?
     // if mid_flight_cmd.y_pitch.unwrap().2 < eps && mid_flight_cmd.x_roll.unwrap().2 < eps {
-    if params.longitude < eps2 && params.latitude < eps2 {
+    if params.lon < eps2 && params.lat < eps2 {
         if !commands.loiter_set {
-            commands.x = params.longitude;
-            commands.y = params.latitude;
+            commands.x = params.lon;
+            commands.y = params.lat;
             commands.loiter_set = true;
         }
 
@@ -549,7 +544,7 @@ pub fn run_velocity(
     // todo: What should this be ??
     pid.yaw = calc_pid_error(
         velocities_commanded.yaw.unwrap(),
-        params.s_yaw,
+        params.s_yaw_heading,
         &pid.yaw,
         0., // todo
         0., // todo
@@ -628,7 +623,7 @@ fn attitude_apply_common(
     if let Some(yaw_commanded) = attitudes_commanded.yaw {
         pid_attitude.yaw = calc_pid_error(
             yaw_commanded,
-            params.s_yaw,
+            params.s_yaw_heading,
             &pid_attitude.yaw,
             coeffs.yaw.k_p_attitude,
             coeffs.yaw.k_i_attitude,
@@ -731,7 +726,8 @@ pub fn run_attitude_fixed_wing(
     );
 }
 
-/// To reduce DRY between `run_rate_quad` and `run_rate_fixed_wing`.
+/// To reduce DRY between `run_rate_quad` and `run_rate_fixed_wing`. Modifies `rates_commanded`,
+/// and returns PID output as pitch, roll, yaw, thrust.
 fn rate_apply_common(
     pid_rate: &mut PidGroup,
     rates_commanded: &mut CtrlInputs,
@@ -742,9 +738,9 @@ fn rate_apply_common(
     input_map: &InputMap,
     tpa_scaler: f32,
     dt: f32,
-) {
+) -> (f32, f32, f32, f32) {
     // If a given rate (or throttle) hasn't been defined by an outer loop or autopilot mode, apply
-    // using the control inputs.
+    // its manual control.
     if rates_commanded.pitch.is_none() {
         pid_rate.pitch = calc_pid_error(
             input_map.calc_pitch_rate(ch_data.pitch),
@@ -791,9 +787,15 @@ fn rate_apply_common(
     }
 
     if rates_commanded.thrust.is_none() {
-        // Apply manual throttle.
         rates_commanded.thrust = Some(input_map.calc_manual_throttle(ch_data.throttle));
     }
+
+    let pitch = rates_commanded.pitch.unwrap();
+    let roll = rates_commanded.roll.unwrap();
+    let yaw = rates_commanded.yaw.unwrap();
+    let throttle = rates_commanded.thrust.unwrap();
+
+    (pitch, roll, yaw, throttle)
 }
 
 /// Run the rate (inner) PID loop: This is what directly affects motor output by commanding pitch, roll, and
@@ -840,7 +842,7 @@ pub fn run_rate_quad(
     //     dt,
     // );
 
-    rate_apply_common(
+    let (pitch, roll, yaw, throttle) = rate_apply_common(
         pid,
         rates_commanded,
         params,
@@ -851,11 +853,6 @@ pub fn run_rate_quad(
         tpa_scaler,
         dt,
     );
-
-    let pitch = rates_commanded.pitch.unwrap();
-    let roll = rates_commanded.roll.unwrap();
-    let yaw = rates_commanded.yaw.unwrap();
-    let throttle = rates_commanded.thrust.unwrap();
 
     flight_ctrls::quad::apply_controls(
         pitch,
@@ -915,7 +912,7 @@ pub fn run_rate_fixed_wing(
     // wouldn't be a bad idea.
     let tpa_scaler = 1.;
 
-    rate_apply_common(
+    let (pitch, roll, _yaw, throttle) = rate_apply_common(
         pid,
         rates_commanded,
         params,
@@ -926,11 +923,6 @@ pub fn run_rate_fixed_wing(
         tpa_scaler,
         dt,
     );
-
-    let pitch = rates_commanded.pitch.unwrap();
-    let roll = rates_commanded.roll.unwrap();
-    let _yaw = rates_commanded.yaw.unwrap();
-    let throttle = rates_commanded.thrust.unwrap();
 
     flight_ctrls::fixed_wing::apply_controls(
         pitch,

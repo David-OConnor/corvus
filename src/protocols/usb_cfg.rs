@@ -221,10 +221,9 @@ fn waypoints_to_buf(w: &[Option<Location>; MAX_WAYPOINTS]) -> [u8; WAYPOINTS_SIZ
 
                 let coords_start_i = wp_start_i + 1 + WAYPOINT_MAX_NAME_LEN;
 
-                result[coords_start_i..coords_start_i + 4]
-                    .clone_from_slice(&wp.longitude.to_be_bytes());
+                result[coords_start_i..coords_start_i + 4].clone_from_slice(&wp.lon.to_be_bytes());
                 result[coords_start_i + 4..coords_start_i + 8]
-                    .clone_from_slice(&wp.latitude.to_be_bytes());
+                    .clone_from_slice(&wp.lat.to_be_bytes());
                 result[coords_start_i + 8..coords_start_i + 12]
                     .clone_from_slice(&wp.alt_msl.to_be_bytes());
             }

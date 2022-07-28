@@ -18,7 +18,7 @@
 
 // todo: Try this : https://github.com/Mayitzin/ahrs/blob/master/ahrs/filters/ekf.py
 
-use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sin_f32 as sin};
+// use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sin_f32 as sin};
 
 use defmt::println;
 
@@ -86,6 +86,6 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
 
     params.s_pitch = att_euler.pitch;
     params.s_roll = att_euler.roll;
-    params.s_yaw = att_euler.yaw;
+    params.s_yaw_heading = att_euler.yaw;
     params.quaternion = ahrs.quaternion;
 }

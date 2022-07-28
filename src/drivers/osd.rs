@@ -12,13 +12,11 @@
 
 use core::f32::consts::TAU;
 
-use defmt::{info, println, warn};
-
 use crate::{
     control_interface::InputModeSwitch::AttitudeCommand,
     ppks::Location,
     protocols::{
-        msp::{self, MsgType, Packet, METADATA_SIZE_V1},
+        msp::{MsgType, Packet, METADATA_SIZE_V1},
         msp_defines::*,
     },
     safety::ArmStatus,
@@ -128,8 +126,8 @@ pub fn send_osd_data(
     // MSP format stores coordinates in 10^6 degrees. Our internal format is radians.
     // TAU radians in 360 degrees. 1 degree = TAU/360 rad
     let raw_gps = RawGps {
-        lat: (to_degrees(data.gps_fix.latitude) * GPS_SCALE_FACTOR) as i32,
-        lon: (to_degrees(data.gps_fix.longitude) * GPS_SCALE_FACTOR) as i32,
+        lat: (to_degrees(data.gps_fix.lat) * GPS_SCALE_FACTOR) as i32,
+        lon: (to_degrees(data.gps_fix.lon) * GPS_SCALE_FACTOR) as i32,
         alt: data.gps_fix.alt_msl as i16,
         ..Default::default()
     };

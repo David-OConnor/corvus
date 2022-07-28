@@ -354,7 +354,7 @@ impl Ahrs {
 
     /// Returns the linear acceleration measurement in  equal to the accelerometer
     /// measurement with the 9.8m/s^2 of gravity removed. Result is in m/2^2.
-    fn get_linear_accel(&self) -> Vec3 {
+    pub fn _get_linear_accel(&self) -> Vec3 {
         let q = self.quaternion;
 
         let gravity = Vec3 {
@@ -391,7 +391,7 @@ impl Ahrs {
     }
 
     /// Returns the AHRS algorithm internal states.
-    fn get_internal_states(&self) -> InternalStates {
+    fn _get_internal_states(&self) -> InternalStates {
         let (accel_rejection_timer, magnetic_rejection_timer) =
             if self.settings.rejection_timeout == 0 {
                 (0., 0.)
@@ -413,7 +413,7 @@ impl Ahrs {
     }
 
     /// Returns the AHRS algorithm flags.
-    fn get_flags(&self) -> Flags {
+    fn _get_flags(&self) -> Flags {
         let warning_timeout = self.settings.rejection_timeout / 4;
 
         Flags {

@@ -6,6 +6,8 @@
 //!
 //! 24 MHz max SPI frequency
 
+#![allow(dead_code)] // We include non-DMA functionality here, but only use DMA in operation.
+
 use stm32_hal2::{gpio::Pin, pac::SPI1, spi::Spi};
 
 use cortex_m::delay::Delay;

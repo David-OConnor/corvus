@@ -24,10 +24,10 @@ pub struct Location {
     // todo: If you use location for other purposes, consider making a separate Waypoint
     // todo type.
     pub name: [u8; WAYPOINT_MAX_NAME_LEN], // utf-8 encoding
-    /// Longitude in radians
-    pub longitude: f32,
     /// Latitude in radians
-    pub latitude: f32,
+    pub lat: f32,
+    /// Longitude in radians
+    pub lon: f32,
     /// Altitude in meters MSL, QFE.
     pub alt_msl: f32,
 }
@@ -37,8 +37,8 @@ impl Location {
         Self {
             type_,
             name: [0; WAYPOINT_MAX_NAME_LEN],
-            longitude,
-            latitude,
+            lon: longitude,
+            lat: latitude,
             alt_msl,
         }
     }

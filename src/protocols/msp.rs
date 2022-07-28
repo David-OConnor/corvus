@@ -30,7 +30,7 @@ const PREAMBLE_1_V1: u8 = 0x4d;
 pub const METADATA_SIZE: usize = 9;
 pub const METADATA_SIZE_V1: usize = 6;
 
-const CRC_SIZE: usize = 1;
+// const CRC_SIZE: usize = 1;
 
 #[derive(Copy, Clone)]
 #[repr(u8)]

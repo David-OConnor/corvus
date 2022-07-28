@@ -39,13 +39,13 @@ pub enum AircraftType {
     FixedWing,
 }
 
-#[derive(Clone, Copy)]
-/// Role in a swarm of drones
-pub enum SwarmRole {
-    Queen,
-    Worker(u16),    // id
-    PersonFollower, // When your queen is human.
-}
+// #[derive(Clone, Copy)]
+// /// Role in a swarm of drones
+// pub enum SwarmRole {
+//     Queen,
+//     Worker(u16),    // id
+//     PersonFollower, // When your queen is human.
+// }
 
 /// Persistent state; saved to onboard flash memory.
 pub struct UserCfg {

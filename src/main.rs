@@ -20,7 +20,7 @@ use stm32_hal2::{
     flash::{Bank, Flash},
     gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, I2C1, I2C2, SPI1, TIM1, TIM15, TIM16, TIM17, USART2},
+    pac::{self, DMA1, I2C1, I2C2, SPI1, TIM1, TIM16, TIM17, USART2},
     rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{Timer, TimerConfig, TimerInterrupt},
@@ -108,31 +108,32 @@ mod util;
 
 // todo: Cycle flash pages for even wear. Can postpone this.
 
-// H723: 1Mb of flash, in one bank.
-// 8 sectors of 128kb each.
-// (H743 is similar, but may have 2 banks, each with those properties)
-#[cfg(feature = "h7")]
-const FLASH_CFG_SECTOR: usize = 6;
-const FLASH_WAYPOINT_SECTOR: usize = 7;
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        // H723: 1Mb of flash, in one bank.
+        // 8 sectors of 128kb each.
+        // (H743 is similar, but may have 2 banks, each with those properties)
+        const FLASH_CFG_SECTOR: usize = 6;
+        const FLASH_WAYPOINT_SECTOR: usize = 7;
 
-// G47x/G48x: 512k flash.
-// Assumes configured as a single bank: 128 pages of 4kb each.
-// (If using G4 dual bank mode: 128 pages of pages of 2kb each, per bank)
-#[cfg(feature = "g4")]
-const FLASH_CFG_PAGE: usize = 254; // todo: Set to 126 etc when on G474!
-const FLASH_WAYPOINT_PAGE: usize = 255; // todo: Set to 126 etc when on G474!
+        // The rate our main program updates, in Hz.
+        // todo: Currently have it set to what we're measuring. Not sure why we don't get 8khz.
+        // todo note that we will have to scale up values slightly on teh H7 board with 32.768kHz oscillator:
+        // ICM-42688 DS: The ODR values shown in the
+        // datasheet are supported with external clock input frequency of 32kHz. For any other external clock input frequency, these ODR
+        // values will scale by a factor of (External clock value in kHz / 32). For example, if an external clock frequency of 32.768kHz is used,
+        // instead of ODR value of 500Hz, it will be 500 * (32.768 / 32) = 512Hz.
+        const IMU_UPDATE_RATE: f32 = 6_922.;
+    } else {
+        // G47x/G48x: 512k flash.
+        // Assumes configured as a single bank: 128 pages of 4kb each.
+        // (If using G4 dual bank mode: 128 pages of pages of 2kb each, per bank)
+        const FLASH_CFG_PAGE: usize = 254; // todo: Set to 126 etc when on G474!
+        const FLASH_WAYPOINT_PAGE: usize = 255; // todo: Set to 126 etc when on G474!
 
-// The rate our main program updates, in Hz.
-// todo: Currently have it set to what we're measuring. Not sure why we don't get 8khz.
-// todo note that we will have to scale up values slightly on teh H7 board with 32.768kHz oscillator:
-// ICM-42688 DS: The ODR values shown in the
-// datasheet are supported with external clock input frequency of 32kHz. For any other external clock input frequency, these ODR
-// values will scale by a factor of (External clock value in kHz / 32). For example, if an external clock frequency of 32.768kHz is used,
-// instead of ODR value of 500Hz, it will be 500 * (32.768 / 32) = 512Hz.
-#[cfg(feature = "mercury-h7")]
-const IMU_UPDATE_RATE: f32 = 6_922.;
-#[cfg(feature = "mercury-g4")]
-const IMU_UPDATE_RATE: f32 = 6_760.;
+        const IMU_UPDATE_RATE: f32 = 6_760.;
+    }
+}
 
 // todo: Set update rate attitude back to 1600 etc. Slower rate now since we're using this loop to TS.
 const UPDATE_RATE_ATTITUDE: f32 = 1_600.; // IMU rate / 5.
@@ -143,7 +144,7 @@ const LOGGING_UPDATE_RATIO: usize = 100;
 
 const DT_IMU: f32 = 1. / IMU_UPDATE_RATE;
 const DT_ATTITUDE: f32 = 1. / UPDATE_RATE_ATTITUDE;
-const DT_VELOCITY: f32 = 1. / UPDATE_RATE_VELOCITY;
+// const DT_VELOCITY: f32 = 1. / UPDATE_RATE_VELOCITY;
 
 static mut ADC_READ_BUF: [u16; 2] = [0; 2];
 
@@ -262,11 +263,11 @@ fn init_sensors(
 
     match fix {
         Ok(f) => {
-            params.longitude = f.longitude;
-            params.latitude = f.latitude;
+            params.lon = f.lon;
+            params.lat = f.lat;
             params.baro_alt_msl = f.alt_msl;
 
-            *base_pt = Location::new(LocationType::LatLon, f.latitude, f.longitude, f.alt_msl);
+            *base_pt = Location::new(LocationType::LatLon, f.lat, f.lon, f.alt_msl);
 
             altimeter.calibrate_from_gps(Some(f.alt_msl), i2c2);
         }
@@ -310,7 +311,6 @@ mod app {
         flash_onboard: Flash,
         batt_curr_adc: Adc<ADC>,
         // rtc: Rtc,
-        update_timer: Timer<TIM15>,
         rf_limiter_timer: Timer<TIM16>,
         lost_link_timer: Timer<TIM17>,
         motor_timers: MotorTimers,
@@ -616,8 +616,8 @@ mod app {
         user_cfg.waypoints[0] = Some(Location {
             type_: LocationType::LatLon,
             name: [0, 1, 2, 3, 4, 5, 6],
-            longitude: 1.,
-            latitude: 2.,
+            lon: 1.,
+            lat: 2.,
             alt_msl: 3.,
         });
 
@@ -813,7 +813,6 @@ mod app {
                 uart_elrs,
                 batt_curr_adc,
                 // rtc,
-                update_timer,
                 rf_limiter_timer,
                 lost_link_timer,
                 motor_timers,

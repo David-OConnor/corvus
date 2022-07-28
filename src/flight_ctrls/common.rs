@@ -165,9 +165,9 @@ pub struct CtrlInputs {
 #[derive(Default)]
 pub struct Params {
     /// Longitude in radians. From GPS alone, or blended with accelerometer data.
-    pub longitude: f32,
+    pub lon: f32,
     /// Latitude in radians. From GPS alone, or blended with accelerometer data.
-    pub latitude: f32,
+    pub lat: f32,
     /// MSL altitude in meters QFE (takeoff location is 0), from a barometer.
     pub baro_alt_msl: f32,
     /// AGL altitude in meters, from the Time of flight sensor.
@@ -175,7 +175,8 @@ pub struct Params {
 
     pub s_pitch: f32,
     pub s_roll: f32,
-    pub s_yaw: f32,
+    /// Ie heading
+    pub s_yaw_heading: f32,
 
     /// Quaternion of the attitude.
     pub quaternion: Quaternion,

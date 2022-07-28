@@ -1,5 +1,10 @@
 //! This module contains code related to various autopilot modes.
 
+use core::{
+    comp::max,
+    f32::consts::TAU,
+};
+
 use num_traits::float::Float;
 
 use crate::{
@@ -13,46 +18,84 @@ use crate::{
     DT_ATTITUDE,
 };
 
+use cmsis_dsp_sys::{arm_cos_f32, arm_sin_f32};
+
 const R: f32 = 6_371_000.; // Earth's radius in meters. (ellipsoid?)
+
+// Highest bank to use in all autopilot modes.
+const MAX_BANK: f32 = TAU / 6.;
 
 // Tolerances we use when setting up a glideslope for landing. Compaerd to the landing structs,
 // these are independent of the specific landing spot and aircraft.
 
+// todo: Evaluate if you want `START` in these names, and in how you use them.
+
 // The aircraft's heading must be within this range of the landing heading to initiate the descent.
 // (Also must have the minimum ground track, as set in the struct.)
-const GLIDESLOPE_START_HEADING_TOLERANCE: f32 = 0.17; // ranians. (0.17 = ~10°)
+const GLIDESLOPE_START_HEADING_TOLERANCE: f32 = 0.25; // ranians. (0.17 = ~10°)
 
 // The angle distance from landing point to aircraft, and landing point to a point abeam
 // the aircraft on glideslope
-const GLIDESLOPE_START_LATERAL_TOLERANCE: f32 = 0.17; // radians.
+const GLIDESLOPE_START_LATERAL_TOLERANCE: f32 = 0.30; // radians.
 
-/// Calculate the heading to fly to arrive at a point, given the aircraft's current position.
+// Orbit heading difference in radians from heading on nearest point on obrit track.
+const ORBIT_START_HEADING_TOLERANCE: f32 = 0.40; // radians
+
+// Orbit lateral tolerance is in meters. Aircraft dist to nearest point on orbit track
+const ORBIT_START_LATERAL_TOLERANCE: f32 = 10.;
+
+fn cos(v: f32) -> f32 {
+    unsafe { arm_cos_f32(v) }
+}
+
+fn sin(v: f32) -> f32 {
+    unsafe { arm_sin_f32(v) }
+}
+
+/// Calculate the great circle bearing to fly to arrive at a point, given the aircraft's current position.
 /// Params and output are in radians. Does not take into account turn radius.
-fn heading_between_points(target: (f32, f32), aircraft: (f32, f32)) -> f32 {
-    // todo
+/// https://www.movable-type.co.uk/scripts/latlong.html
+/// θ = atan2( sin Δλ ⋅ cos φ2 , cos φ1 ⋅ sin φ2 − sin φ1 ⋅ cos φ2 ⋅ cos Δλ )
+fn find_bearing(target: (f32, f32), aircraft: (f32, f32)) -> f32 {
+    let y = sin(target.1 - aircraft.1) * cos(target.0);
+    let x = cos(aircraft.0) * sin(target.0)
+        - sin(aircraft.0) * cos(target.0) * cos(target.1 - aircraft.1);
+    y.atan2(x) % TAU
 }
 
 /// Calculate the distance between two points, in meters.
 /// Params are in radians. Uses the 'haversine' formula
-fn distance_between_points(target: (f32, f32), aircraft: (f32, f32)) -> f32 {
+/// https://www.movable-type.co.uk/scripts/latlong.html
+/// a = sin²(Δφ/2) + cos φ1 ⋅ cos φ2 ⋅ sin²(Δλ/2)
+/// c = 2 ⋅ atan2( √a, √(1−a) )
+/// d = R ⋅ c
+#[allow(non_snake_case)]
+fn find_distance(target: (f32, f32), aircraft: (f32, f32)) -> f32 {
     // todo: LatLon struct with named fields.
 
     let φ1 = aircraft.0; // φ, λ in radians
     let φ2 = target.0;
-    let Δφ = (target.0 - aircraft.0);
-    let Δλ = (target.1 - aircraft.1);
+    let Δφ = target.0 - aircraft.0;
+    let Δλ = target.1 - aircraft.1;
 
-    let a = (Δφ / 2.).sin() * (Δφ / 2.).sin()
-        + (φ1).cos() * (φ2).cos() * (Δλ / 2.).sin() * (Δλ / 2.).sin();
+    let a = sin(Δφ / 2.) * sin(Δφ / 2.) + cos(φ1) * cos(φ2) * sin(Δλ / 2.) * sin(Δλ / 2.);
 
-    let c = 2 * (a).sqrt().atan2((1 - a).sqrt());
+    let c = 2. * a.sqrt().atan2((1. - a).sqrt());
 
     R * c
 }
 
+#[derive(Clone, Copy)]
 pub enum OrbitShape {
     Circular,
     Racetrack,
+}
+
+#[derive(Clone, Copy)]
+/// Direction from a top-down perspective.
+pub enum OrbitDirection {
+    Clockwise,
+    CounterClockwise,
 }
 
 /// Represents an autopilot orbit, centered around a point. The point may remain stationary, or
@@ -63,6 +106,7 @@ pub struct Orbit {
     center_lon: f32,   // radians
     radius: f32,       // m
     ground_speed: f32, // m/s
+    direction: OrbitDirection,
 }
 
 #[derive(Default)]
@@ -158,12 +202,6 @@ impl AutopilotStatus {
             //     thrust: Some(flight_ctrls::quad::takeoff_speed(params.tof_alt, max_speed_ver)),
             // };
         } else if let Some(ldg_cfg) = &self.land_quad {
-            // *attitudes_commanded = CtrlInputs {
-            //     pitch: Some(0.),
-            //     roll: Some(0.),
-            //     yaw: Some(0.),
-            //     thrust: Some(flight_ctrls::quad::landing_speed(params.tof_alt, max_speed_ver)),
-            // };
         }
 
         if self.alt_hold.is_some() && !self.takeoff && self.land_quad.is_none() {
@@ -189,9 +227,11 @@ impl AutopilotStatus {
 
             // Note that thrust is set using the rate loop.
             rates_commanded.thrust = Some(pid.thrust.out());
+        } else if let Some(pt) = &self.direct_to_point {
+
         }
 
-        if self.alt_hold.is_none() && !self.takeoff && self.quad.is_none() {
+        if self.alt_hold.is_none() && !self.takeoff && self.land_quad.is_none() && self.direct_to_point.is_none() {
             attitudes_commanded.pitch = None;
         }
     }
@@ -218,20 +258,15 @@ impl AutopilotStatus {
             //     thrust: Some(flight_ctrls::quad::takeoff_speed(params.tof_alt, max_speed_ver)),
             // };
         } else if let Some(ldg_cfg) = &self.land_fixed_wing {
-            // *attitudes_commanded = CtrlInputs {
-            //             //     pitch: Some(0.),
-            //             //     roll: Some(0.),
-            //             //     yaw: Some(0.),
-            //             //     thrust: Some(flight_ctrls::quad::landing_speed(params.tof_alt, max_speed_ver)),
-            //             // };
+            let dist_to_touchdown = find_distance(
+                (ldg_cfg.touchdown_point.lat, ldg_cfg.touchdown_point.lon),
+                (params.lat, params.lon),
+            );
 
-            // todo: for Now: assume we're lined up at the start of our descent.
-            // todo: Put code to fly direct to a point and arrive at a specific heading here.
-            // todo eg:
+            let heading_diff = 0.; // todo
 
-            // todo:
-            let mut established = false;
-            // if distance_between_points(ldg_cfg.touchdown_point)
+            let established = dist_to_touchdown < ORBIT_START_LATERAL_TOLERANCE
+                && heading_diff < ORBIT_START_HEADING_TOLERANCE;
 
             // todo: DRY between quad and FC here, although the diff is power vs pitch.
         } else if let Some(orbit) = &self.orbit {
@@ -239,25 +274,52 @@ impl AutopilotStatus {
             // todo on a heading similar to your own angle to it. For now, fly directly to the point for
             // todo simpler logic and good-enough.
 
-            let established = distance_between_points(
+            let dist_to_center = find_distance(
                 (orbit.center_lat, orbit.center_lon),
-                (params.latitude, params.longitude),
+                (params.lat, params.lon),
             );
 
+            let heading_diff = 0.; // todo
+
+            let established = dist_to_center < ORBIT_START_LATERAL_TOLERANCE
+                && heading_diff < ORBIT_START_HEADING_TOLERANCE;
+
+            if !established {
+                // If we're not established and outside the radius...
+                if dist_to_center > orbit.radius {
+
+                    // If we're not established and inside the radius...
+                } else {
+                }
+            }
+
             let target_heading = if established {
-                find_heading(
-                    (params.latitude, params.longitude),
+                find_bearing(
+                    (params.lat, params.lon),
                     (orbit.center_lat, orbit.center_lon),
-                );
+                )
             } else {
-                find_heading(
-                    (params.latitude, params.longitude),
+                find_bearing(
+                    (params.lat, params.lon),
                     (orbit.center_lat, orbit.center_lon),
                 );
             };
+        } else if let Some(pt) = &self.direct_to_point {
+            let target_heading = find_bearing(
+                (params.lat, params.lon),
+                (pt.lat, pt.lon),
+            );
+
+            let target_pitch = ((pt.alt_msl - params.baro_alt_msl) /
+                find_distance((pt.lat, pt.lon), (params.lat, params.lon))).atan();
+
+            // todo: Crude algo here. Is this OK?
+            let roll_const = 2.; // radians bank / radians heading  todo: Const?
+            attitudes_commanded.roll = Some(max((target_heading - params.s_yaw_heading) * roll_const, MAX_BANK));
+            attitudes_commanded.pitch = Some(target_pitch);
         }
 
-        if self.alt_hold.is_some() && !self.takeoff && self.land_fixed_wing.is_none() {
+        if self.alt_hold.is_some() && !self.takeoff && self.land_fixed_wing.is_none() && self.direct_to_point.is_none() {
             let (alt_type, alt_commanded) = self.alt_hold.unwrap();
 
             // Set a vertical velocity for the inner loop to maintain, based on distance
