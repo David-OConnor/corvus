@@ -8,15 +8,6 @@ pub struct IirInstWrapper {
 }
 unsafe impl Send for IirInstWrapper {}
 
-/// Utility fn to make up for `core::cmp::max` requiring f32 to impl `Ord`, which it doesn't.
-pub fn max(a: f32, b: f32) -> f32 {
-    if a > b {
-        a
-    } else {
-        b
-    }
-}
-
 pub fn abs(x: f32) -> f32 {
     f32::from_bits(x.to_bits() & 0x7FFF_FFFF)
 }

@@ -8,8 +8,6 @@ use stm32_hal2::{
     spi::Spi,
 };
 
-use crate::imu;
-
 const G: f32 = 9.8; // m/s
 
 const GYRO_FULLSCALE: f32 = 34.90659; // In radians per second; equals 2,000 degrees/sec
@@ -17,6 +15,9 @@ const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
 
 // IMU readings buffer. 3 accelerometer, and 3 gyro measurements; 2 bytes each. 0-padded on the left,
 // since that's where we pass the register in the write buffer.
+// We use this buffer for DMA transfers of IMU readings. Note that reading order is different
+// between different IMUs, due to their reg layout, and consecutive reg reads. In both cases, 6 readings,
+// each with 2 bytes each.
 pub static mut IMU_READINGS: [u8; 13] = [0; 13];
 
 /// Represents sensor readings from a 6-axis accelerometer + gyro.

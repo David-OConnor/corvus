@@ -25,11 +25,6 @@ const THROTTLE_IN_RNG: (f32, f32) = (0., 1.);
 
 use defmt::println;
 
-/// We use this buffer for DMA transfers of IMU readings. Note that reading order is different
-/// between different IMUs, due to their reg layout, and consecutive reg reads. In both cases, 6 readings,
-/// each with 2 bytes each.
-static mut IMU_BUF: [u8; 12] = [0; 12];
-
 // Time in seconds between subsequent data received before we execute lost-link procedures.
 pub const LOST_LINK_TIMEOUT: f32 = 1.;
 
@@ -121,14 +116,6 @@ impl InputMap {
     }
 }
 
-#[derive(Default)]
-pub struct CommandState {
-    pub x: f32,
-    pub y: f32,
-    pub alt: f32, // m MSL
-    pub loiter_set: bool,
-}
-
 #[derive(Clone, Copy)]
 pub enum AltType {
     /// Above ground level (eg from a TOF sensor)
@@ -205,7 +192,7 @@ pub struct Params {
 /// Stores data on how the aircraft has performed in various recent flight conditions.
 /// This data is used to estimate control surface positions or rotor power in response
 /// to a change in commanded parameters. Rates are in rad/s.
-pub struct ResponseDataPt {
+pub struct _ResponseDataPt {
     /// Forward airspeed
     pub airspeed: f32,
     // todo: Options for these, or an enum?

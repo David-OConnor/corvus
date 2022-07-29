@@ -71,7 +71,7 @@ struct AircraftProperties {
 impl AircraftProperties {
     /// Calculate the power level required, applied to each rotor, to maintain level flight
     /// at a given MSL altitude. (Alt is in meters)
-    pub fn level_pwr(&self, alt: f32) -> f32 {
+    pub fn _level_pwr(&self, alt: f32) -> f32 {
         0.1 // todo
     }
 }
@@ -618,7 +618,7 @@ pub fn enroute_speed_hor(dist: f32, max_v: f32) -> f32 {
     if dist > 20. {
         max_v
     } else if dist > 10. {
-        util::max(2., max_v)
+        2.0_f32.max(max_v)
     } else {
         // Get close, then the PID loop will handle the final settling.
         0.5
@@ -631,7 +631,7 @@ pub fn enroute_speed_ver(dist: f32, max_v: f32, z_agl: f32) -> f32 {
     // todo: fill this out. LUT?
 
     if z_agl < 7. {
-        let mut result = util::max(3., max_v);
+        let mut result = 3.0_f32.max(max_v);
 
         if dist < 0. {
             result *= -1.;
@@ -643,7 +643,7 @@ pub fn enroute_speed_ver(dist: f32, max_v: f32, z_agl: f32) -> f32 {
     let mut result = if dist_abs > 20. {
         max_v
     } else if dist_abs > 10. {
-        util::max(2., max_v)
+        2.0_f32.max(max_v)
     } else {
         // Get close, then the PID loop will handle the final settling.
         0.5
@@ -689,7 +689,7 @@ pub fn landing_speed(height: f32, max_v: f32) -> f32 {
     if height > 2. {
         return 0.5;
     }
-    util::max(height / 4., max_v)
+    (height / 4.).max(max_v)
 }
 
 /// Calculate the takeoff vertical velocity (m/s), for a given height (m) above the ground.
@@ -699,7 +699,7 @@ pub fn takeoff_speed(height: f32, max_v: f32) -> f32 {
     if height > 2. {
         return 0.;
     }
-    util::max(height / 4. + 0.01, max_v)
+    (height / 4. + 0.01).max(max_v)
 }
 
 pub struct UnsuitableParams {}

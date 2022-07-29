@@ -168,6 +168,9 @@ pub struct AutopilotStatus {
     /// Recover to stable, altitude-holding flight. Generally initiated by a "panic button"-style
     /// switch activation
     pub recover: Option<f32>, // value is MSL alt to hold, eg our alt at time of command.
+    /// Quad
+    pub loiter: Option<Location>,
+    /// Fixed wing
     pub orbit: Option<Orbit>,
 }
 
@@ -201,7 +204,11 @@ impl AutopilotStatus {
         } else if let Some(ldg_cfg) = &self.land_quad {
         }
 
-        if self.alt_hold.is_some() && !self.takeoff && self.land_quad.is_none() {
+        if self.alt_hold.is_some()
+            && !self.takeoff
+            && self.land_quad.is_none()
+            && self.orbit.is_none()
+        {
             let (alt_type, alt_commanded) = self.alt_hold.unwrap();
 
             // Set a vertical velocity for the inner loop to maintain, based on distance
@@ -229,8 +236,8 @@ impl AutopilotStatus {
             let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
 
             attitudes_commanded.yaw = Some(target_heading);
-
-            // todo: Altitude too.
+        } else if let Some(pt) = &self.loiter {
+            // todo
         }
 
         if self.alt_hold.is_none()

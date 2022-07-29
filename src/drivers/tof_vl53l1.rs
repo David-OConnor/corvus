@@ -90,7 +90,7 @@ pub fn read(pitch: f32, roll: f32, i2c: &mut I2c<I2C1>) -> Option<f32> {
     // todo: Abs etc to make sure not negative? May need num_traits for that.
     // let aircraft_angle = sqrt(sq(pitch) + sq(roll));
 
-    let aircraft_angle = crate::util::max(pitch, roll); // todo?
+    let aircraft_angle = pitch.max(roll); // todo?
     if aircraft_angle > THRESH_ANGLE {
         return None;
     }

@@ -66,7 +66,7 @@ use drivers::{
 use ahrs_fusion::Ahrs;
 use filter_imu::ImuFilters;
 use flight_ctrls::{
-    common::{CommandState, CtrlInputs, InputMap, MotorTimers, Params},
+    common::{CtrlInputs, InputMap, MotorTimers, Params},
     fixed_wing::{self, ControlPositions, ServoWingMapping},
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
@@ -322,8 +322,6 @@ mod app {
         // Store filter instances for the PID loop derivatives. One for each param used.
         pid_deriv_filters: PidDerivFilters,
         imu_filters: ImuFilters,
-        base_point: Location,
-        command_state: CommandState,
         ahrs: Ahrs,
         imu_calibration: imu_calibration::ImuCalibration,
     }
@@ -737,14 +735,12 @@ mod app {
 
         let mut params = Default::default();
 
-        let mut base_point = Location::default();
-
         // todo: For params, consider raw readings without DMA. Currently you're just passign in the
         // todo default; not going to cut it.?
         crate::init_sensors(
             &mut params,
             &mut altimeter,
-            &mut base_point,
+            &mut state_volatile.base_point,
             &mut i2c1,
             &mut i2c2,
         );
@@ -820,8 +816,6 @@ mod app {
                 power_used: 0.,
                 pid_deriv_filters: Default::default(),
                 imu_filters: Default::default(),
-                base_point,
-                command_state: Default::default(),
                 ahrs,
                 imu_calibration,
             },
@@ -879,7 +873,7 @@ mod app {
     binds = TIM1_BRK_TIM15,
     shared = [current_params, input_map,
     velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
-    pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, command_state, ctrl_coeffs,
+    pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, ctrl_coeffs,
     ahrs, control_channel_data,
     lost_link_timer, altimeter, i2c2, state_volatile, batt_curr_adc, dma,
     ],
@@ -908,7 +902,6 @@ mod app {
             cx.shared.input_mode,
             cx.shared.autopilot_status,
             cx.shared.user_cfg,
-            cx.shared.command_state,
             cx.shared.ctrl_coeffs,
             cx.shared.lost_link_timer,
             cx.shared.altimeter,
@@ -933,7 +926,6 @@ mod app {
                  input_mode,
                  autopilot_status,
                  cfg,
-                 command_state,
                  coeffs,
                  lost_link_timer,
                  altimeter,
@@ -1083,7 +1075,11 @@ mod app {
                             direct_to_point: autopilot_status.direct_to_point.is_some(),
                             orbit: autopilot_status.orbit.is_some(),
                             alt_hold: autopilot_status.alt_hold.is_some(),
+                            loiter: autopilot_status.loiter.is_some(),
                         },
+                        base_dist_bearing: (
+                            0., 0., // todo: Fill these out
+                        ),
                     };
                     osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH, dma, &osd_data);
 
@@ -1106,7 +1102,6 @@ mod app {
                                 input_mode,
                                 autopilot_status,
                                 cfg,
-                                // command_state,
                                 coeffs,
                             );
                         }
@@ -1122,7 +1117,6 @@ mod app {
                                 // input_mode,
                                 autopilot_status,
                                 // cfg,
-                                // command_state,
                                 coeffs,
                             );
                         }
@@ -1143,7 +1137,6 @@ mod app {
                                 //                 input_mode,
                                 //                 autopilot_status,
                                 //                 cfg,
-                                //                 command_state,
                                 //                 coeffs,
                                 //             );
                                 //     }
@@ -1165,7 +1158,7 @@ mod app {
 
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, input_mode, control_channel_data, input_map, autopilot_status,
-    rates_commanded, pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, command_state, cs_imu, user_cfg,
+    rates_commanded, pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, cs_imu, user_cfg,
     motor_timers, ahrs, state_volatile, rf_limiter_timer], local = [fixed_wing_rate_loop_i, update_loop_i2], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
@@ -1200,7 +1193,6 @@ mod app {
             cx.shared.ctrl_coeffs,
             cx.shared.user_cfg,
             cx.shared.input_map,
-            cx.shared.command_state,
             cx.shared.spi1,
             // cx.shared.rf_limiter_timer, // todo temp
             cx.shared.state_volatile,
@@ -1219,7 +1211,6 @@ mod app {
                  coeffs,
                  cfg,
                  input_map,
-                 command_state,
                  spi1,
                  // rf_limiter_timer, // todo temp
                  state_volatile| {

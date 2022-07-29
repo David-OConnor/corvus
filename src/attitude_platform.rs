@@ -45,13 +45,13 @@ pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     // In our IMU interpretation, we use direction references that make sense for our aircraft.
     // See `imu_shared::ImuReadings` field descriptions for this. Here, we undo it: The AHRS
     // fusion algorithm expects raw readings. (See the - signs there and here; they correspond)
-    let mut accel_data = Vec3 {
+    let accel_data = Vec3 {
         x: -params.a_y,
         y: -params.a_x,
         z: params.a_z,
     };
 
-    let mut gyro_data = Vec3 {
+    let gyro_data = Vec3 {
         x: params.v_roll,
         y: params.v_pitch,
         z: params.v_yaw,

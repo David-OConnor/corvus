@@ -6,8 +6,6 @@
 //! [Some info on the PID terms, focused on BF](https://gist.github.com/exocode/90339d7f946ad5f83dd1cf29bf5df0dc)
 //! https://oscarliang.com/quadcopter-pid-explained-tuning/
 
-use core::f32::consts::TAU;
-
 use stm32_hal2::{dma::Dma, pac::DMA1};
 
 use cmsis_dsp_api as dsp_api;
@@ -18,7 +16,7 @@ use crate::{
     control_interface::ChannelData,
     flight_ctrls::{
         self,
-        common::{AltType, CommandState, CtrlInputs, InputMap, MotorTimers, Params},
+        common::{AltType, CtrlInputs, InputMap, MotorTimers, Params},
         quad::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED},
     },
     util::IirInstWrapper,
@@ -437,7 +435,7 @@ pub fn calc_pid_error(
 
 /// Run the velocity (outer) PID Loop: This is used to determine attitude, eg based on commanded velocity
 /// or position.
-pub fn run_velocity(
+pub fn _run_velocity(
     params: &Params,
     // inputs: &CtrlInputs,
     ch_data: &ChannelData,
@@ -449,7 +447,6 @@ pub fn run_velocity(
     input_mode: &InputMode,
     autopilot_status: &AutopilotStatus,
     cfg: &UserCfg,
-    commands: &mut CommandState,
     coeffs: &CtrlCoeffGroup,
 ) {
     // todo: GO over this whole function; it's not ready!
@@ -492,22 +489,22 @@ pub fn run_velocity(
     let mut k_d_roll = coeffs.roll.k_d_attitude;
 
     let eps1 = 0.01;
-    if ch_data.pitch > eps1 || ch_data.roll > eps1 {
-        commands.loiter_set = false;
-    }
+    // if ch_data.pitch > eps1 || ch_data.roll > eps1 {
+    //     commands.loiter_set = false;
+    // }
 
     let eps2 = 0.01;
     // todo: Commanded velocity 0 to trigger loiter logic, or actual velocity?
     // if mid_flight_cmd.y_pitch.unwrap().2 < eps && mid_flight_cmd.x_roll.unwrap().2 < eps {
     if params.lon < eps2 && params.lat < eps2 {
-        if !commands.loiter_set {
-            commands.x = params.lon;
-            commands.y = params.lat;
-            commands.loiter_set = true;
-        }
+        // if !commands.loiter_set {
+        //     commands.x = params.lon;
+        //     commands.y = params.lat;
+        //     commands.loiter_set = true;
+        // }
 
-        param_x = commands.x;
-        param_y = commands.y;
+        // param_x = commands.x;
+        // param_y = commands.y;
 
         k_p_pitch = coeffs.pitch.k_p_rate;
         k_i_pitch = coeffs.pitch.k_i_rate;

@@ -65,6 +65,7 @@ pub struct AutopilotData {
     pub land: bool,
     pub direct_to_point: bool,
     pub orbit: bool,
+    pub loiter: bool,
     pub alt_hold: bool,
 }
 
@@ -80,6 +81,8 @@ impl AutopilotData {
             result[0..2].clone_from_slice("Ot".as_bytes());
         } else if self.direct_to_point {
             result[0..2].clone_from_slice("Pt".as_bytes());
+        } else if self.loiter {
+            result[0..2].clone_from_slice("Lr".as_bytes());
         }
 
         if self.alt_hold {
@@ -105,6 +108,8 @@ pub struct OsdData {
     pub pid_i: f32,
     pub pid_d: f32,
     pub autopilot: AutopilotData,
+    /// Distance and bearing to the base point (usually takeoff location), in m, radians respectively.
+    pub base_dist_bearing: (f32, f32),
 }
 
 /// Sends data for all relevant elements to the OSD. Accepts a data struct built from select
@@ -152,6 +157,7 @@ pub fn send_osd_data(
     );
 
     // todo: Display pid
+    // todo: Display dist and bearing to base pt.
 
     let status_bf = StatusBf {
         flight_mode_flags: ARM_ACRO_BF as u32,
@@ -169,7 +175,7 @@ pub fn send_osd_data(
         &mut buf_i,
     );
 
-    let mut battery_state = BatteryState {
+    let battery_state = BatteryState {
         amperage: data.current_draw as u16, // todo: Find the conversion factor
         battery_voltage: data.battery_voltage as u16, // todo: Find the conversion factor
         ..Default::default()
