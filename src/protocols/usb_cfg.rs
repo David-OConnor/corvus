@@ -259,7 +259,7 @@ pub fn handle_rx(
     };
 
     let expected_crc_rx = util::calc_crc(
-        unsafe { &CRC_LUT },
+        &CRC_LUT,
         &data[..rx_msg_type.payload_size() + 1],
         rx_msg_type.payload_size() as u8 + 1,
     );
@@ -311,7 +311,7 @@ pub fn handle_rx(
 
             let payload_size = MsgType::Params.payload_size();
             tx_buf[payload_size + 1] = util::calc_crc(
-                unsafe { &CRC_LUT },
+                &CRC_LUT,
                 &tx_buf[..payload_size + 1],
                 payload_size as u8 + 1,
             );
@@ -330,7 +330,7 @@ pub fn handle_rx(
 
             let payload_size = MsgType::Controls.payload_size();
             tx_buf[payload_size + 1] = util::calc_crc(
-                unsafe { &CRC_LUT },
+                &CRC_LUT,
                 &tx_buf[..payload_size + 1],
                 payload_size as u8 + 1,
             );
@@ -349,7 +349,7 @@ pub fn handle_rx(
 
             let payload_size = MsgType::LinkStats.payload_size();
             tx_buf[payload_size + 1] = util::calc_crc(
-                unsafe { &CRC_LUT },
+                &CRC_LUT,
                 &tx_buf[..payload_size + 1],
                 payload_size as u8 + 1,
             );
@@ -419,7 +419,7 @@ pub fn handle_rx(
 
             let payload_size = MsgType::Waypoints.payload_size();
             tx_buf[payload_size + 1] = util::calc_crc(
-                unsafe { &CRC_LUT },
+                &CRC_LUT,
                 &tx_buf[..payload_size + 1],
                 payload_size as u8 + 1,
             );

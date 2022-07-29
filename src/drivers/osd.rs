@@ -13,6 +13,7 @@
 use core::f32::consts::TAU;
 
 use crate::{
+    autopilot::AutopilotStatus,
     control_interface::InputModeSwitch::AttitudeCommand,
     ppks::Location,
     protocols::{
@@ -50,9 +51,44 @@ const BUF_OSD_SIZE: usize = (METADATA_SIZE_V1 * NUM_MSP_CMDS)
 
 static mut BUF_OSD: [u8; BUF_OSD_SIZE] = [0; BUF_OSD_SIZE];
 
+const AUTOPILOT_DATA_SIZE: usize = NAME_SIZE;
+
 /// Convert radians to degrees.
 fn to_degrees(val_rad: f32) -> f32 {
     TAU / 360. * val_rad
+}
+
+/// A terse description of autopilot modes used, so we don't need to pass the whole struct
+/// to the OSD
+pub struct AutopilotData {
+    pub takeoff: bool,
+    pub land: bool,
+    pub direct_to_point: bool,
+    pub orbit: bool,
+    pub alt_hold: bool,
+}
+
+impl AutopilotData {
+    pub fn to_str(&self) -> [u8; AUTOPILOT_DATA_SIZE] {
+        let mut result = [0; AUTOPILOT_DATA_SIZE];
+
+        if self.takeoff {
+            result[0..2].clone_from_slice("TO".as_bytes());
+        } else if self.land {
+            result[0..2].clone_from_slice("Ld".as_bytes());
+        } else if self.orbit {
+            result[0..2].clone_from_slice("Ot".as_bytes());
+        } else if self.direct_to_point {
+            result[0..2].clone_from_slice("Pt".as_bytes());
+        }
+
+        if self.alt_hold {
+            // todo: Show alt commanded.
+            result[2..5].clone_from_slice("Alt".as_bytes());
+        }
+
+        result
+    }
 }
 
 /// Contains all data we pass to the OSD. Passed from the main FC firmware.
@@ -62,13 +98,13 @@ pub struct OsdData {
     pub current_draw: f32, // mA
     pub alt_msl_baro: f32, // m
     pub gps_fix: Location,
-    pub motor_count: u8,
     pub pitch: f32,
     pub roll: f32,
     pub yaw: f32,
     pub pid_p: f32,
     pub pid_i: f32,
     pub pid_d: f32,
+    pub autopilot: AutopilotData,
 }
 
 /// Sends data for all relevant elements to the OSD. Accepts a data struct built from select
@@ -91,6 +127,31 @@ pub fn send_osd_data(
     // - Land point data
 
     let mut buf_i = 0;
+
+    // Asci digits. Digit, ASCII value
+    // 0 	48
+    // 1 	49
+    // 2 	50
+    // 3 	51
+    // 4 	52
+    // 5 	53
+    // 6 	54
+    // 7 	55
+    // 8 	56
+    // 9 	57
+
+    // let pid_display: [u8; NAME_SIZE] = "test".to_buf();
+
+    let mut buf = [0; NAME_SIZE + METADATA_SIZE_V1];
+    add_to_buf(
+        Function::Name,
+        &data.autopilot.to_str(),
+        NAME_SIZE,
+        &mut buf,
+        &mut buf_i,
+    );
+
+    // todo: Display pid
 
     let status_bf = StatusBf {
         flight_mode_flags: ARM_ACRO_BF as u32,
@@ -173,7 +234,7 @@ pub fn send_osd_data(
 
     // todo: Fill this in once you have bidir dshot setup. Could add temp as well.
     let esc_sensor_data = EscSensorData {
-        motor_count: data.motor_count,
+        motor_count: 0,
         temperature: 0,
         rpm: 0,
     };

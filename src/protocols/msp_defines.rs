@@ -954,8 +954,10 @@ impl OsdConfig {
 #[derive(Default)]
 pub struct Name {
     /// Craft name - up to 15 characters.
-    pub craft_name: [u8; 15],
+    pub craft_name: [u8; NAME_SIZE],
 }
+
+pub const NAME_SIZE: usize = 15;
 
 #[derive(Default)]
 pub struct BatteryState {

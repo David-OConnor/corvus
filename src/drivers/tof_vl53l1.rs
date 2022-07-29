@@ -4,6 +4,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(clippy::all)]
 #![allow(dead_code)]
+#![allow(unused)]
 
 //! This module contains code for the ST VL53L1CB time-of-flight sensor. We use it to find AGL altitude
 //! when near the ground in level flight. Advertised at up to 8M range.

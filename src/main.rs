@@ -59,7 +59,7 @@ use control_interface::{ChannelData, LinkStats, PidTuneActuation, PidTuneMode};
 
 use drivers::{
     baro_dps310 as baro, gps_x as gps, imu_icm426xx as imu,
-    osd::{self, OsdData},
+    osd::{self, AutopilotData, OsdData},
     tof_vl53l1 as tof,
 };
 
@@ -1070,13 +1070,20 @@ mod app {
                         current_draw: current,
                         alt_msl_baro: params.baro_alt_msl,
                         gps_fix: Location::default(),
-                        motor_count: 4,
                         pitch: params.s_pitch,
                         roll: params.s_roll,
                         yaw: params.s_yaw_heading,
                         pid_p: coeffs.roll.k_p_rate,
                         pid_i: coeffs.roll.k_i_rate,
                         pid_d: coeffs.roll.k_d_rate,
+                        autopilot: AutopilotData {
+                            takeoff: autopilot_status.takeoff,
+                            land: autopilot_status.land_quad.is_some()
+                                || autopilot_status.land_fixed_wing.is_some(),
+                            direct_to_point: autopilot_status.direct_to_point.is_some(),
+                            orbit: autopilot_status.orbit.is_some(),
+                            alt_hold: autopilot_status.alt_hold.is_some(),
+                        },
                     };
                     osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH, dma, &osd_data);
 
@@ -1482,9 +1489,9 @@ mod app {
     fn servo_isr(mut cx: servo_isr::Context) {
         cx.shared.motor_timers.lock(|timers| {
             #[cfg(feature = "h7")]
-            let mut timer = &mut timers.servos;
+            let timer = &mut timers.servos;
             #[cfg(feature = "g4")]
-            let mut timer = &mut timers.r34_servos;
+            let timer = &mut timers.r34_servos;
 
             timer.clear_interrupt(TimerInterrupt::Update);
             timer.disable();
@@ -1530,7 +1537,7 @@ mod app {
             cx.shared.lost_link_timer,
             cx.shared.rf_limiter_timer,
             cx.shared.state_volatile,
-            cx.shared.ctrl_coeffs
+            cx.shared.ctrl_coeffs,
         )
             .lock(
                 |uart,

@@ -231,7 +231,7 @@ impl Packet {
         let received_crc = buf[payload_len + 3];
 
         let expected_crc = util::calc_crc(
-            unsafe { &CRC_LUT },
+            &CRC_LUT,
             // len + 2 gets us to the end. -1 to ommit CRC itself, which isn't part of the calculation.
             &buf[2..len + 1],
             len as u8 - 1,

@@ -35,7 +35,8 @@ pub const fn crc_init(poly: u8) -> [u8; 256] {
     let mut lut = [0; 256];
 
     let mut i = 0;
-    while i < 256 { // Can't use for loops in const fns
+    while i < 256 {
+        // Can't use for loops in const fns
         let mut crc = i as u8;
 
         let mut j = 0;

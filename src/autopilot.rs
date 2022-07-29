@@ -1,6 +1,6 @@
 //! This module contains code related to various autopilot modes.
 
-use core::{f32::consts::TAU};
+use core::f32::consts::TAU;
 
 use num_traits::float::Float;
 
@@ -320,9 +320,8 @@ impl AutopilotStatus {
             // todo: Crude algo here. Is this OK? Important distinction: Flight path does'nt mean
             // todo exactly pitch! Might be close enough for good enough.
             let roll_const = 2.; // radians bank / radians heading  todo: Const?
-            attitudes_commanded.roll = Some(
-                ((target_heading - params.s_yaw_heading) * roll_const).max(MAX_BANK)
-            );
+            attitudes_commanded.roll =
+                Some(((target_heading - params.s_yaw_heading) * roll_const).max(MAX_BANK));
             attitudes_commanded.pitch = Some(target_pitch);
         }
 

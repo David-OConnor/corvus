@@ -6,6 +6,8 @@
 //!
 //! [Reference](https://github.com/iNavFlight/inav/wiki/MSP-V2)
 
+#![allow(dead_code)] // todo: So we can comment-out the V2 or V1 code as required.
+
 use stm32_hal2::{
     dma::{Dma, DmaChannel},
     pac::{DMA1, USART2},
@@ -83,11 +85,7 @@ impl Packet {
 
         // The CRC includes the payload size, frame ID, and payload.
         let crc_payload = &buf[3..self.payload_size as usize + 3];
-        let crc = util::calc_crc(
-            unsafe { &CRC_LUT },
-            &crc_payload,
-            self.payload_size as u8 + 2,
-        );
+        let crc = util::calc_crc(&CRC_LUT, &crc_payload, self.payload_size as u8 + 2);
 
         buf[METADATA_SIZE - 1 + self.payload_size as usize] = crc;
     }
