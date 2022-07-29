@@ -1,9 +1,6 @@
 //! This module contains code related to various autopilot modes.
 
-use core::{
-    comp::max,
-    f32::consts::TAU,
-};
+use core::{f32::consts::TAU};
 
 use num_traits::float::Float;
 
@@ -213,6 +210,7 @@ impl AutopilotStatus {
                 AltType::Agl => alt_commanded - params.tof_alt,
             };
 
+            // todo: Instead of a PID, consider something simpler.
             pid.thrust = pid::calc_pid_error(
                 // If just entering this mode, default to 0. throttle as a starting point.
                 attitudes_commanded.thrust.unwrap_or(0.),
@@ -228,11 +226,19 @@ impl AutopilotStatus {
             // Note that thrust is set using the rate loop.
             rates_commanded.thrust = Some(pid.thrust.out());
         } else if let Some(pt) = &self.direct_to_point {
+            let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
 
+            attitudes_commanded.yaw = Some(target_heading);
+
+            // todo: Altitude too.
         }
 
-        if self.alt_hold.is_none() && !self.takeoff && self.land_quad.is_none() && self.direct_to_point.is_none() {
-            attitudes_commanded.pitch = None;
+        if self.alt_hold.is_none()
+            && !self.takeoff
+            && self.land_quad.is_none()
+            && self.direct_to_point.is_none()
+        {
+            attitudes_commanded.thrust = None;
         }
     }
 
@@ -302,24 +308,29 @@ impl AutopilotStatus {
                 find_bearing(
                     (params.lat, params.lon),
                     (orbit.center_lat, orbit.center_lon),
-                );
+                )
             };
         } else if let Some(pt) = &self.direct_to_point {
-            let target_heading = find_bearing(
-                (params.lat, params.lon),
-                (pt.lat, pt.lon),
-            );
+            let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
 
-            let target_pitch = ((pt.alt_msl - params.baro_alt_msl) /
-                find_distance((pt.lat, pt.lon), (params.lat, params.lon))).atan();
+            let target_pitch = ((pt.alt_msl - params.baro_alt_msl)
+                / find_distance((pt.lat, pt.lon), (params.lat, params.lon)))
+            .atan();
 
-            // todo: Crude algo here. Is this OK?
+            // todo: Crude algo here. Is this OK? Important distinction: Flight path does'nt mean
+            // todo exactly pitch! Might be close enough for good enough.
             let roll_const = 2.; // radians bank / radians heading  todo: Const?
-            attitudes_commanded.roll = Some(max((target_heading - params.s_yaw_heading) * roll_const, MAX_BANK));
+            attitudes_commanded.roll = Some(
+                ((target_heading - params.s_yaw_heading) * roll_const).max(MAX_BANK)
+            );
             attitudes_commanded.pitch = Some(target_pitch);
         }
 
-        if self.alt_hold.is_some() && !self.takeoff && self.land_fixed_wing.is_none() && self.direct_to_point.is_none() {
+        if self.alt_hold.is_some()
+            && !self.takeoff
+            && self.land_fixed_wing.is_none()
+            && self.direct_to_point.is_none()
+        {
             let (alt_type, alt_commanded) = self.alt_hold.unwrap();
 
             // Set a vertical velocity for the inner loop to maintain, based on distance
@@ -352,8 +363,13 @@ impl AutopilotStatus {
 
         // If not in an autopilot mode, reset commands that may have been set by the autopilot, and
         // wouldn't have been reset by manual controls. For now, this only applie to throttle.
-        if self.alt_hold.is_none() && !self.takeoff && self.land_fixed_wing.is_none() {
+        if self.alt_hold.is_none()
+            && !self.takeoff
+            && self.land_fixed_wing.is_none()
+            && self.direct_to_point.is_none()
+        {
             attitudes_commanded.pitch = None;
+            attitudes_commanded.roll = None;
         }
     }
 }

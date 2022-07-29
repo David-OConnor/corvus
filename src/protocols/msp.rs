@@ -17,9 +17,9 @@ use crate::{
     util,
 };
 
-static mut CRC_LUT: [u8; 256] = [0; 256];
 // const CRC_POLY: u8 = 0xd;
 const CRC_POLY: u8 = 0x0; // todo: WHich one, this or the above?
+const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
 
 const PREAMBLE_0: u8 = 0x24;
 const PREAMBLE_1_V2: u8 = 0x58;
@@ -141,9 +141,4 @@ pub fn _send_packet_v1(
     // todo: DRY with `send_packet`.
     packet.to_buf_v1(payload, buf);
     unsafe { uart.write_dma(&buf, dma_chan, Default::default(), dma) };
-}
-
-/// Set up MSP.
-pub fn setup_crc() {
-    util::crc_init(unsafe { &mut CRC_LUT }, CRC_POLY);
 }

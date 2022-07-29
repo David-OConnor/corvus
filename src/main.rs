@@ -712,7 +712,6 @@ mod app {
         .serial_number("AN") // todo: Try 2 letter only if causing trouble?
         .device_class(usbd_serial::USB_CLASS_CDC)
         .build();
-        usb_cfg::init_crc();
 
         // todo: Note that you may need to either increment the flash page offset, or cycle flash pages, to
         // todo avoid wear on a given sector from erasing each time. Note that you can still probably get 10k
@@ -749,8 +748,6 @@ mod app {
             &mut i2c1,
             &mut i2c2,
         );
-
-        protocols::msp::setup_crc();
 
         // loop {
         //     let pressure = altimeter.read_pressure(&mut i2c2);
@@ -974,7 +971,7 @@ mod app {
                                               // // //
                         println!(
                             "Attitude: roll {}, pitch: {}, yaw: {}\n",
-                            params.s_roll, params.s_pitch, params.s_yaw
+                            params.s_roll, params.s_pitch, params.s_yaw_heading
                         );
 
                         // println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
@@ -1076,7 +1073,7 @@ mod app {
                         motor_count: 4,
                         pitch: params.s_pitch,
                         roll: params.s_roll,
-                        yaw: params.s_yaw,
+                        yaw: params.s_yaw_heading,
                         pid_p: coeffs.roll.k_p_rate,
                         pid_i: coeffs.roll.k_i_rate,
                         pid_d: coeffs.roll.k_d_rate,
@@ -1521,7 +1518,7 @@ mod app {
 
     // #[task(binds = USART7, shared = [uart_elrs, dma, control_channel_data,
     #[task(binds = USART3, shared = [uart_elrs, dma, control_channel_data,
-    lost_link_timer, rf_limiter_timer, state_volatile, pid_rate], local = [pid_adj_timer], priority = 5)]
+    lost_link_timer, rf_limiter_timer, state_volatile, ctrl_coeffs], local = [pid_adj_timer], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
@@ -1533,7 +1530,7 @@ mod app {
             cx.shared.lost_link_timer,
             cx.shared.rf_limiter_timer,
             cx.shared.state_volatile,
-            cx.shared.pid_rate,
+            cx.shared.ctrl_coeffs
         )
             .lock(
                 |uart,
@@ -1542,7 +1539,7 @@ mod app {
                  lost_link_timer,
                  rf_limiter_timer,
                  state_volatile,
-                 pid_rate| {
+                 ctrl_coeffs| {
                     uart.clear_interrupt(UsartInterrupt::Idle);
 
                     if rf_limiter_timer.is_enabled() {
@@ -1578,20 +1575,20 @@ mod app {
                                                 PidTuneMode::P => {
                                                     // todo: for now or forever, adjust pitch, roll, yaw
                                                     // todo at once to keep UI simple
-                                                    pid_rate.pitch.p += pid_adjustment;
-                                                    pid_rate.roll.p += pid_adjustment;
+                                                    ctrl_coeffs.pitch.k_p_rate += pid_adjustment;
+                                                    ctrl_coeffs.roll.k_p_rate += pid_adjustment;
                                                     // todo: Maybe skip yaw here?
-                                                    pid_rate.yaw.p += pid_adjustment;
+                                                    ctrl_coeffs.yaw.k_p_rate += pid_adjustment;
                                                 }
                                                 PidTuneMode::I => {
-                                                    pid_rate.pitch.i += pid_adjustment;
-                                                    pid_rate.roll.i += pid_adjustment;
-                                                    pid_rate.yaw.i += pid_adjustment;
+                                                    ctrl_coeffs.pitch.k_i_rate += pid_adjustment;
+                                                    ctrl_coeffs.roll.k_i_rate += pid_adjustment;
+                                                    ctrl_coeffs.yaw.k_i_rate += pid_adjustment;
                                                 }
                                                 PidTuneMode::D => {
-                                                    pid_rate.pitch.d += pid_adjustment;
-                                                    pid_rate.roll.d += pid_adjustment;
-                                                    pid_rate.yaw.d += pid_adjustment;
+                                                    ctrl_coeffs.pitch.k_d_rate += pid_adjustment;
+                                                    ctrl_coeffs.roll.k_d_rate += pid_adjustment;
+                                                    ctrl_coeffs.yaw.k_d_rate += pid_adjustment;
                                                 }
                                             }
                                         }

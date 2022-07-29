@@ -44,10 +44,8 @@ use crate::{
     util, UART_ELRS,
 };
 
-// todo: Maybe put in a struct etc? It's constant, but we use a function call to populate it.
-// Note: LUT is here, since it depends on the poly.
-static mut CRC_LUT: [u8; 256] = [0; 256];
 const CRC_POLY: u8 = 0xd5;
+const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
 
 const CHANNEL_VAL_MIN: u16 = 172;
 const CHANNEL_VAL_MAX: u16 = 1_811;
@@ -160,8 +158,6 @@ pub fn setup(uart: &mut Usart<UART_ELRS>, channel: DmaChannel, dma: &mut Dma<DMA
             dma,
         );
     }
-
-    util::crc_init(unsafe { &mut CRC_LUT }, CRC_POLY);
 }
 
 struct Packet {

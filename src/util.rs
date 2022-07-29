@@ -31,14 +31,24 @@ pub fn map_linear(val: f32, range_in: (f32, f32), range_out: (f32, f32)) -> f32 
 }
 
 /// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c
-pub fn crc_init(lut: &mut [u8; 256], poly: u8) {
-    for i in 0..256 {
+pub const fn crc_init(poly: u8) -> [u8; 256] {
+    let mut lut = [0; 256];
+
+    let mut i = 0;
+    while i < 256 { // Can't use for loops in const fns
         let mut crc = i as u8;
-        for _ in 0..8 {
+
+        let mut j = 0;
+        while j < 8 {
             crc = (crc << 1) ^ (if (crc & 0x80) > 0 { poly } else { 0 });
+            j += 1;
         }
         lut[i] = crc;
+
+        i += 1;
     }
+
+    lut
 }
 
 /// CRC8 using a specific poly, includes all bytes from type (buffer[2]) to end of payload.

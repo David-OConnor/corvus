@@ -46,9 +46,8 @@ use defmt::println;
 // These sizes are in bytes.
 const F32_BYTES: usize = 4;
 
-// Note: LUT is here, since it depends on the poly.
-static mut CRC_LUT: [u8; 256] = [0; 256];
 const CRC_POLY: u8 = 0xab;
+const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
 
 const QUATERNION_SIZE: usize = F32_BYTES * 4; // Quaternion (4x4 + altimeter + voltage reading + current reading)
 const PARAMS_SIZE: usize = QUATERNION_SIZE + F32_BYTES * 3; //
@@ -67,10 +66,6 @@ const LINK_STATS_PACKET_SIZE: usize = LINK_STATS_SIZE + 2;
 pub const WAYPOINTS_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
 
 struct _DecodeError {}
-
-pub fn init_crc() {
-    util::crc_init(unsafe { &mut CRC_LUT }, CRC_POLY);
-}
 
 // struct CrcError {} todo?
 
