@@ -9,7 +9,7 @@ use super::ahrs_fusion::fusion_asin;
 
 use num_traits::float::Float;
 
-use defmt::println;
+// use defmt::println;
 
 /// 3D vector.
 #[derive(Clone, Copy, Default)]

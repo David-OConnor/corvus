@@ -20,9 +20,9 @@
 
 // use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sin_f32 as sin};
 
-use defmt::println;
-
 use crate::{ahrs_fusion::Ahrs, flight_ctrls::common::Params, imu, lin_alg::Vec3};
+
+// use defmt::println;
 
 // C file with impl of EKF for quaternion rotation:
 // https://github.com/pms67/EKF-Quaternion-Attitude-Estimation/blob/master/EKF.h

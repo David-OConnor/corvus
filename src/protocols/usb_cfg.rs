@@ -49,8 +49,11 @@ const F32_BYTES: usize = 4;
 const CRC_POLY: u8 = 0xab;
 const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
 
-const QUATERNION_SIZE: usize = F32_BYTES * 4; // Quaternion (4x4 + altimeter + voltage reading + current reading)
-const PARAMS_SIZE: usize = QUATERNION_SIZE + F32_BYTES * 3; //
+const QUATERNION_SIZE: usize = F32_BYTES * 4;
+
+// Quaternion (4x4 + altimeter + altimeter_agl +
+// voltage reading + current reading + option byte for altimeter.)
+const PARAMS_SIZE: usize = QUATERNION_SIZE + F32_BYTES * 4 + 1; //
 const CONTROLS_SIZE: usize = 18;
 // const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
 const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
@@ -122,40 +125,6 @@ impl MsgType {
         }
     }
 }
-
-// impl From<&Params> for [u8; PARAMS_SIZE] {
-//     /// 19 f32s x 4 = 76. In the order we have defined in the struct.
-//     fn from(p: &Params) -> Self {
-//         let mut result = [0; PARAMS_SIZE];
-//
-//         // todo: DRY
-//         result[0..4].clone_from_slice(&p.s_x.to_be_bytes());
-//         result[4..8].clone_from_slice(&p.s_y.to_be_bytes());
-//         result[8..12].clone_from_slice(&p.s_z_msl.to_be_bytes());
-//         result[12..16].clone_from_slice(&p.s_z_agl.to_be_bytes());
-//         result[16..20].clone_from_slice(&p.s_pitch.to_be_bytes());
-//         result[20..24].clone_from_slice(&p.s_roll.to_be_bytes());
-//         result[24..28].clone_from_slice(&p.s_yaw.to_be_bytes());
-//         result[28..32].clone_from_slice(&p.quaternion.to_be_bytes());
-//
-//         // todo: If you transmit all params again, set this back up for the offset squishing in quaternion
-//         // todo implies.
-//         result[28..32].clone_from_slice(&p.v_x.to_be_bytes());
-//         result[32..36].clone_from_slice(&p.v_y.to_be_bytes());
-//         result[36..40].clone_from_slice(&p.v_z.to_be_bytes());
-//         result[40..44].clone_from_slice(&p.v_pitch.to_be_bytes());
-//         result[44..48].clone_from_slice(&p.v_roll.to_be_bytes());
-//         result[48..52].clone_from_slice(&p.v_yaw.to_be_bytes());
-//         result[52..56].clone_from_slice(&p.a_x.to_be_bytes());
-//         result[56..60].clone_from_slice(&p.a_y.to_be_bytes());
-//         result[60..64].clone_from_slice(&p.a_z.to_be_bytes());
-//         result[64..68].clone_from_slice(&p.a_pitch.to_be_bytes());
-//         result[68..72].clone_from_slice(&p.a_roll.to_be_bytes());
-//         result[72..76].clone_from_slice(&p.a_yaw.to_be_bytes());
-//
-//         result
-//     }
-// }
 
 impl From<Quaternion> for [u8; QUATERNION_SIZE] {
     /// 4 f32s = 76. In the order we have defined in the struct.
@@ -230,16 +199,17 @@ fn waypoints_to_buf(w: &[Option<Location>; MAX_WAYPOINTS]) -> [u8; WAYPOINTS_SIZ
 
     result
 }
-// }
+
+// Readings for preflight
+struct PreflightData {}
 
 /// Handle incoming data from the PC
 pub fn handle_rx(
     usb_serial: &mut SerialPort<'static, UsbBusType>,
-    data: &[u8],
-    count: usize,
-    // params: &Params,
+    rx_buf: &[u8],
     attitude: Quaternion,
     altimeter: f32,
+    altimeter_agl: Option<f32>,
     controls: &ChannelData,
     link_stats: &LinkStats,
     waypoints: &[Option<Location>; MAX_WAYPOINTS],
@@ -250,7 +220,7 @@ pub fn handle_rx(
     adc: &Adc<ADC2>,
     dma: &mut Dma<DMA1>,
 ) {
-    let rx_msg_type: MsgType = match data[0].try_into() {
+    let rx_msg_type: MsgType = match rx_buf[0].try_into() {
         Ok(d) => d,
         Err(_) => {
             println!("Invalid message type received over USB");
@@ -260,11 +230,11 @@ pub fn handle_rx(
 
     let expected_crc_rx = util::calc_crc(
         &CRC_LUT,
-        &data[..rx_msg_type.payload_size() + 1],
+        &rx_buf[..rx_msg_type.payload_size() + 1],
         rx_msg_type.payload_size() as u8 + 1,
     );
 
-    if data[rx_msg_type.payload_size() + 1] != expected_crc_rx {
+    if rx_buf[rx_msg_type.payload_size() + 1] != expected_crc_rx {
         println!("Incorrect inbound CRC");
         // todo: return here.
     }
@@ -280,20 +250,32 @@ pub fn handle_rx(
             // todo it back. This could potentially be dangerous.
             *op_mode = OperationMode::Preflight;
 
+            let mut i = 0;
+
             let mut tx_buf = [0; PARAMS_PACKET_SIZE];
-            tx_buf[0] = MsgType::Params as u8;
 
-            let quat_buf: [u8; QUATERNION_SIZE] = attitude.into();
+            tx_buf[i] = MsgType::Params as u8;
+            i += 1;
 
-            tx_buf[1..(QUATERNION_SIZE + 1)].copy_from_slice(&quat_buf);
+            let attitude_buf: [u8; QUATERNION_SIZE] = attitude.into();
+            tx_buf[i..QUATERNION_SIZE + i].copy_from_slice(&attitude_buf);
+            i += QUATERNION_SIZE;
 
             let altimeter_bytes = altimeter.to_be_bytes();
-            for i in 0..4 {
-                tx_buf[i + 1 + QUATERNION_SIZE] = altimeter_bytes[i];
-            }
+            tx_buf[i..F32_BYTES + i].copy_from_slice(&altimeter_bytes);
+            i += F32_BYTES;
 
-            // todo: A lot of tough-to-read-and-maintain code in this section!
-            // todo: Better way?
+            tx_buf[i] = if altimeter_agl.is_some() { 1 } else { 0 };
+            i += 1;
+
+            match altimeter_agl {
+                Some(alt) => {
+                    let altimeter_agl_bytes = alt.to_be_bytes();
+                    tx_buf[i..F32_BYTES + i].copy_from_slice(&altimeter_agl_bytes)
+                }
+                None => (),
+            }
+            i += F32_BYTES;
 
             let batt_v = adc.reading_to_voltage(unsafe { crate::ADC_READ_BUF }[0])
                 * crate::ADC_BATT_DIVISION;
@@ -301,13 +283,12 @@ pub fn handle_rx(
                 * crate::ADC_CURR_DIVISION;
 
             let batt_bytes = batt_v.to_be_bytes();
+            tx_buf[i..F32_BYTES + i].copy_from_slice(&batt_bytes);
+            i += F32_BYTES;
+
             let curr_bytes = curr.to_be_bytes();
-            for i in 0..4 {
-                tx_buf[i + 1 + QUATERNION_SIZE + 4] = batt_bytes[i];
-            }
-            for i in 0..4 {
-                tx_buf[i + 1 + QUATERNION_SIZE + 8] = curr_bytes[i];
-            }
+            tx_buf[i..F32_BYTES + i].copy_from_slice(&curr_bytes);
+            i += F32_BYTES;
 
             let payload_size = MsgType::Params.payload_size();
             tx_buf[payload_size + 1] = util::calc_crc(
@@ -368,7 +349,7 @@ pub fn handle_rx(
             *arm_status = ArmStatus::Disarmed;
         }
         MsgType::StartMotor => {
-            let rotor_position = match data[1] {
+            let rotor_position = match rx_buf[1] {
                 // todo: This more robust approach won't work.
                 // RotorPosition::FrontLeft as u8 => RotorPosition::FrontLeft,
                 // RotorPosition::FrontRight as u8 => RotorPosition::FrontRight,
@@ -392,7 +373,7 @@ pub fn handle_rx(
             );
         }
         MsgType::StopMotor => {
-            let rotor_position = match data[1] {
+            let rotor_position = match rx_buf[1] {
                 0 => RotorPosition::FrontLeft,
                 1 => RotorPosition::FrontRight,
                 2 => RotorPosition::AftLeft,

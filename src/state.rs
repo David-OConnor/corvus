@@ -86,6 +86,8 @@ pub struct UserCfg {
     pub active_waypoint: usize,
     pub landing_cfg_quad: LandingCfgQuad,
     pub landing_cfg_fixed_wing: LandingCfgFixedWing,
+    /// Fixed-wing only. Use servo 3 as a rudder. (Alternative is no rudder)
+    pub rudder_used: bool,
 }
 
 impl Default for UserCfg {
@@ -140,6 +142,7 @@ impl Default for UserCfg {
             active_waypoint: 0,
             landing_cfg_quad: Default::default(),
             landing_cfg_fixed_wing: Default::default(),
+            rudder_used: false,
         }
     }
 }

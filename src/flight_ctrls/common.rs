@@ -17,6 +17,8 @@ use super::{
     quad::{MotorPower, THROTTLE_MAX_MNVR_CLAMP, THROTTLE_MIN_MNVR_CLAMP},
 };
 
+// use cfg_if::cfg_if;
+
 // Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
 const ROLL_IN_RNG: (f32, f32) = (-1., 1.);
@@ -158,7 +160,7 @@ pub struct Params {
     /// MSL altitude in meters QFE (takeoff location is 0), from a barometer.
     pub baro_alt_msl: f32,
     /// AGL altitude in meters, from the Time of flight sensor.
-    pub tof_alt: f32,
+    pub tof_alt: Option<f32>,
 
     pub s_pitch: f32,
     pub s_roll: f32,

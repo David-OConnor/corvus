@@ -214,7 +214,7 @@ impl AutopilotStatus {
             // Set a vertical velocity for the inner loop to maintain, based on distance
             let dist = match alt_type {
                 AltType::Msl => alt_commanded - params.baro_alt_msl,
-                AltType::Agl => alt_commanded - params.tof_alt,
+                AltType::Agl => alt_commanded - params.tof_alt.unwrap_or(0.),
             };
 
             // todo: Instead of a PID, consider something simpler.
@@ -342,7 +342,7 @@ impl AutopilotStatus {
             // Set a vertical velocity for the inner loop to maintain, based on distance
             let dist = match alt_type {
                 AltType::Msl => alt_commanded - params.baro_alt_msl,
-                AltType::Agl => alt_commanded - params.tof_alt,
+                AltType::Agl => alt_commanded - params.tof_alt.unwrap_or(0.),
             };
 
             pid_attitude.pitch = pid::calc_pid_error(

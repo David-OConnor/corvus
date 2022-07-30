@@ -1366,13 +1366,14 @@ mod app {
 
                     let mut buf = [0u8; 8];
                     match usb_serial.read(&mut buf) {
-                        Ok(count) => {
+                        Ok(_count) => {
                             usb_cfg::handle_rx(
                                 usb_serial,
                                 &buf,
-                                count,
+                                // count,
                                 params.quaternion,
                                 params.baro_alt_msl,
+                                params.tof_alt,
                                 ch_data,
                                 &state_volatile.link_stats,
                                 &user_cfg.waypoints,
