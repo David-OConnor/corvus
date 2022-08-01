@@ -7,7 +7,9 @@
 
 use stm32_hal2::{dma::Dma, pac::DMA1};
 
-use crate::{control_interface::InputModeSwitch, dshot, safety::ArmStatus, util, StateVolatile};
+use crate::{
+    control_interface::InputModeSwitch, dshot, safety::ArmStatus, state::StateVolatile, util,
+};
 
 use super::common::{MotorTimers, Params};
 
@@ -723,7 +725,7 @@ pub fn handle_control_mode(
     *input_mode = match input_mode_control {
         InputModeSwitch::Acro => InputMode::Acro,
         InputModeSwitch::AttitudeCommand => {
-            if state_volatile.gps_attached {
+            if state_volatile.optional_sensor_status.gps_connected {
                 InputMode::Command
             } else {
                 InputMode::Attitude

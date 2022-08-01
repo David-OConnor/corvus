@@ -147,18 +147,26 @@ impl Default for UserCfg {
     }
 }
 
+#[derive(Default)]
+pub struct OptionalSensorStatus {
+    /// The GPS module is connected. Detected on init.
+    pub gps_connected: bool,
+    /// The time-of-flight sensor module is connected. Detected on init.
+    pub tof_connected: bool,
+    /// A magnetometer is connected. Likely on the same module as GPS. Detected on init.
+    pub magnetometer_connected: bool,
+}
+
 /// State that doesn't get saved to flash.
 #[derive(Default)]
 pub struct StateVolatile {
     pub arm_status: ArmStatus,
     pub op_mode: OperationMode,
     pub input_mode_switch: InputModeSwitch,
-    /// The GPS module is connected. Detected on init.
-    pub gps_attached: bool,
-    /// The time-of-flight sensor module is connected. Detected on init.
-    pub tof_attached: bool,
+    pub optional_sensor_status: OptionalSensorStatus,
     // FOr now, we use "link lost" to include never having been connected.
     // connected_to_controller: bool,
+    pub link_lost: bool,
     pub axis_locks: AxisLocks,
     /// Quadcopter
     pub current_pwr: MotorPower,

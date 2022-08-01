@@ -357,23 +357,21 @@ impl Packet {
     /// Interpret a CRSF packet as link statistics
     /// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c#L179
     pub fn to_link_stats(&self) -> LinkStats {
-        let mut result = LinkStats::default();
-
         let data = self.payload;
 
-        // result.timestamp = Ticks_Now(); // todo
-        result.uplink_rssi_1 = data[0];
-        result.uplink_rssi_2 = data[1];
-        result.uplink_link_quality = data[2];
-        result.uplink_snr = data[3] as i8;
-        result.active_antenna = data[4];
-        result.rf_mode = data[5];
-        result.uplink_tx_power = data[6].try_into().unwrap();
-        result.downlink_rssi = data[7];
-        result.downlink_link_quality = data[8];
-        result.downlink_snr = data[9] as i8;
-
-        result
+        LinkStats {
+            timestamp: 0, // todo
+            uplink_rssi_1: data[0],
+            uplink_rssi_2: data[1],
+            uplink_link_quality: data[2],
+            uplink_snr: data[3] as i8,
+            active_antenna: data[4],
+            rf_mode: data[5],
+            uplink_tx_power: data[6].try_into().unwrap_or_default(),
+            downlink_rssi: data[7],
+            downlink_link_quality: data[8],
+            downlink_snr: data[9] as i8,
+        }
     }
 }
 

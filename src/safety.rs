@@ -2,7 +2,13 @@
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use crate::{control_interface::ChannelData, flight_ctrls::quad::InputMode, pid::PidGroup};
+use crate::{
+    autopilot::AutopilotStatus,
+    control_interface::ChannelData,
+    flight_ctrls::{common::AltType, quad::InputMode},
+    pid::PidGroup,
+    state::{AircraftType, OptionalSensorStatus},
+};
 
 use defmt::println;
 
@@ -18,9 +24,12 @@ static RECEIVED_INITIAL_DISARM: AtomicBool = AtomicBool::new(false);
 static ARM_COMMANDED_WITHOUT_IDLE: AtomicBool = AtomicBool::new(false);
 // static CONTROLLER_PREV_ARMED: AtomicBool = AtomicBool::new(false);
 
-pub static LINK_LOST: AtomicBool = AtomicBool::new(false);
-
 const THROTTLE_MAX_TO_ARM: f32 = 0.005;
+
+// Altitude to climb to while executing lost link procedure, in meters AGL. This altitude should keep
+// it clear of trees, while remaining below most legal drone limits. A higher alt may increase chances
+// of req-acquiring the link.
+const LOST_LINK_RTB_ALT: f32 = 100.;
 
 /// Indicates master motor arm status. Used for both pre arm, and arm. If either is
 /// set to `Disarmed`, the motors will not spin (or stop spinning immediately).
@@ -111,15 +120,15 @@ pub fn handle_arm_status(
     }
 }
 
-/// If we haven't received a radio control signal in a while, perform an action.
-/// todo: Immediate actions, or each update loop while link is still lost?
-pub fn link_lost_steady_state(
-    input_mode: &mut InputMode,
-    control_ch_data: &mut ChannelData,
-    arm_status: &mut ArmStatus,
-    arm_signals_receieved: &mut u8,
+/// If we are lost link haven't received a radio signal in a certain amount of time, execute a lost-link
+/// procedure. This function behaves differently depending on if we've just entered it, or if
+/// we're in a steady-state.
+pub fn link_lost(
+    aircraft_type: AircraftType,
+    optional_sensor_status: &OptionalSensorStatus,
+    autopilot_status: &mut AutopilotStatus,
+    entering_lost_link: bool,
 ) {
-    // println!("Handling lost link...")
     // if !timer.is_enabled() {
     //     println!("Lost link to Rx control. Recovering...")
     // todo: Consider how you want to handle this, with and without GPS.
@@ -129,16 +138,17 @@ pub fn link_lost_steady_state(
     // todo: Make sure you resume flight once link is re-acquired.
     // }
 
-    // todo: Only execute a climb if GPS is avail, and are a certain distance away from homestation.
+    autopilot_status.alt_hold = Some((AltType::Msl, LOST_LINK_RTB_ALT));
 
-    *input_mode = InputMode::Attitude;
-    control_ch_data.pitch = 0.;
-    control_ch_data.roll = 0.;
-    control_ch_data.yaw = 0.;
-    // todo temp!
-    // todo: The above plus a throttle control, and attitude mode etc
-
-    control_ch_data.throttle = 0.0; // todo: Drops out of sky for now while we test.
-    *arm_status = ArmStatus::Disarmed;
-    *arm_signals_receieved = 0;
+    match aircraft_type {
+        AircraftType::Quadcopter => if optional_sensor_status.gps_connected {},
+        AircraftType::FixedWing => {
+            if optional_sensor_status.gps_connected {
+            } else if optional_sensor_status.magnetometer_connected {
+                // todo: Store lost-link heading somewhere (probably a LostLinkStatus struct etc)
+                // Climb with reverse heading if no GPS available.
+                // Note that quadcopter movements may be too unstable to attempt this.
+            }
+        }
+    }
 }

@@ -1,8 +1,6 @@
 #![no_main]
 #![no_std]
 
-use core::sync::atomic::Ordering;
-
 use cortex_m::{self, asm, delay::Delay};
 
 use defmt::println;
@@ -1012,13 +1010,12 @@ mod app {
                         pid_velocity,
                     );
 
-                    if safety::LINK_LOST.load(Ordering::Acquire) {
-                        // todo: For now, works by commanding attitude mode and level flight.
-                        safety::link_lost_steady_state(
-                            input_mode,
-                            control_channel_data,
-                            &mut state_volatile.arm_status,
-                            cx.local.arm_signals_received,
+                    if state_volatile.link_lost {
+                        safety::link_lost(
+                            cfg.aircraft_type,
+                            &state_volatile.optional_sensor_status,
+                            autopilot_status,
+                            false, // We send `entering_lost_link` on the timer's ISR.
                         );
                         return;
                     }
@@ -1502,17 +1499,33 @@ mod app {
     // }
 
     /// If this triggers, it means we've lost the link. (Note that this is for TIM17)
-    // #[task(binds = TIM17, shared = [lost_link_timer], priority = 2)]
-    #[task(binds = TIM1_TRG_COM, shared = [lost_link_timer], priority = 2)]
+    // #[task(binds = TIM17, shared = [lost_link_timer, state_volatile, user_cfg, autopilot_status], priority = 2)]
+    #[task(binds = TIM1_TRG_COM, shared = [lost_link_timer, state_volatile, user_cfg, autopilot_status], priority = 2)]
     fn lost_link_isr(mut cx: lost_link_isr::Context) {
         println!("Lost the link!");
 
-        (cx.shared.lost_link_timer).lock(|timer| {
-            timer.clear_interrupt(TimerInterrupt::Update);
-            timer.disable();
-        });
+        (
+            cx.shared.lost_link_timer,
+            cx.shared.state_volatile,
+            cx.shared.user_cfg,
+            cx.shared.autopilot_status,
+        )
+            .lock(|timer, state_volatile, user_cfg, autopilot_status| {
+                timer.clear_interrupt(TimerInterrupt::Update);
+                timer.reset_countdown();
+                timer.disable(); // todo: Probably not required in one-pulse mode.
 
-        safety::LINK_LOST.store(true, Ordering::Release);
+                state_volatile.link_lost = true;
+
+                // We run this during the main loop, but here the `entering` flag is set to true,
+                // to initialize setup steps.
+                safety::link_lost(
+                    user_cfg.aircraft_type,
+                    &state_volatile.optional_sensor_status,
+                    autopilot_status,
+                    true, // We send `entering_lost_link` on the timer's ISR.
+                );
+            });
     }
 
     // #[task(binds = USART7, shared = [uart_elrs, dma, control_channel_data,
@@ -1599,15 +1612,7 @@ mod app {
                                 lost_link_timer.reset_countdown();
                                 lost_link_timer.enable();
 
-                                if safety::LINK_LOST
-                                    .compare_exchange(
-                                        true,
-                                        false,
-                                        Ordering::Relaxed,
-                                        Ordering::Relaxed,
-                                    )
-                                    .is_ok()
-                                {
+                                if state_volatile.link_lost {
                                     println!("Link re-aquired");
                                     // todo: Execute re-acq procedure
                                 }

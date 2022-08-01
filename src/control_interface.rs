@@ -214,6 +214,6 @@ pub struct LinkStats {
     /// Downlink - link quality (valid packets). An LQ indicator of telemetry packets received RX → TX
     /// (0 - 100)
     pub downlink_link_quality: u8,
-    /// Downlink - signal-to-noise ratio. 	SNR reported by the TX for telemetry packets
+    /// Downlink - signal-to-noise ratio. SNR reported by the TX for telemetry packets
     pub downlink_snr: i8,
 }
