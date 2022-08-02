@@ -38,7 +38,8 @@ use stm32_hal2::{
 
 use crate::{
     control_interface::{
-        AltHoldSwitch, ChannelData, InputModeSwitch, LinkStats, PidTuneActuation, PidTuneMode,
+        AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData, InputModeSwitch, LinkStats,
+        PidTuneActuation, PidTuneMode,
     },
     safety::ArmStatus,
     util, UART_ELRS,
@@ -289,7 +290,7 @@ impl Packet {
 
         // As you change the number of channels used, increase the `raw_channels` size,
         // and comment or uncomment the unpacking lines below.
-        let mut raw_channels = [0_u16; 9];
+        let mut raw_channels = [0_u16; 11];
 
         // Decode channel data
         raw_channels[0] = (data[0] | data[1] << 8) & 0x07FF;
@@ -301,8 +302,8 @@ impl Packet {
         raw_channels[6] = (data[8] >> 2 | data[9] << 6) & 0x07FF;
         raw_channels[7] = (data[9] >> 5 | data[10] << 3) & 0x07FF;
         raw_channels[8] = (data[11] | data[12] << 8) & 0x07FF;
-        // raw_channels[9] = (data[12] >> 3 | data[13] << 5) & 0x07FF;
-        // raw_channels[10] = (data[13] >> 6 | data[14] << 2 | data[15] << 10) & 0x07FF;
+        raw_channels[9] = (data[12] >> 3 | data[13] << 5) & 0x07FF;
+        raw_channels[10] = (data[13] >> 6 | data[14] << 2 | data[15] << 10) & 0x07FF;
         // raw_channels[11] = (data[15] >> 1 | data[16] << 7) & 0x07FF;
         // raw_channels[12] = (data[16] >> 4 | data[17] << 4) & 0x07FF;
         // raw_channels[13] = (data[17] >> 7 | data[18] << 1 | data[19] << 9) & 0x07FF;
@@ -338,6 +339,18 @@ impl Packet {
             _ => PidTuneActuation::Decrease,
         };
 
+        let autopilot_a = match raw_channels[9] {
+            0..=667 => AutopilotSwitchA::Disabled,
+            668..=1_333 => AutopilotSwitchA::LoiterOrbit,
+            _ => AutopilotSwitchA::DirectToPoint,
+        };
+
+        let autopilot_b = match raw_channels[10] {
+            0..=667 => AutopilotSwitchB::Disabled,
+            668..=1_333 => AutopilotSwitchB::HdgHold,
+            _ => AutopilotSwitchB::Land,
+        };
+
         // Note that we could map to CRSF channels (Or to their ELRS-mapped origins), but this is
         // currently set up to map directly to how we use the controls.
         ChannelData {
@@ -349,6 +362,8 @@ impl Packet {
             arm_status,
             input_mode,
             alt_hold,
+            autopilot_a,
+            autopilot_b,
             pid_tune_mode,
             pid_tune_actuation,
         }

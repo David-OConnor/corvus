@@ -52,8 +52,11 @@ cfg_if! {
 use usb_device::{bus::UsbBusAllocator, prelude::*};
 use usbd_serial::{self, SerialPort};
 
-use autopilot::AutopilotStatus;
-use control_interface::{ChannelData, LinkStats, PidTuneActuation, PidTuneMode};
+use autopilot::{AutopilotStatus, Orbit};
+use control_interface::{
+    AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData, LinkStats, PidTuneActuation,
+    PidTuneMode,
+};
 
 use drivers::{
     baro_dps310 as baro, gps_x as gps, imu_icm426xx as imu,
@@ -64,7 +67,7 @@ use drivers::{
 use ahrs_fusion::Ahrs;
 use filter_imu::ImuFilters;
 use flight_ctrls::{
-    common::{CtrlInputs, InputMap, MotorTimers, Params},
+    common::{AltType, CtrlInputs, InputMap, MotorTimers, Params},
     fixed_wing::{self, ControlPositions, ServoWingMapping},
     quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
 };
@@ -279,6 +282,7 @@ fn init_sensors(
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
     use super::*;
+    use autopilot::OrbitShape;
 
     #[shared]
     struct Shared {
@@ -1010,12 +1014,20 @@ mod app {
                         pid_velocity,
                     );
 
+                    //     aircraft_type: AircraftType,
+                    //     optional_sensor_status: &OptionalSensorStatus,
+                    //     autopilot_status: &mut AutopilotStatus,
+                    //     // entering_lost_link: bool,
+                    //     params: &Params,
+                    //     base_pt: Location,
+
                     if state_volatile.link_lost {
                         safety::link_lost(
                             cfg.aircraft_type,
                             &state_volatile.optional_sensor_status,
                             autopilot_status,
-                            false, // We send `entering_lost_link` on the timer's ISR.
+                            params,
+                            &state_volatile.base_point,
                         );
                         return;
                     }
@@ -1026,20 +1038,76 @@ mod app {
                         state_volatile,
                     );
 
+                    match control_channel_data.alt_hold {
+                        AltHoldSwitch::Disabled => autopilot_status.alt_hold = None,
+                        AltHoldSwitch::EnabledAgl => {
+                            if state_volatile.optional_sensor_status.tof_connected {
+                                // todo: Consider placing your sensor connection checks in the ap module itself.
+                                autopilot_status.alt_hold = Some((AltType::Agl, params.tof_alt.unwrap_or(20.)))
+                            }
+                        }
+                        AltHoldSwitch::EnabledMsl => {
+                            autopilot_status.alt_hold = Some((AltType::Msl, params.baro_alt_msl))
+                        }
+                    }
+
+                    match control_channel_data.autopilot_a {
+                        AutopilotSwitchA::Disabled => {
+                            autopilot_status.orbit = None;
+                            autopilot_status.loiter = None;
+                        }
+                        AutopilotSwitchA::LoiterOrbit => match cfg.aircraft_type {
+                            AircraftType::Quadcopter => {
+                                autopilot_status.loiter = Some(Location::new(
+                                    LocationType::LatLon,
+                                    params.lat,
+                                    params.lon,
+                                    params.baro_alt_msl,
+                                ));
+                            }
+                            AircraftType::FixedWing => {
+                                autopilot_status.orbit = Some(Orbit {
+                                    shape: Default::default(),
+                                    center_lat: params.lat,
+                                    center_lon: params.lon,
+                                    radius: autopilot::ORBIT_DEFAULT_RADIUS,
+                                    ground_speed: autopilot::ORBIT_DEFAULT_GROUNDSPEED,
+                                    direction: Default::default(),
+                                });
+                            }
+                        },
+                        AutopilotSwitchA::DirectToPoint => {
+                            autopilot_status.alt_hold = Some((AltType::Msl, params.baro_alt_msl))
+                        }
+                    }
+
+                    match control_channel_data.autopilot_b {
+                        AutopilotSwitchB::Disabled => {
+                            autopilot_status.hdg_hold = None;
+                            autopilot_status.land_quad = None;
+                            autopilot_status.land_fixed_wing = None;
+                        }
+                        AutopilotSwitchB::HdgHold => {
+                            autopilot_status.hdg_hold = Some(params.s_yaw_heading)
+                        }
+                        AutopilotSwitchB::Land => {
+                            match cfg.aircraft_type {
+                                AircraftType::Quadcopter => {
+                                    // todo: impl.
+                                    // autopilot_status.land_quad = Some(LandQuad);
+                                }
+                                AircraftType::FixedWing => {
+                                    // todo impl
+                                    // autopilot_status.land_fixed_wing = Some(LandFixedWing);
+                                }
+                            }
+                        }
+                    }
+
                     // todo: Do you want to update attitude here, or on each IMU data received?
-                    // todo note that the DT you're passing in is currently the IMU update one I think?
                     // sensor_fusion::update_get_attitude(ahrs, params);
 
-                    // todo: Support both UART telemetry from ESC, and analog current sense pin.
-                    // todo: Read from an ADC or something, from teh ESC.
-                    // let current_current = None;
-                    // if let Some(current) = current_current {
-                    // *power_used += current * DT;
-
-                    // }
-                    // else {
-                    // *power_used += current_pwr.total() * DT;
-                    // }
+                    // todo: Support UART telemetry from ESC.
 
                     // todo: Determine timing for OSD update, and if it should be in this loop,
                     // todo, or slower.
@@ -1500,7 +1568,7 @@ mod app {
 
     /// If this triggers, it means we've lost the link. (Note that this is for TIM17)
     // #[task(binds = TIM17, shared = [lost_link_timer, state_volatile, user_cfg, autopilot_status], priority = 2)]
-    #[task(binds = TIM1_TRG_COM, shared = [lost_link_timer, state_volatile, user_cfg, autopilot_status], priority = 2)]
+    #[task(binds = TIM1_TRG_COM, shared = [lost_link_timer, state_volatile, user_cfg, autopilot_status, current_params], priority = 2)]
     fn lost_link_isr(mut cx: lost_link_isr::Context) {
         println!("Lost the link!");
 
@@ -1509,8 +1577,9 @@ mod app {
             cx.shared.state_volatile,
             cx.shared.user_cfg,
             cx.shared.autopilot_status,
+            cx.shared.current_params,
         )
-            .lock(|timer, state_volatile, user_cfg, autopilot_status| {
+            .lock(|timer, state_volatile, user_cfg, autopilot_status, params| {
                 timer.clear_interrupt(TimerInterrupt::Update);
                 timer.reset_countdown();
                 timer.disable(); // todo: Probably not required in one-pulse mode.
@@ -1523,7 +1592,8 @@ mod app {
                     user_cfg.aircraft_type,
                     &state_volatile.optional_sensor_status,
                     autopilot_status,
-                    true, // We send `entering_lost_link` on the timer's ISR.
+                    params,
+                    &state_volatile.base_point,
                 );
             });
     }
@@ -1567,8 +1637,11 @@ mod app {
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {
+                                // Update our main 4 control channels.
                                 *ch_data = data;
 
+                                // We have this PID adjustment here, since they're one-off actuations.
+                                // We handle other things like autopilot mode entry in the update fn.
                                 if cx.local.pid_adj_timer.is_enabled() {
                                     println!("PID timer is still running.");
                                 } else {

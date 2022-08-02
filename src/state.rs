@@ -175,5 +175,5 @@ pub struct StateVolatile {
     /// Link statistics, including Received Signal Strength Indicator (RSSI) from the controller's radio.
     pub link_stats: LinkStats,
     /// Base point - generally takeoff location.
-    pub base_point: Location,
+    pub base_point: Location, // todo: user cfg varianit too?
 }

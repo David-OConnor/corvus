@@ -5,12 +5,18 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use crate::{
     autopilot::AutopilotStatus,
     control_interface::ChannelData,
-    flight_ctrls::{common::AltType, quad::InputMode},
+    flight_ctrls::{
+        common::{AltType, Params},
+        quad::InputMode,
+    },
     pid::PidGroup,
+    ppks::{Location, LocationType},
     state::{AircraftType, OptionalSensorStatus},
 };
 
 use defmt::println;
+
+use num_traits::Float; // abs on float.
 
 // We must receive arm or disarm signals for this many update cycles in a row to perform those actions.
 pub const NUM_ARM_DISARM_SIGNALS_REQUIRED: u8 = 5;
@@ -30,6 +36,10 @@ const THROTTLE_MAX_TO_ARM: f32 = 0.005;
 // it clear of trees, while remaining below most legal drone limits. A higher alt may increase chances
 // of req-acquiring the link.
 const LOST_LINK_RTB_ALT: f32 = 100.;
+
+// A/C mus be within this altitude of the commanded alt (ie `LOST_LINK_RTB_ALT`) before proceeding
+// towards base etc.
+const ALT_EPSILON_BEFORE_LATERAL: f32 = 20.;
 
 /// Indicates master motor arm status. Used for both pre arm, and arm. If either is
 /// set to `Disarmed`, the motors will not spin (or stop spinning immediately).
@@ -127,10 +137,10 @@ pub fn link_lost(
     aircraft_type: AircraftType,
     optional_sensor_status: &OptionalSensorStatus,
     autopilot_status: &mut AutopilotStatus,
-    entering_lost_link: bool,
+    // entering_lost_link: bool,
+    params: &Params,
+    base_pt: &Location,
 ) {
-    // if !timer.is_enabled() {
-    //     println!("Lost link to Rx control. Recovering...")
     // todo: Consider how you want to handle this, with and without GPS.
 
     // todo: To start, command an attitude-mode hover, with baro alt hold.
@@ -141,10 +151,20 @@ pub fn link_lost(
     autopilot_status.alt_hold = Some((AltType::Msl, LOST_LINK_RTB_ALT));
 
     match aircraft_type {
-        AircraftType::Quadcopter => if optional_sensor_status.gps_connected {},
+        AircraftType::Quadcopter => {
+            if optional_sensor_status.gps_connected {
+                if (params.baro_alt_msl - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
+                    autopilot_status.direct_to_point = Some(base_pt.clone());
+                }
+            }
+        }
         AircraftType::FixedWing => {
             if optional_sensor_status.gps_connected {
             } else if optional_sensor_status.magnetometer_connected {
+                if (params.baro_alt_msl - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
+                    autopilot_status.direct_to_point = Some(base_pt.clone());
+                }
+
                 // todo: Store lost-link heading somewhere (probably a LostLinkStatus struct etc)
                 // Climb with reverse heading if no GPS available.
                 // Note that quadcopter movements may be too unstable to attempt this.

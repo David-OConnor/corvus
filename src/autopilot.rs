@@ -15,6 +15,8 @@ use crate::{
     DT_ATTITUDE,
 };
 
+// todo: FOr various autopilot modes, check if variou sensors are connected like GPS, TOF, and MAG!
+
 use cmsis_dsp_sys::{arm_cos_f32, arm_sin_f32};
 
 const R: f32 = 6_371_000.; // Earth's radius in meters. (ellipsoid?)
@@ -40,6 +42,9 @@ const ORBIT_START_HEADING_TOLERANCE: f32 = 0.40; // radians
 
 // Orbit lateral tolerance is in meters. Aircraft dist to nearest point on orbit track
 const ORBIT_START_LATERAL_TOLERANCE: f32 = 10.;
+
+pub const ORBIT_DEFAULT_RADIUS: f32 = 20.; // meters.
+pub const ORBIT_DEFAULT_GROUNDSPEED: f32 = 10.; // m/s
 
 fn cos(v: f32) -> f32 {
     unsafe { arm_cos_f32(v) }
@@ -88,6 +93,12 @@ pub enum OrbitShape {
     Racetrack,
 }
 
+impl Default for OrbitShape {
+    fn default() -> Self {
+        OrbitShape::Circular
+    }
+}
+
 #[derive(Clone, Copy)]
 /// Direction from a top-down perspective.
 pub enum OrbitDirection {
@@ -95,15 +106,21 @@ pub enum OrbitDirection {
     CounterClockwise,
 }
 
+impl Default for OrbitDirection {
+    fn default() -> Self {
+        OrbitDirection::Clockwise
+    }
+}
+
 /// Represents an autopilot orbit, centered around a point. The point may remain stationary, or
 /// move over time.
 pub struct Orbit {
-    shape: OrbitShape,
-    center_lat: f32,   // radians
-    center_lon: f32,   // radians
-    radius: f32,       // m
-    ground_speed: f32, // m/s
-    direction: OrbitDirection,
+    pub shape: OrbitShape,
+    pub center_lat: f32,   // radians
+    pub center_lon: f32,   // radians
+    pub radius: f32,       // m
+    pub ground_speed: f32, // m/s
+    pub direction: OrbitDirection,
 }
 
 #[derive(Default)]
@@ -143,6 +160,7 @@ pub struct AutopilotStatus {
     pub alt_hold: Option<(AltType, f32)>,
     /// Heading is fixed.
     pub hdg_hold: Option<f32>,
+    // todo: Airspeed hold
     /// Automatically adjust raw to zero out slip. Quad only.
     pub yaw_assist: bool,
     /// Automatically adjust roll (rate? angle?) to zero out slip, ie based on rudder inputs.

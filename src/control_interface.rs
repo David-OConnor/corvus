@@ -45,6 +45,37 @@ impl Default for AltHoldSwitch {
 }
 
 #[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// One autopilot switch
+pub enum AutopilotSwitchA {
+    Disabled = 0,
+    /// Loiter for quad. Orbit for fixed
+    LoiterOrbit = 1,
+    DirectToPoint = 2,
+}
+
+impl Default for AutopilotSwitchA {
+    fn default() -> Self {
+        Self::Disabled
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// One autopilot switch
+pub enum AutopilotSwitchB {
+    Disabled = 0,
+    HdgHold = 1,
+    Land = 2,
+}
+
+impl Default for AutopilotSwitchB {
+    fn default() -> Self {
+        Self::Disabled
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
 /// For the switch position. We interpret actual mode from this, and other data, like prescense of GPS.
 /// val is for passing over USB serial.
 pub enum PidTuneMode {
@@ -156,6 +187,8 @@ pub struct ChannelData {
     pub input_mode: InputModeSwitch,
     /// Eg disabled, AGL, or MSL.  Ideally on 3-position non-spring switch.
     pub alt_hold: AltHoldSwitch,
+    pub autopilot_a: AutopilotSwitchA,
+    pub autopilot_b: AutopilotSwitchB,
     /// For live PID tuning, select P, I, or D to tune. Ideally on 3-position non-spring
     /// switch.
     /// todo: Disabled ideally too, but controllers don't usually have 4-posit switches?
