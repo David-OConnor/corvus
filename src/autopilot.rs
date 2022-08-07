@@ -12,6 +12,7 @@ use crate::{
     },
     pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::Location,
+    state::OptionalSensorStatus,
     DT_ATTITUDE,
 };
 
@@ -206,9 +207,15 @@ impl AutopilotStatus {
         coeffs: &CtrlCoeffGroup,
         input_map: &InputMap,
         max_speed_ver: f32,
+        optional_sensors: &OptionalSensorStatus,
     ) {
         // We use if/else logic on these to indicate they're mutually-exlusive. Modes listed first
         // take precedent.
+
+        // todo: sensors check for this fn, and for here and fixed.
+        // todo sensor check for alt hold agl
+
+        // todo: add hdg hold here and fixed
 
         // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
         // either MSL or AGL.
@@ -220,42 +227,17 @@ impl AutopilotStatus {
             //     thrust: Some(flight_ctrls::quad::takeoff_speed(params.tof_alt, max_speed_ver)),
             // };
         } else if let Some(ldg_cfg) = &self.land_quad {
-        }
-
-        if self.alt_hold.is_some()
-            && !self.takeoff
-            && self.land_quad.is_none()
-            && self.orbit.is_none()
-        {
-            let (alt_type, alt_commanded) = self.alt_hold.unwrap();
-
-            // Set a vertical velocity for the inner loop to maintain, based on distance
-            let dist = match alt_type {
-                AltType::Msl => alt_commanded - params.baro_alt_msl,
-                AltType::Agl => alt_commanded - params.tof_alt.unwrap_or(0.),
-            };
-
-            // todo: Instead of a PID, consider something simpler.
-            pid.thrust = pid::calc_pid_error(
-                // If just entering this mode, default to 0. throttle as a starting point.
-                attitudes_commanded.thrust.unwrap_or(0.),
-                dist,
-                &pid.thrust,
-                coeffs.thrust.k_p_attitude,
-                coeffs.thrust.k_i_attitude,
-                coeffs.thrust.k_d_attitude,
-                &mut filters.thrust,
-                DT_ATTITUDE,
-            );
-
-            // Note that thrust is set using the rate loop.
-            rates_commanded.thrust = Some(pid.thrust.out());
+            if optional_sensors.gps_connected {}
         } else if let Some(pt) = &self.direct_to_point {
-            let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
+            if optional_sensors.gps_connected {
+                let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
 
-            attitudes_commanded.yaw = Some(target_heading);
+                attitudes_commanded.yaw = Some(target_heading);
+            }
         } else if let Some(pt) = &self.loiter {
-            // todo
+            if optional_sensors.gps_connected {
+                // todo
+            }
         }
 
         if self.alt_hold.is_none()
@@ -264,6 +246,37 @@ impl AutopilotStatus {
             && self.direct_to_point.is_none()
         {
             attitudes_commanded.thrust = None;
+        }
+
+        if self.alt_hold.is_some()
+            && !self.takeoff
+            && self.land_quad.is_none()
+            && self.orbit.is_none()
+        {
+            let (alt_type, alt_commanded) = self.alt_hold.unwrap();
+            if !(alt_type == AltType::Agl && !optional_sensors.tof_connected) {
+                // Set a vertical velocity for the inner loop to maintain, based on distance
+                let dist = match alt_type {
+                    AltType::Msl => alt_commanded - params.baro_alt_msl,
+                    AltType::Agl => alt_commanded - params.tof_alt.unwrap_or(0.),
+                };
+
+                // todo: Instead of a PID, consider something simpler.
+                pid.thrust = pid::calc_pid_error(
+                    // If just entering this mode, default to 0. throttle as a starting point.
+                    attitudes_commanded.thrust.unwrap_or(0.),
+                    dist,
+                    &pid.thrust,
+                    coeffs.thrust.k_p_attitude,
+                    coeffs.thrust.k_i_attitude,
+                    coeffs.thrust.k_d_attitude,
+                    &mut filters.thrust,
+                    DT_ATTITUDE,
+                );
+
+                // Note that thrust is set using the rate loop.
+                rates_commanded.thrust = Some(pid.thrust.out());
+            }
         }
     }
 
@@ -275,12 +288,10 @@ impl AutopilotStatus {
         pid_attitude: &mut PidGroup,
         filters: &mut PidDerivFilters,
         coeffs: &CtrlCoeffGroup,
+        optional_sensors: &OptionalSensorStatus,
         // input_map: &InputMap,
         // max_speed_ver: f32,
     ) {
-        // todo: Consider if you should not have separate autopilot for rate and attitude!
-        // todo if so, delete the apply_rate ones, and rename apply_attitude to apply.
-
         if self.takeoff {
             // *attitudes_commanded = CtrlInputs {
             //     pitch: Some(0.),
@@ -289,65 +300,70 @@ impl AutopilotStatus {
             //     thrust: Some(flight_ctrls::quad::takeoff_speed(params.tof_alt, max_speed_ver)),
             // };
         } else if let Some(ldg_cfg) = &self.land_fixed_wing {
-            let dist_to_touchdown = find_distance(
-                (ldg_cfg.touchdown_point.lat, ldg_cfg.touchdown_point.lon),
-                (params.lat, params.lon),
-            );
+            if optional_sensors.gps_connected {
+                let dist_to_touchdown = find_distance(
+                    (ldg_cfg.touchdown_point.lat, ldg_cfg.touchdown_point.lon),
+                    (params.lat, params.lon),
+                );
 
-            let heading_diff = 0.; // todo
+                let heading_diff = 0.; // todo
 
-            let established = dist_to_touchdown < ORBIT_START_LATERAL_TOLERANCE
-                && heading_diff < ORBIT_START_HEADING_TOLERANCE;
-
+                let established = dist_to_touchdown < ORBIT_START_LATERAL_TOLERANCE
+                    && heading_diff < ORBIT_START_HEADING_TOLERANCE;
+            }
             // todo: DRY between quad and FC here, although the diff is power vs pitch.
         } else if let Some(orbit) = &self.orbit {
-            // todo: You'll get a smoother entry if you initially calculate, and fly to a point on the radius
-            // todo on a heading similar to your own angle to it. For now, fly directly to the point for
-            // todo simpler logic and good-enough.
+            if optional_sensors.gps_connected {
+                // todo: You'll get a smoother entry if you initially calculate, and fly to a point on the radius
+                // todo on a heading similar to your own angle to it. For now, fly directly to the point for
+                // todo simpler logic and good-enough.
 
-            let dist_to_center = find_distance(
-                (orbit.center_lat, orbit.center_lon),
-                (params.lat, params.lon),
-            );
+                let dist_to_center = find_distance(
+                    (orbit.center_lat, orbit.center_lon),
+                    (params.lat, params.lon),
+                );
 
-            let heading_diff = 0.; // todo
+                let heading_diff = 0.; // todo
 
-            let established = dist_to_center < ORBIT_START_LATERAL_TOLERANCE
-                && heading_diff < ORBIT_START_HEADING_TOLERANCE;
+                let established = dist_to_center < ORBIT_START_LATERAL_TOLERANCE
+                    && heading_diff < ORBIT_START_HEADING_TOLERANCE;
 
-            if !established {
-                // If we're not established and outside the radius...
-                if dist_to_center > orbit.radius {
+                if !established {
+                    // If we're not established and outside the radius...
+                    if dist_to_center > orbit.radius {
 
-                    // If we're not established and inside the radius...
-                } else {
+                        // If we're not established and inside the radius...
+                    } else {
+                    }
                 }
+
+                let target_heading = if established {
+                    find_bearing(
+                        (params.lat, params.lon),
+                        (orbit.center_lat, orbit.center_lon),
+                    )
+                } else {
+                    find_bearing(
+                        (params.lat, params.lon),
+                        (orbit.center_lat, orbit.center_lon),
+                    )
+                };
             }
-
-            let target_heading = if established {
-                find_bearing(
-                    (params.lat, params.lon),
-                    (orbit.center_lat, orbit.center_lon),
-                )
-            } else {
-                find_bearing(
-                    (params.lat, params.lon),
-                    (orbit.center_lat, orbit.center_lon),
-                )
-            };
         } else if let Some(pt) = &self.direct_to_point {
-            let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
+            if optional_sensors.gps_connected {
+                let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
 
-            let target_pitch = ((pt.alt_msl - params.baro_alt_msl)
-                / find_distance((pt.lat, pt.lon), (params.lat, params.lon)))
-            .atan();
+                let target_pitch = ((pt.alt_msl - params.baro_alt_msl)
+                    / find_distance((pt.lat, pt.lon), (params.lat, params.lon)))
+                .atan();
 
-            // todo: Crude algo here. Is this OK? Important distinction: Flight path does'nt mean
-            // todo exactly pitch! Might be close enough for good enough.
-            let roll_const = 2.; // radians bank / radians heading  todo: Const?
-            attitudes_commanded.roll =
-                Some(((target_heading - params.s_yaw_heading) * roll_const).max(MAX_BANK));
-            attitudes_commanded.pitch = Some(target_pitch);
+                // todo: Crude algo here. Is this OK? Important distinction: Flight path does'nt mean
+                // todo exactly pitch! Might be close enough for good enough.
+                let roll_const = 2.; // radians bank / radians heading  todo: Const?
+                attitudes_commanded.roll =
+                    Some(((target_heading - params.s_yaw_heading) * roll_const).max(MAX_BANK));
+                attitudes_commanded.pitch = Some(target_pitch);
+            }
         }
 
         if self.alt_hold.is_some()
@@ -357,32 +373,34 @@ impl AutopilotStatus {
         {
             let (alt_type, alt_commanded) = self.alt_hold.unwrap();
 
-            // Set a vertical velocity for the inner loop to maintain, based on distance
-            let dist = match alt_type {
-                AltType::Msl => alt_commanded - params.baro_alt_msl,
-                AltType::Agl => alt_commanded - params.tof_alt.unwrap_or(0.),
-            };
+            if !(alt_type == AltType::Agl && !optional_sensors.tof_connected) {
+                // Set a vertical velocity for the inner loop to maintain, based on distance
+                let dist = match alt_type {
+                    AltType::Msl => alt_commanded - params.baro_alt_msl,
+                    AltType::Agl => alt_commanded - params.tof_alt.unwrap_or(0.),
+                };
 
-            pid_attitude.pitch = pid::calc_pid_error(
-                // If just entering this mode, default to 0. pitch as a starting point.
-                attitudes_commanded.pitch.unwrap_or(0.),
-                dist,
-                &pid_attitude.pitch,
-                coeffs.pitch.k_p_attitude,
-                coeffs.pitch.k_i_attitude,
-                coeffs.pitch.k_d_attitude,
-                &mut filters.pitch_attitude,
-                DT_ATTITUDE,
-            );
+                pid_attitude.pitch = pid::calc_pid_error(
+                    // If just entering this mode, default to 0. pitch as a starting point.
+                    attitudes_commanded.pitch.unwrap_or(0.),
+                    dist,
+                    &pid_attitude.pitch,
+                    coeffs.pitch.k_p_attitude,
+                    coeffs.pitch.k_i_attitude,
+                    coeffs.pitch.k_d_attitude,
+                    &mut filters.pitch_attitude,
+                    DT_ATTITUDE,
+                );
 
-            // todo: Set this at rate or attitude level?
+                // todo: Set this at rate or attitude level?
 
-            attitudes_commanded.pitch = Some(pid_attitude.pitch.out());
+                attitudes_commanded.pitch = Some(pid_attitude.pitch.out());
 
-            // todo: Commented out code below is if we use the velocity loop.
-            // // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-            // attitudes_commanded.pitch =
-            //     Some(flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.tof_alt));
+                // todo: Commented out code below is if we use the velocity loop.
+                // // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
+                // attitudes_commanded.pitch =
+                //     Some(flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.tof_alt));
+            }
         }
 
         // If not in an autopilot mode, reset commands that may have been set by the autopilot, and

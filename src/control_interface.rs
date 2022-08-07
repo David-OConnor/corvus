@@ -106,6 +106,21 @@ impl Default for PidTuneActuation {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+/// Usd to cycle steerpoints.
+pub enum SteerpointCycleActuation {
+    Neutral = 0,
+    Increase = 1,
+    Decrease = 2,
+}
+
+impl Default for SteerpointCycleActuation {
+    fn default() -> Self {
+        Self::Neutral
+    }
+}
+
 // todo: Consider putting these mode switches in `control_interface`.
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
@@ -137,13 +152,13 @@ pub struct ElrsChannelData {
     /// Aux 1 is 2-positions, and must be used for arming. AKA "Channel 5"
     pub aux1: ArmStatus,
     /// Aux 2-8 are 64 or 128-position channels. (6 or 7 bit)
-    pub aux_2: u8,
-    pub aux_3: u8,
-    pub aux_4: u8,
-    pub aux_5: u8,
-    pub aux_6: u8,
-    pub aux_7: u8,
-    pub aux_8: u8,
+    pub aux_2: InputModeSwitch,
+    pub aux_3: AltHoldSwitch,
+    pub aux_4: AutopilotSwitchA,
+    pub aux_5: AutopilotSwitchB,
+    pub aux_6: SteerpointCycleActuation,
+    pub aux_7: PidTuneMode,
+    pub aux_8: PidTuneActuation,
 }
 
 /// Represents CRSF channel data
@@ -189,6 +204,7 @@ pub struct ChannelData {
     pub alt_hold: AltHoldSwitch,
     pub autopilot_a: AutopilotSwitchA,
     pub autopilot_b: AutopilotSwitchB,
+    pub steerpoint_cycle: SteerpointCycleActuation,
     /// For live PID tuning, select P, I, or D to tune. Ideally on 3-position non-spring
     /// switch.
     /// todo: Disabled ideally too, but controllers don't usually have 4-posit switches?

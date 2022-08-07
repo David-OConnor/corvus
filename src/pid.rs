@@ -16,14 +16,14 @@ use crate::{
     control_interface::ChannelData,
     flight_ctrls::{
         self,
-        common::{AltType, CtrlInputs, InputMap, MotorTimers, Params},
-        quad::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED},
+        common::{CtrlInputs, InputMap, MotorTimers, Params},
+        quad::{InputMode, MAX_ROTOR_POWER, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED},
     },
+    state::OptionalSensorStatus,
     util::IirInstWrapper,
     ArmStatus, ControlPositions, RotorMapping, ServoWingMapping, UserCfg, DT_ATTITUDE,
 };
 
-use crate::flight_ctrls::quad::MAX_ROTOR_POWER;
 use defmt::println;
 
 // todo: You need to take derivative of control inputs into account. For example, when sticks are moved,
@@ -477,8 +477,8 @@ pub fn _run_velocity(
         }
     }
 
-    let mut param_x = params.v_x;
-    let mut param_y = params.v_y;
+    let param_x = params.v_x;
+    let param_y = params.v_y;
 
     let mut k_p_pitch = coeffs.pitch.k_p_attitude;
     let mut k_i_pitch = coeffs.pitch.k_i_attitude;
@@ -646,6 +646,7 @@ pub fn run_attitude_quad(
     autopilot_status: &AutopilotStatus,
     cfg: &UserCfg,
     coeffs: &CtrlCoeffGroup,
+    optional_sensors: &OptionalSensorStatus,
 ) {
     match input_mode {
         InputMode::Acro => (),
@@ -674,6 +675,7 @@ pub fn run_attitude_quad(
         coeffs,
         input_map,
         cfg.max_speed_ver,
+        optional_sensors,
     );
 
     attitude_apply_common(
@@ -702,6 +704,7 @@ pub fn run_attitude_fixed_wing(
     autopilot_status: &AutopilotStatus,
     // cfg: &UserCfg,
     coeffs: &CtrlCoeffGroup,
+    optional_sensors: &OptionalSensorStatus,
 ) {
     // Note that for fixed wing, we don't have attitude mode.
     autopilot_status.apply_fixed_wing(
@@ -711,6 +714,7 @@ pub fn run_attitude_fixed_wing(
         pid_attitude,
         filters,
         coeffs,
+        optional_sensors,
     );
 
     attitude_apply_common(

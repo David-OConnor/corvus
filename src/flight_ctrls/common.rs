@@ -118,7 +118,7 @@ impl InputMap {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum AltType {
     /// Above ground level (eg from a TOF sensor)
     Agl,

@@ -56,11 +56,6 @@ cfg_if! {
     }
 }
 
-// These represent full scale deflection of the evelons, assuming 500kHz PWM frequency.
-// We don't use full ARR for max high, since that would be full high the whole time.
-const SERVO_DUTY_HIGH: f32 = ARR_SERVOS as f32 * 0.2;
-const SERVO_DUTY_LOW: f32 = ARR_SERVOS as f32 * 0.7;
-
 /// Sets the physical position of an elevon; commands a servo movement.
 pub fn set_elevon_posit(
     elevon: ServoWing,
@@ -71,21 +66,22 @@ pub fn set_elevon_posit(
     let range_out = match elevon {
         ServoWing::S1 => {
             if mapping.s1_reversed {
-                (SERVO_DUTY_HIGH, SERVO_DUTY_LOW)
+                (mapping.servo_duty_high, mapping.servo_duty_low)
             } else {
-                (SERVO_DUTY_LOW, SERVO_DUTY_HIGH)
+                (mapping.servo_duty_low, mapping.servo_duty_high)
             }
         }
         ServoWing::S2 => {
             if mapping.s2_reversed {
-                (SERVO_DUTY_HIGH, SERVO_DUTY_LOW)
+                (mapping.servo_duty_high, mapping.servo_duty_low)
             } else {
-                (SERVO_DUTY_LOW, SERVO_DUTY_HIGH)
+                (mapping.servo_duty_low, mapping.servo_duty_high)
             }
         }
     };
 
-    let duty_arr = util::map_linear(position, (ELEVON_MIN, ELEVON_MAX), range_out) as u32;
+    let duty_arr =
+        util::map_linear(position, (ELEVON_MIN, ELEVON_MAX), range_out) as u32 * ARR_SERVOS;
 
     #[cfg(feature = "h7")]
     timers
@@ -166,9 +162,15 @@ pub enum ServoWingPosition {
 pub struct ServoWingMapping {
     pub s1: ServoWingPosition,
     pub s2: ServoWingPosition,
-    // Reverse direction is somewhat arbitrary.
+    /// Reverse direction is somewhat arbitrary.
     pub s1_reversed: bool,
     pub s2_reversed: bool,
+    /// These represent full scale deflection of the evelons, assuming 500kHz PWM frequency,
+    /// on a scale of 0. to 1.
+    /// We don't use full ARR for max high, since that would be full high the whole time.
+    /// multiply these value by the servo timer ARR value to find the duty for entering into timers.
+    pub servo_duty_high: f32,
+    pub servo_duty_low: f32,
 }
 
 impl Default for ServoWingMapping {
@@ -178,6 +180,8 @@ impl Default for ServoWingMapping {
             s2: ServoWingPosition::Right,
             s1_reversed: false,
             s2_reversed: true,
+            servo_duty_high: 0.2,
+            servo_duty_low: 0.7,
         }
     }
 }

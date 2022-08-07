@@ -1041,10 +1041,8 @@ mod app {
                     match control_channel_data.alt_hold {
                         AltHoldSwitch::Disabled => autopilot_status.alt_hold = None,
                         AltHoldSwitch::EnabledAgl => {
-                            if state_volatile.optional_sensor_status.tof_connected {
-                                // todo: Consider placing your sensor connection checks in the ap module itself.
-                                autopilot_status.alt_hold = Some((AltType::Agl, params.tof_alt.unwrap_or(20.)))
-                            }
+                            autopilot_status.alt_hold =
+                                Some((AltType::Agl, params.tof_alt.unwrap_or(20.)))
                         }
                         AltHoldSwitch::EnabledMsl => {
                             autopilot_status.alt_hold = Some((AltType::Msl, params.baro_alt_msl))
@@ -1168,6 +1166,7 @@ mod app {
                                 autopilot_status,
                                 cfg,
                                 coeffs,
+                                &state_volatile.optional_sensor_status,
                             );
                         }
                         AircraftType::FixedWing => {
@@ -1183,6 +1182,7 @@ mod app {
                                 autopilot_status,
                                 // cfg,
                                 coeffs,
+                                &state_volatile.optional_sensor_status,
                             );
                         }
                     }
@@ -1579,23 +1579,25 @@ mod app {
             cx.shared.autopilot_status,
             cx.shared.current_params,
         )
-            .lock(|timer, state_volatile, user_cfg, autopilot_status, params| {
-                timer.clear_interrupt(TimerInterrupt::Update);
-                timer.reset_countdown();
-                timer.disable(); // todo: Probably not required in one-pulse mode.
+            .lock(
+                |timer, state_volatile, user_cfg, autopilot_status, params| {
+                    timer.clear_interrupt(TimerInterrupt::Update);
+                    timer.reset_countdown();
+                    timer.disable(); // todo: Probably not required in one-pulse mode.
 
-                state_volatile.link_lost = true;
+                    state_volatile.link_lost = true;
 
-                // We run this during the main loop, but here the `entering` flag is set to true,
-                // to initialize setup steps.
-                safety::link_lost(
-                    user_cfg.aircraft_type,
-                    &state_volatile.optional_sensor_status,
-                    autopilot_status,
-                    params,
-                    &state_volatile.base_point,
-                );
-            });
+                    // We run this during the main loop, but here the `entering` flag is set to true,
+                    // to initialize setup steps.
+                    safety::link_lost(
+                        user_cfg.aircraft_type,
+                        &state_volatile.optional_sensor_status,
+                        autopilot_status,
+                        params,
+                        &state_volatile.base_point,
+                    );
+                },
+            );
     }
 
     // #[task(binds = USART7, shared = [uart_elrs, dma, control_channel_data,

@@ -39,7 +39,7 @@ use stm32_hal2::{
 use crate::{
     control_interface::{
         AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData, InputModeSwitch, LinkStats,
-        PidTuneActuation, PidTuneMode,
+        PidTuneActuation, PidTuneMode, SteerpointCycleActuation,
     },
     safety::ArmStatus,
     util, UART_ELRS,
@@ -290,7 +290,7 @@ impl Packet {
 
         // As you change the number of channels used, increase the `raw_channels` size,
         // and comment or uncomment the unpacking lines below.
-        let mut raw_channels = [0_u16; 11];
+        let mut raw_channels = [0_u16; 12];
 
         // Decode channel data
         raw_channels[0] = (data[0] | data[1] << 8) & 0x07FF;
@@ -304,7 +304,7 @@ impl Packet {
         raw_channels[8] = (data[11] | data[12] << 8) & 0x07FF;
         raw_channels[9] = (data[12] >> 3 | data[13] << 5) & 0x07FF;
         raw_channels[10] = (data[13] >> 6 | data[14] << 2 | data[15] << 10) & 0x07FF;
-        // raw_channels[11] = (data[15] >> 1 | data[16] << 7) & 0x07FF;
+        raw_channels[11] = (data[15] >> 1 | data[16] << 7) & 0x07FF;
         // raw_channels[12] = (data[16] >> 4 | data[17] << 4) & 0x07FF;
         // raw_channels[13] = (data[17] >> 7 | data[18] << 1 | data[19] << 9) & 0x07FF;
         // raw_channels[14] = (data[19] >> 2 | data[20] << 6) & 0x07FF;
@@ -326,29 +326,35 @@ impl Packet {
             _ => AltHoldSwitch::EnabledAgl,
         };
 
-        let pid_tune_mode = match raw_channels[7] {
+        let autopilot_a = match raw_channels[7] {
+            0..=667 => AutopilotSwitchA::Disabled,
+            668..=1_333 => AutopilotSwitchA::LoiterOrbit,
+            _ => AutopilotSwitchA::DirectToPoint,
+        };
+
+        let autopilot_b = match raw_channels[8] {
+            0..=667 => AutopilotSwitchB::Disabled,
+            668..=1_333 => AutopilotSwitchB::HdgHold,
+            _ => AutopilotSwitchB::Land,
+        };
+
+        let steerpoint_cycle = match raw_channels[9] {
+            0..=667 => SteerpointCycleActuation::Decrease,
+            668..=1_333 => SteerpointCycleActuation::Neutral,
+            _ => SteerpointCycleActuation::Increase,
+        };
+
+        let pid_tune_mode = match raw_channels[10] {
             0..=511 => PidTuneMode::Disabled,
             512..=1_023 => PidTuneMode::P,
             1_024..=1533 => PidTuneMode::I,
             _ => PidTuneMode::D,
         };
 
-        let pid_tune_actuation = match raw_channels[8] {
-            0..=667 => PidTuneActuation::Neutral,
-            668..=1_333 => PidTuneActuation::Increase,
-            _ => PidTuneActuation::Decrease,
-        };
-
-        let autopilot_a = match raw_channels[9] {
-            0..=667 => AutopilotSwitchA::Disabled,
-            668..=1_333 => AutopilotSwitchA::LoiterOrbit,
-            _ => AutopilotSwitchA::DirectToPoint,
-        };
-
-        let autopilot_b = match raw_channels[10] {
-            0..=667 => AutopilotSwitchB::Disabled,
-            668..=1_333 => AutopilotSwitchB::HdgHold,
-            _ => AutopilotSwitchB::Land,
+        let pid_tune_actuation = match raw_channels[11] {
+            0..=667 => PidTuneActuation::Decrease,
+            668..=1_333 => PidTuneActuation::Neutral,
+            _ => PidTuneActuation::Increase,
         };
 
         // Note that we could map to CRSF channels (Or to their ELRS-mapped origins), but this is
@@ -364,6 +370,7 @@ impl Packet {
             alt_hold,
             autopilot_a,
             autopilot_b,
+            steerpoint_cycle,
             pid_tune_mode,
             pid_tune_actuation,
         }

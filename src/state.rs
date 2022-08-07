@@ -70,7 +70,7 @@ pub struct UserCfg {
     pub max_speed_ver: f32,
     /// Map motor connection number to position. For quadcopters.
     pub motor_mapping: RotorMapping,
-    /// For flying wing.
+    /// For fixed wings.
     pub servo_wing_mapping: ServoWingMapping,
     // altitude_cal: AltitudeCalPt,
     // Note that this inst includes idle power.

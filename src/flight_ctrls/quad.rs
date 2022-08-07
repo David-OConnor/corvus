@@ -457,8 +457,8 @@ fn estimate_rotor_angle(a_desired: f32, v_current: f32, ac_properties: &Aircraft
 /// all motors is 100%. No individual power level is allowed to be above 1, or below our idle power
 /// setting.
 fn calc_rotor_powers(
-    mut pitch_half_delta: f32,
-    mut roll_half_delta: f32,
+    pitch_half_delta: f32,
+    roll_half_delta: f32,
     mut yaw_half_delta: f32,
     throttle: f32,
     front_left_dir: RotationDir,
