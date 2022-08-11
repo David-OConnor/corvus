@@ -103,6 +103,7 @@ mod safety;
 mod setup;
 mod state;
 mod util;
+
 // todo: Can't get startup code working separately since Shared and Local must be private per an RTIC restriction.
 // todo: See this GH issue: https://github.com/rtic-rs/cortex-m-rtic/issues/505
 // mod startup;
@@ -1444,6 +1445,7 @@ mod app {
                                 &user_cfg.waypoints,
                                 &mut state_volatile.arm_status,
                                 &mut user_cfg.motor_mapping,
+                                &mut user_cfg.servo_wing_mapping,
                                 &mut state_volatile.op_mode,
                                 motor_timers,
                                 adc,

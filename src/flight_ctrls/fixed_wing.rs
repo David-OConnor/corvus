@@ -169,6 +169,7 @@ pub struct ServoWingMapping {
     /// on a scale of 0. to 1.
     /// We don't use full ARR for max high, since that would be full high the whole time.
     /// multiply these value by the servo timer ARR value to find the duty for entering into timers.
+    /// Note that in the config we set up different values, but it distills to this.
     pub servo_duty_high: f32,
     pub servo_duty_low: f32,
 }
