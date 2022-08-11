@@ -62,14 +62,14 @@ const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
 // 3 coords + option to indicate if used. (Some/None)
 pub const WAYPOINT_SIZE: usize = F32_BYTES * 3 + WAYPOINT_MAX_NAME_LEN + 1;
 pub const WAYPOINTS_SIZE: usize = crate::state::MAX_WAYPOINTS * WAYPOINT_SIZE;
-pub const SET_SERVO_POSITS_SIZE: usize = F32_BYTES * 4; // Support for 4 servos.
+pub const SET_SERVO_POSIT_SIZE: usize = 1 + F32_BYTES ; // Servo num, value
 
 // Packet sizes are payload size + 2. Additional data are message type, and CRC.
 const PARAMS_PACKET_SIZE: usize = PARAMS_SIZE + 2;
 const CONTROLS_PACKET_SIZE: usize = CONTROLS_SIZE + 2;
 const LINK_STATS_PACKET_SIZE: usize = LINK_STATS_SIZE + 2;
 pub const WAYPOINTS_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
-pub const SET_SERVO_POSITS_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
+pub const SET_SERVO_POSIT_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
 
 struct _DecodeError {}
 
@@ -105,7 +105,7 @@ pub enum MsgType {
     Updatewaypoints = 13,
     Waypoints = 14,
     /// Set all servo positions
-    SetServoPosits = 15,
+    SetServoPosit = 15,
 }
 
 impl MsgType {
@@ -126,7 +126,7 @@ impl MsgType {
             Self::ReqWaypoints => 0,
             Self::Updatewaypoints => 10, // todo?
             Self::Waypoints => WAYPOINTS_SIZE,
-            Self::SetServoPosits => SET_SERVO_POSITS_SIZE,
+            Self::SetServoPosit => SET_SERVO_POSIT_SIZE,
         }
     }
 }
@@ -415,26 +415,26 @@ pub fn handle_rx(
         }
         MsgType::Waypoints => {}
         MsgType::Updatewaypoints => {}
-        MsgType::SetServoPosits => {
-            // let payload: [u8; SET_SERVO_POSITS_PACKET_SIZE] = waypoints_to_buf(waypoints);
-            let posit1 = f32::from_be_bytes(rx_buf[1..5].try_into().unwrap());
-            let posit2 = f32::from_be_bytes(rx_buf[5..9].try_into().unwrap());
-            let _posit3 = f32::from_be_bytes(rx_buf[9..13].try_into().unwrap());
-            let _posit4 = f32::from_be_bytes(rx_buf[13..17].try_into().unwrap());
+        MsgType::SetServoPosit => {
+            let servo = rx_buf[1];
+            let value = f32::from_be_bytes(rx_buf[2..6].try_into().unwrap());
+
+            let servo_wing = match servo {
+                "left" => ServoWingPosition::Left,
+                "right" => ServoWingPosition::Right,
+                _ => {
+                    println!("Invalid servo requested");
+                    return
+                }
+            };
 
             fixed_wing::set_elevon_posit(
-                ServoWing::S1,
+                servo_wing_mapping::servo_from_position(),
                 posit1,
                 servo_wing_mapping,
                 motor_timers,
             );
 
-            fixed_wing::set_elevon_posit(
-                ServoWing::S2,
-                posit2,
-                servo_wing_mapping,
-                motor_timers,
-            );
         }
     }
 }
