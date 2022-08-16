@@ -64,7 +64,9 @@ pub struct AutopilotData {
     pub takeoff: bool,
     pub land: bool,
     pub direct_to_point: bool,
+    #[cfg(feature = "fixed-wing")]
     pub orbit: bool,
+    #[cfg(feature = "quad")]
     pub loiter: bool,
     pub alt_hold: bool,
 }

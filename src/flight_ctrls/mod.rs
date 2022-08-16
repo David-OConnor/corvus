@@ -10,10 +10,10 @@ use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
-        pub mod fixed_wing;
-        use fixed_wing::*;
+        mod fixed_wing;
+        pub use fixed_wing::*;
     } else {
-        pub mod quad;
-        use quad::*;
+        mod quad;
+        pub use quad::*;
     }
 }

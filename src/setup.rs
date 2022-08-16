@@ -3,7 +3,13 @@
 
 use cfg_if::cfg_if;
 
-use crate::flight_ctrls::{fixed_wing::ServoWing, quad::Motor};
+cfg_if! {
+    if #[cfg(feature = "fixed-wing")] {
+        use crate::flight_ctrls::ServoWing;
+    } else {
+        use crate::flight_ctrls::Motor;
+    }
+}
 
 use stm32_hal2::{
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt},
@@ -11,11 +17,6 @@ use stm32_hal2::{
     pac::DMA1,
     timer::TimChannel,
 };
-
-#[cfg(feature = "g4")]
-use stm32_hal2::pac::DMAMUX;
-#[cfg(feature = "h7")]
-use stm32_hal2::pac::DMAMUX1 as DMAMUX;
 
 // Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
@@ -28,7 +29,7 @@ pub const MOTOR_CH_B: DmaChannel = DmaChannel::C4;
 pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
 pub const CRSF_TX_CH: DmaChannel = DmaChannel::C6;
 
-pub const BATT_CURR_CH: DmaChannel = DmaChannel::C7;
+pub const BATT_CURR_DMA_CH: DmaChannel = DmaChannel::C7;
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
@@ -140,12 +141,8 @@ pub fn setup_pins() {
 
     let _buzzer = Pin::new(Port::A, 10, PinMode::Alt(6)); // Tim1 ch3
 
-    // todo: USB? How do we set them up (no alt fn) PA11(DN) and PA12 (DP).
-    // let _usb_dm = Pin::new(Port::A, 11, PinMode::Output);
-    // let _usb_dp = Pin::new(Port::A, 12, PinMode::Output);
-
-    let batt_v_adc_ = Pin::new(Port::A, 4, PinMode::Analog); // ADC2, channel 17
-    let current_sense_adc_ = Pin::new(Port::B, 2, PinMode::Analog); // ADC2, channel 12
+    let _batt_v_adc = Pin::new(Port::A, 4, PinMode::Analog); // ADC2, channel 17
+    let _current_sense_adc = Pin::new(Port::B, 2, PinMode::Analog); // ADC2, channel 12
 
     // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
     let mut sck1 = Pin::new(Port::A, 5, PinMode::Alt(5));
@@ -172,11 +169,6 @@ pub fn setup_pins() {
             let mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
         }
     }
-
-    // todo: Output speed on SPI pins?
-    // sck2.output_speed(OutputSpeed::High);
-    // miso2.output_speed(OutputSpeed::High);
-    // mosi2.output_speed(OutputSpeed::High);
 
     // SPI3 for flash
     cfg_if! {
@@ -248,37 +240,37 @@ pub fn setup_pins() {
 }
 
 /// Assign DMA channels to peripherals.
-pub fn setup_dma(dma: &mut Dma<DMA1>, mux: &mut DMAMUX) {
+pub fn setup_dma(dma: &mut Dma<DMA1>) {
     // IMU
-    dma::mux(IMU_TX_CH, DmaInput::Spi1Tx, mux);
-    dma::mux(IMU_RX_CH, DmaInput::Spi1Rx, mux);
+    dma::mux(IMU_TX_CH, DmaInput::Spi1Tx);
+    dma::mux(IMU_RX_CH, DmaInput::Spi1Rx);
 
     // DSHOT, motors 1 and 2 (all 4 for H7)
     #[cfg(feature = "g4")]
-    dma::mux(Motor::M1.dma_channel(), Motor::M1.dma_input(), mux);
+    dma::mux(Motor::M1.dma_channel(), Motor::M1.dma_input());
 
     // DSHOT, motors 3 and 4 (not used on H7)
     #[cfg(not(feature = "h7"))]
-    dma::mux(Motor::M3.dma_channel(), Motor::M3.dma_input(), mux);
+    dma::mux(Motor::M3.dma_channel(), Motor::M3.dma_input());
 
     // CRSF (onboard ELRS)
     #[cfg(feature = "h7")]
     let elrs_dma_ch = DmaInput::Usart7Rx;
     #[cfg(feature = "g4")]
     let elrs_dma_ch = DmaInput::Usart3Rx;
-    dma::mux(CRSF_RX_CH, elrs_dma_ch, mux);
+    dma::mux(CRSF_RX_CH, elrs_dma_ch);
 
     // Note: If we run out of DMA channels, consider removing the CRSF transmit channel;
     // we only have it set up to respond to pings, and that's probably unecessary.
-    // dma::mux(DmaChannel::C8, DmaInput::Usart3Tx, mux);
+    // dma::mux(DmaChannel::C8, DmaInput::Usart3Tx);
 
-    dma::mux(BATT_CURR_CH, DmaInput::Adc2, mux);
+    dma::mux(BATT_CURR_DMA_CH, DmaInput::Adc2);
 
-    dma::mux(OSD_CH, DmaInput::Usart2Tx, mux);
+    dma::mux(OSD_CH, DmaInput::Usart2Tx);
 
     // TOF sensor
-    // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx, &mut dp.DMAMUX);
-    // dma::mux(DmaChannel::C5, dma::DmaInput::I2c2Rx, &mut dp.DMAMUX);
+    // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx);
+    // dma::mux(DmaChannel::C5, dma::DmaInput::I2c2Rx);
 
     // We use Spi transfer complete to know when our readings are ready - in its ISR,
     // we trigger the attitude-rates PID loop.

@@ -52,7 +52,11 @@ cfg_if! {
 use usb_device::{bus::UsbBusAllocator, prelude::*};
 use usbd_serial::{self, SerialPort};
 
-use autopilot::{AutopilotStatus, Orbit, OrbitShape};
+use autopilot::AutopilotStatus;
+#[cfg(feature = "fixed-wing")]
+use autopilot::{Orbit, OrbitShape};
+
+
 use control_interface::{
     AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData, LinkStats, PidTuneActuation,
     PidTuneMode,
@@ -400,10 +404,7 @@ mod app {
         #[cfg(feature = "g4")]
         dma::enable_mux1();
 
-        #[cfg(feature = "h7")]
-        setup::setup_dma(&mut dma, &mut dp.DMAMUX1);
-        #[cfg(feature = "g4")]
-        setup::setup_dma(&mut dma, &mut dp.DMAMUX);
+        setup::setup_dma(&mut dma);
 
         // We use SPI1 for the IMU
         // SPI input clock is 400MHz for H7, and 170Mhz for G4. 400MHz / 32 = 12.5 MHz. 170Mhz / 8 = 21.25Mhz.
@@ -524,7 +525,7 @@ mod app {
             batt_curr_adc.read_dma(
                 &mut ADC_READ_BUF,
                 &[setup::BATT_ADC_CH, setup::CURR_ADC_CH],
-                setup::BATT_CURR_CH,
+                setup::BATT_CURR_DMA_CH,
                 ChannelCfg {
                     circular: dma::Circular::Enabled,
                     ..Default::default()
@@ -1022,7 +1023,6 @@ mod app {
 
                     if state_volatile.link_lost {
                         safety::link_lost(
-                            cfg.aircraft_type,
                             &state_volatile.optional_sensor_status,
                             autopilot_status,
                             params,
@@ -1581,7 +1581,6 @@ mod app {
                     // We run this during the main loop, but here the `entering` flag is set to true,
                     // to initialize setup steps.
                     safety::link_lost(
-                        user_cfg.aircraft_type,
                         &state_volatile.optional_sensor_status,
                         autopilot_status,
                         params,

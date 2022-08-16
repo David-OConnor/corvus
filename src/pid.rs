@@ -18,15 +18,19 @@ use crate::{
         self,
         common::{CtrlInputs, InputMap, MotorTimers, Params},
     },
-    state::OptionalSensorStatus,
+    state::{UserCfg, OptionalSensorStatus},
     util::IirInstWrapper,
-    ArmStatus, ControlPositions, RotorMapping, ServoWingMapping, UserCfg, DT_ATTITUDE,
+    safety::ArmStatus,
+    DT_ATTITUDE,
 };
+
+use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
+        use crate::flight_ctrls::{ControlPositions, ServoWingMapping};
     } else {
-        use crate::flight_ctrls::{InputMode, MAX_ROTOR_POWER, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED};
+        use crate::flight_ctrls::{InputMode, RotorMapping, MAX_ROTOR_POWER, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED};
     }
 }
 

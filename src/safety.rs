@@ -5,14 +5,20 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use crate::{
     autopilot::AutopilotStatus,
     control_interface::ChannelData,
-    flight_ctrls::{
-        common::{AltType, Params},
-        quad::InputMode,
-    },
+    flight_ctrls::common::{AltType, Params},
     pid::PidGroup,
     ppks::{Location, LocationType},
-    state::{AircraftType, OptionalSensorStatus},
+    state:: OptionalSensorStatus,
 };
+
+use cfg_if::cfg_if;
+
+cfg_if! {
+    if #[cfg(feature = "fixed-wing")] {
+    } else {
+        use crate::flight_ctrls::InputMode;
+    }
+}
 
 use defmt::println;
 
@@ -134,7 +140,6 @@ pub fn handle_arm_status(
 /// procedure. This function behaves differently depending on if we've just entered it, or if
 /// we're in a steady-state.
 pub fn link_lost(
-    aircraft_type: AircraftType,
     optional_sensor_status: &OptionalSensorStatus,
     autopilot_status: &mut AutopilotStatus,
     // entering_lost_link: bool,
@@ -150,25 +155,22 @@ pub fn link_lost(
 
     autopilot_status.alt_hold = Some((AltType::Msl, LOST_LINK_RTB_ALT));
 
-    match aircraft_type {
-        AircraftType::Quadcopter => {
-            if optional_sensor_status.gps_connected {
-                if (params.baro_alt_msl - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
-                    autopilot_status.direct_to_point = Some(base_pt.clone());
-                }
-            }
+    #[cfg(feature = "quad")]
+    if optional_sensor_status.gps_connected {
+        if (params.baro_alt_msl - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
+            autopilot_status.direct_to_point = Some(base_pt.clone());
         }
-        AircraftType::FixedWing => {
-            if optional_sensor_status.gps_connected {
-            } else if optional_sensor_status.magnetometer_connected {
-                if (params.baro_alt_msl - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
-                    autopilot_status.direct_to_point = Some(base_pt.clone());
-                }
+    }
 
-                // todo: Store lost-link heading somewhere (probably a LostLinkStatus struct etc)
-                // Climb with reverse heading if no GPS available.
-                // Note that quadcopter movements may be too unstable to attempt this.
-            }
+    #[cfg(feature = "fixed-wing")]
+    if optional_sensor_status.gps_connected {
+    } else if optional_sensor_status.magnetometer_connected {
+        if (params.baro_alt_msl - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
+            autopilot_status.direct_to_point = Some(base_pt.clone());
         }
+
+        // todo: Store lost-link heading somewhere (probably a LostLinkStatus struct etc)
+        // Climb with reverse heading if no GPS available.
+        // Note that quadcopter movements may be too unstable to attempt this.
     }
 }
