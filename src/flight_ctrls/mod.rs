@@ -5,5 +5,15 @@
 //! Note that this is just an example, and isn't necesssarily something to emulate.
 
 pub mod common;
-pub mod fixed_wing;
-pub mod quad;
+
+use cfg_if::cfg_if;
+
+cfg_if! {
+    if #[cfg(feature = "fixed-wing")] {
+        pub mod fixed_wing;
+        use fixed_wing::*;
+    } else {
+        pub mod quad;
+        use quad::*;
+    }
+}

@@ -8,13 +8,21 @@ use crate::{
     flight_ctrls::{
         self,
         common::{AltType, CtrlInputs, InputMap, Params},
-        quad::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED},
     },
     pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::Location,
     state::OptionalSensorStatus,
     DT_ATTITUDE,
 };
+
+use cfg_if::cfg_if;
+
+cfg_if! {
+    if #[cfg(feature = "fixed-wing")] {
+    } else {
+        use crate::flight_ctrls::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED};
+    }
+}
 
 // todo: FOr various autopilot modes, check if variou sensors are connected like GPS, TOF, and MAG!
 
@@ -88,18 +96,21 @@ fn find_distance(target: (f32, f32), aircraft: (f32, f32)) -> f32 {
     R * c
 }
 
+#[cfg(feature = "fixed-wing")]
 #[derive(Clone, Copy)]
 pub enum OrbitShape {
     Circular,
     Racetrack,
 }
 
+#[cfg(feature = "fixed-wing")]
 impl Default for OrbitShape {
     fn default() -> Self {
         OrbitShape::Circular
     }
 }
 
+#[cfg(feature = "fixed-wing")]
 #[derive(Clone, Copy)]
 /// Direction from a top-down perspective.
 pub enum OrbitDirection {
@@ -113,6 +124,7 @@ impl Default for OrbitDirection {
     }
 }
 
+#[cfg(feature = "fixed-wing")]
 /// Represents an autopilot orbit, centered around a point. The point may remain stationary, or
 /// move over time.
 pub struct Orbit {
@@ -124,17 +136,19 @@ pub struct Orbit {
     pub direction: OrbitDirection,
 }
 
+#[cfg(feature = "quad")]
 #[derive(Default)]
 /// A vertical descent.
-pub struct LandingCfgQuad {
+pub struct LandingCfg {
     // todo: Could also land at an angle.
     pub descent_starting_alt_msl: f32, // altitude to start the descent in QFE msl.
     pub descent_speed: f32,            // m/s
     pub touchdown_point: Location,
 }
 
+#[cfg(feature = "fixed-wing")]
 #[derive(Default)]
-pub struct LandingCfgFixedWing {
+pub struct LandingCfg {
     /// Radians magnetic.
     pub heading: f32,
     /// radians, down from level
@@ -180,16 +194,15 @@ pub struct AutopilotStatus {
     /// Take off automatically
     pub takeoff: bool, // todo: takeoff cfg struct[s].
     /// Land automatically
-    /// todo: We don't need or want both ldg cfgs, but don't have a good way to do one or the other.
-    /// todo: Consider a feature gate for fixed vs quad instead of a cfg var.
-    pub land_quad: Option<LandingCfgQuad>,
-    pub land_fixed_wing: Option<LandingCfgFixedWing>,
+    pub land: Option<LandingCfg>,
     /// Recover to stable, altitude-holding flight. Generally initiated by a "panic button"-style
     /// switch activation
     pub recover: Option<f32>, // value is MSL alt to hold, eg our alt at time of command.
-    /// Quad
+    #[cfg(feature = "quad")]
+    /// Maintain a geographic position and altitude
     pub loiter: Option<Location>,
-    /// Fixed wing
+    #[cfg(feature = "fixed-wing")]
+    /// Orbit over a point on the ground
     pub orbit: Option<Orbit>,
 }
 
@@ -197,7 +210,8 @@ pub struct AutopilotStatus {
 // todo make sure you set it back to none A/R.
 
 impl AutopilotStatus {
-    pub fn apply_quad(
+    #[cfg(feature = "quad")]
+    pub fn apply(
         &self,
         params: &Params,
         attitudes_commanded: &mut CtrlInputs,
@@ -226,7 +240,7 @@ impl AutopilotStatus {
             //     yaw: Some(0.),
             //     thrust: Some(flight_ctrls::quad::takeoff_speed(params.tof_alt, max_speed_ver)),
             // };
-        } else if let Some(ldg_cfg) = &self.land_quad {
+        } else if let Some(ldg_cfg) = &self.land {
             if optional_sensors.gps_connected {}
         } else if let Some(pt) = &self.direct_to_point {
             if optional_sensors.gps_connected {
@@ -242,17 +256,13 @@ impl AutopilotStatus {
 
         if self.alt_hold.is_none()
             && !self.takeoff
-            && self.land_quad.is_none()
+            && self.land.is_none()
             && self.direct_to_point.is_none()
         {
             attitudes_commanded.thrust = None;
         }
 
-        if self.alt_hold.is_some()
-            && !self.takeoff
-            && self.land_quad.is_none()
-            && self.orbit.is_none()
-        {
+        if self.alt_hold.is_some() && !self.takeoff && self.land.is_none() && self.orbit.is_none() {
             let (alt_type, alt_commanded) = self.alt_hold.unwrap();
             if !(alt_type == AltType::Agl && !optional_sensors.tof_connected) {
                 // Set a vertical velocity for the inner loop to maintain, based on distance
@@ -280,7 +290,8 @@ impl AutopilotStatus {
         }
     }
 
-    pub fn apply_fixed_wing(
+    #[cfg(feature = "fixed-wing")]
+    pub fn apply(
         &self,
         params: &Params,
         attitudes_commanded: &mut CtrlInputs,
@@ -299,7 +310,7 @@ impl AutopilotStatus {
             //     yaw: Some(0.),
             //     thrust: Some(flight_ctrls::quad::takeoff_speed(params.tof_alt, max_speed_ver)),
             // };
-        } else if let Some(ldg_cfg) = &self.land_fixed_wing {
+        } else if let Some(ldg_cfg) = &self.land {
             if optional_sensors.gps_connected {
                 let dist_to_touchdown = find_distance(
                     (ldg_cfg.touchdown_point.lat, ldg_cfg.touchdown_point.lon),
@@ -368,7 +379,7 @@ impl AutopilotStatus {
 
         if self.alt_hold.is_some()
             && !self.takeoff
-            && self.land_fixed_wing.is_none()
+            && self.land.is_none()
             && self.direct_to_point.is_none()
         {
             let (alt_type, alt_commanded) = self.alt_hold.unwrap();
@@ -407,7 +418,7 @@ impl AutopilotStatus {
         // wouldn't have been reset by manual controls. For now, this only applie to throttle.
         if self.alt_hold.is_none()
             && !self.takeoff
-            && self.land_fixed_wing.is_none()
+            && self.land.is_none()
             && self.direct_to_point.is_none()
         {
             attitudes_commanded.pitch = None;

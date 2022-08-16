@@ -19,7 +19,7 @@ use stm32_hal2::{
     gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
     pac::{self, DMA1, I2C1, I2C2, SPI1, TIM1, TIM16, TIM17, USART2},
-    rtc::Rtc,
+    // rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{Timer, TimerConfig, TimerInterrupt},
     usart::{Usart, UsartInterrupt},
@@ -52,7 +52,7 @@ cfg_if! {
 use usb_device::{bus::UsbBusAllocator, prelude::*};
 use usbd_serial::{self, SerialPort};
 
-use autopilot::{AutopilotStatus, Orbit};
+use autopilot::{AutopilotStatus, Orbit, OrbitShape};
 use control_interface::{
     AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData, LinkStats, PidTuneActuation,
     PidTuneMode,
@@ -77,7 +77,7 @@ use pid::{
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
-use state::{AircraftType, OperationMode, StateVolatile, UserCfg};
+use state::{OperationMode, StateVolatile, UserCfg};
 
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.
@@ -283,7 +283,6 @@ fn init_sensors(
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
     use super::*;
-    use autopilot::OrbitShape;
 
     #[shared]
     struct Shared {
@@ -375,7 +374,6 @@ mod app {
                     input_src: InputSrc::Pll(PllSrc::Hse(16_000_000)),
                     hsi48_on: true,
                     clk48_src: clocks::Clk48Src::Hsi48,
-                    boost_mode: true, // Required for speeds > 150Mhz.
                     ..Default::default()
                 };
             }
@@ -501,7 +499,7 @@ mod app {
         crsf::setup(&mut uart_elrs, setup::CRSF_RX_CH, &mut dma); // Keep this channel in sync with `setup.rs`.
 
         // We use the RTC to assist with power use measurement.
-        let rtc = Rtc::new(dp.RTC, Default::default());
+        // let rtc = Rtc::new(dp.RTC, Default::default());
 
         // We use the ADC to measure battery voltage and ESC current.
         let adc_cfg = AdcConfig {
@@ -1033,7 +1031,7 @@ mod app {
                         return;
                     }
 
-                    flight_ctrls::quad::handle_control_mode(
+                    flight_ctrls::handle_control_mode(
                         control_channel_data.input_mode,
                         input_mode,
                         state_volatile,
@@ -1052,29 +1050,29 @@ mod app {
 
                     match control_channel_data.autopilot_a {
                         AutopilotSwitchA::Disabled => {
+                            #[cfg(feature = "fixed-wing")]
                             autopilot_status.orbit = None;
+                            #[cfg(feature = "quad")]
                             autopilot_status.loiter = None;
                         }
-                        AutopilotSwitchA::LoiterOrbit => match cfg.aircraft_type {
-                            AircraftType::Quadcopter => {
-                                autopilot_status.loiter = Some(Location::new(
-                                    LocationType::LatLon,
-                                    params.lat,
-                                    params.lon,
-                                    params.baro_alt_msl,
-                                ));
-                            }
-                            AircraftType::FixedWing => {
-                                autopilot_status.orbit = Some(Orbit {
-                                    shape: Default::default(),
-                                    center_lat: params.lat,
-                                    center_lon: params.lon,
-                                    radius: autopilot::ORBIT_DEFAULT_RADIUS,
-                                    ground_speed: autopilot::ORBIT_DEFAULT_GROUNDSPEED,
-                                    direction: Default::default(),
-                                });
-                            }
-                        },
+                        AutopilotSwitchA::LoiterOrbit => {
+                            #[cfg(feature = "quad")]
+                            autopilot_status.loiter = Some(Locaation::new(
+                                LocationType::LatLon,
+                                params.lat,
+                                params.lon,
+                                params.baro_alt_msl,
+                            ));
+                            #[cfg(feature = "fixed-wing")]
+                            autopilot_status.orbit = Some(Orbit {
+                                shape: Default::default(),
+                                center_lat: params.lat,
+                                center_lon: params.lon,
+                                radius: autopilot::ORBIT_DEFAULT_RADIUS,
+                                ground_speed: autopilot::ORBIT_DEFAULT_GROUNDSPEED,
+                                direction: Default::default(),
+                            });
+                        }
                         AutopilotSwitchA::DirectToPoint => {
                             autopilot_status.alt_hold = Some((AltType::Msl, params.baro_alt_msl))
                         }
@@ -1083,23 +1081,14 @@ mod app {
                     match control_channel_data.autopilot_b {
                         AutopilotSwitchB::Disabled => {
                             autopilot_status.hdg_hold = None;
-                            autopilot_status.land_quad = None;
-                            autopilot_status.land_fixed_wing = None;
+                            autopilot_status.land = None;
                         }
                         AutopilotSwitchB::HdgHold => {
                             autopilot_status.hdg_hold = Some(params.s_yaw_heading)
                         }
                         AutopilotSwitchB::Land => {
-                            match cfg.aircraft_type {
-                                AircraftType::Quadcopter => {
-                                    // todo: impl.
-                                    // autopilot_status.land_quad = Some(LandQuad);
-                                }
-                                AircraftType::FixedWing => {
-                                    // todo impl
-                                    // autopilot_status.land_fixed_wing = Some(LandFixedWing);
-                                }
-                            }
+                            // todo: impl.
+                            // autopilot_status.land = Some(Land);
                         }
                     }
 
@@ -1134,11 +1123,12 @@ mod app {
                         pid_d: coeffs.roll.k_d_rate,
                         autopilot: AutopilotData {
                             takeoff: autopilot_status.takeoff,
-                            land: autopilot_status.land_quad.is_some()
-                                || autopilot_status.land_fixed_wing.is_some(),
+                            land: autopilot_status.land.is_some(),
                             direct_to_point: autopilot_status.direct_to_point.is_some(),
+                            #[cfg(feature = "fixed-wing")]
                             orbit: autopilot_status.orbit.is_some(),
                             alt_hold: autopilot_status.alt_hold.is_some(),
+                            #[cfg(feature = "quad")]
                             loiter: autopilot_status.loiter.is_some(),
                         },
                         base_dist_bearing: (
@@ -1153,40 +1143,36 @@ mod app {
                         return;
                     }
 
-                    match cfg.aircraft_type {
-                        AircraftType::Quadcopter => {
-                            pid::run_attitude_quad(
-                                params,
-                                control_channel_data,
-                                input_map,
-                                attitudes_commanded,
-                                rates_commanded,
-                                pid_attitude,
-                                filters,
-                                input_mode,
-                                autopilot_status,
-                                cfg,
-                                coeffs,
-                                &state_volatile.optional_sensor_status,
-                            );
-                        }
-                        AircraftType::FixedWing => {
-                            pid::run_attitude_fixed_wing(
-                                params,
-                                // control_channel_data,
-                                // input_map,
-                                attitudes_commanded,
-                                rates_commanded,
-                                pid_attitude,
-                                filters,
-                                // input_mode,
-                                autopilot_status,
-                                // cfg,
-                                coeffs,
-                                &state_volatile.optional_sensor_status,
-                            );
-                        }
-                    }
+                    #[cfg(feature = "quad")]
+                    pid::run_attitude(
+                        params,
+                        control_channel_data,
+                        input_map,
+                        attitudes_commanded,
+                        rates_commanded,
+                        pid_attitude,
+                        filters,
+                        input_mode,
+                        autopilot_status,
+                        cfg,
+                        coeffs,
+                        &state_volatile.optional_sensor_status,
+                    );
+                    #[cfg(feature = "fixed-wing")]
+                    pid::run_attitude(
+                        params,
+                        // control_channel_data,
+                        // input_map,
+                        attitudes_commanded,
+                        rates_commanded,
+                        pid_attitude,
+                        filters,
+                        // input_mode,
+                        autopilot_status,
+                        // cfg,
+                        coeffs,
+                        &state_volatile.optional_sensor_status,
+                    );
 
                     match input_mode {
                         InputMode::Acro => {}
@@ -1340,32 +1326,33 @@ mod app {
                         return;
                     }
 
-                    // Our fixed-wing update rate is limited by the servos, so we only run this
-                    // 1 out of 16 IMU updates.
-                    match cfg.aircraft_type {
-                        AircraftType::Quadcopter => {
-                            pid::run_rate_quad(
-                                params,
-                                *input_mode,
-                                autopilot_status,
-                                // cfg,
-                                control_channel_data,
-                                rates_commanded,
-                                // control_mix,
-                                pid_inner,
-                                filters,
-                                &mut state_volatile.current_pwr,
-                                &cfg.motor_mapping,
-                                motor_timers,
-                                dma,
-                                coeffs,
-                                cfg.max_speed_ver,
-                                input_map,
-                                state_volatile.arm_status,
-                                DT_IMU,
-                            );
+                    cfg_if! {
+                        if #[cfg(feature = "quad")] {
+                         #[cfg(feature = "quad")]
+                        pid::run_rate(
+                            params,
+                            *input_mode,
+                            autopilot_status,
+                            // cfg,
+                            control_channel_data,
+                            rates_commanded,
+                            // control_mix,
+                            pid_inner,
+                            filters,
+                            &mut state_volatile.current_pwr,
+                            &cfg.motor_mapping,
+                            motor_timers,
+                            dma,
+                            coeffs,
+                            cfg.max_speed_ver,
+                            input_map,
+                            state_volatile.arm_status,
+                            DT_IMU,
+                        );
                         }
-                        AircraftType::FixedWing => {
+                        else {
+                            // Our fixed-wing update rate is limited by the servos, so we only run this
+                            // 1 out of 16 IMU updates.
                             *cx.local.fixed_wing_rate_loop_i += 1;
                             if *cx.local.fixed_wing_rate_loop_i % FIXED_WING_RATE_UPDATE_RATIO == 0
                             {
@@ -1444,7 +1431,9 @@ mod app {
                                 &state_volatile.link_stats,
                                 &user_cfg.waypoints,
                                 &mut state_volatile.arm_status,
+                                #[cfg(feature = "quad")]
                                 &mut user_cfg.motor_mapping,
+                                #[cfg(feature = "fixed-wing")]
                                 &mut user_cfg.servo_wing_mapping,
                                 &mut state_volatile.op_mode,
                                 motor_timers,

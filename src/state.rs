@@ -1,18 +1,24 @@
 //! This module contains code related to state, both config stored to flash, and volatile data
 //! specific to the current flight, and cleared when power is removed.
 
-use crate::usb_cfg::WAYPOINT_SIZE;
 /// User-configurable settings. These get saved to and loaded from internal flash.
 use crate::{
-    autopilot::{LandingCfgFixedWing, LandingCfgQuad},
+    autopilot::{LandingCfg, LandingCfgFixedWing},
     control_interface::{InputModeSwitch, LinkStats},
-    flight_ctrls::{
-        fixed_wing::{ControlPositions, ServoWingMapping},
-        quad::{AxisLocks, MotorPower, RotorMapping},
-    },
     ppks::Location,
     safety::ArmStatus,
+    usb_cfg::WAYPOINT_SIZE,
 };
+
+use cfg_if::cfg_if;
+
+cfg_if! {
+    if #[cfg(feature = "fixed-wing")] {
+        use crate::flight_ctrls::{ControlPositions, ServoWingMapping};
+    } else {
+        use crate::flight_ctrls::{AxisLocks, MotorPower, RotorMapping};
+    }
+}
 
 // The maximum number of waypoints available.
 pub const MAX_WAYPOINTS: usize = 30; // todo: Consider raising this.
@@ -31,13 +37,13 @@ impl Default for OperationMode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum AircraftType {
-    /// Angry bumblebee
-    Quadcopter,
-    /// Baby B-2
-    FixedWing,
-}
+// #[derive(Clone, Copy, PartialEq)]
+// pub enum AircraftType {
+//     /// Angry bumblebee
+//     Quadcopter,
+//     /// Baby B-2
+//     FixedWing,
+// }
 
 // #[derive(Clone, Copy)]
 // /// Role in a swarm of drones
@@ -68,9 +74,11 @@ pub struct UserCfg {
     pub mapping_obstacles: bool,
     pub max_speed_hor: f32,
     pub max_speed_ver: f32,
-    /// Map motor connection number to position. For quadcopters.
+    #[cfg(feature = "quad")]
+    /// Map motor connection number to position.
     pub motor_mapping: RotorMapping,
-    /// For fixed wings.
+    #[cfg(feature = "fixed-wing")]
+    /// Servo mapping.
     pub servo_wing_mapping: ServoWingMapping,
     // altitude_cal: AltitudeCalPt,
     // Note that this inst includes idle power.
@@ -84,9 +92,9 @@ pub struct UserCfg {
     pub waypoints: [Option<Location>; MAX_WAYPOINTS],
     /// The (index of the) waypoint we are currently steering to.
     pub active_waypoint: usize,
-    pub landing_cfg_quad: LandingCfgQuad,
-    pub landing_cfg_fixed_wing: LandingCfgFixedWing,
-    /// Fixed-wing only. Use servo 3 as a rudder. (Alternative is no rudder)
+    pub landing_cfg: LandingCfg,
+    #[cfg(feature = "fixed-wing")]
+    /// (Alternative is no rudder)
     pub rudder_used: bool,
 }
 
@@ -95,7 +103,7 @@ impl Default for UserCfg {
         let waypoints = [(); MAX_WAYPOINTS].map(|_| Option::<Location>::default());
 
         Self {
-            aircraft_type: AircraftType::Quadcopter,
+            // aircraft_type: AircraftType::Quadcopter,
             ceiling: Some(122.),
             // todo: Do we want max angle and vel here? Do we use them, vice settings in InpuMap?
             // max_angle: TAU * 0.22,
@@ -110,7 +118,9 @@ impl Default for UserCfg {
             mapping_obstacles: false,
             max_speed_hor: 20.,
             max_speed_ver: 20.,
+            #[cfg(feature = "quad")]
             motor_mapping: Default::default(),
+            #[cfg(feature = "fixed-wing")]
             servo_wing_mapping: Default::default(),
             // altitude_cal: Default::default(),
             // Make sure to update this interp table if you change idle power.
@@ -140,8 +150,8 @@ impl Default for UserCfg {
             // altimeter_setting: 101_325.,
             waypoints,
             active_waypoint: 0,
-            landing_cfg_quad: Default::default(),
-            landing_cfg_fixed_wing: Default::default(),
+            landing_cfg: Default::default(),
+            #[cfg(feature = "fixed-wing")]
             rudder_used: false,
         }
     }
@@ -167,10 +177,13 @@ pub struct StateVolatile {
     // FOr now, we use "link lost" to include never having been connected.
     // connected_to_controller: bool,
     pub link_lost: bool,
+    #[cfg(feature = "quad")]
+    /// Attitudes to hold for each axis, eg if control input is neutral
     pub axis_locks: AxisLocks,
-    /// Quadcopter
+    #[cfg(feature = "quad")]
     pub current_pwr: MotorPower,
-    /// Fixed-wing
+    #[cfg(feature = "fixed-wing")]
+    /// Flight control positions
     pub ctrl_positions: ControlPositions,
     /// Link statistics, including Received Signal Strength Indicator (RSSI) from the controller's radio.
     pub link_stats: LinkStats,

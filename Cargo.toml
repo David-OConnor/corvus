@@ -5,12 +5,12 @@ authors = ["David O'Connor <david.alan.oconnor@gmail.com>"]
 edition = "2021"
 
 [dependencies]
-cortex-m = "0.7.3"
-cortex-m-rt = "0.7.0"
-
 defmt = "0.3.0"
 defmt-rtt = "0.3.0"
 panic-probe = { version = "0.3.0", features = ["print-defmt"] }
+
+cortex-m = "0.7.3"
+cortex-m-rt = "0.7.0"
 
 cortex-m-rtic = "1.1.3"
 
@@ -44,6 +44,8 @@ mercury-g4 = ["g4"]
 mercury-h7 = ["h7"]
 g4 = ["stm32-hal2/g4rt", "stm32-hal2/g491", "stm32-hal2/usb", "stm32-usbd"]
 h7 = ["stm32-hal2/h7rt", "stm32-hal2/h735", "stm32-hal2/usbotg_hs", "synopsys-usb-otg"]
+quad = [] # For quadcopter aircraft
+fixed-wing = [] # For fixed-wing aircraft
 
 #default = ["mercury-g4"]
 

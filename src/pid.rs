@@ -17,12 +17,18 @@ use crate::{
     flight_ctrls::{
         self,
         common::{CtrlInputs, InputMap, MotorTimers, Params},
-        quad::{InputMode, MAX_ROTOR_POWER, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED},
     },
     state::OptionalSensorStatus,
     util::IirInstWrapper,
     ArmStatus, ControlPositions, RotorMapping, ServoWingMapping, UserCfg, DT_ATTITUDE,
 };
+
+cfg_if! {
+    if #[cfg(feature = "fixed-wing")] {
+    } else {
+        use crate::flight_ctrls::{InputMode, MAX_ROTOR_POWER, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED};
+    }
+}
 
 use defmt::println;
 
@@ -463,7 +469,7 @@ pub fn _run_velocity(
             //         pitch: 0.,
             //         roll: 0.,
             //         yaw: 0.,
-            //         thrust: flight_ctrls::quad::takeoff_speed(params.tof_alt, cfg.max_speed_ver),
+            //         thrust: flight_ctrls::takeoff_speed(params.tof_alt, cfg.max_speed_ver),
             //     };
             // }
             // else if autopilot_status.land {
@@ -471,7 +477,7 @@ pub fn _run_velocity(
             //         pitch: 0.,
             //         roll: 0.,
             //         yaw: 0.,
-            //         thrust: flight_ctrls::quad::landing_speed(params.tof_alt, cfg.max_speed_ver),
+            //         thrust: flight_ctrls::landing_speed(params.tof_alt, cfg.max_speed_ver),
             //     };
             // }
         }
@@ -632,9 +638,10 @@ fn attitude_apply_common(
     }
 }
 
+#[cfg(feature = "quad")]
 /// Run the attitude (mid) PID loop: This is used to determine angular velocities, based on commanded
 /// attitude. Modifies `rates_commanded`, which is used by the rate PID loop.
-pub fn run_attitude_quad(
+pub fn run_attitude(
     params: &Params,
     ch_data: &ChannelData,
     input_map: &InputMap,
@@ -666,7 +673,7 @@ pub fn run_attitude_quad(
         }
     }
 
-    autopilot_status.apply_quad(
+    autopilot_status.apply(
         params,
         attitudes_commanded,
         rates_commanded,
@@ -688,6 +695,7 @@ pub fn run_attitude_quad(
     );
 }
 
+#[cfg(feature = "fixed-wing")]
 /// Run the attitude (mid) PID loop: This is used to determine angular velocities, based on commanded
 /// attitude. Note that for fixed wing, we have no direct attitude mode, so this is entirely determined
 /// by the various autopilot modes, or if we're mapping throttle to airspeed etc.
@@ -707,7 +715,7 @@ pub fn run_attitude_fixed_wing(
     optional_sensors: &OptionalSensorStatus,
 ) {
     // Note that for fixed wing, we don't have attitude mode.
-    autopilot_status.apply_fixed_wing(
+    autopilot_status.apply(
         params,
         attitudes_commanded,
         rates_commanded,
@@ -799,6 +807,7 @@ fn rate_apply_common(
     (pitch, roll, yaw, throttle)
 }
 
+#[cfg(feature = "quad")]
 /// Run the rate (inner) PID loop: This is what directly affects motor output by commanding pitch, roll, and
 /// yaw rates. Also affects thrust. These rates are determined either directly by acro inputs, or by the
 /// attitude PID loop.
@@ -806,7 +815,7 @@ fn rate_apply_common(
 /// If acro, we get our inputs each IMU update; ie the inner loop. In other modes,
 /// (or with certain autopilot flags enabled?) the inner loop is commanded by the mid loop
 /// once per update cycle, eg to set commanded angular rates.
-pub fn run_rate_quad(
+pub fn run_rate(
     params: &Params,
     input_mode: InputMode,
     autopilot_status: &AutopilotStatus,
@@ -855,7 +864,7 @@ pub fn run_rate_quad(
         dt,
     );
 
-    flight_ctrls::quad::apply_controls(
+    flight_ctrls::apply_controls(
         pitch,
         roll,
         yaw,
@@ -868,7 +877,8 @@ pub fn run_rate_quad(
     );
 }
 
-pub fn run_rate_fixed_wing(
+#[cfg(feature = "fixed-wing")]
+pub fn run_rate(
     params: &Params,
     input_mode: InputMode,
     autopilot_status: &AutopilotStatus,
@@ -925,7 +935,7 @@ pub fn run_rate_fixed_wing(
         dt,
     );
 
-    flight_ctrls::fixed_wing::apply_controls(
+    flight_ctrls::apply_controls(
         pitch,
         roll,
         throttle,

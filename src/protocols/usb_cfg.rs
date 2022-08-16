@@ -14,9 +14,8 @@ use crate::{
     control_interface::ChannelData,
     dshot,
     flight_ctrls::{
+        self,
         common::MotorTimers,
-        fixed_wing::{self, ServoWing, ServoWingMapping, ServoWingPosition},
-        quad::{RotorMapping, RotorPosition},
     },
     lin_alg::Quaternion,
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},
@@ -24,6 +23,16 @@ use crate::{
     state::{OperationMode, MAX_WAYPOINTS},
     util, LinkStats,
 };
+
+use cfg_if::cfg_if;
+
+cfg_if! {
+    if #[cfg(feature = "fixed-wing")] {
+        use crate::flight_ctrls::{ServoWing, ServoWingMapping, ServoWingPosition};
+    } else {
+        use crate::flight_ctrls::{RotorMapping, RotorPosition};
+    }
+}
 
 use stm32_hal2::{
     adc::Adc,
@@ -62,7 +71,7 @@ const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
 // 3 coords + option to indicate if used. (Some/None)
 pub const WAYPOINT_SIZE: usize = F32_BYTES * 3 + WAYPOINT_MAX_NAME_LEN + 1;
 pub const WAYPOINTS_SIZE: usize = crate::state::MAX_WAYPOINTS * WAYPOINT_SIZE;
-pub const SET_SERVO_POSIT_SIZE: usize = 1 + F32_BYTES ; // Servo num, value
+pub const SET_SERVO_POSIT_SIZE: usize = 1 + F32_BYTES; // Servo num, value
 
 // Packet sizes are payload size + 2. Additional data are message type, and CRC.
 const PARAMS_PACKET_SIZE: usize = PARAMS_SIZE + 2;
@@ -104,6 +113,7 @@ pub enum MsgType {
     ReqWaypoints = 12,
     Updatewaypoints = 13,
     Waypoints = 14,
+    #[cfg(feature = "fixed-wing")]
     /// Set all servo positions
     SetServoPosit = 15,
 }
@@ -415,6 +425,7 @@ pub fn handle_rx(
         }
         MsgType::Waypoints => {}
         MsgType::Updatewaypoints => {}
+        #[cfg(feature = "fixed-wing")]
         MsgType::SetServoPosit => {
             let servo = rx_buf[1];
             let value = f32::from_be_bytes(rx_buf[2..6].try_into().unwrap());
@@ -424,7 +435,7 @@ pub fn handle_rx(
                 "right" => ServoWingPosition::Right,
                 _ => {
                     println!("Invalid servo requested");
-                    return
+                    return;
                 }
             };
 
@@ -434,7 +445,6 @@ pub fn handle_rx(
                 servo_wing_mapping,
                 motor_timers,
             );
-
         }
     }
 }
