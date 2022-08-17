@@ -12,9 +12,9 @@ use stm32_hal2::{
     timer::{OutputCompare, TimerInterrupt},
 };
 
-use crate::{dshot, flight_ctrls::quad::Motor, safety::ArmStatus, util};
+use crate::{dshot, safety::ArmStatus, util};
 
-use super::common::MotorTimers;
+use super::common::{Motor, MotorTimers};
 
 use cfg_if::cfg_if;
 // use defmt::println;

@@ -3,7 +3,7 @@
 
 /// User-configurable settings. These get saved to and loaded from internal flash.
 use crate::{
-    autopilot::{LandingCfg, LandingCfgFixedWing},
+    autopilot::LandingCfg,
     control_interface::{InputModeSwitch, LinkStats},
     ppks::Location,
     safety::ArmStatus,
@@ -55,7 +55,6 @@ impl Default for OperationMode {
 
 /// Persistent state; saved to onboard flash memory.
 pub struct UserCfg {
-    pub aircraft_type: AircraftType,
     /// Set a ceiling the aircraft won't exceed. Defaults to 400' (Legal limit in US for drones).
     /// In meters.
     pub ceiling: Option<f32>,

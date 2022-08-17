@@ -8,7 +8,7 @@ use crate::{
     flight_ctrls::common::{AltType, Params},
     pid::PidGroup,
     ppks::{Location, LocationType},
-    state:: OptionalSensorStatus,
+    state::OptionalSensorStatus,
 };
 
 use cfg_if::cfg_if;

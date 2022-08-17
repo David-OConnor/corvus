@@ -18,9 +18,9 @@ use crate::{
         self,
         common::{CtrlInputs, InputMap, MotorTimers, Params},
     },
-    state::{UserCfg, OptionalSensorStatus},
-    util::IirInstWrapper,
     safety::ArmStatus,
+    state::{OptionalSensorStatus, UserCfg},
+    util::IirInstWrapper,
     DT_ATTITUDE,
 };
 
@@ -462,6 +462,7 @@ pub fn _run_velocity(
     // todo: GO over this whole function; it's not ready!
     // todo, and you need a fixed wing version.
 
+    #[cfg(feature = "quad")]
     match input_mode {
         InputMode::Acro => (),
         InputMode::Attitude => (),

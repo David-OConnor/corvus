@@ -12,12 +12,15 @@ use crate::{lin_alg::Quaternion, ppks::Location, safety::ArmStatus, util::map_li
 
 use stm32_hal2::{pac, timer::Timer};
 
-use super::{
-    fixed_wing::ControlPositions,
-    quad::{MotorPower, THROTTLE_MAX_MNVR_CLAMP, THROTTLE_MIN_MNVR_CLAMP},
-};
+use cfg_if::cfg_if;
 
-// use cfg_if::cfg_if;
+cfg_if! {
+    if #[cfg(feature = "fixed-wing")] {
+        use super::ControlPositions;
+    } else {
+        use super::{MotorPower, THROTTLE_MAX_MNVR_CLAMP, THROTTLE_MIN_MNVR_CLAMP};
+    }
+}
 
 // Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
@@ -29,6 +32,16 @@ use defmt::println;
 
 // Time in seconds between subsequent data received before we execute lost-link procedures.
 pub const LOST_LINK_TIMEOUT: f32 = 1.;
+
+/// Specify the rotor by its connection to the ESC. Includdes methods that get information regarding timer
+/// and DMA, per specific board setups, in `setup`.
+#[derive(Clone, Copy)]
+pub enum Motor {
+    M1,
+    M2,
+    M3,
+    M4,
+}
 
 // todo: Quad specific?
 /// Maps control inputs (range 0. to 1. or -1. to 1.) to velocities, rotational velocities etc
@@ -199,6 +212,7 @@ pub struct _ResponseDataPt {
     pub airspeed: f32,
     // todo: Options for these, or an enum?
     pub motor_power: MotorPower,
+    #[cfg(feature = "fixed-wing")]
     pub control_posits: ControlPositions,
 
     // todo: If you need more, consider using `Params`.

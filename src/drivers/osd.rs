@@ -79,11 +79,19 @@ impl AutopilotData {
             result[0..2].clone_from_slice("TO".as_bytes());
         } else if self.land {
             result[0..2].clone_from_slice("Ld".as_bytes());
-        } else if self.orbit {
-            result[0..2].clone_from_slice("Ot".as_bytes());
         } else if self.direct_to_point {
             result[0..2].clone_from_slice("Pt".as_bytes());
-        } else if self.loiter {
+        }
+
+        // Orbit and loiter here should be part of the if/else above, but
+        // it shouldn't matter. Separate due to limitations on feature-gate syntax.
+        #[cfg(feature = "fixed-wing")]
+        if self.orbit {
+            result[0..2].clone_from_slice("Ot".as_bytes());
+        }
+
+        #[cfg(feature = "quad")]
+        if self.loiter {
             result[0..2].clone_from_slice("Lr".as_bytes());
         }
 

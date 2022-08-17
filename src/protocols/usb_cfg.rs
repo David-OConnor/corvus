@@ -13,10 +13,7 @@
 use crate::{
     control_interface::ChannelData,
     dshot,
-    flight_ctrls::{
-        self,
-        common::MotorTimers,
-    },
+    flight_ctrls::{self, common::MotorTimers},
     lin_alg::Quaternion,
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},
     safety::ArmStatus,
@@ -136,6 +133,7 @@ impl MsgType {
             Self::ReqWaypoints => 0,
             Self::Updatewaypoints => 10, // todo?
             Self::Waypoints => WAYPOINTS_SIZE,
+            #[cfg(feature = "fixed-wing")]
             Self::SetServoPosit => SET_SERVO_POSIT_SIZE,
         }
     }
@@ -229,8 +227,8 @@ pub fn handle_rx(
     link_stats: &LinkStats,
     waypoints: &[Option<Location>; MAX_WAYPOINTS],
     arm_status: &mut ArmStatus,
-    rotor_mapping: &mut RotorMapping,
-    servo_wing_mapping: &mut ServoWingMapping,
+    #[cfg(feature = "quad")] rotor_mapping: &mut RotorMapping,
+    #[cfg(feature = "fixed-wing")] servo_wing_mapping: &mut ServoWingMapping,
     op_mode: &mut OperationMode,
     motor_timers: &mut MotorTimers,
     adc: &Adc<ADC2>,
@@ -430,9 +428,12 @@ pub fn handle_rx(
             let servo = rx_buf[1];
             let value = f32::from_be_bytes(rx_buf[2..6].try_into().unwrap());
 
+            let l = SeroWingPosition::Left as u8;
+            let r = SeroWingPosition::Right as u8;
+
             let servo_wing = match servo {
-                "left" => ServoWingPosition::Left,
-                "right" => ServoWingPosition::Right,
+                l => ServoWingPosition::Left,
+                r => ServoWingPosition::Right,
                 _ => {
                     println!("Invalid servo requested");
                     return;

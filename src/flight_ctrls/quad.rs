@@ -11,7 +11,7 @@ use crate::{
     control_interface::InputModeSwitch, dshot, safety::ArmStatus, state::StateVolatile, util,
 };
 
-use super::common::{MotorTimers, Params};
+use super::common::{Motor, MotorTimers, Params};
 
 use defmt::println;
 
@@ -86,16 +86,6 @@ impl AircraftProperties {
 pub struct AxisLocks {
     pub pitch_locked: Option<f32>,
     pub roll_locked: Option<f32>,
-}
-
-/// Specify the rotor by its connection to the ESC. Includdes methods that get information regarding timer
-/// and DMA, per specific board setups, in `setup`.
-#[derive(Clone, Copy)]
-pub enum Motor {
-    M1,
-    M2,
-    M3,
-    M4,
 }
 
 /// Specify the rotor by position. Used in power application code.

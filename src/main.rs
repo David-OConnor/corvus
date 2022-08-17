@@ -56,7 +56,6 @@ use autopilot::AutopilotStatus;
 #[cfg(feature = "fixed-wing")]
 use autopilot::{Orbit, OrbitShape};
 
-
 use control_interface::{
     AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData, LinkStats, PidTuneActuation,
     PidTuneMode,
@@ -70,11 +69,16 @@ use drivers::{
 
 use ahrs_fusion::Ahrs;
 use filter_imu::ImuFilters;
-use flight_ctrls::{
-    common::{AltType, CtrlInputs, InputMap, MotorTimers, Params},
-    fixed_wing::{self, ControlPositions, ServoWingMapping},
-    quad::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition},
-};
+use flight_ctrls::common::{AltType, CtrlInputs, InputMap, MotorTimers, Params};
+
+cfg_if! {
+    if #[cfg(feature = "fixed-wing")] {
+        use flight_ctrls::{ControlPositions, ServoWingMapping};
+    } else {
+        use flight_ctrls::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition};
+    }
+}
+
 use pid::{
     CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT, PID_CONTROL_ADJ_TIMEOUT,
 };
@@ -294,6 +298,7 @@ mod app {
         user_cfg: UserCfg,
         state_volatile: StateVolatile,
         input_map: InputMap,
+        #[cfg(feature = "quad")]
         input_mode: InputMode,
         autopilot_status: AutopilotStatus,
         ctrl_coeffs: CtrlCoeffGroup,
@@ -624,13 +629,12 @@ mod app {
         // user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
 
         let mut ctrl_coeffs = Default::default();
-        match user_cfg.aircraft_type {
-            AircraftType::Quadcopter => {
-                dshot::setup_timers(&mut motor_timers);
-            }
-            AircraftType::FixedWing => {
-                fixed_wing::setup_timers(&mut motor_timers);
+        cfg_if! {
+            if #[cfg(feature = "fixed-wing")] {
+                flight_ctrls::setup_timers(&mut motor_timers);
                 ctrl_coeffs = CtrlCoeffGroup::default_flying_wing();
+            } else {
+                dshot::setup_timers(&mut motor_timers);
             }
         }
 
@@ -786,6 +790,7 @@ mod app {
                 user_cfg,
                 state_volatile,
                 input_map: Default::default(),
+                #[cfg(feature = "quad")]
                 input_mode: InputMode::Acro,
                 autopilot_status: Default::default(),
                 ctrl_coeffs,
@@ -1049,21 +1054,16 @@ mod app {
                     }
 
                     match control_channel_data.autopilot_a {
+                        #[cfg(feature = "fixed-wing")]
                         AutopilotSwitchA::Disabled => {
-                            #[cfg(feature = "fixed-wing")]
                             autopilot_status.orbit = None;
-                            #[cfg(feature = "quad")]
+                        }
+                        #[cfg(feature = "quad")]
+                        AutopilotSwitchA::Disabled => {
                             autopilot_status.loiter = None;
                         }
+                        #[cfg(feature = "fixed-wing")]
                         AutopilotSwitchA::LoiterOrbit => {
-                            #[cfg(feature = "quad")]
-                            autopilot_status.loiter = Some(Locaation::new(
-                                LocationType::LatLon,
-                                params.lat,
-                                params.lon,
-                                params.baro_alt_msl,
-                            ));
-                            #[cfg(feature = "fixed-wing")]
                             autopilot_status.orbit = Some(Orbit {
                                 shape: Default::default(),
                                 center_lat: params.lat,
@@ -1072,6 +1072,15 @@ mod app {
                                 ground_speed: autopilot::ORBIT_DEFAULT_GROUNDSPEED,
                                 direction: Default::default(),
                             });
+                        }
+                        #[cfg(feature = "quad")]
+                        AutopilotSwitchA::LoiterOrbit => {
+                            autopilot_status.loiter = Some(Location::new(
+                                LocationType::LatLon,
+                                params.lat,
+                                params.lon,
+                                params.baro_alt_msl,
+                            ));
                         }
                         AutopilotSwitchA::DirectToPoint => {
                             autopilot_status.alt_hold = Some((AltType::Msl, params.baro_alt_msl))
@@ -1328,7 +1337,6 @@ mod app {
 
                     cfg_if! {
                         if #[cfg(feature = "quad")] {
-                         #[cfg(feature = "quad")]
                         pid::run_rate(
                             params,
                             *input_mode,
@@ -1356,7 +1364,7 @@ mod app {
                             *cx.local.fixed_wing_rate_loop_i += 1;
                             if *cx.local.fixed_wing_rate_loop_i % FIXED_WING_RATE_UPDATE_RATIO == 0
                             {
-                                pid::run_rate_fixed_wing(
+                                pid::run_rate(
                                     params,
                                     *input_mode,
                                     autopilot_status,

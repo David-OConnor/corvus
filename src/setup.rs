@@ -107,6 +107,7 @@ impl Motor {
     }
 }
 
+#[cfg(feature = "fixed-wing")]
 impl ServoWing {
     pub fn tim_channel(&self) -> TimChannel {
         match self {

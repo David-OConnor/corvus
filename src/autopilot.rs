@@ -118,6 +118,7 @@ pub enum OrbitDirection {
     CounterClockwise,
 }
 
+#[cfg(feature = "fixed-wing")]
 impl Default for OrbitDirection {
     fn default() -> Self {
         OrbitDirection::Clockwise
@@ -262,7 +263,7 @@ impl AutopilotStatus {
             attitudes_commanded.thrust = None;
         }
 
-        if self.alt_hold.is_some() && !self.takeoff && self.land.is_none() && self.orbit.is_none() {
+        if self.alt_hold.is_some() && !self.takeoff && self.land.is_none() {
             let (alt_type, alt_commanded) = self.alt_hold.unwrap();
             if !(alt_type == AltType::Agl && !optional_sensors.tof_connected) {
                 // Set a vertical velocity for the inner loop to maintain, based on distance
