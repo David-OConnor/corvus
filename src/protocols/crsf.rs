@@ -483,7 +483,7 @@ pub fn handle_packet(
                 extended_src: Some(DestAddr::CrsfTransmitter),
                 payload,
                 crc: util::calc_crc(
-                    unsafe { &CRC_LUT },
+                    &CRC_LUT,
                     &payload[2..payload.len() - 1],
                     payload.len() as u8 - 3,
                 ),

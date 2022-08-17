@@ -16,6 +16,7 @@ use crate::{
     control_interface::ChannelData,
     flight_ctrls::{
         self,
+        ControlMapping,
         common::{CtrlInputs, InputMap, MotorTimers, Params},
     },
     safety::ArmStatus,
@@ -28,9 +29,9 @@ use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
-        use crate::flight_ctrls::{ControlPositions, ServoWingMapping};
+        use crate::flight_ctrls::{ControlPositions};
     } else {
-        use crate::flight_ctrls::{InputMode, RotorMapping, MAX_ROTOR_POWER, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED};
+        use crate::flight_ctrls::{InputMode, MAX_ROTOR_POWER, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED};
     }
 }
 
@@ -51,15 +52,20 @@ const INTEGRATOR_CLAMP_MIN_QUAD: f32 = -INTEGRATOR_CLAMP_MAX_QUAD;
 const INTEGRATOR_CLAMP_MAX_FIXED_WING: f32 = 0.4;
 const INTEGRATOR_CLAMP_MIN_FIXED_WING: f32 = -INTEGRATOR_CLAMP_MAX_FIXED_WING;
 
-// "TPA" stands for Throttle PID attenuation - reduction in D term (or more) past a certain
-// throttle setting, linearly. This only applies to the rate loop.
-// https://github-wiki-see.page/m/betaflight/betaflight/wiki/PID-Tuning-Guide
-pub const TPA_MIN_ATTEN: f32 = 0.5; // At full throttle, D term is attenuated to this value.
-pub const TPA_BREAKPOINT: f32 = 0.3; // Start engaging TPA at this value.
-                                     // `TPA_SLOPE` and `TPA_Y_INT` are cached calculations.
-const TPA_SLOPE: f32 = (TPA_MIN_ATTEN - 1.) / (MAX_ROTOR_POWER - TPA_BREAKPOINT);
-const TPA_Y_INT: f32 = -(TPA_SLOPE * TPA_BREAKPOINT - 1.);
+cfg_if! {
+    if #[cfg(feature = "quad")] {
+        // "TPA" stands for Throttle PID attenuation - reduction in D term (or more) past a certain
+        // throttle setting, linearly. This only applies to the rate loop.
+        // https://github-wiki-see.page/m/betaflight/betaflight/wiki/PID-Tuning-Guide
+        pub const TPA_MIN_ATTEN: f32 = 0.5; // At full throttle, D term is attenuated to this value.
+        pub const TPA_BREAKPOINT: f32 = 0.3; // Start engaging TPA at this value.
+                                             // `TPA_SLOPE` and `TPA_Y_INT` are cached calculations.
+        const TPA_SLOPE: f32 = (TPA_MIN_ATTEN - 1.) / (MAX_ROTOR_POWER - TPA_BREAKPOINT);
+        const TPA_Y_INT: f32 = -(TPA_SLOPE * TPA_BREAKPOINT - 1.);
+    }
+}
 
+#[cfg(feature = "quad")]
 /// Update the D term with throttle PID attenuation; linear falloff of the D term at a cutoff throttle
 /// setting. Multiple the D term by this function's output.
 fn tpa_adjustment(throttle: f32) -> f32 {
@@ -454,7 +460,7 @@ pub fn _run_velocity(
     attitude_commanded: &mut CtrlInputs,
     pid: &mut PidGroup,
     filters: &mut PidDerivFilters,
-    input_mode: &InputMode,
+    #[cfg(feature = "quad")] input_mode: &InputMode,
     autopilot_status: &AutopilotStatus,
     cfg: &UserCfg,
     coeffs: &CtrlCoeffGroup,
@@ -654,7 +660,7 @@ pub fn run_attitude(
     rates_commanded: &mut CtrlInputs,
     pid_attitude: &mut PidGroup,
     filters: &mut PidDerivFilters,
-    input_mode: &InputMode,
+    input_mode: InputMode,
     autopilot_status: &AutopilotStatus,
     cfg: &UserCfg,
     coeffs: &CtrlCoeffGroup,
@@ -705,7 +711,7 @@ pub fn run_attitude(
 /// attitude. Note that for fixed wing, we have no direct attitude mode, so this is entirely determined
 /// by the various autopilot modes, or if we're mapping throttle to airspeed etc.
 /// Modifies `rates_commanded`, which is used by the rate PID loop.
-pub fn run_attitude_fixed_wing(
+pub fn run_attitude(
     params: &Params,
     // ch_data: &ChannelData,
     // input_map: &InputMap,
@@ -713,7 +719,6 @@ pub fn run_attitude_fixed_wing(
     rates_commanded: &mut CtrlInputs,
     pid_attitude: &mut PidGroup,
     filters: &mut PidDerivFilters,
-    // input_mode: &InputMode,
     autopilot_status: &AutopilotStatus,
     // cfg: &UserCfg,
     coeffs: &CtrlCoeffGroup,
@@ -829,7 +834,7 @@ pub fn run_rate(
     pid: &mut PidGroup,
     filters: &mut PidDerivFilters,
     current_pwr: &mut crate::MotorPower,
-    rotor_mapping: &RotorMapping,
+    mapping: &ControlMapping,
     motor_timers: &mut MotorTimers,
     dma: &mut Dma<DMA1>,
     coeffs: &CtrlCoeffGroup,
@@ -875,7 +880,7 @@ pub fn run_rate(
         yaw,
         throttle,
         current_pwr,
-        rotor_mapping,
+        mapping,
         motor_timers,
         arm_status,
         dma,
@@ -885,14 +890,13 @@ pub fn run_rate(
 #[cfg(feature = "fixed-wing")]
 pub fn run_rate(
     params: &Params,
-    input_mode: InputMode,
     autopilot_status: &AutopilotStatus,
     ch_data: &ChannelData,
     rates_commanded: &mut CtrlInputs,
     pid: &mut PidGroup,
     filters: &mut PidDerivFilters,
     control_posits: &mut ControlPositions,
-    mapping: &ServoWingMapping,
+    mapping: &ControlMapping,
     motor_timers: &mut MotorTimers,
     dma: &mut Dma<DMA1>,
     coeffs: &CtrlCoeffGroup,

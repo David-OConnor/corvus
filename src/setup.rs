@@ -3,20 +3,20 @@
 
 use cfg_if::cfg_if;
 
-cfg_if! {
-    if #[cfg(feature = "fixed-wing")] {
-        use crate::flight_ctrls::ServoWing;
-    } else {
-        use crate::flight_ctrls::Motor;
-    }
-}
-
 use stm32_hal2::{
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     pac::DMA1,
     timer::TimChannel,
 };
+
+cfg_if! {
+    if #[cfg(feature = "fixed-wing")] {
+        use crate::flight_ctrls::{ServoWing, ServoWingPosition};
+    } else {
+    }
+}
+use crate::flight_ctrls::common::Motor;
 
 // Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;

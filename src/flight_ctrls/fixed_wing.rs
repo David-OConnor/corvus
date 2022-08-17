@@ -14,7 +14,7 @@ use stm32_hal2::{
 
 use crate::{dshot, safety::ArmStatus, util};
 
-use super::common::{Motor, MotorTimers};
+use super::common::{InputMap, Motor, MotorTimers};
 
 use cfg_if::cfg_if;
 // use defmt::println;
@@ -56,11 +56,27 @@ cfg_if! {
     }
 }
 
+impl Default for InputMap {
+    fn default() -> Self {
+        Self {
+            pitch_rate: (-6., 6.),
+            roll_rate: (-6., 6.),
+            yaw_rate: (-0., 0.),        // N/A
+            throttle_clamped: (0., 0.), // N/A
+            pitch_angle: (0., 0.),      // N/A
+            roll_angle: (0., 0.),       // N/A
+            yaw_angle: (0., 0.),        // N/A
+            alt_commanded_offset_msl: (0., 100.),
+            alt_commanded_agl: (0.5, 8.),
+        }
+    }
+}
+
 /// Sets the physical position of an elevon; commands a servo movement.
 pub fn set_elevon_posit(
     elevon: ServoWing,
     position: f32,
-    mapping: &ServoWingMapping,
+    mapping: &ControlMapping,
     timers: &mut MotorTimers,
 ) {
     let range_out = match elevon {
@@ -158,8 +174,8 @@ pub enum ServoWingPosition {
     Right = 1,
 }
 
-/// Equivalent of `RotorMapping` for quadcopters.
-pub struct ServoWingMapping {
+/// Maps servos to wing position, and related details.
+pub struct ControlMapping {
     pub s1: ServoWingPosition,
     pub s2: ServoWingPosition,
     /// Reverse direction is somewhat arbitrary.
@@ -174,7 +190,7 @@ pub struct ServoWingMapping {
     pub servo_duty_low: f32,
 }
 
-impl Default for ServoWingMapping {
+impl Default for ControlMapping {
     fn default() -> Self {
         Self {
             s1: ServoWingPosition::Left,
@@ -187,7 +203,7 @@ impl Default for ServoWingMapping {
     }
 }
 
-impl ServoWingMapping {
+impl ControlMapping {
     pub fn servo_from_position(&self, position: ServoWingPosition) -> ServoWing {
         // todo: This assumes each servo maps to exactly one position. We probably
         // todo should have some constraint to enforce this.
@@ -214,7 +230,7 @@ impl ControlPositions {
         &self,
         timers: &mut MotorTimers,
         arm_status: ArmStatus,
-        mapping: &ServoWingMapping,
+        mapping: &ControlMapping,
         dma: &mut Dma<DMA1>,
     ) {
         // M2 isn't used here, but keeps our API similar to Quad.
@@ -272,7 +288,7 @@ pub fn apply_controls(
     throttle: f32,
     // control_mix: &mut ControlMix,
     control_posits: &mut ControlPositions,
-    mapping: &ServoWingMapping,
+    mapping: &ControlMapping,
     timers: &mut MotorTimers,
     arm_status: ArmStatus,
     dma: &mut Dma<DMA1>,

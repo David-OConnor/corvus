@@ -5,13 +5,15 @@
 // todo to make maneuver initiation more responsive. Anticapates control. Perhaps something simple like
 // todo immediately initiating a power adjustment in response to control actuation? (derivative of ctrl position?)
 
+use core::f32::consts::TAU;
+
 use stm32_hal2::{dma::Dma, pac::DMA1};
 
 use crate::{
     control_interface::InputModeSwitch, dshot, safety::ArmStatus, state::StateVolatile, util,
 };
 
-use super::common::{Motor, MotorTimers, Params};
+use super::common::{InputMap, Motor, MotorTimers, Params};
 
 use defmt::println;
 
@@ -59,6 +61,23 @@ pub const YAW_ASSIST_COEFF: f32 = 0.1;
 // ];
 
 pub const POWER_LUT: [f32; 10] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+
+impl Default for InputMap {
+    // todo: move deafult impls to their respective moudles (quad, flying wing)?
+    fn default() -> Self {
+        Self {
+            pitch_rate: (-10., 10.),
+            roll_rate: (-10., 10.),
+            yaw_rate: (-10., 10.),
+            throttle_clamped: (THROTTLE_MIN_MNVR_CLAMP, THROTTLE_MAX_MNVR_CLAMP),
+            pitch_angle: (-TAU / 4., TAU / 4.),
+            roll_angle: (-TAU / 4., TAU / 4.),
+            yaw_angle: (0., TAU),
+            alt_commanded_offset_msl: (0., 100.),
+            alt_commanded_agl: (0.5, 8.),
+        }
+    }
+}
 
 /// Represents a complete quadcopter. Used for setting control parameters.
 struct AircraftProperties {
@@ -123,16 +142,23 @@ pub enum InputMode {
     // VideoGame,
 }
 
+impl Default for InputMode {
+    fn default() -> Self {
+        Self::Acro
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum RotationDir {
     Clockwise,
     CounterClockwise,
 }
 
+/// Maps servos to wing position, and related details.
 /// Map rotor positions to connection numbers to ESC, and motor directions. Positions are associated with flight controls;
 /// numbers are associated with motor control. Also allows configuring rotor direcction, using front-left,
 /// and aft-right rotors as our stake.
-pub struct RotorMapping {
+pub struct ControlMapping {
     pub m1: RotorPosition,
     pub m2: RotorPosition,
     pub m3: RotorPosition,
@@ -146,7 +172,7 @@ pub struct RotorMapping {
     pub frontleft_aftright_dir: RotationDir,
 }
 
-impl Default for RotorMapping {
+impl Default for ControlMapping {
     fn default() -> Self {
         Self {
             m1: RotorPosition::AftRight,
@@ -162,7 +188,7 @@ impl Default for RotorMapping {
     }
 }
 
-impl RotorMapping {
+impl ControlMapping {
     pub fn motor_from_position(&self, position: RotorPosition) -> Motor {
         // todo: This assumes each motor maps to exactly one position. We probably
         // todo should have some constraint to enforce this.
@@ -189,7 +215,7 @@ pub struct MotorPower {
 
 impl MotorPower {
     /// Convert rotor position to its associated power setting.
-    fn by_rotor_num(&self, mapping: &RotorMapping) -> (f32, f32, f32, f32) {
+    fn by_rotor_num(&self, mapping: &ControlMapping) -> (f32, f32, f32, f32) {
         // todo: DRY
         let p1 = match mapping.m1 {
             RotorPosition::FrontLeft => self.front_left,
@@ -276,7 +302,7 @@ impl MotorPower {
     /// Send this power command to the rotors
     pub fn set(
         &self,
-        mapping: &RotorMapping,
+        mapping: &ControlMapping,
         rotor_timers: &mut MotorTimers,
         arm_status: ArmStatus,
         dma: &mut Dma<DMA1>,
@@ -563,7 +589,7 @@ pub fn apply_controls(
     throttle: f32,
     // control_mix: &mut ControlMix,
     current_pwr: &mut MotorPower,
-    mapping: &RotorMapping,
+    mapping: &ControlMapping,
     rotor_timers: &mut MotorTimers,
     arm_status: ArmStatus,
     dma: &mut Dma<DMA1>,
@@ -705,14 +731,14 @@ pub fn calibrate_coeffs(params: &Params) -> Result<(), UnsuitableParams> {
     Ok(())
 }
 
-pub fn handle_control_mode(
+pub fn set_input_mode(
     input_mode_control: InputModeSwitch,
-    input_mode: &mut InputMode,
+    // input_mode: &mut InputMode,
     state_volatile: &mut StateVolatile,
 ) {
     state_volatile.input_mode_switch = input_mode_control; // todo: Do we need or use this field?
 
-    *input_mode = match input_mode_control {
+    state_volatile.input_mode = match input_mode_control {
         InputModeSwitch::Acro => InputMode::Acro,
         InputModeSwitch::AttitudeCommand => {
             if state_volatile.optional_sensor_status.gps_connected {

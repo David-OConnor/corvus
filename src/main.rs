@@ -52,9 +52,8 @@ cfg_if! {
 use usb_device::{bus::UsbBusAllocator, prelude::*};
 use usbd_serial::{self, SerialPort};
 
+use ahrs_fusion::Ahrs;
 use autopilot::AutopilotStatus;
-#[cfg(feature = "fixed-wing")]
-use autopilot::{Orbit, OrbitShape};
 
 use control_interface::{
     AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData, LinkStats, PidTuneActuation,
@@ -67,15 +66,18 @@ use drivers::{
     tof_vl53l1 as tof,
 };
 
-use ahrs_fusion::Ahrs;
 use filter_imu::ImuFilters;
-use flight_ctrls::common::{AltType, CtrlInputs, InputMap, MotorTimers, Params};
+use flight_ctrls::{
+    common::{AltType, CtrlInputs, InputMap, MotorTimers, Params},
+    ControlMapping,
+};
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
-        use flight_ctrls::{ControlPositions, ServoWingMapping};
+        use autopilot::Orbit;
+        use flight_ctrls::{ControlPositions};
     } else {
-        use flight_ctrls::{AxisLocks, InputMode, MotorPower, RotationDir, RotorMapping, RotorPosition};
+        use flight_ctrls::{AxisLocks, InputMode, MotorPower, RotationDir, RotorPosition};
     }
 }
 
@@ -298,8 +300,6 @@ mod app {
         user_cfg: UserCfg,
         state_volatile: StateVolatile,
         input_map: InputMap,
-        #[cfg(feature = "quad")]
-        input_mode: InputMode,
         autopilot_status: AutopilotStatus,
         ctrl_coeffs: CtrlCoeffGroup,
         current_params: Params,
@@ -643,7 +643,7 @@ mod app {
         //     flying_wing::set_elevon_posit(
         //         flying_wing::ServoWing::S1,
         //         -0.5,
-        //         &user_cfg.servo_wing_mapping,
+        //         &user_cfg.control_mapping,
         //         &mut rotor_timer_b,
         //     );
         //     flying_wing::set_elevon_posit(
@@ -657,13 +657,13 @@ mod app {
         //     flying_wing::set_elevon_posit(
         //         flying_wing::ServoWing::S1,
         //         0.5,
-        //         &user_cfg.servo_wing_mapping,
+        //         &user_cfg.control_mapping,
         //         &mut rotor_timer_b,
         //     );
         //     flying_wing::set_elevon_posit(
         //         flying_wing::ServoWing::S2,
         //         0.5,
-        //         &user_cfg.servo_wing_mapping,
+        //         &user_cfg.control_mapping,
         //         &mut rotor_timer_b,
         //     );
         //     delay.delay_ms(2000);
@@ -790,8 +790,6 @@ mod app {
                 user_cfg,
                 state_volatile,
                 input_map: Default::default(),
-                #[cfg(feature = "quad")]
-                input_mode: InputMode::Acro,
                 autopilot_status: Default::default(),
                 ctrl_coeffs,
                 current_params: params,
@@ -880,7 +878,7 @@ mod app {
     binds = TIM1_BRK_TIM15,
     shared = [current_params, input_map,
     velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
-    pid_deriv_filters, power_used, input_mode, autopilot_status, user_cfg, ctrl_coeffs,
+    pid_deriv_filters, power_used, autopilot_status, user_cfg, ctrl_coeffs,
     ahrs, control_channel_data,
     lost_link_timer, altimeter, i2c2, state_volatile, batt_curr_adc, dma,
     ],
@@ -906,7 +904,6 @@ mod app {
             cx.shared.pid_velocity,
             cx.shared.pid_deriv_filters,
             cx.shared.power_used,
-            cx.shared.input_mode,
             cx.shared.autopilot_status,
             cx.shared.user_cfg,
             cx.shared.ctrl_coeffs,
@@ -930,7 +927,6 @@ mod app {
                  pid_velocity,
                  filters,
                  power_used,
-                 input_mode,
                  autopilot_status,
                  cfg,
                  coeffs,
@@ -1036,9 +1032,10 @@ mod app {
                         return;
                     }
 
-                    flight_ctrls::handle_control_mode(
+                    #[cfg(feature = "quad")]
+                    flight_ctrls::set_input_mode(
                         control_channel_data.input_mode,
-                        input_mode,
+                        // &mut state_volatile.input_mode,
                         state_volatile,
                     );
 
@@ -1161,7 +1158,7 @@ mod app {
                         rates_commanded,
                         pid_attitude,
                         filters,
-                        input_mode,
+                        state_volatile.input_mode,
                         autopilot_status,
                         cfg,
                         coeffs,
@@ -1176,14 +1173,14 @@ mod app {
                         rates_commanded,
                         pid_attitude,
                         filters,
-                        // input_mode,
                         autopilot_status,
                         // cfg,
                         coeffs,
                         &state_volatile.optional_sensor_status,
                     );
 
-                    match input_mode {
+                    #[cfg(feature = "quad")]
+                    match state_volatile.input_mode {
                         InputMode::Acro => {}
                         _ => {} //     if input_mode == &InputMode::Command {
                                 //         if *cx.local.update_loop_i % VELOCITY_ATTITUDE_UPDATE_RATIO == 0 {
@@ -1218,7 +1215,7 @@ mod app {
     }
 
     // binds = DMA1_STR2,
-    #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, input_mode, control_channel_data, input_map, autopilot_status,
+    #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, control_channel_data, input_map, autopilot_status,
     rates_commanded, pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, cs_imu, user_cfg,
     motor_timers, ahrs, state_volatile, rf_limiter_timer], local = [fixed_wing_rate_loop_i, update_loop_i2], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
@@ -1244,7 +1241,6 @@ mod app {
             cx.shared.current_params,
             cx.shared.ahrs,
             cx.shared.control_channel_data,
-            cx.shared.input_mode,
             cx.shared.autopilot_status,
             cx.shared.rates_commanded,
             cx.shared.pid_rate,
@@ -1262,7 +1258,6 @@ mod app {
                 |params,
                  ahrs,
                  control_channel_data,
-                 input_mode,
                  autopilot_status,
                  rates_commanded,
                  pid_inner,
@@ -1339,7 +1334,7 @@ mod app {
                         if #[cfg(feature = "quad")] {
                         pid::run_rate(
                             params,
-                            *input_mode,
+                            state_volatile.input_mode,
                             autopilot_status,
                             // cfg,
                             control_channel_data,
@@ -1348,7 +1343,7 @@ mod app {
                             pid_inner,
                             filters,
                             &mut state_volatile.current_pwr,
-                            &cfg.motor_mapping,
+                            &cfg.control_mapping,
                             motor_timers,
                             dma,
                             coeffs,
@@ -1366,7 +1361,6 @@ mod app {
                             {
                                 pid::run_rate(
                                     params,
-                                    *input_mode,
                                     autopilot_status,
                                     // cfg,
                                     control_channel_data,
@@ -1375,7 +1369,7 @@ mod app {
                                     pid_inner,
                                     filters,
                                     &mut state_volatile.ctrl_positions,
-                                    &cfg.servo_wing_mapping,
+                                    &cfg.control_mapping,
                                     motor_timers,
                                     dma,
                                     coeffs,
@@ -1439,10 +1433,7 @@ mod app {
                                 &state_volatile.link_stats,
                                 &user_cfg.waypoints,
                                 &mut state_volatile.arm_status,
-                                #[cfg(feature = "quad")]
-                                &mut user_cfg.motor_mapping,
-                                #[cfg(feature = "fixed-wing")]
-                                &mut user_cfg.servo_wing_mapping,
+                                &mut user_cfg.control_mapping,
                                 &mut state_volatile.op_mode,
                                 motor_timers,
                                 adc,

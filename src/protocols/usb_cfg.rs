@@ -13,7 +13,7 @@
 use crate::{
     control_interface::ChannelData,
     dshot,
-    flight_ctrls::{self, common::MotorTimers},
+    flight_ctrls::{self, common::MotorTimers, ControlMapping},
     lin_alg::Quaternion,
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},
     safety::ArmStatus,
@@ -25,9 +25,9 @@ use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
-        use crate::flight_ctrls::{ServoWing, ServoWingMapping, ServoWingPosition};
+        use crate::flight_ctrls::{ServoWing, ServoWingPosition};
     } else {
-        use crate::flight_ctrls::{RotorMapping, RotorPosition};
+        use crate::flight_ctrls::{RotorPosition};
     }
 }
 
@@ -227,8 +227,7 @@ pub fn handle_rx(
     link_stats: &LinkStats,
     waypoints: &[Option<Location>; MAX_WAYPOINTS],
     arm_status: &mut ArmStatus,
-    #[cfg(feature = "quad")] rotor_mapping: &mut RotorMapping,
-    #[cfg(feature = "fixed-wing")] servo_wing_mapping: &mut ServoWingMapping,
+    control_mapping: &mut ControlMapping,
     op_mode: &mut OperationMode,
     motor_timers: &mut MotorTimers,
     adc: &Adc<ADC2>,
@@ -363,44 +362,57 @@ pub fn handle_rx(
             *arm_status = ArmStatus::Disarmed;
         }
         MsgType::StartMotor => {
-            let rotor_position = match rx_buf[1] {
-                // todo: This more robust approach won't work.
-                // RotorPosition::FrontLeft as u8 => RotorPosition::FrontLeft,
-                // RotorPosition::FrontRight as u8 => RotorPosition::FrontRight,
-                // RotorPosition::AftLeft as u8 => RotorPosition::AftLeft,
-                // RotorPosition::AftRight as u8 => RotorPosition::AftRight,
-                0 => RotorPosition::FrontLeft,
-                1 => RotorPosition::FrontRight,
-                2 => RotorPosition::AftLeft,
-                3 => RotorPosition::AftRight,
-                _ => panic!(),
-            };
+            cfg_if! {
+                if #[cfg(feature = "fixed-wing")]{
+                    dshot::set_power(0.05, 0., 0., 0., motor_timers, dma);
+                } else {
 
-            // todo: Don't hard-code rotor power. Let it be user-selected.
-            let power = 0.05;
+                    let rotor_position = match rx_buf[1] {
+                        // todo: This more robust approach won't work.
+                        // RotorPosition::FrontLeft as u8 => RotorPosition::FrontLeft,
+                        // RotorPosition::FrontRight as u8 => RotorPosition::FrontRight,
+                        // RotorPosition::AftLeft as u8 => RotorPosition::AftLeft,
+                        // RotorPosition::AftRight as u8 => RotorPosition::AftRight,
+                        0 => RotorPosition::FrontLeft,
+                        1 => RotorPosition::FrontRight,
+                        2 => RotorPosition::AftLeft,
+                        3 => RotorPosition::AftRight,
+                        _ => panic!(),
+                    };
 
-            dshot::set_power_single(
-                rotor_mapping.motor_from_position(rotor_position),
-                power,
-                motor_timers,
-                dma,
-            );
+                    // todo: Don't hard-code rotor power. Let it be user-selected.
+                    let power = 0.05;
+
+                    dshot::set_power_single(
+                        control_mapping.motor_from_position(rotor_position),
+                        power,
+                        motor_timers,
+                        dma,
+                    );
+                }
+            }
         }
         MsgType::StopMotor => {
-            let rotor_position = match rx_buf[1] {
-                0 => RotorPosition::FrontLeft,
-                1 => RotorPosition::FrontRight,
-                2 => RotorPosition::AftLeft,
-                3 => RotorPosition::AftRight,
-                _ => panic!(),
-            };
+            cfg_if! {
+                if #[cfg(feature = "fixed-wing")]{
+                    dshot::set_power(0., 0., 0., 0., motor_timers, dma);
+                } else {
+                    let rotor_position = match rx_buf[1] {
+                        0 => RotorPosition::FrontLeft,
+                        1 => RotorPosition::FrontRight,
+                        2 => RotorPosition::AftLeft,
+                        3 => RotorPosition::AftRight,
+                        _ => panic!(),
+                    };
 
-            dshot::set_power_single(
-                rotor_mapping.motor_from_position(rotor_position),
-                0.,
-                motor_timers,
-                dma,
-            );
+                    dshot::set_power_single(
+                        control_mapping.motor_from_position(rotor_position),
+                        0.,
+                        motor_timers,
+                        dma,
+                    );
+                }
+            }
         }
         MsgType::ReqWaypoints => {
             println!("Req wps");
@@ -428,8 +440,8 @@ pub fn handle_rx(
             let servo = rx_buf[1];
             let value = f32::from_be_bytes(rx_buf[2..6].try_into().unwrap());
 
-            let l = SeroWingPosition::Left as u8;
-            let r = SeroWingPosition::Right as u8;
+            let l = ServoWingPosition::Left as u8;
+            let r = ServoWingPosition::Right as u8;
 
             let servo_wing = match servo {
                 l => ServoWingPosition::Left,
@@ -440,10 +452,10 @@ pub fn handle_rx(
                 }
             };
 
-            fixed_wing::set_elevon_posit(
-                servo_wing_mapping::servo_from_position(),
-                posit1,
-                servo_wing_mapping,
+            flight_ctrls::set_elevon_posit(
+                control_mapping.servo_from_position(servo_wing),
+                value,
+                control_mapping,
                 motor_timers,
             );
         }

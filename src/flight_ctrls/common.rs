@@ -6,13 +6,13 @@
 // todo: For that last option, perhaps impl wise to maintain 8kHz etc update rate, make the inner
 // todo loop attitude-based, instead of deferring to the mid loop.
 
-use core::f32::consts::TAU;
-
 use crate::{lin_alg::Quaternion, ppks::Location, safety::ArmStatus, util::map_linear};
 
 use stm32_hal2::{pac, timer::Timer};
 
 use cfg_if::cfg_if;
+
+use defmt::println;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
@@ -27,8 +27,6 @@ const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
 const ROLL_IN_RNG: (f32, f32) = (-1., 1.);
 const YAW_IN_RNG: (f32, f32) = (-1., 1.);
 const THROTTLE_IN_RNG: (f32, f32) = (0., 1.);
-
-use defmt::println;
 
 // Time in seconds between subsequent data received before we execute lost-link procedures.
 pub const LOST_LINK_TIMEOUT: f32 = 1.;
@@ -48,22 +46,22 @@ pub enum Motor {
 /// for various flight modes. The values are for full input range.
 pub struct InputMap {
     /// Pitch velocity commanded, (Eg Acro mode). radians/sec
-    pitch_rate: (f32, f32),
+    pub pitch_rate: (f32, f32),
     /// Pitch velocity commanded (Eg Acro mode)
-    roll_rate: (f32, f32),
+    pub roll_rate: (f32, f32),
     /// Yaw velocity commanded (Eg Acro mode)
-    yaw_rate: (f32, f32),
+    pub yaw_rate: (f32, f32),
     /// Throttle setting, clamped to leave room for maneuvering near the limits.
-    throttle_clamped: (f32, f32),
+    pub throttle_clamped: (f32, f32),
     /// Pitch velocity commanded (Eg Attitude mode) // radians from vertical
-    pitch_angle: (f32, f32),
+    pub pitch_angle: (f32, f32),
     /// Pitch velocity commanded (Eg Attitude mode)
-    roll_angle: (f32, f32),
+    pub roll_angle: (f32, f32),
     /// Yaw angle commanded v. Radians from north (?)
-    yaw_angle: (f32, f32),
+    pub yaw_angle: (f32, f32),
     /// Offset MSL is MSL, but 0 maps to launch alt
-    alt_commanded_offset_msl: (f32, f32),
-    alt_commanded_agl: (f32, f32),
+    pub alt_commanded_offset_msl: (f32, f32),
+    pub alt_commanded_agl: (f32, f32),
 }
 
 impl InputMap {
@@ -95,39 +93,6 @@ impl InputMap {
 
     pub fn calc_yaw_angle(&self, input: f32) -> f32 {
         map_linear(input, YAW_IN_RNG, self.yaw_angle)
-    }
-}
-
-impl Default for InputMap {
-    // tood: move deafult impls to their respective moudles (quad, flying wing)?
-    fn default() -> Self {
-        Self {
-            pitch_rate: (-10., 10.),
-            roll_rate: (-10., 10.),
-            yaw_rate: (-10., 10.),
-            throttle_clamped: (THROTTLE_MIN_MNVR_CLAMP, THROTTLE_MAX_MNVR_CLAMP),
-            pitch_angle: (-TAU / 4., TAU / 4.),
-            roll_angle: (-TAU / 4., TAU / 4.),
-            yaw_angle: (0., TAU),
-            alt_commanded_offset_msl: (0., 100.),
-            alt_commanded_agl: (0.5, 8.),
-        }
-    }
-}
-
-impl InputMap {
-    pub fn default_flying_wing() -> Self {
-        Self {
-            pitch_rate: (-6., 6.),
-            roll_rate: (-6., 6.),
-            yaw_rate: (-0., 0.),        // N/A
-            throttle_clamped: (0., 0.), // N/A
-            pitch_angle: (0., 0.),      // N/A
-            roll_angle: (0., 0.),       // N/A
-            yaw_angle: (0., 0.),        // N/A
-            alt_commanded_offset_msl: (0., 100.),
-            alt_commanded_agl: (0.5, 8.),
-        }
     }
 }
 
@@ -204,36 +169,21 @@ pub struct Params {
     pub a_yaw: f32,
 }
 
-/// Stores data on how the aircraft has performed in various recent flight conditions.
-/// This data is used to estimate control surface positions or rotor power in response
-/// to a change in commanded parameters. Rates are in rad/s.
-pub struct _ResponseDataPt {
-    /// Forward airspeed
-    pub airspeed: f32,
-    // todo: Options for these, or an enum?
-    pub motor_power: MotorPower,
-    #[cfg(feature = "fixed-wing")]
-    pub control_posits: ControlPositions,
-
-    // todo: If you need more, consider using `Params`.
-    pub pitch_rate: f32,
-    pub roll_rate: f32,
-    pub yaw_rate: f32,
-}
-
-// todo: Separate module for control_mixer?
-
-// /// todo: Fill this out as you sort it out
-// /// Store this persistently, and use it as a starting point for future updates. Suitable for quad
-// /// and fixed wing. This seems very similar to `CtrlInputs`, but that is scaled from -1. to 1. etc,
-// /// and this is in terms of rotor half delta.
-// /// todo: Currently unused, but passed ina  few places that will show as unused in clippy.
-// #[derive(Default)]
-// pub struct ControlMix {
-//     pub pitch: f32,
-//     pub roll: f32,
-//     pub yaw: f32,
-//     pub throttle: f32,
+// /// Stores data on how the aircraft has performed in various recent flight conditions.
+// /// This data is used to estimate control surface positions or rotor power in response
+// /// to a change in commanded parameters. Rates are in rad/s.
+// pub struct _ResponseDataPt {
+//     /// Forward airspeed
+//     pub airspeed: f32,
+//     // todo: Options for these, or an enum?
+//     pub motor_power: MotorPower,
+//     #[cfg(feature = "fixed-wing")]
+//     pub control_posits: ControlPositions,
+//
+//     // todo: If you need more, consider using `Params`.
+//     pub pitch_rate: f32,
+//     pub roll_rate: f32,
+//     pub yaw_rate: f32,
 // }
 
 /// Abstraction over timers, that allows us to feature-gate struct fields based on MCU; this is

@@ -5,6 +5,7 @@
 use crate::{
     autopilot::LandingCfg,
     control_interface::{InputModeSwitch, LinkStats},
+    flight_ctrls::ControlMapping,
     ppks::Location,
     safety::ArmStatus,
     usb_cfg::WAYPOINT_SIZE,
@@ -14,9 +15,9 @@ use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
-        use crate::flight_ctrls::{ControlPositions, ServoWingMapping};
+        use crate::flight_ctrls::{ControlPositions};
     } else {
-        use crate::flight_ctrls::{AxisLocks, MotorPower, RotorMapping};
+        use crate::flight_ctrls::{AxisLocks, MotorPower, InputMode};
     }
 }
 
@@ -73,12 +74,8 @@ pub struct UserCfg {
     pub mapping_obstacles: bool,
     pub max_speed_hor: f32,
     pub max_speed_ver: f32,
-    #[cfg(feature = "quad")]
-    /// Map motor connection number to position.
-    pub motor_mapping: RotorMapping,
-    #[cfg(feature = "fixed-wing")]
-    /// Servo mapping.
-    pub servo_wing_mapping: ServoWingMapping,
+    /// Map motor connection number to position, or servos for fixed wing
+    pub control_mapping: ControlMapping,
     // altitude_cal: AltitudeCalPt,
     // Note that this inst includes idle power.
     // todo: We want to store this inst, but RTIC doesn't like it not being sync. Maybe static mut.
@@ -118,9 +115,9 @@ impl Default for UserCfg {
             max_speed_hor: 20.,
             max_speed_ver: 20.,
             #[cfg(feature = "quad")]
-            motor_mapping: Default::default(),
+            control_mapping: Default::default(),
             #[cfg(feature = "fixed-wing")]
-            servo_wing_mapping: Default::default(),
+            control_mapping: Default::default(),
             // altitude_cal: Default::default(),
             // Make sure to update this interp table if you change idle power.
             // todo: This LUT setup is backwards! You need to put thrust on a fixed spacing,
@@ -171,6 +168,8 @@ pub struct OptionalSensorStatus {
 pub struct StateVolatile {
     pub arm_status: ArmStatus,
     pub op_mode: OperationMode,
+    #[cfg(feature = "quad")]
+    pub input_mode: InputMode,
     pub input_mode_switch: InputModeSwitch,
     pub optional_sensor_status: OptionalSensorStatus,
     // FOr now, we use "link lost" to include never having been connected.

@@ -23,10 +23,7 @@ use stm32_hal2::{
     timer::{CountDir, OutputCompare, Polarity, TimerInterrupt},
 };
 
-use crate::flight_ctrls::common::MotorTimers;
-
-#[cfg(feature = "quad")]
-use crate::flight_ctrls::Motor;
+use crate::flight_ctrls::common::{Motor, MotorTimers};
 
 use defmt::println;
 
