@@ -123,13 +123,13 @@ pub struct CtrlCoeffsPR {
 
     pub k_p_velocity: f32,
     pub k_i_velocity: f32,
-    // k_d_velocity: f32,
     // Note that we don't use the D component for our velocity PID.
     pub pid_deriv_lowpass_cutoff_rate: LowpassCutoff,
     pub pid_deriv_lowpass_cutoff_attitude: LowpassCutoff,
 }
 
 impl Default for CtrlCoeffsPR {
+    #[cfg(feature = "quad")]
     fn default() -> Self {
         Self {
             k_p_rate: 0.10,
@@ -144,15 +144,13 @@ impl Default for CtrlCoeffsPR {
             // PID for controlling pitch and roll rate directly (eg Acro)
             k_p_velocity: 0.1,
             k_i_velocity: 0.,
-            // k_d_velocity: 0.,
             pid_deriv_lowpass_cutoff_rate: LowpassCutoff::H1k,
             pid_deriv_lowpass_cutoff_attitude: LowpassCutoff::H1k,
         }
     }
-}
 
-impl CtrlCoeffsPR {
-    pub fn default_flying_wing() -> Self {
+    #[cfg(feature = "fixed-wing")]
+    fn default() -> Self {
         Self {
             k_p_rate: 0.06,
             // k_i_rate: 0.60,
@@ -160,17 +158,15 @@ impl CtrlCoeffsPR {
             // k_d_rate: 0.02,
             k_d_rate: 0.00,
 
-            // Attitude not used.
+            // Attitude not used for now.
 
             // pid for controlling pitch and roll from commanded horizontal velocity
             k_p_attitude: 0.,
             k_i_attitude: 0.,
             k_d_attitude: 0.,
 
-            // PID for controlling pitch and roll rate directly (eg Acro)
             k_p_velocity: 0.1,
             k_i_velocity: 0.,
-            // k_d_velocity: 0.,
             pid_deriv_lowpass_cutoff_rate: LowpassCutoff::H1k,
             pid_deriv_lowpass_cutoff_attitude: LowpassCutoff::H1k,
         }
@@ -196,9 +192,6 @@ pub struct CtrlCoeffsYT {
 impl Default for CtrlCoeffsYT {
     fn default() -> Self {
         Self {
-            // k_p_rate: 0.6 * K_U_YAW,
-            // k_i_rate: 1.2 * K_U_YAW / T_U_YAW,
-            // k_d_rate: 3. * K_U_YAW * T_U_YAW / 40.,
             k_p_rate: 0.30,
             k_i_rate: 0.01 * 0.,
             k_d_rate: 0.,
@@ -220,22 +213,10 @@ pub struct CtrlCoeffGroup {
 }
 
 impl Default for CtrlCoeffGroup {
-    /// These starting values are Betaflight defaults.
     fn default() -> Self {
         Self {
             pitch: Default::default(),
             roll: Default::default(),
-            yaw: Default::default(),
-            thrust: Default::default(),
-        }
-    }
-}
-
-impl CtrlCoeffGroup {
-    pub fn default_flying_wing() -> Self {
-        Self {
-            pitch: CtrlCoeffsPR::default_flying_wing(),
-            roll: CtrlCoeffsPR::default_flying_wing(),
             yaw: Default::default(),
             thrust: Default::default(),
         }

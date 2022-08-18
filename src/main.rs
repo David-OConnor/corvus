@@ -632,7 +632,6 @@ mod app {
         cfg_if! {
             if #[cfg(feature = "fixed-wing")] {
                 flight_ctrls::setup_timers(&mut motor_timers);
-                ctrl_coeffs = CtrlCoeffGroup::default_flying_wing();
             } else {
                 dshot::setup_timers(&mut motor_timers);
             }
