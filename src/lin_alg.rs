@@ -185,6 +185,47 @@ impl Quaternion {
         }
     }
 
+    pub fn inverse(self) -> Self {
+        Self {
+            w: self.w,
+            x: -self.x,
+            y: -self.y,
+            z: -self.z,
+        }
+    }
+
+    /// Rotate a vector using this quaternion. Note that our multiplication Q * v
+    /// operation is effectively quaternion multiplication, with a quaternion
+    /// created by a vec with w=0.
+    pub fn rotate_vec(self, vec: Vec3) -> Vec3 {
+        (self * vec * self.inverse()).to_vec()
+    }
+
+    /// Create a rotation quaternion from an axis and angle.
+    pub fn from_axis_angle(axis: Vec3, angle: f32) -> Self {
+        // Here we calculate the sin( theta / 2) once for optimization
+        let factor = (angle / 2.).sin();
+
+        Self {
+            // Calcualte the w value by cos( theta / 2 )
+            w: (angle / 2.).cos(),
+            // Calculate the x, y and z of the quaternion
+            x: axis.x * factor,
+            y: axis.y * factor,
+            z: axis.z * factor,
+        }
+    }
+
+    /// Convert to a 3D vector, discarding `w`.
+    pub fn to_vec(self) -> Vec3 {
+        Vec3 {
+            x: self.x,
+            y: self.y,
+            z: self.z,
+        }
+    }
+
+
     /// Converts a Quaternion to ZYX Euler angles, in radians.
     pub fn to_euler(self) -> EulerAngle {
         let half_minus_qy_squared = 0.5 - self.y * self.y; // calculate common terms to avoid repeated operations
@@ -229,8 +270,6 @@ impl Quaternion {
 
     /// Returns the normalised quaternion
     pub fn to_normalized(self) -> Self {
-        // println!("Q w in mag fn: {}", self.w);
-        // println!("Q mag: {}", self.magnitude());
         let mag_recip = 1. / self.magnitude();
 
         Self {

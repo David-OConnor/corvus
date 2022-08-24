@@ -9,6 +9,7 @@ use crate::{
         self,
         common::{AltType, CtrlInputs, InputMap, Params},
     },
+    lin_alg::Quaternion,
     pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::Location,
     state::OptionalSensorStatus,
@@ -215,13 +216,9 @@ impl AutopilotStatus {
     pub fn apply(
         &self,
         params: &Params,
-        attitudes_commanded: &mut CtrlInputs,
-        rates_commanded: &mut CtrlInputs,
-        pid: &mut PidGroup,
+        heading_commanded: &mut Option<f32>,
         filters: &mut PidDerivFilters,
         coeffs: &CtrlCoeffGroup,
-        input_map: &InputMap,
-        max_speed_ver: f32,
         optional_sensors: &OptionalSensorStatus,
     ) {
         // We use if/else logic on these to indicate they're mutually-exlusive. Modes listed first
@@ -231,6 +228,8 @@ impl AutopilotStatus {
         // todo sensor check for alt hold agl
 
         // todo: add hdg hold here and fixed
+
+        // todo: THis is currently broken; figure out how you command things with it.
 
         // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
         // either MSL or AGL.
@@ -247,7 +246,8 @@ impl AutopilotStatus {
             if optional_sensors.gps_connected {
                 let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
 
-                attitudes_commanded.yaw = Some(target_heading);
+                *heading_commanded = Some(target_heading);
+                // attitudes_commanded.yaw = Some(target_heading);
             }
         } else if let Some(pt) = &self.loiter {
             if optional_sensors.gps_connected {
@@ -260,7 +260,7 @@ impl AutopilotStatus {
             && self.land.is_none()
             && self.direct_to_point.is_none()
         {
-            attitudes_commanded.thrust = None;
+            // rates_commanded.thrust = Some(pid.thrust.out());
         }
 
         if self.alt_hold.is_some() && !self.takeoff && self.land.is_none() {
@@ -286,7 +286,7 @@ impl AutopilotStatus {
                 );
 
                 // Note that thrust is set using the rate loop.
-                rates_commanded.thrust = Some(pid.thrust.out());
+                // rates_commanded.thrust = Some(pid.thrust.out());
             }
         }
     }
@@ -295,14 +295,12 @@ impl AutopilotStatus {
     pub fn apply(
         &self,
         params: &Params,
-        attitudes_commanded: &mut CtrlInputs,
-        rates_commanded: &mut CtrlInputs,
+        // attitudes_commanded: &mut CtrlInputs,
+        attitude_commanded: &mut Option<Quaternion>,
         pid_attitude: &mut PidGroup,
         filters: &mut PidDerivFilters,
         coeffs: &CtrlCoeffGroup,
         optional_sensors: &OptionalSensorStatus,
-        // input_map: &InputMap,
-        // max_speed_ver: f32,
     ) {
         if self.takeoff {
             // *attitudes_commanded = CtrlInputs {

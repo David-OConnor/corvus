@@ -26,6 +26,8 @@ use core::f32::consts::TAU;
 
 use stm32_hal2::{i2c::I2c, pac::I2C1};
 
+use crate::lin_alg::{Quaternion, Vec3};
+
 // use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sqrt_f32}; // todo: sqrt missing?
 use cmsis_dsp_sys::arm_cos_f32;
 
@@ -70,28 +72,13 @@ struct Reading {
 // todo: Don't use a blocking read. Use DMA etc.
 /// Read from the sensor. Result is in meters. Return `None` if the measured reading,
 /// or aircraft attitude is outside the maximum range we consider acceptable,
-pub fn read(pitch: f32, roll: f32, i2c: &mut I2c<I2C1>) -> Option<f32> {
-    // let u = pitch.cos();
-    //
-    // let v = u * roll.cos();
-    // let v = pitch.cos() * roll.cos();
-    //
-    // let s = pitch.sin();
-    //
-    // let t = u * roll.sin();
-    // let t = pitch.cos() * roll.sin();
-    //
-    // let aircraft_angle = (t/s).arctan();
-    // let aircraft_angle = (roll.sin() / pitch.tan()).arctan();
+pub fn read(attitude: Quaternion, i2c: &mut I2c<I2C1>) -> Option<f32> {
 
-    // todo: THis is a quick approximation that's perhaps valid
-    // todo for small angles. What should we actually use?
+    let down = Vec3::new(0., -1., 0.);
+    let down_ac = attitude.rotate_vec(down);
+    let aircraft_angle_from_down = (down.dot(down_ac)).arccos();
 
-    // todo: Abs etc to make sure not negative? May need num_traits for that.
-    // let aircraft_angle = sqrt(sq(pitch) + sq(roll));
-
-    let aircraft_angle = pitch.max(roll); // todo?
-    if aircraft_angle > THRESH_ANGLE {
+    if aircraft_angle_from_down > THRESH_ANGLE {
         return None;
     }
 
@@ -110,7 +97,7 @@ pub fn read(pitch: f32, roll: f32, i2c: &mut I2c<I2C1>) -> Option<f32> {
         return None;
     }
 
-    Some(cos(reading.dist * aircraft_angle))
+    Some(reading.dist * cos(aircraft_angle_from_down))
 }
 
 // todo: Consider if you want to move the ST lib to one or more separate files, or a module.

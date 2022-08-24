@@ -1,11 +1,15 @@
 #![no_main]
 #![no_std]
 
+//! Potential markets:
+//! - Hobby / racing (duh)
+//! Tower inspections (Maybe market disruption by using fixed-wing + tpod?)
+
 use cortex_m::{self, asm, delay::Delay};
 
 use defmt::println;
 use defmt_rtt as _;
-// global logger
+
 use panic_probe as _;
 
 use cfg_if::cfg_if;
@@ -70,6 +74,9 @@ use filter_imu::ImuFilters;
 use flight_ctrls::{
     common::{AltType, CtrlInputs, InputMap, MotorTimers, Params},
     ControlMapping,
+    pid::{self,m
+        CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT, PID_CONTROL_ADJ_TIMEOUT,
+    },
 };
 
 cfg_if! {
@@ -81,9 +88,6 @@ cfg_if! {
     }
 }
 
-use pid::{
-    CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT, PID_CONTROL_ADJ_TIMEOUT,
-};
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
@@ -104,8 +108,6 @@ mod flight_ctrls;
 mod imu_calibration;
 mod imu_shared;
 mod lin_alg;
-mod pid;
-// mod pid_tuning;
 mod attitude_platform;
 mod ppks;
 mod protocols;
@@ -304,7 +306,7 @@ mod app {
         ctrl_coeffs: CtrlCoeffGroup,
         current_params: Params,
         velocities_commanded: CtrlInputs,
-        attitudes_commanded: CtrlInputs,
+        // attitudes_commanded: CtrlInputs,
         rates_commanded: CtrlInputs,
         // control_mix: ControlMix,
         pid_velocity: PidGroup,
@@ -793,7 +795,7 @@ mod app {
                 ctrl_coeffs,
                 current_params: params,
                 velocities_commanded: Default::default(),
-                attitudes_commanded: Default::default(),
+                // attitudes_commanded: Default::default(),
                 rates_commanded: Default::default(),
                 // control_mix: Default::default(),
                 pid_velocity: Default::default(),
@@ -876,7 +878,7 @@ mod app {
     #[task(
     binds = TIM1_BRK_TIM15,
     shared = [current_params, input_map,
-    velocities_commanded, attitudes_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
+    velocities_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
     pid_deriv_filters, power_used, autopilot_status, user_cfg, ctrl_coeffs,
     ahrs, control_channel_data,
     lost_link_timer, altimeter, i2c2, state_volatile, batt_curr_adc, dma,
@@ -896,7 +898,7 @@ mod app {
             cx.shared.control_channel_data,
             cx.shared.input_map,
             cx.shared.velocities_commanded,
-            cx.shared.attitudes_commanded,
+            // cx.shared.attitudes_commanded,
             cx.shared.rates_commanded,
             cx.shared.pid_rate,
             cx.shared.pid_attitude,
@@ -919,7 +921,7 @@ mod app {
                  control_channel_data,
                  input_map,
                  velocities_commanded,
-                 attitudes_commanded,
+                 // attitudes_commanded,
                  rates_commanded,
                  pid_rate,
                  pid_attitude,
@@ -998,7 +1000,7 @@ mod app {
                     }
 
                     if *cx.local.update_loop_i % LOGGING_UPDATE_RATIO == 0 {
-                        // todo: Eg log rparamsto flash etc.
+                        // todo: Eg log params to flash etc.
                     }
 
                     *cx.local.update_loop_i += 1;
@@ -1149,11 +1151,31 @@ mod app {
                     }
 
                     #[cfg(feature = "quad")]
+                    autopilot_status.apply(
+                        params,
+                        &mut state_volatile.heading_commanded,
+                        filters,
+                        coeffs,
+                        &state_volatile.optional_sensors,
+                    );
+
+                    #[cfg(feature = "fixed-wing")]
+                        autopilot_status.apply(
+                        params,
+                        &mut state_volatile.attitude_commanded,
+                        pid_attitude,
+                        filters,
+                        coeffs,
+                        &state_volatile.optional_sensors,
+                    );
+
+                    #[cfg(feature = "quad")]
                     pid::run_attitude(
                         params,
+                        &state_volatile.attitude_commanded,
                         control_channel_data,
                         input_map,
-                        attitudes_commanded,
+                        // attitudes_commanded,
                         rates_commanded,
                         pid_attitude,
                         filters,
@@ -1166,14 +1188,12 @@ mod app {
                     #[cfg(feature = "fixed-wing")]
                     pid::run_attitude(
                         params,
-                        // control_channel_data,
-                        // input_map,
-                        attitudes_commanded,
+                        &state_volatile.attitude_commanded,
+                        // attitudes_commanded,
                         rates_commanded,
                         pid_attitude,
                         filters,
                         autopilot_status,
-                        // cfg,
                         coeffs,
                         &state_volatile.optional_sensor_status,
                     );
@@ -1188,7 +1208,7 @@ mod app {
                                 //                 control_channel_data,
                                 //                 input_map,
                                 //                 velocities_commanded,
-                                //                 attitudes_commanded,
+                                // //                 attitudes_commanded,
                                 //                 pid_velocity,
                                 //                 filters,
                                 //                 input_mode,
@@ -1286,7 +1306,7 @@ mod app {
                     // *cx.local.update_loop_i2 += 1;
 
                     // rf_limiter_timer.disable();
-                    // rf_limiter_timer.reset_countdown();
+                    // rf_limiter_timer.reset_count();
                     // rf_limiter_timer.enable();
 
                     // todo: Temp TS code to verify rotordirection.
@@ -1329,30 +1349,35 @@ mod app {
                         return;
                     }
 
+                    if cfg.attitude_based_rate_mode {
+                        cfg.orientation_commanded = flight_ctrls::attitude_ctrls::modify_commanded(
+                            cfg.orientation_commanded, rates_commanded, DT_IMU,
+                        );
+                        return;
+                    }
+
                     cfg_if! {
                         if #[cfg(feature = "quad")] {
-                        pid::run_rate(
-                            params,
-                            state_volatile.input_mode,
-                            autopilot_status,
-                            // cfg,
-                            control_channel_data,
-                            rates_commanded,
-                            // control_mix,
-                            pid_inner,
-                            filters,
-                            &mut state_volatile.current_pwr,
-                            &cfg.control_mapping,
-                            motor_timers,
-                            dma,
-                            coeffs,
-                            cfg.max_speed_ver,
-                            input_map,
-                            state_volatile.arm_status,
-                            DT_IMU,
-                        );
-                        }
-                        else {
+                            pid::run_rate(
+                                params,
+                                state_volatile.input_mode,
+                                // cfg,
+                                control_channel_data,
+                                rates_commanded,
+                                // control_mix,
+                                pid_inner,
+                                filters,
+                                &mut state_volatile.current_pwr,
+                                &cfg.control_mapping,
+                                motor_timers,
+                                dma,
+                                coeffs,
+                                cfg.max_speed_ver,
+                                input_map,
+                                state_volatile.arm_status,
+                                DT_IMU,
+                            );
+                        } else {
                             // Our fixed-wing update rate is limited by the servos, so we only run this
                             // 1 out of 16 IMU updates.
                             *cx.local.fixed_wing_rate_loop_i += 1;
@@ -1360,7 +1385,6 @@ mod app {
                             {
                                 pid::run_rate(
                                     params,
-                                    autopilot_status,
                                     // cfg,
                                     control_channel_data,
                                     rates_commanded,
@@ -1571,7 +1595,7 @@ mod app {
             .lock(
                 |timer, state_volatile, user_cfg, autopilot_status, params| {
                     timer.clear_interrupt(TimerInterrupt::Update);
-                    timer.reset_countdown();
+                    timer.reset_count();
                     timer.disable(); // todo: Probably not required in one-pulse mode.
 
                     state_volatile.link_lost = true;
@@ -1618,7 +1642,7 @@ mod app {
                         // todo: Put this back and figure out why this keeps happening.
                         // return;
                     } else {
-                        rf_limiter_timer.reset_countdown();
+                        rf_limiter_timer.reset_count();
                         rf_limiter_timer.enable();
                     }
 
@@ -1668,11 +1692,11 @@ mod app {
                                             }
                                         }
                                     }
-                                    cx.local.pid_adj_timer.reset_countdown();
+                                    cx.local.pid_adj_timer.reset_count();
                                     cx.local.pid_adj_timer.enable();
                                 }
 
-                                lost_link_timer.reset_countdown();
+                                lost_link_timer.reset_count();
                                 lost_link_timer.enable();
 
                                 if state_volatile.link_lost {

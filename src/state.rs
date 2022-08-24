@@ -9,6 +9,7 @@ use crate::{
     ppks::Location,
     safety::ArmStatus,
     usb_cfg::WAYPOINT_SIZE,
+    lin_alg::Quaternion,
 };
 
 use cfg_if::cfg_if;
@@ -54,7 +55,7 @@ impl Default for OperationMode {
 //     PersonFollower, // When your queen is human.
 // }
 
-/// Persistent state; saved to onboard flash memory.
+/// Persistent state; saved to onboard flash memory. Contains user-configurable settings.
 pub struct UserCfg {
     /// Set a ceiling the aircraft won't exceed. Defaults to 400' (Legal limit in US for drones).
     /// In meters.
@@ -92,6 +93,12 @@ pub struct UserCfg {
     #[cfg(feature = "fixed-wing")]
     /// (Alternative is no rudder)
     pub rudder_used: bool,
+
+    // todo: Should this be in state volatile or cfg?
+    /// For attitude mode, and modified rate mode.
+    pub attitude_commanded: Quaternion,
+    /// Modify `rate` mode to command an orientation that changes based on rate control inputs.
+    pub attitude_based_rate_mode: bool,
 }
 
 impl Default for UserCfg {
@@ -114,9 +121,6 @@ impl Default for UserCfg {
             mapping_obstacles: false,
             max_speed_hor: 20.,
             max_speed_ver: 20.,
-            #[cfg(feature = "quad")]
-            control_mapping: Default::default(),
-            #[cfg(feature = "fixed-wing")]
             control_mapping: Default::default(),
             // altitude_cal: Default::default(),
             // Make sure to update this interp table if you change idle power.
@@ -149,6 +153,8 @@ impl Default for UserCfg {
             landing_cfg: Default::default(),
             #[cfg(feature = "fixed-wing")]
             rudder_used: false,
+            attitude_commanded: Quaternion::new_identity(),
+            attitude_based_rate_mode: false,
         }
     }
 }
@@ -187,4 +193,6 @@ pub struct StateVolatile {
     pub link_stats: LinkStats,
     /// Base point - generally takeoff location.
     pub base_point: Location, // todo: user cfg varianit too?
+    /// The commanded attitude. Used in attitude mode, and a variant of rate mode.
+    pub attitude_target: Quatnrnion,
 }

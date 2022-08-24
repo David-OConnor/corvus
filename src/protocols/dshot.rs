@@ -38,7 +38,6 @@ use cfg_if::cfg_if;
 
 // Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
 // so we can set duty cycle appropriately for DSHOT.
-// These are set for a 200MHz timer frequency.
 // (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period.
 // ARR = (TIMclk/Updatefrequency) / (PSC + 1) - 1
 
