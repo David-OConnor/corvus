@@ -438,13 +438,14 @@ fn attitude_apply_common(
     pid_attitude: &mut PidGroup,
     rates_commanded: &mut CtrlInputs,
     params: &Params,
-    attitude_commanded: Quaternion,
+    attitude_commanded: &Quaternion,
+    autopilot_commands: &CtrlInputs,
     coeffs: &CtrlCoeffGroup,
     filters: &mut PidDerivFilters,
 ) {
     // If an attitude has been commanded (eg a velocity loop,autopilot mode, or if the aircraft
     // is in attitude mode), apply the PID to it.
-    if let Some(pitch_commanded) = attitudes_commanded.pitch {
+    if let Some(pitch_commanded) = autopilot_commands.pitch {
         pid_attitude.pitch = calc_pid_error(
             pitch_commanded,
             params.s_pitch,
@@ -459,7 +460,7 @@ fn attitude_apply_common(
         rates_commanded.pitch = Some(pid_attitude.pitch.out());
     }
 
-    if let Some(roll_commanded) = attitudes_commanded.roll {
+    if let Some(roll_commanded) = autopilot_commands.roll {
         pid_attitude.roll = calc_pid_error(
             roll_commanded,
             params.s_roll,
@@ -474,7 +475,7 @@ fn attitude_apply_common(
         rates_commanded.roll = Some(pid_attitude.roll.out());
     }
 
-    if let Some(yaw_commanded) = attitudes_commanded.yaw {
+    if let Some(yaw_commanded) = autopilot_commands.yaw {
         pid_attitude.yaw = calc_pid_error(
             yaw_commanded,
             params.s_yaw_heading,
@@ -494,7 +495,7 @@ fn attitude_apply_common(
 /// attitude. Modifies `rates_commanded`, which is used by the rate PID loop.
 pub fn run_attitude(
     params: &Params,
-    attitude_commanded: Quaternion,
+    attitude_commanded: &mut Quaternion,
     autopilot_commands: &CtrlInputs,
     ch_data: &ChannelData,
     input_map: &InputMap,
@@ -542,6 +543,7 @@ pub fn run_attitude(
         rates_commanded,
         params,
         attitude_commanded,
+        autopilot_commands,
         coeffs,
         filters,
     );
@@ -570,6 +572,7 @@ pub fn run_attitude(
         rates_commanded,
         params,
         attitudes_commanded,
+        autopilot_commands,
         coeffs,
         filters,
     );

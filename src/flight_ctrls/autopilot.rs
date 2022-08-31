@@ -248,7 +248,9 @@ impl AutopilotStatus {
             let to_speed = match params.tof_alt {
                 Some(alt) => alt,
                 None => params.baro_alt_msl, // todo temp?
-            } * autopilot_commands = CtrlInputs {
+            };
+
+            *autopilot_commands = CtrlInputs {
                 pitch: Some(0.),
                 roll: Some(0.),
                 yaw: None,

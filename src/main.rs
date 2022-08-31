@@ -1096,7 +1096,7 @@ mod app {
                     #[cfg(feature = "quad")]
                     pid::run_attitude(
                         params,
-                        state_volatile.attitude_commanded,
+                        &mut state_volatile.attitude_commanded,
                         &state_volatile.autopilot_commands,
                         control_channel_data,
                         &cfg.input_map,

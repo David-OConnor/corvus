@@ -96,7 +96,7 @@ pub fn handle_arm_status(
                 // affect the next.
                 pid_rate.reset_integrator();
                 pid_attitude.reset_integrator();
-                pid_velocity.reset_integrator();
+                // pid_velocity.reset_integrator();
 
                 println!("Aircraft disarmed.");
             }
