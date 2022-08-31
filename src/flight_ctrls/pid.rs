@@ -12,20 +12,19 @@ use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as dsp_sys;
 
 use crate::{
-    autopilot::AutopilotStatus,
     control_interface::ChannelData,
+    lin_alg::Quaternion,
     safety::ArmStatus,
     state::{OptionalSensorStatus, UserCfg},
     util::IirInstWrapper,
-    lin_alg::Quaternion,
     DT_ATTITUDE,
 };
 
 use super::{
-    self,
-    ControlMapping,
-    common::{CtrlInputs, InputMap, MotorTimers, Params},
     attitude_ctrls,
+    autopilot::AutopilotStatus,
+    common::{CtrlInputs, InputMap, MotorTimers, Params},
+    ControlMapping,
 };
 
 use cfg_if::cfg_if;
@@ -433,167 +432,16 @@ pub fn calc_pid_error(
     result
 }
 
-// /// Run the velocity (outer) PID Loop: This is used to determine attitude, eg based on commanded velocity
-// /// or position.
-// pub fn _run_velocity(
-//     params: &Params,
-//     // inputs: &CtrlInputs,
-//     ch_data: &ChannelData,
-//     input_map: &InputMap,
-//     velocities_commanded: &mut CtrlInputs,
-//     attitude_commanded: &mut CtrlInputs,
-//     pid: &mut PidGroup,
-//     filters: &mut PidDerivFilters,
-//     #[cfg(feature = "quad")] input_mode: &InputMode,
-//     autopilot_status: &AutopilotStatus,
-//     cfg: &UserCfg,
-//     coeffs: &CtrlCoeffGroup,
-// ) {
-//     // todo: GO over this whole function; it's not ready!
-//     // todo, and you need a fixed wing version.
-//
-//     #[cfg(feature = "quad")]
-//     match input_mode {
-//         InputMode::Acro => (),
-//         InputMode::Attitude => (),
-//         InputMode::Command => {
-//             // todo: Impl
-//             // if autopilot_status.takeoff {
-//             //     // AutopilotMode::Takeoff => {
-//             //     *velocities_commanded = CtrlInputs {
-//             //         pitch: 0.,
-//             //         roll: 0.,
-//             //         yaw: 0.,
-//             //         thrust: flight_ctrls::takeoff_speed(params.tof_alt, cfg.max_speed_ver),
-//             //     };
-//             // }
-//             // else if autopilot_status.land {
-//             //     *velocities_commanded = CtrlInputs {
-//             //         pitch: 0.,
-//             //         roll: 0.,
-//             //         yaw: 0.,
-//             //         thrust: flight_ctrls::landing_speed(params.tof_alt, cfg.max_speed_ver),
-//             //     };
-//             // }
-//         }
-//     }
-//
-//     let param_x = params.v_x;
-//     let param_y = params.v_y;
-//
-//     let mut k_p_pitch = coeffs.pitch.k_p_attitude;
-//     let mut k_i_pitch = coeffs.pitch.k_i_attitude;
-//     let mut k_d_pitch = coeffs.pitch.k_d_attitude;
-//
-//     let mut k_p_roll = coeffs.roll.k_p_attitude;
-//     let mut k_i_roll = coeffs.roll.k_i_attitude;
-//     let mut k_d_roll = coeffs.roll.k_d_attitude;
-//
-//     let eps1 = 0.01;
-//     // if ch_data.pitch > eps1 || ch_data.roll > eps1 {
-//     //     commands.loiter_set = false;
-//     // }
-//
-//     let eps2 = 0.01;
-//     // todo: Commanded velocity 0 to trigger loiter logic, or actual velocity?
-//     // if mid_flight_cmd.y_pitch.unwrap().2 < eps && mid_flight_cmd.x_roll.unwrap().2 < eps {
-//     if params.lon < eps2 && params.lat < eps2 {
-//         // if !commands.loiter_set {
-//         //     commands.x = params.lon;
-//         //     commands.y = params.lat;
-//         //     commands.loiter_set = true;
-//         // }
-//
-//         // param_x = commands.x;
-//         // param_y = commands.y;
-//
-//         k_p_pitch = coeffs.pitch.k_p_rate;
-//         k_i_pitch = coeffs.pitch.k_i_rate;
-//         k_d_pitch = coeffs.pitch.k_d_rate;
-//
-//         k_p_roll = coeffs.roll.k_p_rate;
-//         k_i_roll = coeffs.roll.k_i_rate;
-//         k_d_roll = coeffs.roll.k_d_rate;
-//     }
-//
-//     pid.pitch = calc_pid_error(
-//         velocities_commanded.pitch.unwrap(),
-//         param_y,
-//         &pid.pitch,
-//         coeffs.pitch.k_p_velocity,
-//         coeffs.pitch.k_p_velocity,
-//         0., // first-order + delay system
-//         &mut filters.pitch_attitude,
-//         DT_ATTITUDE,
-//     );
-//
-//     pid.roll = calc_pid_error(
-//         velocities_commanded.roll.unwrap(),
-//         param_x,
-//         &pid.roll,
-//         // coeffs,
-//         coeffs.roll.k_p_velocity,
-//         coeffs.roll.k_p_velocity,
-//         0.,
-//         &mut filters.roll_attitude,
-//         DT_ATTITUDE,
-//     );
-//
-//     // todo: What should this be ??
-//     pid.yaw = calc_pid_error(
-//         velocities_commanded.yaw.unwrap(),
-//         params.s_yaw_heading,
-//         &pid.yaw,
-//         0., // todo
-//         0., // todo
-//         0.,
-//         &mut filters.yaw_attitude,
-//         DT_ATTITUDE,
-//     );
-//
-//     // todo: What should this be ??
-//     pid.thrust = calc_pid_error(
-//         velocities_commanded.thrust.unwrap(),
-//         params.baro_alt_msl,
-//         &pid.thrust,
-//         0., // todo
-//         0., // todo
-//         0.,
-//         &mut filters.thrust,
-//         DT_ATTITUDE,
-//     );
-//
-//     // Determine commanded pitch and roll positions, and z velocity,
-//     // based on our middle-layer PID.
-//
-//     // todo: the actual modification ofn attitude is commented out for now (july 27 2022)
-//     // todo until we get attitude, rate, and various autopilot modes sorted out.
-//     *attitude_commanded = CtrlInputs {
-//         pitch: Some(pid.pitch.out()),
-//         roll: Some(pid.roll.out()),
-//         yaw: Some(pid.yaw.out()),
-//         thrust: Some(pid.thrust.out()),
-//     };
-// }
-
 /// To reduce DRY between `run_attitude_quad` and `run_attitude_fixed_wing`. The main purpose of
 /// this fn is to modify `rates_commanded`.
 fn attitude_apply_common(
     pid_attitude: &mut PidGroup,
     rates_commanded: &mut CtrlInputs,
     params: &Params,
-    attitude_commanded: Option<Quaternion>,
+    attitude_commanded: Quaternion,
     coeffs: &CtrlCoeffGroup,
     filters: &mut PidDerivFilters,
 ) {
-
-    // todo: Revamp this fn to use quaternions.
-
-    // The rotation between the current orientation and the commanded one.
-    if let Some(att) = attitude_commanded {
-        let rotation = att * params.quaternion.inverse(); // todo: QC order on this
-    }
-
     // If an attitude has been commanded (eg a velocity loop,autopilot mode, or if the aircraft
     // is in attitude mode), apply the PID to it.
     if let Some(pitch_commanded) = attitudes_commanded.pitch {
@@ -646,10 +494,10 @@ fn attitude_apply_common(
 /// attitude. Modifies `rates_commanded`, which is used by the rate PID loop.
 pub fn run_attitude(
     params: &Params,
-    attitude_commanded: &Quaternion,
+    attitude_commanded: Quaternion,
+    autopilot_commands: &CtrlInputs,
     ch_data: &ChannelData,
     input_map: &InputMap,
-    // attitudes_commanded: &mut CtrlInputs,
     rates_commanded: &mut CtrlInputs,
     pid_attitude: &mut PidGroup,
     filters: &mut PidDerivFilters,
@@ -671,11 +519,12 @@ pub fn run_attitude(
                 //     thrust: None,
                 // };
             }
-        },
+        }
 
         // If in Attitude control mode, command our initial (pre-autopilot) attitudes based on
         // control positions.
         InputMode::Attitude => {
+            *attitude_commanded = attitude_ctrls::from_controls(ch_data);
             // *attitudes_commanded = CtrlInputs {
             //     pitch: Some(input_map.calc_pitch_angle(ch_data.pitch)),
             //     roll: Some(input_map.calc_roll_angle(ch_data.roll)),
@@ -687,13 +536,6 @@ pub fn run_attitude(
             // todo: Impl
         }
     }
-
-    *attitudes_commanded = CtrlInputs {
-        pitch: Some(input_map.calc_pitch_angle(ch_data.pitch)),
-        roll: Some(input_map.calc_roll_angle(ch_data.roll)),
-        yaw: Some(input_map.calc_yaw_rate(ch_data.yaw)),
-        thrust: None,
-    };
 
     attitude_apply_common(
         pid_attitude,
@@ -713,7 +555,7 @@ pub fn run_attitude(
 pub fn run_attitude(
     params: &Params,
     attitude_commanded: &Quaternion,
-    attitudes_commanded: &mut CtrlInputs,
+    autopilot_commands: &mut CtrlInputs,
     rates_commanded: &mut CtrlInputs,
     pid_attitude: &mut PidGroup,
     filters: &mut PidDerivFilters,
@@ -722,15 +564,6 @@ pub fn run_attitude(
     optional_sensors: &OptionalSensorStatus,
 ) {
     // Note that for fixed wing, we don't have attitude mode.
-    // autopilot_status.apply(
-    //     params,
-    //     attitudes_commanded,
-    //     rates_commanded,
-    //     pid_attitude,
-    //     filters,
-    //     coeffs,
-    //     optional_sensors,
-    // );
 
     attitude_apply_common(
         pid_attitude,
@@ -744,6 +577,9 @@ pub fn run_attitude(
 
 /// To reduce DRY between `run_rate_quad` and `run_rate_fixed_wing`. Modifies `rates_commanded`,
 /// and returns PID output as pitch, roll, yaw, thrust.
+///
+/// If a given rate command is 0 (eg in acro mode with no autopilot modes), define that
+/// rate by channel data.
 fn rate_apply_common(
     pid_rate: &mut PidGroup,
     rates_commanded: &mut CtrlInputs,
@@ -824,7 +660,6 @@ fn rate_apply_common(
 /// once per update cycle, eg to set commanded angular rates.
 pub fn run_rate(
     params: &Params,
-    input_mode: InputMode,
     ch_data: &ChannelData,
     rates_commanded: &mut CtrlInputs,
     pid: &mut PidGroup,
@@ -834,10 +669,8 @@ pub fn run_rate(
     motor_timers: &mut MotorTimers,
     dma: &mut Dma<DMA1>,
     coeffs: &CtrlCoeffGroup,
-    max_speed_ver: f32,
     input_map: &InputMap,
     arm_status: ArmStatus,
-    // orientation_commanded: &mut Option<Quaternion>,
     dt: f32,
 ) {
     // see thrust mapping code commented out in rate fixed_wing; it applies here too.
@@ -861,7 +694,7 @@ pub fn run_rate(
         dt,
     );
 
-    flight_ctrls::apply_controls(
+    super::apply_controls(
         pitch,
         roll,
         yaw,

@@ -73,7 +73,6 @@ struct Reading {
 /// Read from the sensor. Result is in meters. Return `None` if the measured reading,
 /// or aircraft attitude is outside the maximum range we consider acceptable,
 pub fn read(attitude: Quaternion, i2c: &mut I2c<I2C1>) -> Option<f32> {
-
     let down = Vec3::new(0., -1., 0.);
     let down_ac = attitude.rotate_vec(down);
     let aircraft_angle_from_down = (down.dot(down_ac)).arccos();

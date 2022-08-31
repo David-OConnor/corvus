@@ -57,7 +57,6 @@ use usb_device::{bus::UsbBusAllocator, prelude::*};
 use usbd_serial::{self, SerialPort};
 
 use ahrs_fusion::Ahrs;
-use autopilot::AutopilotStatus;
 
 use control_interface::{
     AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData, LinkStats, PidTuneActuation,
@@ -72,11 +71,13 @@ use drivers::{
 
 use filter_imu::ImuFilters;
 use flight_ctrls::{
+    autopilot::AutopilotStatus,
     common::{AltType, CtrlInputs, InputMap, MotorTimers, Params},
-    ControlMapping,
-    pid::{self,m
-        CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT, PID_CONTROL_ADJ_TIMEOUT,
+    pid::{
+        self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
+        PID_CONTROL_ADJ_TIMEOUT,
     },
+    ControlMapping,
 };
 
 cfg_if! {
@@ -99,7 +100,7 @@ static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 mod ahrs_fusion;
 mod atmos_model;
-mod autopilot;
+mod attitude_platform;
 mod cfg_storage;
 mod control_interface;
 mod drivers;
@@ -108,7 +109,6 @@ mod flight_ctrls;
 mod imu_calibration;
 mod imu_shared;
 mod lin_alg;
-mod attitude_platform;
 mod ppks;
 mod protocols;
 mod safety;
@@ -151,7 +151,7 @@ cfg_if! {
 
 // todo: Set update rate attitude back to 1600 etc. Slower rate now since we're using this loop to TS.
 const UPDATE_RATE_ATTITUDE: f32 = 1_600.; // IMU rate / 5.
-const UPDATE_RATE_VELOCITY: f32 = 400.; // IMU rate / 20.
+                                          // const UPDATE_RATE_VELOCITY: f32 = 400.; // IMU rate / 20.
 
 // Every _ main update loops, log parameters etc to flash.
 const LOGGING_UPDATE_RATIO: usize = 100;
@@ -174,14 +174,9 @@ pub const ADC_CURR_DIVISION: f32 = 11.;
 /// sources from interfering with other parts of the application by taking too much time.
 const MAX_RF_UPDATE_RATE: f32 = 800.; // Hz
 
-// Max distance from curent location, to point, then base a
-// direct-to point can be, in meters. A sanity check
-// todo: Take into account flight time left.
-const DIRECT_AUTOPILOT_MAX_RNG: f32 = 500.;
-
 // We use `LOOP_I` to manage sequencing the velocity-update PID from within the attitude-update PID
 // loop.
-const VELOCITY_ATTITUDE_UPDATE_RATIO: usize = 4;
+// const VELOCITY_ATTITUDE_UPDATE_RATIO: usize = 4;
 const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500Hz; apt for servos.
 
 // todo: Course set mode. Eg, point at thing using controls, activate a button,
@@ -235,17 +230,6 @@ const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500
 /// todo: Movable camera that moves with head motion.
 /// - Ir cam to find or avoid people
 
-// pub enum FlightProfile {
-//     /// On ground, with rotors at 0. to 1., with 0. being off, and 1. being 1:1 lift-to-weight
-//     OnGround,
-//     /// Maintain a hover
-//     Hover,
-//     /// In transit to a given location, in Location and speed
-//     Transit(Location, f32),
-//     /// Landing
-//     Landing,
-// }
-
 /// Run on startup, or when desired. Run on the ground. Gets an initial GPS fix,
 /// and other initialization functions.
 fn init_sensors(
@@ -267,7 +251,7 @@ fn init_sensors(
         return;
     }
 
-    if let Some(agl) = tof::read(params.s_pitch, params.s_roll, i2c1) {
+    if let Some(agl) = tof::read(params.quaternion, i2c1) {
         if agl > 0.01 {
             return;
         }
@@ -301,15 +285,13 @@ mod app {
         // profile: FlightProfile,
         user_cfg: UserCfg,
         state_volatile: StateVolatile,
-        input_map: InputMap,
         autopilot_status: AutopilotStatus,
         ctrl_coeffs: CtrlCoeffGroup,
         current_params: Params,
-        velocities_commanded: CtrlInputs,
+        // velocities_commanded: CtrlInputs,
         // attitudes_commanded: CtrlInputs,
         rates_commanded: CtrlInputs,
-        // control_mix: ControlMix,
-        pid_velocity: PidGroup,
+        // pid_velocity: PidGroup,
         pid_attitude: PidGroup,
         pid_rate: PidGroup,
         control_channel_data: ChannelData,
@@ -327,7 +309,6 @@ mod app {
         rf_limiter_timer: Timer<TIM16>,
         lost_link_timer: Timer<TIM17>,
         motor_timers: MotorTimers,
-        // delay_timer: Timer<TIM5>,
         usb_dev: UsbDevice<'static, UsbBusType>,
         usb_serial: SerialPort<'static, UsbBusType>,
         // `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
@@ -790,19 +771,16 @@ mod app {
             Shared {
                 user_cfg,
                 state_volatile,
-                input_map: Default::default(),
                 autopilot_status: Default::default(),
                 ctrl_coeffs,
                 current_params: params,
-                velocities_commanded: Default::default(),
+                // velocities_commanded: Default::default(),
                 // attitudes_commanded: Default::default(),
                 rates_commanded: Default::default(),
-                // control_mix: Default::default(),
-                pid_velocity: Default::default(),
+                // pid_velocity: Default::default(),
                 pid_attitude: Default::default(),
                 pid_rate: Default::default(),
                 control_channel_data: Default::default(),
-                // manual_inputs: Default::default(),
                 dma,
                 spi1,
                 cs_imu,
@@ -877,8 +855,8 @@ mod app {
     // todo: Remove rotor timers, spi, and dma from this ISR; we only use it for tresting DSHOT
     #[task(
     binds = TIM1_BRK_TIM15,
-    shared = [current_params, input_map,
-    velocities_commanded, rates_commanded, pid_velocity, pid_attitude, pid_rate,
+    shared = [current_params,
+    rates_commanded, pid_attitude, pid_rate,
     pid_deriv_filters, power_used, autopilot_status, user_cfg, ctrl_coeffs,
     ahrs, control_channel_data,
     lost_link_timer, altimeter, i2c2, state_volatile, batt_curr_adc, dma,
@@ -896,13 +874,12 @@ mod app {
             cx.shared.current_params,
             cx.shared.ahrs,
             cx.shared.control_channel_data,
-            cx.shared.input_map,
-            cx.shared.velocities_commanded,
+            // cx.shared.velocities_commanded,
             // cx.shared.attitudes_commanded,
             cx.shared.rates_commanded,
             cx.shared.pid_rate,
             cx.shared.pid_attitude,
-            cx.shared.pid_velocity,
+            // cx.shared.pid_velocity,
             cx.shared.pid_deriv_filters,
             cx.shared.power_used,
             cx.shared.autopilot_status,
@@ -919,13 +896,12 @@ mod app {
                 |params,
                  ahrs,
                  control_channel_data,
-                 input_map,
-                 velocities_commanded,
+                 // velocities_commanded,
                  // attitudes_commanded,
                  rates_commanded,
                  pid_rate,
                  pid_attitude,
-                 pid_velocity,
+                 // pid_velocity,
                  filters,
                  power_used,
                  autopilot_status,
@@ -1013,7 +989,7 @@ mod app {
                         control_channel_data.throttle,
                         pid_rate,
                         pid_attitude,
-                        pid_velocity,
+                        // pid_velocity,
                     );
 
                     //     aircraft_type: AircraftType,
@@ -1040,67 +1016,7 @@ mod app {
                         state_volatile,
                     );
 
-                    match control_channel_data.alt_hold {
-                        AltHoldSwitch::Disabled => autopilot_status.alt_hold = None,
-                        AltHoldSwitch::EnabledAgl => {
-                            autopilot_status.alt_hold =
-                                Some((AltType::Agl, params.tof_alt.unwrap_or(20.)))
-                        }
-                        AltHoldSwitch::EnabledMsl => {
-                            autopilot_status.alt_hold = Some((AltType::Msl, params.baro_alt_msl))
-                        }
-                    }
-
-                    match control_channel_data.autopilot_a {
-                        #[cfg(feature = "fixed-wing")]
-                        AutopilotSwitchA::Disabled => {
-                            autopilot_status.orbit = None;
-                        }
-                        #[cfg(feature = "quad")]
-                        AutopilotSwitchA::Disabled => {
-                            autopilot_status.loiter = None;
-                        }
-                        #[cfg(feature = "fixed-wing")]
-                        AutopilotSwitchA::LoiterOrbit => {
-                            autopilot_status.orbit = Some(Orbit {
-                                shape: Default::default(),
-                                center_lat: params.lat,
-                                center_lon: params.lon,
-                                radius: autopilot::ORBIT_DEFAULT_RADIUS,
-                                ground_speed: autopilot::ORBIT_DEFAULT_GROUNDSPEED,
-                                direction: Default::default(),
-                            });
-                        }
-                        #[cfg(feature = "quad")]
-                        AutopilotSwitchA::LoiterOrbit => {
-                            autopilot_status.loiter = Some(Location::new(
-                                LocationType::LatLon,
-                                params.lat,
-                                params.lon,
-                                params.baro_alt_msl,
-                            ));
-                        }
-                        AutopilotSwitchA::DirectToPoint => {
-                            autopilot_status.alt_hold = Some((AltType::Msl, params.baro_alt_msl))
-                        }
-                    }
-
-                    match control_channel_data.autopilot_b {
-                        AutopilotSwitchB::Disabled => {
-                            autopilot_status.hdg_hold = None;
-                            autopilot_status.land = None;
-                        }
-                        AutopilotSwitchB::HdgHold => {
-                            autopilot_status.hdg_hold = Some(params.s_yaw_heading)
-                        }
-                        AutopilotSwitchB::Land => {
-                            // todo: impl.
-                            // autopilot_status.land = Some(Land);
-                        }
-                    }
-
-                    // todo: Do you want to update attitude here, or on each IMU data received?
-                    // sensor_fusion::update_get_attitude(ahrs, params);
+                    autopilot_status.set_modes_from_ctrls(control_channel_data, &params);
 
                     // todo: Support UART telemetry from ESC.
 
@@ -1145,7 +1061,7 @@ mod app {
                     osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH, dma, &osd_data);
 
                     // Note: Arm status primary handler is in the `set_power` fn, but there's no reason
-                    // to run the PIDs if not armed.
+                    // to apply flight controls if not armed.
                     if state_volatile.arm_status != ArmStatus::Armed {
                         return;
                     }
@@ -1153,16 +1069,24 @@ mod app {
                     #[cfg(feature = "quad")]
                     autopilot_status.apply(
                         params,
-                        &mut state_volatile.heading_commanded,
+                        &mut state_volatile.autopilot_commands,
                         filters,
                         coeffs,
-                        &state_volatile.optional_sensors,
+                        &state_volatile.optional_sensor_status,
                     );
 
+                    // The rotation between the current orientation and the commanded one.
+                    // todo: Impl once you've sorted out your control logic.
+                    if cfg.attitude_based_rate_mode {
+                        let rotation_cmd =
+                            state_volatile.attitude_commanded * params.quaternion.inverse();
+                        // todo: QC order on this
+                    }
+
                     #[cfg(feature = "fixed-wing")]
-                        autopilot_status.apply(
+                    autopilot_status.apply(
                         params,
-                        &mut state_volatile.attitude_commanded,
+                        &mut state_volatile.autopilot_commands,
                         pid_attitude,
                         filters,
                         coeffs,
@@ -1172,10 +1096,10 @@ mod app {
                     #[cfg(feature = "quad")]
                     pid::run_attitude(
                         params,
-                        &state_volatile.attitude_commanded,
+                        state_volatile.attitude_commanded,
+                        &state_volatile.autopilot_commands,
                         control_channel_data,
-                        input_map,
-                        // attitudes_commanded,
+                        &cfg.input_map,
                         rates_commanded,
                         pid_attitude,
                         filters,
@@ -1188,8 +1112,8 @@ mod app {
                     #[cfg(feature = "fixed-wing")]
                     pid::run_attitude(
                         params,
-                        &state_volatile.attitude_commanded,
-                        // attitudes_commanded,
+                        state_volatile.attitude_commanded,
+                        &state_volatile.autopilot_commands,
                         rates_commanded,
                         pid_attitude,
                         filters,
@@ -1206,7 +1130,7 @@ mod app {
                                 //             pid::run_velocity(
                                 //                 params,
                                 //                 control_channel_data,
-                                //                 input_map,
+                                //                 &cfg.input_map,
                                 //                 velocities_commanded,
                                 // //                 attitudes_commanded,
                                 //                 pid_velocity,
@@ -1234,7 +1158,7 @@ mod app {
     }
 
     // binds = DMA1_STR2,
-    #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, control_channel_data, input_map, autopilot_status,
+    #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, control_channel_data, autopilot_status,
     rates_commanded, pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, cs_imu, user_cfg,
     motor_timers, ahrs, state_volatile, rf_limiter_timer], local = [fixed_wing_rate_loop_i, update_loop_i2], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
@@ -1268,7 +1192,6 @@ mod app {
             cx.shared.dma,
             cx.shared.ctrl_coeffs,
             cx.shared.user_cfg,
-            cx.shared.input_map,
             cx.shared.spi1,
             // cx.shared.rf_limiter_timer, // todo temp
             cx.shared.state_volatile,
@@ -1279,13 +1202,12 @@ mod app {
                  control_channel_data,
                  autopilot_status,
                  rates_commanded,
-                 pid_inner,
+                 pid_rate,
                  filters,
                  motor_timers,
                  dma,
                  coeffs,
                  cfg,
-                 input_map,
                  spi1,
                  // rf_limiter_timer, // todo temp
                  state_volatile| {
@@ -1338,42 +1260,22 @@ mod app {
 
                     // Note: Consider if you want to update the attitude using the primary update loop,
                     // vice each IMU update.
-                    attitude_platform::update_get_attitude(ahrs, params);
-
-                    // Note: There is an arm status primary handler is in the `set_power` fn, but if we abort
-                    // here without it being set, power will remain at whatever state was set at time
-                    // of disarm. Alternatively, we could neither return nor stop motors here, and
-                    // let `set_power` handle it.
-                    if state_volatile.arm_status != ArmStatus::Armed {
-                        dshot::stop_all(motor_timers, dma);
-                        return;
-                    }
-
-                    if cfg.attitude_based_rate_mode {
-                        cfg.orientation_commanded = flight_ctrls::attitude_ctrls::modify_commanded(
-                            cfg.orientation_commanded, rates_commanded, DT_IMU,
-                        );
-                        return;
-                    }
+                    attitude_platform::update_attitude(ahrs, params);
 
                     cfg_if! {
                         if #[cfg(feature = "quad")] {
                             pid::run_rate(
                                 params,
-                                state_volatile.input_mode,
-                                // cfg,
                                 control_channel_data,
                                 rates_commanded,
-                                // control_mix,
-                                pid_inner,
+                                pid_rate,
                                 filters,
                                 &mut state_volatile.current_pwr,
                                 &cfg.control_mapping,
                                 motor_timers,
                                 dma,
                                 coeffs,
-                                cfg.max_speed_ver,
-                                input_map,
+                                &cfg.input_map,
                                 state_volatile.arm_status,
                                 DT_IMU,
                             );
@@ -1385,18 +1287,16 @@ mod app {
                             {
                                 pid::run_rate(
                                     params,
-                                    // cfg,
                                     control_channel_data,
                                     rates_commanded,
-                                    // control_mix,
-                                    pid_inner,
+                                    pid_rate,
                                     filters,
                                     &mut state_volatile.ctrl_positions,
                                     &cfg.control_mapping,
                                     motor_timers,
                                     dma,
                                     coeffs,
-                                    input_map,
+                                    &cfg.input_map,
                                     state_volatile.arm_status,
                                     DT_IMU * FIXED_WING_RATE_UPDATE_RATIO as f32,
                                 );
@@ -1406,8 +1306,6 @@ mod app {
                 },
             );
     }
-
-    // todo: Commented out USB ISR temporarily
 
     // binds = OTG_HS
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
@@ -1448,7 +1346,6 @@ mod app {
                             usb_cfg::handle_rx(
                                 usb_serial,
                                 &buf,
-                                // count,
                                 params.quaternion,
                                 params.baro_alt_msl,
                                 params.tof_alt,

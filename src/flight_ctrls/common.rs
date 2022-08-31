@@ -41,7 +41,6 @@ pub enum Motor {
     M4,
 }
 
-// todo: Quad specific?
 /// Maps control inputs (range 0. to 1. or -1. to 1.) to velocities, rotational velocities etc
 /// for various flight modes. The values are for full input range.
 pub struct InputMap {

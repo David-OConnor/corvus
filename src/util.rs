@@ -56,4 +56,3 @@ pub fn calc_crc(lut: &[u8; 256], data: &[u8], mut size: u8) -> u8 {
     }
     crc
 }
-

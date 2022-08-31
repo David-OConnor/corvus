@@ -3,13 +3,16 @@
 
 /// User-configurable settings. These get saved to and loaded from internal flash.
 use crate::{
-    autopilot::LandingCfg,
     control_interface::{InputModeSwitch, LinkStats},
-    flight_ctrls::ControlMapping,
+    flight_ctrls::{
+        autopilot::{AutopilotStatus, LandingCfg},
+        common::{CtrlInputs, InputMap},
+        ControlMapping,
+    },
+    lin_alg::Quaternion,
     ppks::Location,
     safety::ArmStatus,
     usb_cfg::WAYPOINT_SIZE,
-    lin_alg::Quaternion,
 };
 
 use cfg_if::cfg_if;
@@ -93,12 +96,9 @@ pub struct UserCfg {
     #[cfg(feature = "fixed-wing")]
     /// (Alternative is no rudder)
     pub rudder_used: bool,
-
-    // todo: Should this be in state volatile or cfg?
-    /// For attitude mode, and modified rate mode.
-    pub attitude_commanded: Quaternion,
     /// Modify `rate` mode to command an orientation that changes based on rate control inputs.
     pub attitude_based_rate_mode: bool,
+    pub input_map: InputMap,
 }
 
 impl Default for UserCfg {
@@ -113,11 +113,6 @@ impl Default for UserCfg {
             max_velocity: 30., // todo: raise?
             // Note: Idle power now handled in `power_interp_inst`
             idle_pwr: 0.02, // scale of 0 to 1.
-            // todo: Find apt value for these
-            // pitch_input_range: (0., 1.),
-            // roll_input_range: (0., 1.),
-            // yaw_input_range: (0., 1.),
-            // throttle_input_range: (0., 1.),
             mapping_obstacles: false,
             max_speed_hor: 20.,
             max_speed_ver: 20.,
@@ -153,8 +148,8 @@ impl Default for UserCfg {
             landing_cfg: Default::default(),
             #[cfg(feature = "fixed-wing")]
             rudder_used: false,
-            attitude_commanded: Quaternion::new_identity(),
             attitude_based_rate_mode: false,
+            input_map: Default::default(),
         }
     }
 }
@@ -194,5 +189,7 @@ pub struct StateVolatile {
     /// Base point - generally takeoff location.
     pub base_point: Location, // todo: user cfg varianit too?
     /// The commanded attitude. Used in attitude mode, and a variant of rate mode.
-    pub attitude_target: Quatnrnion,
+    /// For attitude mode, and modified rate mode.
+    pub attitude_commanded: Quaternion,
+    pub autopilot_commands: CtrlInputs,
 }

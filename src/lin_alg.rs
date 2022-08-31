@@ -78,6 +78,11 @@ impl Vec3 {
         }
     }
 
+    /// Calculate the dot product
+    pub fn dot(&self, rhs: Self) -> f32 {
+        self.x * rhs.x + self.y * rhs.y + self.z * rhs.z
+    }
+
     /// Returns true if the vector is zero.
     pub fn is_zero(&self) -> bool {
         let eps = 0.00001;
@@ -224,7 +229,6 @@ impl Quaternion {
             z: self.z,
         }
     }
-
 
     /// Converts a Quaternion to ZYX Euler angles, in radians.
     pub fn to_euler(self) -> EulerAngle {

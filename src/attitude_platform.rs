@@ -39,8 +39,8 @@ use crate::{ahrs_fusion::Ahrs, flight_ctrls::common::Params, imu, lin_alg::Vec3}
 // error-state EKF
 // http://www.iri.upc.edu/people/jsola/JoanSola/objectes/notes/kinematics.pdf
 
-/// Update and get the attitude from the AHRS.
-pub fn update_get_attitude(ahrs: &mut Ahrs, params: &mut Params) {
+/// Update the attitude from the AHRS.
+pub fn update_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     // Gyro measurements - not really a vector.
     // In our IMU interpretation, we use direction references that make sense for our aircraft.
     // See `imu_shared::ImuReadings` field descriptions for this. Here, we undo it: The AHRS

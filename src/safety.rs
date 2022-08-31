@@ -3,9 +3,11 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{
-    autopilot::AutopilotStatus,
     control_interface::ChannelData,
-    flight_ctrls::common::{AltType, Params},
+    flight_ctrls::{
+        autopilot::AutopilotStatus,
+        common::{AltType, Params},
+    },
     pid::PidGroup,
     ppks::{Location, LocationType},
     state::OptionalSensorStatus,
@@ -75,7 +77,7 @@ pub fn handle_arm_status(
     throttle: f32,
     pid_rate: &mut PidGroup,
     pid_attitude: &mut PidGroup,
-    pid_velocity: &mut PidGroup,
+    // pid_velocity: &mut PidGroup,
 ) {
     // println!("arm rec: {:?}",  arm_signals_received);
     match arm_status {

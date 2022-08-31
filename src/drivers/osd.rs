@@ -13,8 +13,8 @@
 use core::f32::consts::TAU;
 
 use crate::{
-    autopilot::AutopilotStatus,
     control_interface::InputModeSwitch::AttitudeCommand,
+    flight_ctrls::autopilot::AutopilotStatus,
     ppks::Location,
     protocols::{
         msp::{MsgType, Packet, METADATA_SIZE_V1},

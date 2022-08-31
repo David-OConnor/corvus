@@ -5,16 +5,25 @@ use core::f32::consts::TAU;
 use num_traits::float::Float;
 
 use crate::{
+    control_interface::{AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData},
     flight_ctrls::{
         self,
         common::{AltType, CtrlInputs, InputMap, Params},
     },
     lin_alg::Quaternion,
     pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
-    ppks::Location,
+    ppks::{Location, LocationType},
     state::OptionalSensorStatus,
     DT_ATTITUDE,
 };
+
+// Max distance from curent location, to point, then base a
+// direct-to point can be, in meters. A sanity check
+// todo: Take into account flight time left.
+const DIRECT_AUTOPILOT_MAX_RNG: f32 = 500.;
+
+#[cfg(feature = "fixed-wing")]
+const TAKEOFF_PITCH: f32 = 1.1; // radians
 
 use cfg_if::cfg_if;
 
@@ -33,6 +42,8 @@ const R: f32 = 6_371_000.; // Earth's radius in meters. (ellipsoid?)
 
 // Highest bank to use in all autopilot modes.
 const MAX_BANK: f32 = TAU / 6.;
+
+const MAX_VER_SPEED: f32 = 10.; // todo? m/s
 
 // Tolerances we use when setting up a glideslope for landing. Compaerd to the landing structs,
 // these are independent of the specific landing spot and aircraft.
@@ -216,7 +227,7 @@ impl AutopilotStatus {
     pub fn apply(
         &self,
         params: &Params,
-        heading_commanded: &mut Option<f32>,
+        autopilot_commands: &mut CtrlInputs,
         filters: &mut PidDerivFilters,
         coeffs: &CtrlCoeffGroup,
         optional_sensors: &OptionalSensorStatus,
@@ -234,20 +245,22 @@ impl AutopilotStatus {
         // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
         // either MSL or AGL.
         if self.takeoff {
-            // *attitudes_commanded = CtrlInputs {
-            //     pitch: Some(0.),
-            //     roll: Some(0.),
-            //     yaw: Some(0.),
-            //     thrust: Some(flight_ctrls::quad::takeoff_speed(params.tof_alt, max_speed_ver)),
-            // };
+            let to_speed = match params.tof_alt {
+                Some(alt) => alt,
+                None => params.baro_alt_msl, // todo temp?
+            } * autopilot_commands = CtrlInputs {
+                pitch: Some(0.),
+                roll: Some(0.),
+                yaw: None,
+                thrust: Some(flight_ctrls::quad::takeoff_speed(to_speed, MAX_VER_SPEED)),
+            };
         } else if let Some(ldg_cfg) = &self.land {
             if optional_sensors.gps_connected {}
         } else if let Some(pt) = &self.direct_to_point {
             if optional_sensors.gps_connected {
                 let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
 
-                *heading_commanded = Some(target_heading);
-                // attitudes_commanded.yaw = Some(target_heading);
+                autopilot_commands.yaw = Some(target_heading);
             }
         } else if let Some(pt) = &self.loiter {
             if optional_sensors.gps_connected {
@@ -260,11 +273,12 @@ impl AutopilotStatus {
             && self.land.is_none()
             && self.direct_to_point.is_none()
         {
-            // rates_commanded.thrust = Some(pid.thrust.out());
+            autopilot_commands.thrust = None;
         }
 
         if self.alt_hold.is_some() && !self.takeoff && self.land.is_none() {
             let (alt_type, alt_commanded) = self.alt_hold.unwrap();
+
             if !(alt_type == AltType::Agl && !optional_sensors.tof_connected) {
                 // Set a vertical velocity for the inner loop to maintain, based on distance
                 let dist = match alt_type {
@@ -273,20 +287,22 @@ impl AutopilotStatus {
                 };
 
                 // todo: Instead of a PID, consider something simpler.
-                pid.thrust = pid::calc_pid_error(
-                    // If just entering this mode, default to 0. throttle as a starting point.
-                    attitudes_commanded.thrust.unwrap_or(0.),
-                    dist,
-                    &pid.thrust,
-                    coeffs.thrust.k_p_attitude,
-                    coeffs.thrust.k_i_attitude,
-                    coeffs.thrust.k_d_attitude,
-                    &mut filters.thrust,
-                    DT_ATTITUDE,
-                );
+                // pid.thrust = pid::calc_pid_error(
+                //     // If just entering this mode, default to 0. throttle as a starting point.
+                //     autopilot_commands.thrust.unwrap_or(0.),
+                //     dist,
+                //     &pid.thrust,
+                //     coeffs.thrust.k_p_attitude,
+                //     coeffs.thrust.k_i_attitude,
+                //     coeffs.thrust.k_d_attitude,
+                //     &mut filters.thrust,
+                //     DT_ATTITUDE,
+                // );
+                let scaler = 0.1; // todo: Quick hack.
+                autopilot_commands.thrust = Some(dist * scaler);
 
                 // Note that thrust is set using the rate loop.
-                // rates_commanded.thrust = Some(pid.thrust.out());
+                autopilot_commands.thrust = None;
             }
         }
     }
@@ -295,20 +311,22 @@ impl AutopilotStatus {
     pub fn apply(
         &self,
         params: &Params,
-        // attitudes_commanded: &mut CtrlInputs,
-        attitude_commanded: &mut Option<Quaternion>,
+        autopilot_commands: &mut CtrlInputs,
         pid_attitude: &mut PidGroup,
         filters: &mut PidDerivFilters,
         coeffs: &CtrlCoeffGroup,
         optional_sensors: &OptionalSensorStatus,
     ) {
         if self.takeoff {
-            // *attitudes_commanded = CtrlInputs {
-            //     pitch: Some(0.),
-            //     roll: Some(0.),
-            //     yaw: Some(0.),
-            //     thrust: Some(flight_ctrls::quad::takeoff_speed(params.tof_alt, max_speed_ver)),
-            // };
+            *autopilot_commands = CtrlInputs {
+                pitch: Some(TAKEOFF_PITCH),
+                roll: Some(0.),
+                yaw: None,
+                thrust: Some(flight_ctrls::quad::takeoff_speed(
+                    params.tof_alt,
+                    max_speed_ver,
+                )),
+            };
         } else if let Some(ldg_cfg) = &self.land {
             if optional_sensors.gps_connected {
                 let dist_to_touchdown = find_distance(
@@ -370,9 +388,9 @@ impl AutopilotStatus {
                 // todo: Crude algo here. Is this OK? Important distinction: Flight path does'nt mean
                 // todo exactly pitch! Might be close enough for good enough.
                 let roll_const = 2.; // radians bank / radians heading  todo: Const?
-                attitudes_commanded.roll =
+                autopilot_commands.roll =
                     Some(((target_heading - params.s_yaw_heading) * roll_const).max(MAX_BANK));
-                attitudes_commanded.pitch = Some(target_pitch);
+                autopilot_commands.pitch = Some(target_pitch);
             }
         }
 
@@ -392,7 +410,7 @@ impl AutopilotStatus {
 
                 pid_attitude.pitch = pid::calc_pid_error(
                     // If just entering this mode, default to 0. pitch as a starting point.
-                    attitudes_commanded.pitch.unwrap_or(0.),
+                    autopilot_commands.pitch.unwrap_or(0.),
                     dist,
                     &pid_attitude.pitch,
                     coeffs.pitch.k_p_attitude,
@@ -404,12 +422,7 @@ impl AutopilotStatus {
 
                 // todo: Set this at rate or attitude level?
 
-                attitudes_commanded.pitch = Some(pid_attitude.pitch.out());
-
-                // todo: Commented out code below is if we use the velocity loop.
-                // // `enroute_speed_ver` returns a velocity of the appropriate sine for above vs below.
-                // attitudes_commanded.pitch =
-                //     Some(flight_ctrls::quad::enroute_speed_ver(dist, max_speed_ver, params.tof_alt));
+                autopilot_commands.pitch = None;
             }
         }
 
@@ -420,8 +433,65 @@ impl AutopilotStatus {
             && self.land.is_none()
             && self.direct_to_point.is_none()
         {
-            attitudes_commanded.pitch = None;
-            attitudes_commanded.roll = None;
+            autopilot_commands.pitch = None;
+            autopilot_commands.roll = None;
+        }
+    }
+
+    /// Set auto pilot modes based on control inputs.
+    pub fn set_modes_from_ctrls(&mut self, control_channel_data: &ChannelData, params: &Params) {
+        match control_channel_data.alt_hold {
+            AltHoldSwitch::Disabled => self.alt_hold = None,
+            AltHoldSwitch::EnabledAgl => {
+                self.alt_hold = Some((AltType::Agl, params.tof_alt.unwrap_or(20.)))
+            }
+            AltHoldSwitch::EnabledMsl => self.alt_hold = Some((AltType::Msl, params.baro_alt_msl)),
+        }
+
+        match control_channel_data.autopilot_a {
+            #[cfg(feature = "fixed-wing")]
+            AutopilotSwitchA::Disabled => {
+                self.orbit = None;
+            }
+            #[cfg(feature = "quad")]
+            AutopilotSwitchA::Disabled => {
+                self.loiter = None;
+            }
+            #[cfg(feature = "fixed-wing")]
+            AutopilotSwitchA::LoiterOrbit => {
+                self.orbit = Some(Orbit {
+                    shape: Default::default(),
+                    center_lat: params.lat,
+                    center_lon: params.lon,
+                    radius: ORBIT_DEFAULT_RADIUS,
+                    ground_speed: ORBIT_DEFAULT_GROUNDSPEED,
+                    direction: Default::default(),
+                });
+            }
+            #[cfg(feature = "quad")]
+            AutopilotSwitchA::LoiterOrbit => {
+                self.loiter = Some(Location::new(
+                    LocationType::LatLon,
+                    params.lat,
+                    params.lon,
+                    params.baro_alt_msl,
+                ));
+            }
+            AutopilotSwitchA::DirectToPoint => {
+                self.alt_hold = Some((AltType::Msl, params.baro_alt_msl))
+            }
+        }
+
+        match control_channel_data.autopilot_b {
+            AutopilotSwitchB::Disabled => {
+                self.hdg_hold = None;
+                self.land = None;
+            }
+            AutopilotSwitchB::HdgHold => self.hdg_hold = Some(params.s_yaw_heading),
+            AutopilotSwitchB::Land => {
+                // todo: impl.
+                // self.land = Some(Land);
+            }
         }
     }
 }
