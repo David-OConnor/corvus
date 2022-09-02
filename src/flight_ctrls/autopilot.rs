@@ -227,13 +227,15 @@ impl AutopilotStatus {
     pub fn apply(
         &self,
         params: &Params,
-        autopilot_commands: &mut CtrlInputs,
+        // autopilot_commands: &mut CtrlInputs,
         filters: &mut PidDerivFilters,
         coeffs: &CtrlCoeffGroup,
         optional_sensors: &OptionalSensorStatus,
-    ) {
+    ) -> CtrlInputs {
         // We use if/else logic on these to indicate they're mutually-exlusive. Modes listed first
         // take precedent.
+
+        let mut autopilot_commands = Deafult::default();
 
         // todo: sensors check for this fn, and for here and fixed.
         // todo sensor check for alt hold agl
@@ -307,18 +309,22 @@ impl AutopilotStatus {
                 autopilot_commands.thrust = None;
             }
         }
+
+        autopilot_commands
     }
 
     #[cfg(feature = "fixed-wing")]
     pub fn apply(
         &self,
         params: &Params,
-        autopilot_commands: &mut CtrlInputs,
+        // autopilot_commands: &mut CtrlInputs,
         pid_attitude: &mut PidGroup,
         filters: &mut PidDerivFilters,
         coeffs: &CtrlCoeffGroup,
         optional_sensors: &OptionalSensorStatus,
-    ) {
+    ) -> CtrlInputs {
+        let mut autopilot_commands = Deafult::default();
+
         if self.takeoff {
             *autopilot_commands = CtrlInputs {
                 pitch: Some(TAKEOFF_PITCH),
@@ -438,6 +444,8 @@ impl AutopilotStatus {
             autopilot_commands.pitch = None;
             autopilot_commands.roll = None;
         }
+
+        autopilot_commands
     }
 
     /// Set auto pilot modes based on control inputs.

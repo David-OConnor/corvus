@@ -2,7 +2,7 @@
 
 pub mod baro_dps310;
 mod camera_gimbal;
-pub mod gps_x;
+pub mod gps_ublox;
 pub mod imu_icm426xx;
 // pub mod imu_ism330dhcx;
 // pub mod optical_flow_driver;

@@ -99,8 +99,9 @@ fn write_one(reg: Reg, word: u8, spi: &mut Spi<SPI1>, cs: &mut Pin) {
 pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) {
     // Leave default of SPI mode 0 and 3.
 
-    // Configure the IMU to use the external timing source.
-    // write_one(Reg::IntfConfig5, 0b0000_0100, spi, cs);
+    // An external cyrstal is connected on othe H7 FC, but not the G4.
+    #[cfg(feature = "h7")]
+    write_one(Reg::IntfConfig5, 0b0000_0100, spi, cs);
 
     // Enable gyros and accelerometers in low noise mode.
     write_one(Reg::PwrMgmt0, 0b0000_1111, spi, cs);

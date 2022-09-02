@@ -64,7 +64,7 @@ use control_interface::{
 };
 
 use drivers::{
-    baro_dps310 as baro, gps_x as gps, imu_icm426xx as imu,
+    baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu,
     osd::{self, AutopilotData, OsdData},
     tof_vl53l1 as tof,
 };
@@ -92,7 +92,7 @@ cfg_if! {
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
-use state::{OperationMode, StateVolatile, UserCfg};
+use state::{OperationMode, OptionalSensorStatus, StateVolatile, UserCfg};
 
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.
@@ -235,6 +235,7 @@ const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500
 fn init_sensors(
     params: &mut Params,
     altimeter: &mut baro::Altimeter,
+    optional_sensor_status: &mut OptionalSensorStatus,
     base_pt: &mut Location,
     i2c1: &mut I2c<I2C1>,
     i2c2: &mut I2c<I2C2>,
@@ -250,6 +251,18 @@ fn init_sensors(
     {
         return;
     }
+
+    match gps::setup(i2c1) {
+        Ok(_) => optional_sensor_status.gps_connected = true,
+        Err(_) => optional_sensor_status.gps_connected = false,
+    }
+
+    match tof::setup(i2c1) {
+        Ok(_) => optional_sensor_status.tof_connected = true,
+        Err(_) => optional_sensor_status.tof_connected = false,
+    }
+
+    imu::setup(&mut spi1, &mut cs_imu, &mut delay);
 
     if let Some(agl) = tof::read(params.quaternion, i2c1) {
         if agl > 0.01 {
@@ -424,8 +437,6 @@ mod app {
 
         let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
 
-        imu::setup(&mut spi1, &mut cs_imu, &mut delay);
-
         // We use SPI3 for SPI flash on G4. On H7, we use octospi instead.
         // todo: Find max speed and supported modes.
         cfg_if! {
@@ -444,21 +455,15 @@ mod app {
         let mut cs_flash = Pin::new(Port::C, flash_pin, PinMode::Output);
         cs_flash.set_high();
 
-        // We use I2C for the TOF sensor.(?)
-        let i2c_tof_cfg = I2cConfig {
-            speed: I2cSpeed::FastPlus1M,
-            // speed: I2cSpeed::Fast400k,
+        // We use I2C1 for the GPS, magnetometer, and TOF sensor. Note that
+        // the U-BLOX GPS' max speed is 400kHz.
+        let i2c_gps_tof_cfg = I2cConfig {
+            speed: I2cSpeed::Fast400k,
             ..Default::default()
         };
 
         // We use I2C1 for offboard sensors: Magnetometer, GPS, and TOF sensor.
-        let mut i2c1 = I2c::new(dp.I2C1, i2c_tof_cfg, &clock_cfg);
-
-        // We use I2C for the TOF sensor.(?)
-        let i2c_baro_cfg = I2cConfig {
-            speed: I2cSpeed::Fast400K,
-            ..Default::default()
-        };
+        let mut i2c1 = I2c::new(dp.I2C1, i2c_gps_tof_cfg, &clock_cfg);
 
         // We use UART2 for the OSD, for DJI, via the MSP protocol.
         // todo: QC baud.
@@ -609,8 +614,6 @@ mod app {
             alt_msl: 3.,
         });
 
-        // user_cfg.aircraft_type = AircraftType::FlyingWing; // todo temp
-
         let mut ctrl_coeffs = Default::default();
         cfg_if! {
             if #[cfg(feature = "fixed-wing")] {
@@ -651,7 +654,13 @@ mod app {
         //     delay.delay_ms(2000);
         // }
 
-        // We use I2C2 for the barometer / altimeter.
+        // We use I2C for the TOF sensor.(?)
+        let i2c_baro_cfg = I2cConfig {
+            speed: I2cSpeed::Fast400K,
+            ..Default::default()
+        };
+
+        // We use I2C2 for offboard sensors: Magnetometer, GPS, and TOF sensor.
         let mut i2c2 = I2c::new(dp.I2C2, i2c_baro_cfg, &clock_cfg);
 
         println!("Setting up alt");
@@ -728,6 +737,7 @@ mod app {
         crate::init_sensors(
             &mut params,
             &mut altimeter,
+            &mut state_volatile.optional_sensor_status,
             &mut state_volatile.base_point,
             &mut i2c1,
             &mut i2c2,
@@ -1067,9 +1077,8 @@ mod app {
                     }
 
                     #[cfg(feature = "quad")]
-                    autopilot_status.apply(
+                    *state_volatile.autopilot_commands = autopilot_status.apply(
                         params,
-                        &mut state_volatile.autopilot_commands,
                         filters,
                         coeffs,
                         &state_volatile.optional_sensor_status,
@@ -1084,9 +1093,8 @@ mod app {
                     }
 
                     #[cfg(feature = "fixed-wing")]
-                    autopilot_status.apply(
+                    *state_volatile.autopilot_commands = autopilot_status.apply(
                         params,
-                        &mut state_volatile.autopilot_commands,
                         pid_attitude,
                         filters,
                         coeffs,

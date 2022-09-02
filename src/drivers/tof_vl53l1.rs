@@ -61,7 +61,13 @@ const THRESH_DIST: f32 = 12.; // meters. IOC VL53L1CB specs, and extended
 const THRESH_ANGLE: f32 = 0.03 * TAU; // radians, from level, in any direction.
 const READING_QUAL_THRESH: f32 = 0.7;
 
-pub fn setup(i2c: &mut I2c<I2C1>) {}
+pub struct GpsNotConnectedError {}
+
+pub fn setup(i2c: &mut I2c<I2C1>) -> Result<(), GpsNotConnectedError> {
+    // todo
+
+    Ok(())
+}
 
 // todo: Rethink this once you learn the sensor's caps adn API
 struct Reading {
