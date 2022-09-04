@@ -15,7 +15,7 @@ use crate::{
     control_interface::ChannelData,
     lin_alg::Quaternion,
     safety::ArmStatus,
-    state::{OptionalSensorStatus, UserCfg},
+    state::{SystemStatus, UserCfg},
     util::IirInstWrapper,
     DT_ATTITUDE,
 };
@@ -506,7 +506,7 @@ pub fn run_attitude(
     autopilot_status: &AutopilotStatus,
     cfg: &UserCfg,
     coeffs: &CtrlCoeffGroup,
-    optional_sensors: &OptionalSensorStatus,
+    optional_sensors: &SystemStatus,
 ) {
     // todo: Try to remove euler angles entirely!
 
@@ -563,7 +563,7 @@ pub fn run_attitude(
     filters: &mut PidDerivFilters,
     autopilot_status: &AutopilotStatus,
     coeffs: &CtrlCoeffGroup,
-    optional_sensors: &OptionalSensorStatus,
+    optional_sensors: &SystemStatus,
 ) {
     // Note that for fixed wing, we don't have attitude mode.
 

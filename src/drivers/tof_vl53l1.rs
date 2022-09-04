@@ -26,7 +26,7 @@ use core::f32::consts::TAU;
 
 use stm32_hal2::{i2c::I2c, pac::I2C1};
 
-use crate::lin_alg::{Quaternion, Vec3};
+use lin_alg2::f32::{Quaternion, Vec3};
 
 // use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sqrt_f32}; // todo: sqrt missing?
 use cmsis_dsp_sys::arm_cos_f32;

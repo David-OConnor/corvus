@@ -25,7 +25,9 @@ cmsis-dsp-sys = { git = "https://github.com/jacobrosenthal/cmsis-dsp-sys", branc
 #cmsis-dsp-api = { path = "../../../cmsis-dsp-api"}
 cmsis-dsp-api = { git = "https://github.com/David-OConnor/cmsis-dsp-api" }
 
-num-traits = { version = "0.2.14", default_features = false } # Absolute value, powers etc.
+lin_alg2 = { path = "../lin_alg", features = ["no_std"]}
+
+num-traits = { version = "0.2.15", default_features = false } # Absolute value, powers etc.
 
 cfg-if = "1.0.0"  # if/else blocks for feature-gating based on flight controller and MCU layout
 

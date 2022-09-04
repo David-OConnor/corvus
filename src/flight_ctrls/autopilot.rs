@@ -13,7 +13,7 @@ use crate::{
     lin_alg::Quaternion,
     pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::{Location, LocationType},
-    state::OptionalSensorStatus,
+    state::{SensorStatus, SystemStatus},
     DT_ATTITUDE,
 };
 
@@ -230,7 +230,7 @@ impl AutopilotStatus {
         // autopilot_commands: &mut CtrlInputs,
         filters: &mut PidDerivFilters,
         coeffs: &CtrlCoeffGroup,
-        optional_sensors: &OptionalSensorStatus,
+        system_status: &SystemStatus,
     ) -> CtrlInputs {
         // We use if/else logic on these to indicate they're mutually-exlusive. Modes listed first
         // take precedent.
@@ -259,15 +259,15 @@ impl AutopilotStatus {
                 thrust: Some(flight_ctrls::quad::takeoff_speed(to_speed, MAX_VER_SPEED)),
             };
         } else if let Some(ldg_cfg) = &self.land {
-            if optional_sensors.gps_connected {}
+            if system_status.gps == SensorStatus::Pass {}
         } else if let Some(pt) = &self.direct_to_point {
-            if optional_sensors.gps_connected {
+            if system_status.gps == SensorStatus::Pass {
                 let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
 
                 autopilot_commands.yaw = Some(target_heading);
             }
         } else if let Some(pt) = &self.loiter {
-            if optional_sensors.gps_connected {
+            if system_status.gps == SensorStatus::Pass {
                 // todo
             }
         }
@@ -283,7 +283,7 @@ impl AutopilotStatus {
         if self.alt_hold.is_some() && !self.takeoff && self.land.is_none() {
             let (alt_type, alt_commanded) = self.alt_hold.unwrap();
 
-            if !(alt_type == AltType::Agl && !optional_sensors.tof_connected) {
+            if !(alt_type == AltType::Agl && !system_status.tof == SensorStatus::Pass) {
                 // Set a vertical velocity for the inner loop to maintain, based on distance
                 let dist = match alt_type {
                     AltType::Msl => alt_commanded - params.baro_alt_msl,
@@ -321,7 +321,7 @@ impl AutopilotStatus {
         pid_attitude: &mut PidGroup,
         filters: &mut PidDerivFilters,
         coeffs: &CtrlCoeffGroup,
-        optional_sensors: &OptionalSensorStatus,
+        system_status: &SystemStatus,
     ) -> CtrlInputs {
         let mut autopilot_commands = Deafult::default();
 
@@ -336,7 +336,7 @@ impl AutopilotStatus {
                 )),
             };
         } else if let Some(ldg_cfg) = &self.land {
-            if optional_sensors.gps_connected {
+            if system_status.gps == SensorStatus::Pass {
                 let dist_to_touchdown = find_distance(
                     (ldg_cfg.touchdown_point.lat, ldg_cfg.touchdown_point.lon),
                     (params.lat, params.lon),
@@ -349,7 +349,7 @@ impl AutopilotStatus {
             }
             // todo: DRY between quad and FC here, although the diff is power vs pitch.
         } else if let Some(orbit) = &self.orbit {
-            if optional_sensors.gps_connected {
+            if system_status.gps == SensorStatus::Pass {
                 // todo: You'll get a smoother entry if you initially calculate, and fly to a point on the radius
                 // todo on a heading similar to your own angle to it. For now, fly directly to the point for
                 // todo simpler logic and good-enough.
@@ -386,7 +386,7 @@ impl AutopilotStatus {
                 };
             }
         } else if let Some(pt) = &self.direct_to_point {
-            if optional_sensors.gps_connected {
+            if system_status.gps == SensorStatus::Pass {
                 let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
 
                 let target_pitch = ((pt.alt_msl - params.baro_alt_msl)
@@ -409,7 +409,7 @@ impl AutopilotStatus {
         {
             let (alt_type, alt_commanded) = self.alt_hold.unwrap();
 
-            if !(alt_type == AltType::Agl && !optional_sensors.tof_connected) {
+            if !(alt_type == AltType::Agl && !system_status.tof == SensorStatus::Pass) {
                 // Set a vertical velocity for the inner loop to maintain, based on distance
                 let dist = match alt_type {
                     AltType::Msl => alt_commanded - params.baro_alt_msl,

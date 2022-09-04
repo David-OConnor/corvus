@@ -20,7 +20,9 @@
 
 // use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sin_f32 as sin};
 
-use crate::{ahrs_fusion::Ahrs, flight_ctrls::common::Params, imu, lin_alg::Vec3};
+use crate::{ahrs_fusion::Ahrs, flight_ctrls::common::Params, imu};
+
+use lin_alg2::f32::Vec3;
 
 // use defmt::println;
 

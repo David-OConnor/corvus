@@ -10,7 +10,7 @@ use crate::{
     },
     pid::PidGroup,
     ppks::{Location, LocationType},
-    state::OptionalSensorStatus,
+    state::{SensorStatus, SystemStatus},
 };
 
 use cfg_if::cfg_if;
@@ -142,7 +142,7 @@ pub fn handle_arm_status(
 /// procedure. This function behaves differently depending on if we've just entered it, or if
 /// we're in a steady-state.
 pub fn link_lost(
-    optional_sensor_status: &OptionalSensorStatus,
+    system_status: &SystemStatus,
     autopilot_status: &mut AutopilotStatus,
     // entering_lost_link: bool,
     params: &Params,
@@ -158,15 +158,15 @@ pub fn link_lost(
     autopilot_status.alt_hold = Some((AltType::Msl, LOST_LINK_RTB_ALT));
 
     #[cfg(feature = "quad")]
-    if optional_sensor_status.gps_connected {
+    if system_status.gps == SensorStatus::Pass {
         if (params.baro_alt_msl - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
             autopilot_status.direct_to_point = Some(base_pt.clone());
         }
     }
 
     #[cfg(feature = "fixed-wing")]
-    if optional_sensor_status.gps_connected {
-    } else if optional_sensor_status.magnetometer_connected {
+    if system_status.gps {
+    } else if system_status.magnetometer {
         if (params.baro_alt_msl - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
             autopilot_status.direct_to_point = Some(base_pt.clone());
         }

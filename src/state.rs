@@ -154,14 +154,31 @@ impl Default for UserCfg {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum SensorStatus {
+    Pass,
+    Fail,
+    /// Either an external sensor not plugged in, or a complete failture, werein it's not recognized.
+    NotConnected,
+}
+
+impl Default for SensorStatus {
+    fn default() -> Self {
+        Self::NotConnected
+    }
+}
+
 #[derive(Default)]
-pub struct OptionalSensorStatus {
+pub struct SystemStatus {
+    pub imu: SensorStatus,
+    pub baro: SensorStatus,
     /// The GPS module is connected. Detected on init.
-    pub gps_connected: bool,
+    pub gps: SensorStatus,
     /// The time-of-flight sensor module is connected. Detected on init.
-    pub tof_connected: bool,
-    /// A magnetometer is connected. Likely on the same module as GPS. Detected on init.
-    pub magnetometer_connected: bool,
+    pub tof: SensorStatus,
+    ///  magnetometer is connected. Likely on the same module as GPS. Detected on init.
+    pub magnetometer: SensorStatus,
+    pub esc_telemetry: SensorStatus,
 }
 
 /// State that doesn't get saved to flash.
@@ -172,7 +189,7 @@ pub struct StateVolatile {
     #[cfg(feature = "quad")]
     pub input_mode: InputMode,
     pub input_mode_switch: InputModeSwitch,
-    pub optional_sensor_status: OptionalSensorStatus,
+    pub system_status: SystemStatus,
     // FOr now, we use "link lost" to include never having been connected.
     // connected_to_controller: bool,
     pub link_lost: bool,

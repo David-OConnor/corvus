@@ -92,7 +92,7 @@ cfg_if! {
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
-use state::{OperationMode, OptionalSensorStatus, StateVolatile, UserCfg};
+use state::{OperationMode, SensorStatus, StateVolatile, SystemStatus, UserCfg};
 
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.
@@ -108,7 +108,6 @@ mod filter_imu;
 mod flight_ctrls;
 mod imu_calibration;
 mod imu_shared;
-mod lin_alg;
 mod ppks;
 mod protocols;
 mod safety;
@@ -235,11 +234,13 @@ const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500
 fn init_sensors(
     params: &mut Params,
     altimeter: &mut baro::Altimeter,
-    optional_sensor_status: &mut OptionalSensorStatus,
+    optional_sensor_status: &mut SystemStatus,
     base_pt: &mut Location,
     i2c1: &mut I2c<I2C1>,
     i2c2: &mut I2c<I2C2>,
-) {
+) -> SensorStatus {
+    let mut result = Default::default();
+
     let eps = 0.001;
 
     // Don't init if in motion.
@@ -253,13 +254,13 @@ fn init_sensors(
     }
 
     match gps::setup(i2c1) {
-        Ok(_) => optional_sensor_status.gps_connected = true,
-        Err(_) => optional_sensor_status.gps_connected = false,
+        Ok(_) => optional_sensor_status.gps = SensorStatus::Pass,
+        Err(_) => optional_sensor_status.gps = SensorStatus::NotConnected,
     }
 
     match tof::setup(i2c1) {
-        Ok(_) => optional_sensor_status.tof_connected = true,
-        Err(_) => optional_sensor_status.tof_connected = false,
+        Ok(_) => optional_sensor_status.tof = SensorStatus: Pass,
+        Err(_) => optional_sensor_status.tof = SensorStatus::NotConnected,
     }
 
     imu::setup(&mut spi1, &mut cs_imu, &mut delay);
@@ -287,6 +288,8 @@ fn init_sensors(
         }
     }
     // todo: Use Rel0 location type if unable to get fix.
+
+    result
 }
 
 #[rtic::app(device = pac, peripherals = false)]
@@ -458,7 +461,7 @@ mod app {
         // We use I2C1 for the GPS, magnetometer, and TOF sensor. Note that
         // the U-BLOX GPS' max speed is 400kHz.
         let i2c_gps_tof_cfg = I2cConfig {
-            speed: I2cSpeed::Fast400k,
+            speed: I2cSpeed::Fast400K,
             ..Default::default()
         };
 
@@ -734,10 +737,10 @@ mod app {
 
         // todo: For params, consider raw readings without DMA. Currently you're just passign in the
         // todo default; not going to cut it.?
-        crate::init_sensors(
+        state_volatile.system_status = crate::init_sensors(
             &mut params,
             &mut altimeter,
-            &mut state_volatile.optional_sensor_status,
+            &mut state_volatile.system_status,
             &mut state_volatile.base_point,
             &mut i2c1,
             &mut i2c2,
@@ -1098,7 +1101,7 @@ mod app {
                         pid_attitude,
                         filters,
                         coeffs,
-                        &state_volatile.optional_sensors,
+                        &state_volatile.system_status,
                     );
 
                     #[cfg(feature = "quad")]
@@ -1115,7 +1118,7 @@ mod app {
                         autopilot_status,
                         cfg,
                         coeffs,
-                        &state_volatile.optional_sensor_status,
+                        &state_volatile.system_status,
                     );
                     #[cfg(feature = "fixed-wing")]
                     pid::run_attitude(
@@ -1508,7 +1511,7 @@ mod app {
                     // We run this during the main loop, but here the `entering` flag is set to true,
                     // to initialize setup steps.
                     safety::link_lost(
-                        &state_volatile.optional_sensor_status,
+                        &state_volatile.system_status,
                         autopilot_status,
                         params,
                         &state_volatile.base_point,

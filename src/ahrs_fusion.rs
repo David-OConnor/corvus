@@ -27,10 +27,9 @@ use num_traits::float::Float; // abs etc
 
 use cmsis_dsp_sys::{arm_cos_f32, arm_sin_f32};
 
-use super::{
-    flight_ctrls::common::CtrlInputs,
-    lin_alg::{Quaternion, Vec3},
-};
+use super::flight_ctrls::common::CtrlInputs;
+
+use lin_alg2::f32::{Quaternion, Vec3};
 
 const G: f32 = 9.80665; // Gravity, in m/s^2
 
@@ -561,16 +560,4 @@ pub fn compass_calc_heading(accelerometer: Vec3, magnetometer: Vec3) -> f32 {
 
     // Calculate angular heading relative to magnetic north
     magnetic_west.x.atan2(magnetic_north.x)
-}
-
-/// Returns the arc sine of the value. Presumably used as a workaround for certain cases.
-/// (pub for use in lin_alg)
-pub fn fusion_asin(value: f32) -> f32 {
-    if value <= -1.0 {
-        return TAU / -4.0;
-    }
-    if value >= 1.0 {
-        return TAU / 4.0;
-    }
-    value.asin()
 }
