@@ -1,6 +1,6 @@
 //! This calibration functionality is from [AHRS](https://github.com/xioTechnologies/Fusion)
 
-use crate::lin_alg::{Mat3, Vec3};
+use lin_alg2::f32::{Mat3, Vec3};
 
 pub struct ImuCalibration {
     pub gyro_misalignment: Mat3,

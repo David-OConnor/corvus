@@ -10,7 +10,11 @@ use core::f32::consts::TAU;
 use stm32_hal2::{dma::Dma, pac::DMA1};
 
 use crate::{
-    control_interface::InputModeSwitch, dshot, safety::ArmStatus, state::StateVolatile, util,
+    control_interface::InputModeSwitch,
+    dshot,
+    safety::ArmStatus,
+    state::{SensorStatus, StateVolatile},
+    util,
 };
 
 use super::common::{InputMap, Motor, MotorTimers, Params};
@@ -741,7 +745,7 @@ pub fn set_input_mode(
     state_volatile.input_mode = match input_mode_control {
         InputModeSwitch::Acro => InputMode::Acro,
         InputModeSwitch::AttitudeCommand => {
-            if state_volatile.optional_sensor_status.gps_connected {
+            if state_volatile.system_status.gps == SensorStatus::Pass {
                 InputMode::Command
             } else {
                 InputMode::Attitude

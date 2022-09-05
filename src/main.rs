@@ -236,9 +236,12 @@ fn init_sensors(
     altimeter: &mut baro::Altimeter,
     optional_sensor_status: &mut SystemStatus,
     base_pt: &mut Location,
+    spi1: &mut Spi<SPI1>,
     i2c1: &mut I2c<I2C1>,
     i2c2: &mut I2c<I2C2>,
-) -> SensorStatus {
+    cs_imu: &mut Pin,
+    delay: &mut Delay,
+) -> SystemStatus {
     let mut result = Default::default();
 
     let eps = 0.001;
@@ -250,7 +253,7 @@ fn init_sensors(
         || params.v_pitch > eps
         || params.v_roll > eps
     {
-        return;
+        return result;
     }
 
     match gps::setup(i2c1) {
@@ -259,15 +262,15 @@ fn init_sensors(
     }
 
     match tof::setup(i2c1) {
-        Ok(_) => optional_sensor_status.tof = SensorStatus: Pass,
+        Ok(_) => optional_sensor_status.tof = SensorStatus::Pass,
         Err(_) => optional_sensor_status.tof = SensorStatus::NotConnected,
     }
 
-    imu::setup(&mut spi1, &mut cs_imu, &mut delay);
+    imu::setup(spi1, cs_imu, delay);
 
     if let Some(agl) = tof::read(params.quaternion, i2c1) {
         if agl > 0.01 {
-            return;
+            return result;
         }
     }
 
@@ -742,8 +745,11 @@ mod app {
             &mut altimeter,
             &mut state_volatile.system_status,
             &mut state_volatile.base_point,
+            &mut spi1,
             &mut i2c1,
             &mut i2c2,
+            &mut cs_imu,
+            &mut delay,
         );
 
         // loop {
@@ -1014,7 +1020,7 @@ mod app {
 
                     if state_volatile.link_lost {
                         safety::link_lost(
-                            &state_volatile.optional_sensor_status,
+                            &state_volatile.system_status,
                             autopilot_status,
                             params,
                             &state_volatile.base_point,
@@ -1080,11 +1086,11 @@ mod app {
                     }
 
                     #[cfg(feature = "quad")]
-                    *state_volatile.autopilot_commands = autopilot_status.apply(
+                    let ap_cmds = autopilot_status.apply(
                         params,
                         filters,
                         coeffs,
-                        &state_volatile.optional_sensor_status,
+                        &state_volatile.system_status,
                     );
 
                     // The rotation between the current orientation and the commanded one.
@@ -1096,13 +1102,17 @@ mod app {
                     }
 
                     #[cfg(feature = "fixed-wing")]
-                    *state_volatile.autopilot_commands = autopilot_status.apply(
+                    let ap_cmds = autopilot_status.apply(
                         params,
                         pid_attitude,
                         filters,
                         coeffs,
                         &state_volatile.system_status,
                     );
+
+                    // The intermediate variable is due to a attribute binding
+                    // issue with teh direct approach.
+                    state_volatile.autopilot_commands = ap_cmds;
 
                     #[cfg(feature = "quad")]
                     pid::run_attitude(

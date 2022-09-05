@@ -14,12 +14,13 @@ use crate::{
     control_interface::ChannelData,
     dshot,
     flight_ctrls::{self, common::MotorTimers, ControlMapping},
-    lin_alg::Quaternion,
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},
     safety::ArmStatus,
     state::{OperationMode, MAX_WAYPOINTS},
     util, LinkStats,
 };
+
+use lin_alg2::f32::Quaternion;
 
 use cfg_if::cfg_if;
 
@@ -139,17 +140,14 @@ impl MsgType {
     }
 }
 
-impl From<Quaternion> for [u8; QUATERNION_SIZE] {
-    /// 4 f32s = 76. In the order we have defined in the struct.
-    fn from(p: Quaternion) -> Self {
-        let mut result = [0; QUATERNION_SIZE];
+fn quat_to_bytes(p: Quaternion) -> [u8; QUATERNION_SIZE] {
+    let mut result = [0; QUATERNION_SIZE];
 
-        result[0..4].clone_from_slice(&p.w.to_be_bytes());
-        result[4..8].clone_from_slice(&p.x.to_be_bytes());
-        result[8..12].clone_from_slice(&p.y.to_be_bytes());
-        result[12..16].clone_from_slice(&p.z.to_be_bytes());
-        result
-    }
+    result[0..4].clone_from_slice(&p.w.to_be_bytes());
+    result[4..8].clone_from_slice(&p.x.to_be_bytes());
+    result[8..12].clone_from_slice(&p.y.to_be_bytes());
+    result[12..16].clone_from_slice(&p.z.to_be_bytes());
+    result
 }
 
 impl From<&ChannelData> for [u8; CONTROLS_SIZE] {
@@ -270,7 +268,7 @@ pub fn handle_rx(
             tx_buf[i] = MsgType::Params as u8;
             i += 1;
 
-            let attitude_buf: [u8; QUATERNION_SIZE] = attitude.into();
+            let attitude_buf = quat_to_bytes(attitude);
             tx_buf[i..QUATERNION_SIZE + i].copy_from_slice(&attitude_buf);
             i += QUATERNION_SIZE;
 

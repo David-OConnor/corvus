@@ -6,9 +6,11 @@
 // todo: For that last option, perhaps impl wise to maintain 8kHz etc update rate, make the inner
 // todo loop attitude-based, instead of deferring to the mid loop.
 
-use crate::{lin_alg::Quaternion, ppks::Location, safety::ArmStatus, util::map_linear};
+use crate::{ppks::Location, safety::ArmStatus, util::map_linear};
 
 use stm32_hal2::{pac, timer::Timer};
+
+use lin_alg2::f32::Quaternion;
 
 use cfg_if::cfg_if;
 

@@ -10,7 +10,6 @@ use crate::{
         self,
         common::{AltType, CtrlInputs, InputMap, Params},
     },
-    lin_alg::Quaternion,
     pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::{Location, LocationType},
     state::{SensorStatus, SystemStatus},
@@ -235,7 +234,7 @@ impl AutopilotStatus {
         // We use if/else logic on these to indicate they're mutually-exlusive. Modes listed first
         // take precedent.
 
-        let mut autopilot_commands = Deafult::default();
+        let mut autopilot_commands = CtrlInputs::default();
 
         // todo: sensors check for this fn, and for here and fixed.
         // todo sensor check for alt hold agl
@@ -252,7 +251,7 @@ impl AutopilotStatus {
                 None => params.baro_alt_msl, // todo temp?
             };
 
-            *autopilot_commands = CtrlInputs {
+            autopilot_commands = CtrlInputs {
                 pitch: Some(0.),
                 roll: Some(0.),
                 yaw: None,
@@ -283,7 +282,7 @@ impl AutopilotStatus {
         if self.alt_hold.is_some() && !self.takeoff && self.land.is_none() {
             let (alt_type, alt_commanded) = self.alt_hold.unwrap();
 
-            if !(alt_type == AltType::Agl && !system_status.tof == SensorStatus::Pass) {
+            if !(alt_type == AltType::Agl && system_status.tof != SensorStatus::Pass) {
                 // Set a vertical velocity for the inner loop to maintain, based on distance
                 let dist = match alt_type {
                     AltType::Msl => alt_commanded - params.baro_alt_msl,

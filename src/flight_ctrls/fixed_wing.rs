@@ -56,6 +56,15 @@ cfg_if! {
     }
 }
 
+// These values are to set middle, min and max values of 1.5ms, 1ms, and 2ms used
+// by common hobby servos.
+// Calculations, assuming frequency of 500Hz; 500Hz = 2ms.
+// ARR indicates
+const ARR_MIN: u32 = ARR_SERVOS / 2;
+const ARR_MID: u32 = ARR_SERVOS * 3 / 4;
+// Don't us full ARR: there needs to be some low time.
+const ARR_MAX: u32 = ARR_SERVOS - 100;
+
 impl Default for InputMap {
     fn default() -> Self {
         Self {
@@ -79,25 +88,25 @@ pub fn set_elevon_posit(
     mapping: &ControlMapping,
     timers: &mut MotorTimers,
 ) {
-    let range_out = match elevon {
+    let range_in = match elevon {
         ServoWing::S1 => {
             if mapping.s1_reversed {
-                (mapping.servo_duty_high, mapping.servo_duty_low)
+                (mapping.servo_high, -mapping.servo_high)
             } else {
-                (mapping.servo_duty_low, mapping.servo_duty_high)
+                (-mapping.servo_high, mapping.servo_high)
             }
         }
         ServoWing::S2 => {
             if mapping.s2_reversed {
-                (mapping.servo_duty_high, mapping.servo_duty_low)
+                (mapping.servo_high, -mapping.servo_high)
             } else {
-                (mapping.servo_duty_low, mapping.servo_duty_high)
+                (-mapping.servo_high, mapping.servo_high)
             }
         }
     };
 
-    let duty_arr =
-        util::map_linear(position, (ELEVON_MIN, ELEVON_MAX), range_out) as u32 * ARR_SERVOS;
+    // todo: Consider storring ARR_MIN and ARR_MAX as f32.
+    let duty_arr = util::map_linear(position, range_in, (ARR_MIN as f32, ARR_MAX as f32)) as u32;
 
     #[cfg(feature = "h7")]
     timers
@@ -181,13 +190,14 @@ pub struct ControlMapping {
     /// Reverse direction is somewhat arbitrary.
     pub s1_reversed: bool,
     pub s2_reversed: bool,
-    /// These represent full scale deflection of the evelons, assuming 500kHz PWM frequency,
-    /// on a scale of 0. to 1.
+    /// These represent full scale deflection of the evelons, on a scale of -1 to +1.
     /// We don't use full ARR for max high, since that would be full high the whole time.
-    /// multiply these value by the servo timer ARR value to find the duty for entering into timers.
-    /// Note that in the config we set up different values, but it distills to this.
-    pub servo_duty_high: f32,
-    pub servo_duty_low: f32,
+    /// Note that the 0 position is fixed; we don't map between these two values; we map between
+    /// 0 and each of these.
+    /// Note: We currently clamp high and low to be on opposite sides of 0. This may not reflect
+    /// control surface reality, but keeps things simple, and should be good enough to start.
+    pub servo_high: f32,
+    // pub servo_low: f32,
 }
 
 impl Default for ControlMapping {
@@ -197,8 +207,8 @@ impl Default for ControlMapping {
             s2: ServoWingPosition::Right,
             s1_reversed: false,
             s2_reversed: true,
-            servo_duty_high: 0.2,
-            servo_duty_low: 0.7,
+            servo_high: 0.5,
+            // servo_low: -0.5,
         }
     }
 }

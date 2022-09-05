@@ -57,6 +57,11 @@ fn sin(v: f32) -> f32 {
     unsafe { arm_sin_f32(v) }
 }
 
+fn is_zero(v: Vec3) -> bool {
+    const EPS: f32 = 0.00001;
+    v.x.abs() < EPS && v.y.abs() < EPS && v.z.abs() < EPS
+}
+
 /// AHRS algorithm settings. Field doc comments here are from [the readme](https://github.com/xioTechnologies/Fusion).
 pub struct Settings {
     /// The algorithm calculates the orientation as the integration of the gyroscope
@@ -153,11 +158,11 @@ impl Ahrs {
     /// param ahrs AHRS algorithm structure.
     fn reset(&mut self) {
         self.quaternion = Quaternion::new_identity();
-        self.accelerometer = Vec3::zero();
+        self.accelerometer = Vec3::new_zero();
         self.initialising = true;
         self.ramped_gain = INITIAL_GAIN;
-        self.half_accelerometer_feedback = Vec3::zero();
-        self.half_magnetometer_feedback = Vec3::zero();
+        self.half_accelerometer_feedback = Vec3::new_zero();
+        self.half_magnetometer_feedback = Vec3::new_zero();
         self.accelerometer_ignored = false;
         self.accel_rejection_timer = 0;
         self.accel_rejection_timeout = false;
@@ -219,9 +224,9 @@ impl Ahrs {
         }; // third column of transposed rotation matrix scaled by 0.5
 
         // Calculate accelerometer feedback
-        let mut half_accelerometer_feedback = Vec3::zero();
+        let mut half_accelerometer_feedback = Vec3::new_zero();
         self.accelerometer_ignored = true;
-        if !accel_data.is_zero() {
+        if !is_zero(accel_data) {
             // Enter acceleration recovery state if acceleration rejection times out
             if self.accel_rejection_timer > self.settings.rejection_timeout {
                 let quaternion = self.quaternion;
@@ -252,9 +257,9 @@ impl Ahrs {
         }
 
         // Calculate magnetometer feedback
-        let mut half_magnetometer_feedback = Vec3::zero();
+        let mut half_magnetometer_feedback = Vec3::new_zero();
         self.magnetometer_ignored = true;
-        if !mag_data.is_zero() {
+        if !is_zero(mag_data) {
             // Set to compass heading if magnetic rejection times out
             self.mag_rejection_timeout = false;
             if self.mag_rejection_timer > self.settings.rejection_timeout {
@@ -314,7 +319,7 @@ impl Ahrs {
     /// dt is in seconds.
     pub fn update_no_magnetometer(&mut self, gyroscope: Vec3, accelerometer: Vec3, dt: f32) {
         // Update AHRS algorithm
-        self.update(gyroscope, accelerometer, Vec3::zero(), dt);
+        self.update(gyroscope, accelerometer, Vec3::new_zero(), dt);
 
         // Zero heading during initialisation
         if self.initialising && !self.accel_rejection_timeout {
@@ -514,7 +519,7 @@ impl Offset {
             filter_coefficient: TAU * CUTOFF_FREQUENCY * (1. / sample_rate as f32),
             timeout: TIMEOUT * sample_rate,
             timer: 0,
-            gyroscope_offset: Vec3::zero(),
+            gyroscope_offset: Vec3::new_zero(),
         }
     }
 
@@ -560,4 +565,14 @@ pub fn compass_calc_heading(accelerometer: Vec3, magnetometer: Vec3) -> f32 {
 
     // Calculate angular heading relative to magnetic north
     magnetic_west.x.atan2(magnetic_north.x)
+}
+
+fn fusion_asin(value: f32) -> f32 {
+    if value <= -1.0 {
+        return TAU / -4.0;
+    }
+    if value >= 1.0 {
+        return TAU / 4.0;
+    }
+    value.asin()
 }

@@ -13,7 +13,6 @@ use cmsis_dsp_sys as dsp_sys;
 
 use crate::{
     control_interface::ChannelData,
-    lin_alg::Quaternion,
     safety::ArmStatus,
     state::{SystemStatus, UserCfg},
     util::IirInstWrapper,
@@ -26,6 +25,8 @@ use super::{
     common::{CtrlInputs, InputMap, MotorTimers, Params},
     ControlMapping,
 };
+
+use lin_alg2::f32::Quaternion;
 
 use cfg_if::cfg_if;
 

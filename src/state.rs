@@ -9,11 +9,12 @@ use crate::{
         common::{CtrlInputs, InputMap},
         ControlMapping,
     },
-    lin_alg::Quaternion,
     ppks::Location,
     safety::ArmStatus,
     usb_cfg::WAYPOINT_SIZE,
 };
+
+use lin_alg2::f32::Quaternion;
 
 use cfg_if::cfg_if;
 

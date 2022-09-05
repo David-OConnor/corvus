@@ -1,12 +1,11 @@
 //! This module contains code for attitude-based controls. This includes sticks mapping
 //! to attitude, and an internal attitude model with rate-like controls.
 
-use crate::{
-    control_interface::ChannelData,
-    lin_alg::{Quaternion, Vec3},
-};
+use crate::control_interface::ChannelData;
 
 use super::common::CtrlInputs;
+
+use lin_alg2::f32::{Quaternion, Vec3};
 
 #[cfg(feature = "quad")]
 use super::MotorPower;
