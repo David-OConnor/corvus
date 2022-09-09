@@ -145,21 +145,21 @@ pub fn setup_timers(timers: &mut MotorTimers) {
     // PAC, since our HAL currently only sets this on `new`.
     servo_tim.regs.cr1.modify(|_, w| w.opm().set_bit());
 
-    // Set servo pins to pull-down, to make sure they don't send an errant pulse that triggers a
-    // movement out-of-range of the control surfaces.
+    // Set servo pins to pull-up, to make sure they don't shorten a pulse on a MCU reset
+    // or similar condition.
     // todo: #1: Don't hard-code these pins. #2: Consider if this is helping and/or sufficient.
     #[cfg(feature = "h7")]
     unsafe {
         (*pac::GPIOC::ptr()).pupdr.modify(|_, w| {
-            w.pupdr8().bits(0b10);
-            w.pupdr9().bits(0b10)
+            w.pupdr8().bits(0b01);
+            w.pupdr9().bits(0b01)
         });
     }
     #[cfg(feature = "g4")]
     unsafe {
         (*pac::GPIOB::ptr()).pupdr.modify(|_, w| {
-            w.pupdr0().bits(0b10);
-            w.pupdr1().bits(0b10)
+            w.pupdr0().bits(0b01);
+            w.pupdr1().bits(0b01)
         });
     }
 

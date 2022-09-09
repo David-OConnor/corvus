@@ -33,6 +33,16 @@ const THROTTLE_IN_RNG: (f32, f32) = (0., 1.);
 // Time in seconds between subsequent data received before we execute lost-link procedures.
 pub const LOST_LINK_TIMEOUT: f32 = 1.;
 
+/// Command a quaternion attitude, part of all of a Euler angle attitude, or neither.
+/// If both a quaternion and euler angle are present, favor the quaternion.
+#[derive(Default)]
+pub struct AttitudeCommanded {
+    pub quat: Option<Quaternion>,
+    pub pitch: Option<f32>,
+    pub roll: Option<f32>,
+    pub yaw: Option<f32>,
+}
+
 /// Specify the rotor by its connection to the ESC. Includdes methods that get information regarding timer
 /// and DMA, per specific board setups, in `setup`.
 #[derive(Clone, Copy)]

@@ -3,10 +3,14 @@
 
 use cfg_if::cfg_if;
 
+use cortex_m::delay::Delay;
+
 use stm32_hal2::{
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
-    pac::DMA1,
+    i2c::I2c,
+    pac::{DMA1, I2C1, I2C2, SPI1},
+    spi::Spi,
     timer::TimChannel,
 };
 
@@ -16,7 +20,12 @@ cfg_if! {
     } else {
     }
 }
-use crate::flight_ctrls::common::Motor;
+use crate::{
+    drivers::{baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu, tof_vl53l1 as tof},
+    flight_ctrls::common::{AttitudeCommanded, Motor, Params},
+    ppks::{Location, LocationType},
+    state::{SensorStatus, SystemStatus},
+};
 
 // Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
@@ -30,6 +39,72 @@ pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
 pub const CRSF_TX_CH: DmaChannel = DmaChannel::C6;
 
 pub const BATT_CURR_DMA_CH: DmaChannel = DmaChannel::C7;
+
+/// Run on startup, or when desired. Run on the ground. Gets an initial GPS fix,
+/// and other initialization functions.
+pub fn init_sensors(
+    params: &mut Params,
+    altimeter: &mut baro::Altimeter,
+    optional_sensor_status: &mut SystemStatus,
+    base_pt: &mut Location,
+    spi1: &mut Spi<SPI1>,
+    i2c1: &mut I2c<I2C1>,
+    i2c2: &mut I2c<I2C2>,
+    cs_imu: &mut Pin,
+    delay: &mut Delay,
+) -> SystemStatus {
+    let mut result = Default::default();
+
+    let eps = 0.001;
+
+    // Don't init if in motion.
+    if params.v_x > eps
+        || params.v_y > eps
+        || params.v_z > eps
+        || params.v_pitch > eps
+        || params.v_roll > eps
+    {
+        return result;
+    }
+
+    match gps::setup(i2c1) {
+        Ok(_) => optional_sensor_status.gps = SensorStatus::Pass,
+        Err(_) => optional_sensor_status.gps = SensorStatus::NotConnected,
+    }
+
+    match tof::setup(i2c1) {
+        Ok(_) => optional_sensor_status.tof = SensorStatus::Pass,
+        Err(_) => optional_sensor_status.tof = SensorStatus::NotConnected,
+    }
+
+    imu::setup(spi1, cs_imu, delay);
+
+    if let Some(agl) = tof::read(params.quaternion, i2c1) {
+        if agl > 0.01 {
+            return result;
+        }
+    }
+
+    let fix = gps::get_fix(i2c1);
+
+    match fix {
+        Ok(f) => {
+            params.lon = f.lon;
+            params.lat = f.lat;
+            params.baro_alt_msl = f.alt_msl;
+
+            *base_pt = Location::new(LocationType::LatLon, f.lat, f.lon, f.alt_msl);
+
+            altimeter.calibrate_from_gps(Some(f.alt_msl), i2c2);
+        }
+        Err(_) => {
+            altimeter.calibrate_from_gps(None, i2c2);
+        }
+    }
+    // todo: Use Rel0 location type if unable to get fix.
+
+    result
+}
 
 cfg_if! {
     if #[cfg(feature = "h7")] {

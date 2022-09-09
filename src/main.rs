@@ -141,8 +141,8 @@ cfg_if! {
         // G47x/G48x: 512k flash.
         // Assumes configured as a single bank: 128 pages of 4kb each.
         // (If using G4 dual bank mode: 128 pages of pages of 2kb each, per bank)
-        const FLASH_CFG_PAGE: usize = 254; // todo: Set to 126 etc when on G474!
-        const FLASH_WAYPOINT_PAGE: usize = 255; // todo: Set to 126 etc when on G474!
+        const FLASH_CFG_PAGE: usize = 126;
+        const FLASH_WAYPOINT_PAGE: usize = 127;
 
         const IMU_UPDATE_RATE: f32 = 6_760.;
     }
@@ -192,28 +192,29 @@ const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500
 
 // todo: Bit flags that display as diff colored LEDs, and OSD items
 
-/// Data dump from Hypershield on Matrix:
-/// You typically don't change the PID gains during flight. They are often tuned experimentally by
-///  first tuning the attitude gains, then altitude pid and then the horizontal pids. If you want your
-///  pids to cover a large flight envelope (agile flight, hover) then you can use different flight modes
-///  that switch between the different gains or use gain scheduling. I don't see a reason to use pitot
-/// tubes for a quadrotor. Pitot tubes are used to get the airspeed for fixed-wing cause it has a large
-/// influence on the aerodynamics. For a quadrotor it's less important and if you want your velocity
-/// it's more common to use a down ward facing camera that uses optical flow. If you want LIDAR
-/// (velodyne puck for instance) then we are talking about a very large quadrotor, similar to
-///
-/// the ones used for the darpa subterranean challenge. Focus rather on something smaller first.
-///  The STM32F4 series is common for small quadrotors but if you want to do any sort of SLAM or
-/// VIO processing you'll need a companion computer since that type of processing is very demanding.
-///  You don't need a state estimator if you are manually flying it and the stick is provided desired
-/// angular velocities (similar to what emuflight does). For autonomous flight you need a state estimator
-///  where the Extended Kalman Filter is the most commonly used one. A state estimator does not
-/// estimate flight parameters, but it estimates the state of the quadrotor (typically position,
-/// velocity, orientation). Flight parameters would need to be obtained experimentally for
-/// instance through system identification methods (an EKF can actually be used for this purpose
-/// by pretending the unknown parameters are states). When it comes to the I term for a PID you
-/// would typically create a PID struct or class where the I term is a member, then whenever
-///  you compute the output of the PID you also update this variable. See here for instance:
+// Data dump from Hypershield on Matrix:
+// You typically don't change the PID gains during flight. They are often tuned experimentally by
+//  first tuning the attitude gains, then altitude pid and then the horizontal pids. If you want your
+//  pids to cover a large flight envelope (agile flight, hover) then you can use different flight modes
+//  that switch between the different gains or use gain scheduling. I don't see a reason to use pitot
+// tubes for a quadrotor. Pitot tubes are used to get the airspeed for fixed-wing cause it has a large
+// influence on the aerodynamics. For a quadrotor it's less important and if you want your velocity
+// it's more common to use a down ward facing camera that uses optical flow. If you want LIDAR
+// (velodyne puck for instance) then we are talking about a very large quadrotor, similar to
+//
+// the ones used for the darpa subterranean challenge. Focus rather on something smaller first.
+//  The STM32F4 series is common for small quadrotors but if you want to do any sort of SLAM or
+// VIO processing you'll need a companion computer since that type of processing is very demanding.
+//  You don't need a state estimator if you are manually flying it and the stick is provided desired
+// angular velocities (similar to what emuflight does). For autonomous flight you need a state estimator
+//  where the Extended Kalman Filter is the most commonly used one. A state estimator does not
+// estimate flight parameters, but it estimates the state of the quadrotor (typically position,
+// velocity, orientation). Flight parameters would need to be obtained experimentally for
+// instance through system identification methods (an EKF can actually be used for this purpose
+// by pretending the unknown parameters are states). When it comes to the I term for a PID you
+// would typically create a PID struct or class where the I term is a member, then whenever
+//  you compute the output of the PID you also update this variable. See here for instance:
+//
 // https://www.youtube.com/watch?v=zOByx3Izf5U
 // For state estimation
 // https://www.youtube.com/watch?v=RZd6XDx5VXo (Series)
@@ -223,77 +224,10 @@ const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08oOLBVYYIwwN_nvuyUqEjrj
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pQBgjxYFXSsODEF3Jqmm-y
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pFBqgd_6Bi7msgkWFKL33b
-///
-///
-///
-/// todo: Movable camera that moves with head motion.
-/// - Ir cam to find or avoid people
 
-/// Run on startup, or when desired. Run on the ground. Gets an initial GPS fix,
-/// and other initialization functions.
-fn init_sensors(
-    params: &mut Params,
-    altimeter: &mut baro::Altimeter,
-    optional_sensor_status: &mut SystemStatus,
-    base_pt: &mut Location,
-    spi1: &mut Spi<SPI1>,
-    i2c1: &mut I2c<I2C1>,
-    i2c2: &mut I2c<I2C2>,
-    cs_imu: &mut Pin,
-    delay: &mut Delay,
-) -> SystemStatus {
-    let mut result = Default::default();
 
-    let eps = 0.001;
-
-    // Don't init if in motion.
-    if params.v_x > eps
-        || params.v_y > eps
-        || params.v_z > eps
-        || params.v_pitch > eps
-        || params.v_roll > eps
-    {
-        return result;
-    }
-
-    match gps::setup(i2c1) {
-        Ok(_) => optional_sensor_status.gps = SensorStatus::Pass,
-        Err(_) => optional_sensor_status.gps = SensorStatus::NotConnected,
-    }
-
-    match tof::setup(i2c1) {
-        Ok(_) => optional_sensor_status.tof = SensorStatus::Pass,
-        Err(_) => optional_sensor_status.tof = SensorStatus::NotConnected,
-    }
-
-    imu::setup(spi1, cs_imu, delay);
-
-    if let Some(agl) = tof::read(params.quaternion, i2c1) {
-        if agl > 0.01 {
-            return result;
-        }
-    }
-
-    let fix = gps::get_fix(i2c1);
-
-    match fix {
-        Ok(f) => {
-            params.lon = f.lon;
-            params.lat = f.lat;
-            params.baro_alt_msl = f.alt_msl;
-
-            *base_pt = Location::new(LocationType::LatLon, f.lat, f.lon, f.alt_msl);
-
-            altimeter.calibrate_from_gps(Some(f.alt_msl), i2c2);
-        }
-        Err(_) => {
-            altimeter.calibrate_from_gps(None, i2c2);
-        }
-    }
-    // todo: Use Rel0 location type if unable to get fix.
-
-    result
-}
+// todo: Movable camera that moves with head motion.
+// - Ir cam to find or avoid people
 
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
@@ -301,7 +235,6 @@ mod app {
 
     #[shared]
     struct Shared {
-        // profile: FlightProfile,
         user_cfg: UserCfg,
         state_volatile: StateVolatile,
         autopilot_status: AutopilotStatus,
@@ -314,7 +247,6 @@ mod app {
         pid_attitude: PidGroup,
         pid_rate: PidGroup,
         control_channel_data: ChannelData,
-        // manual_inputs: CtrlInputs,
         dma: Dma<DMA1>,
         spi1: Spi<SPI1>,
         cs_imu: Pin,
@@ -324,15 +256,15 @@ mod app {
         uart_elrs: Usart<UART_ELRS>, // for ELRS over CRSF.
         flash_onboard: Flash,
         batt_curr_adc: Adc<ADC>,
-        // rtc: Rtc,
+        /// rtc: Rtc,
         rf_limiter_timer: Timer<TIM16>,
         lost_link_timer: Timer<TIM17>,
         motor_timers: MotorTimers,
         usb_dev: UsbDevice<'static, UsbBusType>,
         usb_serial: SerialPort<'static, UsbBusType>,
-        // `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
+        /// `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
         power_used: f32,
-        // Store filter instances for the PID loop derivatives. One for each param used.
+        /// Store filter instances for the PID loop derivatives. One for each param used.
         pid_deriv_filters: PidDerivFilters,
         imu_filters: ImuFilters,
         ahrs: Ahrs,
@@ -740,7 +672,7 @@ mod app {
 
         // todo: For params, consider raw readings without DMA. Currently you're just passign in the
         // todo default; not going to cut it.?
-        state_volatile.system_status = crate::init_sensors(
+        state_volatile.system_status = setup::init_sensors(
             &mut params,
             &mut altimeter,
             &mut state_volatile.system_status,

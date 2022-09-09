@@ -22,7 +22,7 @@ use crate::{
 use super::{
     attitude_ctrls,
     autopilot::AutopilotStatus,
-    common::{CtrlInputs, InputMap, MotorTimers, Params},
+    common::{AttitudeCommanded, CtrlInputs, InputMap, MotorTimers, Params},
     ControlMapping,
 };
 
@@ -439,7 +439,7 @@ fn attitude_apply_common(
     pid_attitude: &mut PidGroup,
     rates_commanded: &mut CtrlInputs,
     params: &Params,
-    attitude_commanded: &Quaternion,
+    attitude_commanded: &AttitudeCommanded,
     autopilot_commands: &CtrlInputs,
     coeffs: &CtrlCoeffGroup,
     filters: &mut PidDerivFilters,
@@ -496,7 +496,7 @@ fn attitude_apply_common(
 /// attitude. Modifies `rates_commanded`, which is used by the rate PID loop.
 pub fn run_attitude(
     params: &Params,
-    attitude_commanded: &mut Quaternion,
+    attitude_commanded: &mut AttitudeCommanded,
     autopilot_commands: &CtrlInputs,
     ch_data: &ChannelData,
     input_map: &InputMap,
@@ -526,7 +526,10 @@ pub fn run_attitude(
         // If in Attitude control mode, command our initial (pre-autopilot) attitudes based on
         // control positions.
         InputMode::Attitude => {
-            *attitude_commanded = attitude_ctrls::from_controls(ch_data);
+            *attitude_commanded = AttitudeCommanded {
+                quat: Some(attitude_ctrls::from_controls(ch_data)),
+                ..Default::default()
+            }
             // *attitudes_commanded = CtrlInputs {
             //     pitch: Some(input_map.calc_pitch_angle(ch_data.pitch)),
             //     roll: Some(input_map.calc_roll_angle(ch_data.roll)),
@@ -557,7 +560,7 @@ pub fn run_attitude(
 /// Modifies `rates_commanded`, which is used by the rate PID loop.
 pub fn run_attitude(
     params: &Params,
-    attitude_commanded: &Quaternion,
+    attitude_commanded: &AttitudeCommanded,
     autopilot_commands: &mut CtrlInputs,
     rates_commanded: &mut CtrlInputs,
     pid_attitude: &mut PidGroup,
