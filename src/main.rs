@@ -82,8 +82,7 @@ use flight_ctrls::{
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
-        use autopilot::Orbit;
-        use flight_ctrls::{ControlPositions};
+        use flight_ctrls::{autopilot::Orbit, ControlPositions};
     } else {
         use flight_ctrls::{AxisLocks, InputMode, MotorPower, RotationDir, RotorPosition};
     }
@@ -224,7 +223,6 @@ const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08oOLBVYYIwwN_nvuyUqEjrj
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pQBgjxYFXSsODEF3Jqmm-y
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pFBqgd_6Bi7msgkWFKL33b
-
 
 // todo: Movable camera that moves with head motion.
 // - Ir cam to find or avoid people
@@ -1028,8 +1026,15 @@ mod app {
                     // The rotation between the current orientation and the commanded one.
                     // todo: Impl once you've sorted out your control logic.
                     if cfg.attitude_based_rate_mode {
-                        let rotation_cmd =
-                            state_volatile.attitude_commanded * params.quaternion.inverse();
+                        match state_volatile.attitude_commanded.quat {
+                            Some(quat) => {
+                                let rotation_cmd = quat * params.quaternion.inverse();
+                            }
+                            None => {
+                                println!("Attempted attitude mode withno quaternion commanded")
+                            }
+                        }
+
                         // todo: QC order on this
                     }
 
@@ -1049,8 +1054,8 @@ mod app {
                     #[cfg(feature = "quad")]
                     pid::run_attitude(
                         params,
-                        &mut state_volatile.attitude_commanded,
-                        &state_volatile.autopilot_commands,
+                        &state_volatile.attitude_commanded,
+                        &mut state_volatile.autopilot_commands,
                         control_channel_data,
                         &cfg.input_map,
                         rates_commanded,
@@ -1065,14 +1070,14 @@ mod app {
                     #[cfg(feature = "fixed-wing")]
                     pid::run_attitude(
                         params,
-                        state_volatile.attitude_commanded,
-                        &state_volatile.autopilot_commands,
+                        &state_volatile.attitude_commanded,
+                        &mut state_volatile.autopilot_commands,
                         rates_commanded,
                         pid_attitude,
                         filters,
                         autopilot_status,
                         coeffs,
-                        &state_volatile.optional_sensor_status,
+                        &state_volatile.system_status,
                     );
 
                     #[cfg(feature = "quad")]

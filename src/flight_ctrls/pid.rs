@@ -496,8 +496,8 @@ fn attitude_apply_common(
 /// attitude. Modifies `rates_commanded`, which is used by the rate PID loop.
 pub fn run_attitude(
     params: &Params,
-    attitude_commanded: &mut AttitudeCommanded,
-    autopilot_commands: &CtrlInputs,
+    attitude_commanded: &AttitudeCommanded,
+    autopilot_commands: &mut CtrlInputs,
     ch_data: &ChannelData,
     input_map: &InputMap,
     rates_commanded: &mut CtrlInputs,
@@ -567,7 +567,7 @@ pub fn run_attitude(
     filters: &mut PidDerivFilters,
     autopilot_status: &AutopilotStatus,
     coeffs: &CtrlCoeffGroup,
-    optional_sensors: &SystemStatus,
+    system_status: &SystemStatus,
 ) {
     // Note that for fixed wing, we don't have attitude mode.
 
@@ -575,7 +575,7 @@ pub fn run_attitude(
         pid_attitude,
         rates_commanded,
         params,
-        attitudes_commanded,
+        attitude_commanded,
         autopilot_commands,
         coeffs,
         filters,
@@ -768,7 +768,7 @@ pub fn run_rate(
         dt,
     );
 
-    flight_ctrls::apply_controls(
+    super::apply_controls(
         pitch,
         roll,
         throttle,

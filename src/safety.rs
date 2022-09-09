@@ -165,8 +165,8 @@ pub fn link_lost(
     }
 
     #[cfg(feature = "fixed-wing")]
-    if system_status.gps {
-    } else if system_status.magnetometer {
+    if system_status.gps == SensorStatus::Pass {
+    } else if system_status.magnetometer == SensorStatus::Pass {
         if (params.baro_alt_msl - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
             autopilot_status.direct_to_point = Some(base_pt.clone());
         }

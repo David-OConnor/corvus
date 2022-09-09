@@ -29,7 +29,7 @@ use cfg_if::cfg_if;
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
     } else {
-        use crate::flight_ctrls::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED};
+        use crate::flight_ctrls::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED, takeoff_speed};
     }
 }
 
@@ -255,7 +255,7 @@ impl AutopilotStatus {
                 pitch: Some(0.),
                 roll: Some(0.),
                 yaw: None,
-                thrust: Some(flight_ctrls::quad::takeoff_speed(to_speed, MAX_VER_SPEED)),
+                thrust: Some(takeoff_speed(to_speed, MAX_VER_SPEED)),
             };
         } else if let Some(ldg_cfg) = &self.land {
             if system_status.gps == SensorStatus::Pass {}
@@ -322,17 +322,14 @@ impl AutopilotStatus {
         coeffs: &CtrlCoeffGroup,
         system_status: &SystemStatus,
     ) -> CtrlInputs {
-        let mut autopilot_commands = Deafult::default();
+        let mut autopilot_commands = CtrlInputs::default();
 
         if self.takeoff {
-            *autopilot_commands = CtrlInputs {
+            autopilot_commands = CtrlInputs {
                 pitch: Some(TAKEOFF_PITCH),
                 roll: Some(0.),
                 yaw: None,
-                thrust: Some(flight_ctrls::quad::takeoff_speed(
-                    params.tof_alt,
-                    max_speed_ver,
-                )),
+                thrust: Some(1.0), // full thrust.
             };
         } else if let Some(ldg_cfg) = &self.land {
             if system_status.gps == SensorStatus::Pass {
@@ -408,7 +405,7 @@ impl AutopilotStatus {
         {
             let (alt_type, alt_commanded) = self.alt_hold.unwrap();
 
-            if !(alt_type == AltType::Agl && !system_status.tof == SensorStatus::Pass) {
+            if !(alt_type == AltType::Agl && system_status.tof != SensorStatus::Pass) {
                 // Set a vertical velocity for the inner loop to maintain, based on distance
                 let dist = match alt_type {
                     AltType::Msl => alt_commanded - params.baro_alt_msl,
