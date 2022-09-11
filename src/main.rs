@@ -40,7 +40,8 @@ cfg_if! {
         // This USART alias is made pub here, so we don't repeat this line in other modules.
         pub use stm32_hal2::pac::{UART7 as UART_ELRS, ADC1 as ADC};
 
-        type SpiFlash = Qspi<OCTOSPI>;
+        // type SpiFlash = Qspi<OCTOSPI>;
+        type SpiFlash = Qspi;
     } else if #[cfg(feature = "g4")] {
         use stm32_hal2::{
             usb::{self, UsbBus, UsbBusType},
@@ -239,8 +240,6 @@ mod app {
         ctrl_coeffs: CtrlCoeffGroup,
         current_params: Params,
         // velocities_commanded: CtrlInputs,
-        // attitudes_commanded: CtrlInputs,
-        rates_commanded: CtrlInputs,
         // pid_velocity: PidGroup,
         pid_attitude: PidGroup,
         pid_rate: PidGroup,
@@ -380,7 +379,9 @@ mod app {
                 let spi_flash = Octospi::new(dp.OCTOSPI, Default::default(), BaudRate::Div32);
 
             } else {
-                let spi_flash = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
+                // todo: HAL issue where SPI needs to cast as SPI1
+                let spi_flash = Spi::new(dp.SPI3 as SPI1, Default::default(), BaudRate::Div32);
+                // let spi_flash = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
             }
         }
 
@@ -725,7 +726,6 @@ mod app {
                 current_params: params,
                 // velocities_commanded: Default::default(),
                 // attitudes_commanded: Default::default(),
-                rates_commanded: Default::default(),
                 // pid_velocity: Default::default(),
                 pid_attitude: Default::default(),
                 pid_rate: Default::default(),
@@ -805,7 +805,7 @@ mod app {
     #[task(
     binds = TIM1_BRK_TIM15,
     shared = [current_params,
-    rates_commanded, pid_attitude, pid_rate,
+    pid_attitude, pid_rate,
     pid_deriv_filters, power_used, autopilot_status, user_cfg, ctrl_coeffs,
     ahrs, control_channel_data,
     lost_link_timer, altimeter, i2c2, state_volatile, batt_curr_adc, dma,
@@ -825,7 +825,6 @@ mod app {
             cx.shared.control_channel_data,
             // cx.shared.velocities_commanded,
             // cx.shared.attitudes_commanded,
-            cx.shared.rates_commanded,
             cx.shared.pid_rate,
             cx.shared.pid_attitude,
             // cx.shared.pid_velocity,
@@ -847,7 +846,6 @@ mod app {
                  control_channel_data,
                  // velocities_commanded,
                  // attitudes_commanded,
-                 rates_commanded,
                  pid_rate,
                  pid_attitude,
                  // pid_velocity,
@@ -924,9 +922,9 @@ mod app {
                         return;
                     }
 
-                    if *cx.local.update_loop_i % LOGGING_UPDATE_RATIO == 0 {
-                        // todo: Eg log params to flash etc.
-                    }
+                    // if *cx.local.update_loop_i % LOGGING_UPDATE_RATIO == 0 {
+                    // todo: Eg log params to flash etc.
+                    // }
 
                     *cx.local.update_loop_i += 1;
 
@@ -940,13 +938,6 @@ mod app {
                         pid_attitude,
                         // pid_velocity,
                     );
-
-                    //     aircraft_type: AircraftType,
-                    //     optional_sensor_status: &OptionalSensorStatus,
-                    //     autopilot_status: &mut AutopilotStatus,
-                    //     // entering_lost_link: bool,
-                    //     params: &Params,
-                    //     base_pt: Location,
 
                     if state_volatile.link_lost {
                         safety::link_lost(
@@ -964,8 +955,6 @@ mod app {
                         // &mut state_volatile.input_mode,
                         state_volatile,
                     );
-
-                    autopilot_status.set_modes_from_ctrls(control_channel_data, &params);
 
                     // todo: Support UART telemetry from ESC.
 
@@ -1015,6 +1004,8 @@ mod app {
                         return;
                     }
 
+                    autopilot_status.set_modes_from_ctrls(control_channel_data, &params);
+
                     #[cfg(feature = "quad")]
                     let ap_cmds = autopilot_status.apply(
                         params,
@@ -1022,21 +1013,6 @@ mod app {
                         coeffs,
                         &state_volatile.system_status,
                     );
-
-                    // The rotation between the current orientation and the commanded one.
-                    // todo: Impl once you've sorted out your control logic.
-                    if cfg.attitude_based_rate_mode {
-                        match state_volatile.attitude_commanded.quat {
-                            Some(quat) => {
-                                let rotation_cmd = quat * params.quaternion.inverse();
-                            }
-                            None => {
-                                println!("Attempted attitude mode withno quaternion commanded")
-                            }
-                        }
-
-                        // todo: QC order on this
-                    }
 
                     #[cfg(feature = "fixed-wing")]
                     let ap_cmds = autopilot_status.apply(
@@ -1051,14 +1027,28 @@ mod app {
                     // issue with teh direct approach.
                     state_volatile.autopilot_commands = ap_cmds;
 
+                    // The rotation between the current orientation and the commanded one.
+                    // todo: Impl once you've sorted out your control logic.
+                    if cfg.attitude_based_rate_mode {
+                        match state_volatile.attitude_commanded.quat {
+                            Some(quat) => {
+                                let rotation_cmd = quat * params.quaternion.inverse();
+                                // todo
+                            }
+                            None => {
+                                println!("Attempted attitude mode with no quaternion commanded")
+                            }
+                        }
+                    }
+
                     #[cfg(feature = "quad")]
                     pid::run_attitude(
                         params,
                         &state_volatile.attitude_commanded,
+                        &mut state_volatile.rates_commanded,
                         &mut state_volatile.autopilot_commands,
                         control_channel_data,
                         &cfg.input_map,
-                        rates_commanded,
                         pid_attitude,
                         filters,
                         state_volatile.input_mode,
@@ -1071,8 +1061,8 @@ mod app {
                     pid::run_attitude(
                         params,
                         &state_volatile.attitude_commanded,
+                        &mut state_volatile.rates_commanded,
                         &mut state_volatile.autopilot_commands,
-                        rates_commanded,
                         pid_attitude,
                         filters,
                         autopilot_status,
@@ -1080,27 +1070,27 @@ mod app {
                         &state_volatile.system_status,
                     );
 
-                    #[cfg(feature = "quad")]
-                    match state_volatile.input_mode {
-                        InputMode::Acro => {}
-                        _ => {} //     if input_mode == &InputMode::Command {
-                                //         if *cx.local.update_loop_i % VELOCITY_ATTITUDE_UPDATE_RATIO == 0 {
-                                //             pid::run_velocity(
-                                //                 params,
-                                //                 control_channel_data,
-                                //                 &cfg.input_map,
-                                //                 velocities_commanded,
-                                // //                 attitudes_commanded,
-                                //                 pid_velocity,
-                                //                 filters,
-                                //                 input_mode,
-                                //                 autopilot_status,
-                                //                 cfg,
-                                //                 coeffs,
-                                //             );
-                                //     }
-                                // }
-                    }
+                    // #[cfg(feature = "quad")]
+                    // match state_volatile.input_mode {
+                    //     InputMode::Acro => {}
+                    //     _ => {} //     if input_mode == &InputMode::Command {
+                    //             //         if *cx.local.update_loop_i % VELOCITY_ATTITUDE_UPDATE_RATIO == 0 {
+                    //             //             pid::run_velocity(
+                    //             //                 params,
+                    //             //                 control_channel_data,
+                    //             //                 &cfg.input_map,
+                    //             //                 velocities_commanded,
+                    //             // //                 attitudes_commanded,
+                    //             //                 pid_velocity,
+                    //             //                 filters,
+                    //             //                 input_mode,
+                    //             //                 autopilot_status,
+                    //             //                 cfg,
+                    //             //                 coeffs,
+                    //             //             );
+                    //             //     }
+                    //             // }
+                    // }
                 },
             )
     }
@@ -1111,13 +1101,13 @@ mod app {
         gpio::clear_exti_interrupt(4);
 
         (cx.shared.dma, cx.shared.cs_imu, cx.shared.spi1).lock(|dma, cs_imu, spi| {
-            imu_shared::read_imu_dma(imu::READINGS_START_ADDR, spi, cs_imu, dma);
+            imu_shared::read_imu(imu::READINGS_START_ADDR, spi, cs_imu, dma);
         });
     }
 
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, control_channel_data, autopilot_status,
-    rates_commanded, pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, cs_imu, user_cfg,
+    pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, cs_imu, user_cfg,
     motor_timers, ahrs, state_volatile, rf_limiter_timer], local = [fixed_wing_rate_loop_i, update_loop_i2], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
@@ -1143,7 +1133,6 @@ mod app {
             cx.shared.ahrs,
             cx.shared.control_channel_data,
             cx.shared.autopilot_status,
-            cx.shared.rates_commanded,
             cx.shared.pid_rate,
             cx.shared.pid_deriv_filters,
             cx.shared.motor_timers,
@@ -1159,7 +1148,6 @@ mod app {
                  ahrs,
                  control_channel_data,
                  autopilot_status,
-                 rates_commanded,
                  pid_rate,
                  filters,
                  motor_timers,
@@ -1220,12 +1208,15 @@ mod app {
                     // vice each IMU update.
                     attitude_platform::update_attitude(ahrs, params);
 
+                    let throttle_commanded = state_volatile.autopilot_commands.throttle;
+
                     cfg_if! {
                         if #[cfg(feature = "quad")] {
                             pid::run_rate(
                                 params,
                                 control_channel_data,
-                                rates_commanded,
+                                &mut state_volatile.rates_commanded,
+                                throttle_commanded,
                                 pid_rate,
                                 filters,
                                 &mut state_volatile.current_pwr,
@@ -1246,7 +1237,8 @@ mod app {
                                 pid::run_rate(
                                     params,
                                     control_channel_data,
-                                    rates_commanded,
+                                    &mut state_volatile.rates_commanded,
+                                    throttle_commanded
                                     pid_rate,
                                     filters,
                                     &mut state_volatile.ctrl_positions,

@@ -8,6 +8,8 @@ use stm32_hal2::{
     spi::Spi,
 };
 
+use crate::setup::{IMU_RX_CH, IMU_TX_CH};
+
 const G: f32 = 9.8; // m/s
 
 const GYRO_FULLSCALE: f32 = 34.90659; // In radians per second; equals 2,000 degrees/sec
@@ -69,7 +71,7 @@ impl ImuReadings {
 
 /// Read all 3 measurements, by commanding a DMA transfer. The transfer is closed, and readings
 /// are processed in the Transfer Complete ISR.
-pub fn read_imu_dma(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
+pub fn read_imu(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
     // First byte is the first data reg, per this IMU's. Remaining bytes are empty, while
     // the MISO line transmits readings.
     let write_buf = [starting_addr, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -80,8 +82,8 @@ pub fn read_imu_dma(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &
         spi.transfer_dma(
             &write_buf,
             &mut IMU_READINGS,
-            DmaChannel::C1,
-            DmaChannel::C2,
+            IMU_TX_CH,
+            IMU_RX_CH,
             Default::default(),
             Default::default(),
             dma,

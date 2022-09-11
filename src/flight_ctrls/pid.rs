@@ -22,7 +22,7 @@ use crate::{
 use super::{
     attitude_ctrls,
     autopilot::AutopilotStatus,
-    common::{AttitudeCommanded, CtrlInputs, InputMap, MotorTimers, Params},
+    common::{AttitudeCommanded, CtrlInputs, InputMap, MotorTimers, Params, RatesCommanded},
     ControlMapping,
 };
 
@@ -437,9 +437,9 @@ pub fn calc_pid_error(
 /// this fn is to modify `rates_commanded`.
 fn attitude_apply_common(
     pid_attitude: &mut PidGroup,
-    rates_commanded: &mut CtrlInputs,
-    params: &Params,
     attitude_commanded: &AttitudeCommanded,
+    rates_commanded: &mut RatesCommanded,
+    params: &Params,
     autopilot_commands: &CtrlInputs,
     coeffs: &CtrlCoeffGroup,
     filters: &mut PidDerivFilters,
@@ -497,10 +497,10 @@ fn attitude_apply_common(
 pub fn run_attitude(
     params: &Params,
     attitude_commanded: &AttitudeCommanded,
+    rates_commanded: &mut RatesCommanded,
     autopilot_commands: &mut CtrlInputs,
     ch_data: &ChannelData,
     input_map: &InputMap,
-    rates_commanded: &mut CtrlInputs,
     pid_attitude: &mut PidGroup,
     filters: &mut PidDerivFilters,
     input_mode: InputMode,
@@ -544,9 +544,9 @@ pub fn run_attitude(
 
     attitude_apply_common(
         pid_attitude,
+        attitude_commanded,
         rates_commanded,
         params,
-        attitude_commanded,
         autopilot_commands,
         coeffs,
         filters,
@@ -589,7 +589,8 @@ pub fn run_attitude(
 /// rate by channel data.
 fn rate_apply_common(
     pid_rate: &mut PidGroup,
-    rates_commanded: &mut CtrlInputs,
+    rates_commanded: &mut RatesCommanded,
+    throttle_commanded: Option<f32>,
     params: &Params,
     ch_data: &ChannelData,
     coeffs: &CtrlCoeffGroup,
@@ -645,14 +646,14 @@ fn rate_apply_common(
         rates_commanded.yaw = Some(pid_rate.yaw.out());
     }
 
-    if rates_commanded.thrust.is_none() {
-        rates_commanded.thrust = Some(input_map.calc_manual_throttle(ch_data.throttle));
-    }
-
     let pitch = rates_commanded.pitch.unwrap();
     let roll = rates_commanded.roll.unwrap();
     let yaw = rates_commanded.yaw.unwrap();
-    let throttle = rates_commanded.thrust.unwrap();
+
+    let throttle = match throttle_commanded {
+        Some(t) => t,
+        None => input_map.calc_manual_throttle(ch_data.throttle),
+    };
 
     (pitch, roll, yaw, throttle)
 }
@@ -668,7 +669,8 @@ fn rate_apply_common(
 pub fn run_rate(
     params: &Params,
     ch_data: &ChannelData,
-    rates_commanded: &mut CtrlInputs,
+    rates_commanded: &mut RatesCommanded,
+    throttle_commanded: Option<f32>,
     pid: &mut PidGroup,
     filters: &mut PidDerivFilters,
     current_pwr: &mut crate::MotorPower,
@@ -692,6 +694,7 @@ pub fn run_rate(
     let (pitch, roll, yaw, throttle) = rate_apply_common(
         pid,
         rates_commanded,
+        throttle_commanded,
         params,
         ch_data,
         coeffs,
@@ -718,7 +721,8 @@ pub fn run_rate(
 pub fn run_rate(
     params: &Params,
     ch_data: &ChannelData,
-    rates_commanded: &mut CtrlInputs,
+    rates_commanded: &mut RatesCommanded,
+    throttle_commanded: Option<f32>,
     pid: &mut PidGroup,
     filters: &mut PidDerivFilters,
     control_posits: &mut ControlPositions,
@@ -759,6 +763,7 @@ pub fn run_rate(
     let (pitch, roll, _yaw, throttle) = rate_apply_common(
         pid,
         rates_commanded,
+        throttle_commanded,
         params,
         ch_data,
         coeffs,

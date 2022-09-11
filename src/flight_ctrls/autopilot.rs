@@ -226,7 +226,6 @@ impl AutopilotStatus {
     pub fn apply(
         &self,
         params: &Params,
-        // autopilot_commands: &mut CtrlInputs,
         filters: &mut PidDerivFilters,
         coeffs: &CtrlCoeffGroup,
         system_status: &SystemStatus,
@@ -255,7 +254,7 @@ impl AutopilotStatus {
                 pitch: Some(0.),
                 roll: Some(0.),
                 yaw: None,
-                thrust: Some(takeoff_speed(to_speed, MAX_VER_SPEED)),
+                throttle: Some(takeoff_speed(to_speed, MAX_VER_SPEED)),
             };
         } else if let Some(ldg_cfg) = &self.land {
             if system_status.gps == SensorStatus::Pass {}
@@ -276,7 +275,7 @@ impl AutopilotStatus {
             && self.land.is_none()
             && self.direct_to_point.is_none()
         {
-            autopilot_commands.thrust = None;
+            autopilot_commands.throttle = None;
         }
 
         if self.alt_hold.is_some() && !self.takeoff && self.land.is_none() {
@@ -302,10 +301,10 @@ impl AutopilotStatus {
                 //     DT_ATTITUDE,
                 // );
                 let scaler = 0.1; // todo: Quick hack.
-                autopilot_commands.thrust = Some(dist * scaler);
+                autopilot_commands.throttle = Some(dist * scaler);
 
                 // Note that thrust is set using the rate loop.
-                autopilot_commands.thrust = None;
+                autopilot_commands.throttle = None;
             }
         }
 
@@ -316,7 +315,6 @@ impl AutopilotStatus {
     pub fn apply(
         &self,
         params: &Params,
-        // autopilot_commands: &mut CtrlInputs,
         pid_attitude: &mut PidGroup,
         filters: &mut PidDerivFilters,
         coeffs: &CtrlCoeffGroup,
@@ -329,7 +327,7 @@ impl AutopilotStatus {
                 pitch: Some(TAKEOFF_PITCH),
                 roll: Some(0.),
                 yaw: None,
-                thrust: Some(1.0), // full thrust.
+                throttle: Some(1.0), // full thrust.
             };
         } else if let Some(ldg_cfg) = &self.land {
             if system_status.gps == SensorStatus::Pass {

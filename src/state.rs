@@ -6,7 +6,7 @@ use crate::{
     control_interface::{InputModeSwitch, LinkStats},
     flight_ctrls::{
         autopilot::{AutopilotStatus, LandingCfg},
-        common::{AttitudeCommanded, CtrlInputs, InputMap},
+        common::{AttitudeCommanded, CtrlInputs, InputMap, RatesCommanded},
         ControlMapping,
     },
     ppks::Location,
@@ -209,5 +209,8 @@ pub struct StateVolatile {
     /// The commanded attitude. Used in attitude mode, and a variant of rate mode.
     /// For attitude mode, and modified rate mode.
     pub attitude_commanded: AttitudeCommanded,
+    pub rates_commanded: RatesCommanded,
+    // /// On a scale of 0 to 1.
+    // pub throttle_commanded: Option<f32>,
     pub autopilot_commands: CtrlInputs,
 }

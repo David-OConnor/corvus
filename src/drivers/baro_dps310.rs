@@ -1,7 +1,8 @@
 //! This module contains code for the Infineon DPS310 barometer.
 //! This device supports both I2C and SPI interfaces.
-//! For now, this driver assumes I2C, since that's what's used on the
-//! Matek H7 slim board we're testing with.
+//! For now, this driver assumes I2C.
+//!
+//! Measurement rate: 128Hz.
 //!
 //! Note that both this and the ICM-42605 IMU read temperature.
 

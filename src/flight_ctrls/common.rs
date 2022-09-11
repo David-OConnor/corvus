@@ -33,16 +33,6 @@ const THROTTLE_IN_RNG: (f32, f32) = (0., 1.);
 // Time in seconds between subsequent data received before we execute lost-link procedures.
 pub const LOST_LINK_TIMEOUT: f32 = 1.;
 
-/// Command a quaternion attitude, part of all of a Euler angle attitude, or neither.
-/// If both a quaternion and euler angle are present, favor the quaternion.
-#[derive(Default)]
-pub struct AttitudeCommanded {
-    pub quat: Option<Quaternion>,
-    pub pitch: Option<f32>,
-    pub roll: Option<f32>,
-    pub yaw: Option<f32>,
-}
-
 /// Specify the rotor by its connection to the ESC. Includdes methods that get information regarding timer
 /// and DMA, per specific board setups, in `setup`.
 #[derive(Clone, Copy)]
@@ -135,7 +125,25 @@ pub struct CtrlInputs {
     pub yaw: Option<f32>,
     /// Acro mode: Change overall power (Altitude, or speed depending on orientation)
     /// Attitude mode: Change altitude
-    pub thrust: Option<f32>,
+    pub throttle: Option<f32>,
+}
+
+/// Command a quaternion attitude, part of all of a Euler angle attitude, or neither.
+/// If both a quaternion and euler angle are present, favor the quaternion.
+#[derive(Default)]
+pub struct AttitudeCommanded {
+    pub quat: Option<Quaternion>,
+    pub pitch: Option<f32>,
+    pub roll: Option<f32>,
+    pub yaw: Option<f32>,
+}
+
+/// Command one or more angular rates.
+#[derive(Default)]
+pub struct RatesCommanded {
+    pub pitch: Option<f32>,
+    pub roll: Option<f32>,
+    pub yaw: Option<f32>,
 }
 
 /// Aircraft flight parameters, at a given instant. Pitch and roll rates are in the aircraft's

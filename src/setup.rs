@@ -118,8 +118,6 @@ cfg_if! {
     }
 }
 
-#[cfg(feature = "g4")]
-
 impl Motor {
     // todo: Feature gate these methods based on board, as required.
     pub fn tim_channel(&self) -> TimChannel {
