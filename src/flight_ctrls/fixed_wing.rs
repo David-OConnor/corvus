@@ -30,10 +30,14 @@ pub const MAX_MOTOR_POWER: f32 = 1.;
 const ELEVON_MIN: f32 = -1.;
 const ELEVON_MAX: f32 = 1.;
 
+const RUDDER_MIN: f32 = -1.;
+const RUDDER_MAX: f32 = 1.;
+
 // ROLL_COEFF is used to balance pitch and roll input sensitivity, compared to the implied
 // pitch coeffecient of 1. A higher coefficient will cause a greater roll response for a given input command,
 // while leaving pitch response the same.
 const ROLL_COEFF: f32 = 5.;
+const YAW_COEFF: f32 = 1.; // todo
 
 // Update frequency: 500Hz. See `dshot.rs` for the calculation.
 // 170Mhz tim clock on G4.
@@ -232,6 +236,8 @@ pub struct ControlPositions {
     pub motor: f32,
     pub elevon_left: f32,
     pub elevon_right: f32,
+    /// Only used if a rudder (or other yaw system) is connected; otherwise eignore.
+    pub rudder: f32,
 }
 
 impl ControlPositions {
@@ -280,6 +286,12 @@ impl ControlPositions {
         } else if self.elevon_right > ELEVON_MAX {
             self.elevon_right = ELEVON_MAX;
         }
+
+        if self.rudder < RUDDER_MIN {
+            self.rudder = RUDDER_MIN;
+        } else if self.rudder > RUDDER_MAX {
+            self.rudder = RUDDER_MAX;
+        }
     }
 }
 
@@ -295,8 +307,8 @@ impl ControlPositions {
 pub fn apply_controls(
     pitch_delta: f32,
     roll_delta: f32,
+    yaw_delta: f32,
     throttle: f32,
-    // control_mix: &mut ControlMix,
     control_posits: &mut ControlPositions,
     mapping: &ControlMapping,
     timers: &mut MotorTimers,
@@ -305,6 +317,7 @@ pub fn apply_controls(
 ) {
     let mut elevon_left = 0.;
     let mut elevon_right = 0.;
+    let mut rudder = 0.;
 
     elevon_left += pitch_delta;
     elevon_right += pitch_delta;
@@ -312,10 +325,13 @@ pub fn apply_controls(
     elevon_left += roll_delta * ROLL_COEFF;
     elevon_right -= roll_delta * ROLL_COEFF;
 
+    rudder += pitch_delta * YAW_COEFF;
+
     *control_posits = ControlPositions {
         motor: throttle,
         elevon_left,
         elevon_right,
+        rudder,
     };
 
     control_posits.clamp();
@@ -328,7 +344,7 @@ pub fn apply_controls(
 /// scale of 0. to 1.
 /// todo: Using power setting as a standin for airspeed for now, if we don't have a GPS or pitot.
 /// todo: In the future use power as a permanent standin if these aren't equipped.
-fn estimate_ctrl_posits(
+fn _estimate_ctrl_posits(
     pitch_rate: f32,
     roll_rate: f32,
     airspeed: Option<f32>,
@@ -336,13 +352,16 @@ fn estimate_ctrl_posits(
 ) -> ControlPositions {
     let mut center = 0.;
     let mut diff = 0.; // positive diff = left wing up.
+    let mut rudder = 0.;
 
     // todo: Placeholder
     let pitch_const = 0.1;
     let roll_const = 0.1;
+    let yaw_const = 0.1;
 
     // todo: Clean up DRY once the dust settles on this fn.
 
+    // todo: Use this to modify rudder too.
     match airspeed {
         Some(speed) => {
             center = pitch_const * pitch_rate / speed;
@@ -364,11 +383,14 @@ fn estimate_ctrl_posits(
     elevon_left -= diff * ROLL_COEFF;
     elevon_right += diff * ROLL_COEFF;
 
+    rudder += diff * YAW_COEFF;
+
     // todo: Clamp both elevons in both directions.
 
     ControlPositions {
         motor: throttle,
         elevon_left,
         elevon_right,
+        rudder,
     }
 }

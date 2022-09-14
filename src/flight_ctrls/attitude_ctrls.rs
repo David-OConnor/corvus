@@ -1,5 +1,5 @@
 //! This module contains code for attitude-based controls. This includes sticks mapping
-//! to attitude, and an internal attitude model with rate-like controls.
+//! to attitude, and an internal attitude model with rate-like controls, where attitude is the target.
 
 use crate::control_interface::ChannelData;
 
@@ -7,32 +7,74 @@ use super::common::CtrlInputs;
 
 use lin_alg2::f32::{Quaternion, Vec3};
 
-#[cfg(feature = "quad")]
-use super::MotorPower;
+use cfg_if::cfg_if;
 
-pub const RIGHT: Vec3 = Vec3 {
+cfg_if! {
+    if #[cfg(feature = "quad")] {
+        use super::MotorPower;
+    } else {
+        use super::ControlPositions;
+    }
+
+}
+
+// Used as a crude PID, while we are experimenting.
+const P_COEFF: f32 = 1.;
+
+const RIGHT: Vec3 = Vec3 {
     x: 1.,
     y: 0.,
     z: 0.,
 };
-pub const UP: Vec3 = Vec3 {
+const UP: Vec3 = Vec3 {
     x: 0.,
     y: 1.,
     z: 0.,
 };
-pub const FWD: Vec3 = Vec3 {
+const FWD: Vec3 = Vec3 {
     x: 0.,
     y: 0.,
     z: 1.,
 };
 
 #[cfg(feature = "quad")]
-pub fn motor_power_from_rotation(rotation: Quaternion) -> MotorPower {
+pub fn motor_power_from_atts(
+    target_attitude: Quaternion,
+    current_attitude: Quaternion,
+    power: f32,
+) -> MotorPower {
+    let mut front_left = 0.;
+    let mut front_right = 0.;
+    let mut aft_left = 0.;
+    let mut aft_right = 0.;
+
     MotorPower {
-        front_left: 0.,
-        front_right: 0.,
-        aft_left: 0.,
-        aft_right: 0.,
+        front_left,
+        front_right,
+        aft_left,
+        aft_right,
+    }
+}
+
+#[cfg(feature = "fixed-wing")]
+pub fn control_posits_from_atts(
+    target_attitude: Quaternion,
+    current_attitude: Quaternion,
+    power: f32,
+) -> ControlPositions {
+    // todo: Modulate based on airspeed.
+
+    let rotation_cmd = target_attitude * current_attitude.inverse();
+
+    let mut elevon_left = 0.;
+    let mut elevon_right = 0.;
+    let mut rudder = 0.;
+
+    ControlPositions {
+        motor: power,
+        elevon_left,
+        elevon_right,
+        rudder,
     }
 }
 

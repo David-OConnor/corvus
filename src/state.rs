@@ -149,7 +149,7 @@ impl Default for UserCfg {
             landing_cfg: Default::default(),
             #[cfg(feature = "fixed-wing")]
             rudder_used: false,
-            attitude_based_rate_mode: false,
+            attitude_based_rate_mode: true,
             input_map: Default::default(),
         }
     }

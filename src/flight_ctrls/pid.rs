@@ -437,7 +437,7 @@ pub fn calc_pid_error(
 /// this fn is to modify `rates_commanded`.
 fn attitude_apply_common(
     pid_attitude: &mut PidGroup,
-    attitude_commanded: &AttitudeCommanded,
+    attitude_commanded: &mut AttitudeCommanded,
     rates_commanded: &mut RatesCommanded,
     params: &Params,
     autopilot_commands: &CtrlInputs,
@@ -496,7 +496,7 @@ fn attitude_apply_common(
 /// attitude. Modifies `rates_commanded`, which is used by the rate PID loop.
 pub fn run_attitude(
     params: &Params,
-    attitude_commanded: &AttitudeCommanded,
+    attitude_commanded: &mut AttitudeCommanded,
     rates_commanded: &mut RatesCommanded,
     autopilot_commands: &mut CtrlInputs,
     ch_data: &ChannelData,
@@ -560,9 +560,9 @@ pub fn run_attitude(
 /// Modifies `rates_commanded`, which is used by the rate PID loop.
 pub fn run_attitude(
     params: &Params,
-    attitude_commanded: &AttitudeCommanded,
+    attitude_commanded: &mut AttitudeCommanded,
+    rates_commanded: &mut RatesCommanded,
     autopilot_commands: &mut CtrlInputs,
-    rates_commanded: &mut CtrlInputs,
     pid_attitude: &mut PidGroup,
     filters: &mut PidDerivFilters,
     autopilot_status: &AutopilotStatus,
@@ -573,9 +573,9 @@ pub fn run_attitude(
 
     attitude_apply_common(
         pid_attitude,
+        attitude_commanded,
         rates_commanded,
         params,
-        attitude_commanded,
         autopilot_commands,
         coeffs,
         filters,
@@ -760,7 +760,7 @@ pub fn run_rate(
     // wouldn't be a bad idea.
     let tpa_scaler = 1.;
 
-    let (pitch, roll, _yaw, throttle) = rate_apply_common(
+    let (pitch, roll, yaw, throttle) = rate_apply_common(
         pid,
         rates_commanded,
         throttle_commanded,
@@ -776,6 +776,7 @@ pub fn run_rate(
     super::apply_controls(
         pitch,
         roll,
+        yaw,
         throttle,
         control_posits,
         mapping,

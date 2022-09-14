@@ -72,6 +72,7 @@ use drivers::{
 
 use filter_imu::ImuFilters;
 use flight_ctrls::{
+    attitude_ctrls,
     autopilot::AutopilotStatus,
     common::{AltType, CtrlInputs, InputMap, MotorTimers, Params},
     pid::{
@@ -270,7 +271,7 @@ mod app {
 
     #[local]
     struct Local {
-        spi_flash: SpiFlash,
+        // spi_flash: SpiFlash,  // todo: Fix flash in HAL, then do this.
         arm_signals_received: u8, // todo: Put in state volatile.
         disarm_signals_received: u8,
         /// We use this counter to subdivide the main loop into longer intervals,
@@ -374,16 +375,17 @@ mod app {
 
         // We use SPI3 for SPI flash on G4. On H7, we use octospi instead.
         // todo: Find max speed and supported modes.
-        cfg_if! {
-            if #[cfg(feature = "h7")] {
-                let spi_flash = Octospi::new(dp.OCTOSPI, Default::default(), BaudRate::Div32);
-
-            } else {
-                // todo: HAL issue where SPI needs to cast as SPI1
-                let spi_flash = Spi::new(dp.SPI3 as SPI1, Default::default(), BaudRate::Div32);
-                // let spi_flash = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
-            }
-        }
+        // todo: Commented this out due to a HAL/PAC limitation.
+        // cfg_if! {
+        //     if #[cfg(feature = "h7")] {
+        //         let spi_flash = Octospi::new(dp.OCTOSPI, Default::default(), BaudRate::Div32);
+        //
+        //     } else {
+        //         // todo: HAL issue where SPI needs to cast as SPI1
+        //         let spi_flash = Spi::new(dp.SPI3 as SPI1, Default::default(), BaudRate::Div32);
+        //         // let spi_flash = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
+        //     }
+        // }
 
         #[cfg(feature = "h7")]
         let flash_pin = 10;
@@ -753,7 +755,7 @@ mod app {
                 imu_calibration,
             },
             Local {
-                spi_flash,
+                // spi_flash, // todo: Fix flash in HAL, then do this.
                 arm_signals_received: 0,
                 disarm_signals_received: 0,
                 update_loop_i: 0,
@@ -1027,24 +1029,10 @@ mod app {
                     // issue with teh direct approach.
                     state_volatile.autopilot_commands = ap_cmds;
 
-                    // The rotation between the current orientation and the commanded one.
-                    // todo: Impl once you've sorted out your control logic.
-                    if cfg.attitude_based_rate_mode {
-                        match state_volatile.attitude_commanded.quat {
-                            Some(quat) => {
-                                let rotation_cmd = quat * params.quaternion.inverse();
-                                // todo
-                            }
-                            None => {
-                                println!("Attempted attitude mode with no quaternion commanded")
-                            }
-                        }
-                    }
-
                     #[cfg(feature = "quad")]
                     pid::run_attitude(
                         params,
-                        &state_volatile.attitude_commanded,
+                        &mut state_volatile.attitude_commanded,
                         &mut state_volatile.rates_commanded,
                         &mut state_volatile.autopilot_commands,
                         control_channel_data,
@@ -1060,7 +1048,7 @@ mod app {
                     #[cfg(feature = "fixed-wing")]
                     pid::run_attitude(
                         params,
-                        &state_volatile.attitude_commanded,
+                        &mut state_volatile.attitude_commanded,
                         &mut state_volatile.rates_commanded,
                         &mut state_volatile.autopilot_commands,
                         pid_attitude,
@@ -1210,6 +1198,37 @@ mod app {
 
                     let throttle_commanded = state_volatile.autopilot_commands.throttle;
 
+                    // todo: Impl once you've sorted out your control logic.
+                    if cfg.attitude_based_rate_mode {
+                        // todo: DRY from pid::apply_common
+                        let throttle = match throttle_commanded {
+                            Some(t) => t,
+                            None => cfg.input_map.calc_manual_throttle(control_channel_data.throttle),
+                        };
+
+                        match state_volatile.attitude_commanded.quat {
+                            Some(target_attitude) => {
+                                cfg_if! {
+                                    if #[cfg(feature = "quad")] {
+                                        let motor_power = attitude_ctrls::motor_power_from_atts(
+                                        target_attitude, params.quaternion, throttle);
+
+                                        motor_power.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status, dma);
+                                    } else {
+                                        let control_posits = attitude_ctrls::control_posits_from_atts(
+                                        target_attitude, params.quaternion, throttle);
+
+                                        control_posits.set(motor_timers, state_volatile.arm_status, &cfg.control_mapping, dma);
+                                    }
+                                }
+                            }
+                            None => {
+                                println!("Attempted attitude mode with no quaternion commanded")
+                            }
+                        }
+                        return; // Don't go through the normal PID.
+                    }
+
                     cfg_if! {
                         if #[cfg(feature = "quad")] {
                             pid::run_rate(
@@ -1238,7 +1257,7 @@ mod app {
                                     params,
                                     control_channel_data,
                                     &mut state_volatile.rates_commanded,
-                                    throttle_commanded
+                                    throttle_commanded,
                                     pid_rate,
                                     filters,
                                     &mut state_volatile.ctrl_positions,
