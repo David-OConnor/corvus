@@ -84,10 +84,10 @@ pub fn update_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     // todo: Can we use the hard-set 8kHz IMU-spec DT, or do we need to measure?
     ahrs.update_no_magnetometer(gyro_data, accel_data, crate::DT_IMU);
 
-    let att_euler = ahrs.quaternion.to_euler2();
+    let att_euler = ahrs.quaternion.to_euler();
 
-    params.s_pitch = att_euler.pitch;
-    params.s_roll = att_euler.roll;
-    params.s_yaw_heading = att_euler.yaw;
+    params.s_pitch = att_euler.0; // around x axis
+    params.s_yaw_heading = att_euler.1; // around y axis
+    params.s_roll = att_euler.2; // around z axis
     params.quaternion = ahrs.quaternion;
 }

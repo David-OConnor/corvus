@@ -29,6 +29,8 @@ use stm32_hal2::{
     usart::{Usart, UsartInterrupt},
 };
 
+use lin_alg2::f32::Quaternion;
+
 cfg_if! {
     if #[cfg(feature = "h7")] {
         use stm32_hal2::{
@@ -74,7 +76,7 @@ use filter_imu::ImuFilters;
 use flight_ctrls::{
     attitude_ctrls,
     autopilot::AutopilotStatus,
-    common::{AltType, CtrlInputs, InputMap, MotorTimers, Params},
+    common::{AltType, CtrlInputs, InputMap, MotorTimers, Params, RatesCommanded},
     pid::{
         self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
         PID_CONTROL_ADJ_TIMEOUT,
@@ -1199,33 +1201,48 @@ mod app {
                     let throttle_commanded = state_volatile.autopilot_commands.throttle;
 
                     // todo: Impl once you've sorted out your control logic.
+                    // todo: Delegate this to another module, eg `attitude_ctrls`.
                     if cfg.attitude_based_rate_mode {
+                        // Update the target attitude based on control inputs
+                        // todo: Deconflict this with autopilot; probably by checking commanded
+                        // todo pitch, roll, yaw etc!
+
+                        state_volatile.rates_commanded = RatesCommanded {
+                            pitch: Some(cfg.input_map.calc_yaw_rate(control_channel_data.pitch)),
+                            roll: Some(cfg.input_map.calc_yaw_rate(control_channel_data.roll)),
+                            yaw: Some(cfg.input_map.calc_yaw_rate(control_channel_data.yaw)),
+                        };
+
+                        state_volatile.attitude_commanded.quat = Some(attitude_ctrls::modify_commanded(
+                            state_volatile.attitude_commanded.quat.unwrap_or(Quaternion::new_identity()),
+                            &state_volatile.rates_commanded,
+                            DT_IMU,
+                        ));
+
                         // todo: DRY from pid::apply_common
                         let throttle = match throttle_commanded {
                             Some(t) => t,
                             None => cfg.input_map.calc_manual_throttle(control_channel_data.throttle),
                         };
 
-                        match state_volatile.attitude_commanded.quat {
-                            Some(target_attitude) => {
-                                cfg_if! {
-                                    if #[cfg(feature = "quad")] {
-                                        let motor_power = attitude_ctrls::motor_power_from_atts(
-                                        target_attitude, params.quaternion, throttle);
+                        cfg_if! {
+                            if #[cfg(feature = "quad")] {
 
-                                        motor_power.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status, dma);
-                                    } else {
-                                        let control_posits = attitude_ctrls::control_posits_from_atts(
-                                        target_attitude, params.quaternion, throttle);
+                                let motor_power = attitude_ctrls::motor_power_from_atts(
+                                state_volatile.attitude_commanded.quat.unwrap(), params.quaternion,
+                                throttle, cfg.control_mapping.frontleft_aftright_dir,);
 
-                                        control_posits.set(motor_timers, state_volatile.arm_status, &cfg.control_mapping, dma);
-                                    }
-                                }
-                            }
-                            None => {
-                                println!("Attempted attitude mode with no quaternion commanded")
+                                motor_power.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status, dma);
+
+                                state_volatile.current_pwr = motor_power;
+                            } else {
+                                let control_posits = attitude_ctrls::control_posits_from_atts(
+                                state_volatile.attitude_commanded.quat.unwrap(), params.quaternion, throttle);
+
+                                control_posits.set(motor_timers, state_volatile.arm_status, &cfg.control_mapping, dma);
                             }
                         }
+
                         return; // Don't go through the normal PID.
                     }
 
