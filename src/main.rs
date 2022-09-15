@@ -1213,7 +1213,7 @@ mod app {
                             yaw: Some(cfg.input_map.calc_yaw_rate(control_channel_data.yaw)),
                         };
 
-                        state_volatile.attitude_commanded.quat = Some(attitude_ctrls::modify_commanded(
+                        state_volatile.attitude_commanded.quat = Some(attitude_ctrls::modify_att_target(
                             state_volatile.attitude_commanded.quat.unwrap_or(Quaternion::new_identity()),
                             &state_volatile.rates_commanded,
                             DT_IMU,
