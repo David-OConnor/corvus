@@ -241,28 +241,60 @@ pub struct ControlPositions {
 }
 
 impl ControlPositions {
+    /// Apply controls based on pitch, roll, yaw, and throttle. Servo average position controls pitch;
+    /// servo difference controls roll. We don't have a yaw control.
+    /// If a servo exceeds min or max power settings, clamp it.
+    ///
+    /// Positive pitch means nose up. Positive roll means left wing up.
+    ///
+    /// Input deltas as on an abitrary scale based on PID output; they're not in real units like radians/s.
+    pub fn from_cmds(pitch_cmd: f32, roll_cmd: f32, yaw_cmd: f32, throttle: f32) -> Self {
+        let mut elevon_left = 0.;
+        let mut elevon_right = 0.;
+        let mut rudder = 0.;
+
+        elevon_left += pitch_cmd;
+        elevon_right += pitch_cmd;
+
+        elevon_left += roll_cmd * ROLL_COEFF;
+        elevon_right -= roll_cmd * ROLL_COEFF;
+
+        rudder += pitch_cmd * YAW_COEFF;
+
+        let mut result = Self {
+            motor: throttle,
+            elevon_left,
+            elevon_right,
+            rudder,
+        };
+
+        result.clamp();
+
+        result
+    }
+
     /// Send this command to cause power to be applied to the motor and servos.
     pub fn set(
         &self,
-        timers: &mut MotorTimers,
-        arm_status: ArmStatus,
         mapping: &ControlMapping,
+        motor_timers: &mut MotorTimers,
+        arm_status: ArmStatus,
         dma: &mut Dma<DMA1>,
     ) {
         // M2 isn't used here, but keeps our API similar to Quad.
         match arm_status {
             ArmStatus::Armed => {
-                dshot::set_power(self.motor, 0., 0., 0., timers, dma);
+                dshot::set_power(self.motor, 0., 0., 0., motor_timers, dma);
 
                 // todo: Apply to left and right wing by mapping etc! Here or upstream.
-                set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, timers);
-                set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, timers);
+                set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, motor_timers);
+                set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, motor_timers);
             }
             ArmStatus::Disarmed => {
-                dshot::stop_all(timers, dma);
+                dshot::stop_all(motor_timers, dma);
 
-                set_elevon_posit(ServoWing::S1, 0., mapping, timers);
-                set_elevon_posit(ServoWing::S2, 0., mapping, timers);
+                set_elevon_posit(ServoWing::S1, 0., mapping, motor_timers);
+                set_elevon_posit(ServoWing::S2, 0., mapping, motor_timers);
             }
         }
     }
@@ -296,48 +328,6 @@ impl ControlPositions {
 }
 
 // todo: Move PWM code out of this module if it makes sense, ie separate servo; flight-control module
-
-/// Apply controls based on pitch, roll, yaw, and throttle. Servo average position controls pitch;
-/// servo difference controls roll. We don't have a yaw control.
-/// If a servo exceeds min or max power settings, clamp it.
-///
-/// Positive pitch means nose up. Positive roll means left wing up.
-///
-/// Input deltas as on an abitrary scale based on PID output; they're not in real units like radians/s.
-pub fn apply_controls(
-    pitch_delta: f32,
-    roll_delta: f32,
-    yaw_delta: f32,
-    throttle: f32,
-    control_posits: &mut ControlPositions,
-    mapping: &ControlMapping,
-    timers: &mut MotorTimers,
-    arm_status: ArmStatus,
-    dma: &mut Dma<DMA1>,
-) {
-    let mut elevon_left = 0.;
-    let mut elevon_right = 0.;
-    let mut rudder = 0.;
-
-    elevon_left += pitch_delta;
-    elevon_right += pitch_delta;
-
-    elevon_left += roll_delta * ROLL_COEFF;
-    elevon_right -= roll_delta * ROLL_COEFF;
-
-    rudder += pitch_delta * YAW_COEFF;
-
-    *control_posits = ControlPositions {
-        motor: throttle,
-        elevon_left,
-        elevon_right,
-        rudder,
-    };
-
-    control_posits.clamp();
-
-    control_posits.set(timers, arm_status, mapping, dma);
-}
 
 /// For a target pitch and roll rate, estimate the control positions required. Note that `throttle`
 /// in `ctrl_positions` output is unused. Rates are in rad/s. Airspeed is indicated AS in m/s. Throttle is on a

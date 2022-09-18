@@ -34,7 +34,8 @@ cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use crate::flight_ctrls::{ControlPositions};
     } else {
-        use crate::flight_ctrls::{InputMode, MAX_ROTOR_POWER, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED};
+        use crate::flight_ctrls::{InputMode, MotorPower,
+         MAX_ROTOR_POWER, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED};
     }
 }
 
@@ -673,7 +674,6 @@ pub fn run_rate(
     throttle_commanded: Option<f32>,
     pid: &mut PidGroup,
     filters: &mut PidDerivFilters,
-    current_pwr: &mut crate::MotorPower,
     mapping: &ControlMapping,
     motor_timers: &mut MotorTimers,
     dma: &mut Dma<DMA1>,
@@ -704,17 +704,8 @@ pub fn run_rate(
         dt,
     );
 
-    super::apply_controls(
-        pitch,
-        roll,
-        yaw,
-        throttle,
-        current_pwr,
-        mapping,
-        motor_timers,
-        arm_status,
-        dma,
-    );
+    let power = MotorPower::from_cmds(pitch, roll, yaw, throttle, mapping.frontleft_aftright_dir);
+    power.set(mapping, motor_timers, arm_status, dma);
 }
 
 #[cfg(feature = "fixed-wing")]
@@ -773,15 +764,7 @@ pub fn run_rate(
         dt,
     );
 
-    super::apply_controls(
-        pitch,
-        roll,
-        yaw,
-        throttle,
-        control_posits,
-        mapping,
-        motor_timers,
-        arm_status,
-        dma,
-    );
+    let control_posits = ControlPositions::from_cmds(pitch, roll, yaw, throttle);
+
+    control_posits.set(mapping, motor_timers, arm_status, dma);
 }

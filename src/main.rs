@@ -940,7 +940,6 @@ mod app {
                         control_channel_data.throttle,
                         pid_rate,
                         pid_attitude,
-                        // pid_velocity,
                     );
 
                     if state_volatile.link_lost {
@@ -954,11 +953,7 @@ mod app {
                     }
 
                     #[cfg(feature = "quad")]
-                    flight_ctrls::set_input_mode(
-                        control_channel_data.input_mode,
-                        // &mut state_volatile.input_mode,
-                        state_volatile,
-                    );
+                    flight_ctrls::set_input_mode(control_channel_data.input_mode, state_volatile);
 
                     // todo: Support UART telemetry from ESC.
 
@@ -1030,6 +1025,9 @@ mod app {
                     // The intermediate variable is due to a attribute binding
                     // issue with teh direct approach.
                     state_volatile.autopilot_commands = ap_cmds;
+
+                    // todo: Temp skipping the PID step while we evaluate our approaches.
+                    return;
 
                     #[cfg(feature = "quad")]
                     pid::run_attitude(
@@ -1227,19 +1225,34 @@ mod app {
 
                         cfg_if! {
                             if #[cfg(feature = "quad")] {
-
                                 let motor_power = attitude_ctrls::motor_power_from_atts(
-                                state_volatile.attitude_commanded.quat.unwrap(), params.quaternion,
-                                throttle, cfg.control_mapping.frontleft_aftright_dir,);
+                                    state_volatile.attitude_commanded.quat.unwrap(),
+                                     params.quaternion,
+                                    throttle,
+                                    cfg.control_mapping.frontleft_aftright_dir,
+                                    params,
+                                    &state_volatile.current_pwr,
+                                );
+                                //    target_attitude: Quaternion,
+                                //     current_attitude: Quaternion,
+                                //     throttle: f32,
+                                //     front_left_dir: RotationDir,
+                                //     // todo: Params is just for current angular rates. Maybe just pass those?
+                                //     params: &Params,
+                                //     current_power: &MotorPower,
 
                                 motor_power.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status, dma);
-
                                 state_volatile.current_pwr = motor_power;
                             } else {
                                 let control_posits = attitude_ctrls::control_posits_from_atts(
-                                state_volatile.attitude_commanded.quat.unwrap(), params.quaternion, throttle);
+                                state_volatile.attitude_commanded.quat.unwrap(),
+                                 params.quaternion,
+                                  throttle,
+                                  params,
+                                  &state_volatile.ctrl_positions);
 
-                                control_posits.set(motor_timers, state_volatile.arm_status, &cfg.control_mapping, dma);
+                                control_posits.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status,  dma);
+                                state_volatile.ctrl_positions = control_posits;
                             }
                         }
 
@@ -1255,7 +1268,6 @@ mod app {
                                 throttle_commanded,
                                 pid_rate,
                                 filters,
-                                &mut state_volatile.current_pwr,
                                 &cfg.control_mapping,
                                 motor_timers,
                                 dma,
@@ -1264,6 +1276,7 @@ mod app {
                                 state_volatile.arm_status,
                                 DT_IMU,
                             );
+                            // todo: Set motor power in state_volatile A/R
                         } else {
                             // Our fixed-wing update rate is limited by the servos, so we only run this
                             // 1 out of 16 IMU updates.
@@ -1286,6 +1299,7 @@ mod app {
                                     state_volatile.arm_status,
                                     DT_IMU * FIXED_WING_RATE_UPDATE_RATIO as f32,
                                 );
+                                // todo: Set ctrl posits in state_volatile A/R
                             }
                         }
                     }
