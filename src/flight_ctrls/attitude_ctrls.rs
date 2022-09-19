@@ -47,7 +47,8 @@ pub fn motor_power_from_atts(
     front_left_dir: RotationDir,
     // todo: Params is just for current angular rates. Maybe just pass those?
     params: &Params,
-    current_power: &MotorPower,
+    params_prev: &Params,
+    prev_power: &MotorPower,
 ) -> MotorPower {
     // todo: This fn and approach is a WIP!!
 
@@ -99,9 +100,19 @@ pub fn motor_power_from_atts(
         max_rate_yaw
     };
 
-    let target_rate_pitch_change = params.v_pitch - target_rate_pitch;
-    let target_rate_roll_change = params.v_roll - target_rate_roll;
-    let target_rate_yaw_change = params.v_yaw - target_rate_yaw;
+    // todo Look at how this current power setting is changing rates over time (derivative?)
+    let d_pitch_param = params.v_pitch - params_prev.v_pitch;
+    let d_roll_param = params.v_roll - params_prev.v_roll;
+    let d_yaw_param = params.v_yaw - params_prev.v_yaw;
+
+    // todo: d rate targets as well?
+
+    // For each channel, compare the previous control positions to the [rate? change in rate?)
+    // Then adjust the motor powers A/R.
+
+    let target_rate_pitch_change = target_rate_pitch - params.v_pitch;
+    let target_rate_roll_change = target_rate_roll - params.v_roll;
+    let target_rate_yaw_change = target_rate_yaw - params.v_yaw;
 
     let pitch_cmd = target_rate_pitch_change * p_pitch;
     let roll_cmd = target_rate_roll_change * p_roll;
@@ -118,7 +129,8 @@ pub fn control_posits_from_atts(
     throttle: f32,
     // todo: Params is just for current angular rates. Maybe just pass those?
     params: &Params,
-    current_posits: &ControlPositions,
+    params_prev: &Params,
+    prev_ctrls: &ControlPositions,
 ) -> ControlPositions {
     // todo: Modulate based on airspeed.
 
@@ -132,9 +144,16 @@ pub fn control_posits_from_atts(
 /// Modify our attitude commanded from rate-based user inputs. `ctrl_crates` are in radians/s, and `dt` is in s.
 pub fn modify_att_target(orientation: Quaternion, rates: &RatesCommanded, dt: f32) -> Quaternion {
     // todo: Error handling on this?
-    let rotation_pitch = Quaternion::from_axis_angle(RIGHT, rates.pitch.unwrap() * dt);
-    let rotation_roll = Quaternion::from_axis_angle(FWD, rates.roll.unwrap() * dt);
-    let rotation_yaw = Quaternion::from_axis_angle(UP, rates.yaw.unwrap() * dt);
+
+    // Rotate our basis vecs using the orientation, such that control inputs are relative to the
+    // current attitude.
+    let right = orientation.rotate_vec(RIGHT);
+    let fwd = orientation.rotate_vec(FWD);
+    let up = orientation.rotate_vec(UP);
+
+    let rotation_pitch = Quaternion::from_axis_angle(right, rates.pitch.unwrap() * dt);
+    let rotation_roll = Quaternion::from_axis_angle(fwd, rates.roll.unwrap() * dt);
+    let rotation_yaw = Quaternion::from_axis_angle(up, rates.yaw.unwrap() * dt);
 
     // todo: Order?
     rotation_yaw * rotation_roll * rotation_pitch * orientation

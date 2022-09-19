@@ -148,7 +148,7 @@ pub struct RatesCommanded {
 
 /// Aircraft flight parameters, at a given instant. Pitch and roll rates are in the aircraft's
 /// frame of reference.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Params {
     /// Latitude in radians. From GPS alone, or blended with accelerometer data.
     pub lat: f32,

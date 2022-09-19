@@ -242,6 +242,9 @@ mod app {
         autopilot_status: AutopilotStatus,
         ctrl_coeffs: CtrlCoeffGroup,
         current_params: Params,
+        // todo: `params_prev` is an experimental var used in our alternative/experimental
+        // todo flight controls code as a derivative.
+        params_prev: Params,
         // velocities_commanded: CtrlInputs,
         // pid_velocity: PidGroup,
         pid_attitude: PidGroup,
@@ -727,7 +730,8 @@ mod app {
                 state_volatile,
                 autopilot_status: Default::default(),
                 ctrl_coeffs,
-                current_params: params,
+                current_params: params.clone(),
+                params_prev: params,
                 // velocities_commanded: Default::default(),
                 // attitudes_commanded: Default::default(),
                 // pid_velocity: Default::default(),
@@ -1094,7 +1098,8 @@ mod app {
     }
 
     // binds = DMA1_STR2,
-    #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, control_channel_data, autopilot_status,
+    #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, params_prev, control_channel_data,
+    autopilot_status,
     pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, cs_imu, user_cfg,
     motor_timers, ahrs, state_volatile, rf_limiter_timer], local = [fixed_wing_rate_loop_i, update_loop_i2], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
@@ -1118,6 +1123,7 @@ mod app {
 
         (
             cx.shared.current_params,
+            cx.shared.params_prev,
             cx.shared.ahrs,
             cx.shared.control_channel_data,
             cx.shared.autopilot_status,
@@ -1133,6 +1139,7 @@ mod app {
         )
             .lock(
                 |params,
+                 params_prev,
                  ahrs,
                  control_channel_data,
                  autopilot_status,
@@ -1173,6 +1180,9 @@ mod app {
                     //     dshot::set_power(Rotor::R1, Rotor::R2, 0., 0., motor_timers, dma);
                     // }
                     // return;
+
+                    // Update `params_prev` with past-update data prior to updating params
+                    *params_prev = params.clone();
 
                     let mut imu_data =
                         imu_shared::ImuReadings::from_buffer(unsafe { &imu_shared::IMU_READINGS });
@@ -1227,10 +1237,11 @@ mod app {
                             if #[cfg(feature = "quad")] {
                                 let motor_power = attitude_ctrls::motor_power_from_atts(
                                     state_volatile.attitude_commanded.quat.unwrap(),
-                                     params.quaternion,
+                                    params.quaternion,
                                     throttle,
                                     cfg.control_mapping.frontleft_aftright_dir,
                                     params,
+                                    params_prev,
                                     &state_volatile.current_pwr,
                                 );
                                 //    target_attitude: Quaternion,
@@ -1245,11 +1256,13 @@ mod app {
                                 state_volatile.current_pwr = motor_power;
                             } else {
                                 let control_posits = attitude_ctrls::control_posits_from_atts(
-                                state_volatile.attitude_commanded.quat.unwrap(),
-                                 params.quaternion,
-                                  throttle,
-                                  params,
-                                  &state_volatile.ctrl_positions);
+                                    state_volatile.attitude_commanded.quat.unwrap(),
+                                    params.quaternion,
+                                    throttle,
+                                    params,
+                                    params_prev,
+                                    &state_volatile.ctrl_positions
+                                );
 
                                 control_posits.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status,  dma);
                                 state_volatile.ctrl_positions = control_posits;
