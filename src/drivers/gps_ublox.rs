@@ -2,12 +2,21 @@
 //! We use the UBX protocol, although others are available. It uses I2C,
 //! although the hardware also supports UART.
 
-use stm32_hal2::{i2c::I2c, pac::I2C1};
+use stm32_hal2::{
+    i2c::{self, I2c},
+    pac::I2C1,
+};
 
 use crate::ppks::Location;
 
 pub struct GpsNotConnectedError {}
 pub struct GpsFixError {}
+
+impl From<i2c::Error> for GpsNotConnectedError {
+    fn from(e: i2c::Error) -> Self {
+        Self {}
+    }
+}
 
 const ADDR: u8 = 0x69; // todo
 
@@ -34,7 +43,7 @@ impl Reg {
 /// Configure the GPS; run this at init.
 pub fn setup(i2c: &mut I2c<I2C1>) -> Result<(), GpsNotConnectedError> {
     let mut buf = [0x01, 0x02, 0, 0, 0, 0, 0, 0];
-    i2c.read(ADDR, &mut buf).unwrap(); // todo: Map to error type.
+    i2c.read(ADDR, &mut buf)?;
 
     Ok(())
 }

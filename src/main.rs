@@ -67,7 +67,7 @@ use control_interface::{
 };
 
 use drivers::{
-    baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu,
+    baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
     osd::{self, AutopilotData, OsdData},
     tof_vl53l1 as tof,
 };
@@ -399,16 +399,6 @@ mod app {
         let mut cs_flash = Pin::new(Port::C, flash_pin, PinMode::Output);
         cs_flash.set_high();
 
-        // We use I2C1 for the GPS, magnetometer, and TOF sensor. Note that
-        // the U-BLOX GPS' max speed is 400kHz.
-        let i2c_gps_tof_cfg = I2cConfig {
-            speed: I2cSpeed::Fast400K,
-            ..Default::default()
-        };
-
-        // We use I2C1 for offboard sensors: Magnetometer, GPS, and TOF sensor.
-        let mut i2c1 = I2c::new(dp.I2C1, i2c_gps_tof_cfg, &clock_cfg);
-
         // We use UART2 for the OSD, for DJI, via the MSP protocol.
         // todo: QC baud.
         let mut uart_osd = Usart::new(dp.USART2, 115_200, Default::default(), &clock_cfg);
@@ -598,25 +588,27 @@ mod app {
         //     delay.delay_ms(2000);
         // }
 
+        // We use I2C1 for the GPS, magnetometer, and TOF sensor. Some details:
+        // The U-BLOX GPS' max speed is 400kHz.
+        // The LIS3MDL altimeter's max speed is 400kHz.
+        // todo: DO you want 100kHz due to the connection being external? (Lower freqs
+        // todo may have fewer issues)
+        let i2c_external_sensors_cfg = I2cConfig {
+            speed: I2cSpeed::Fast400K,
+            ..Default::default()
+        };
+
         // We use I2C for the TOF sensor.(?)
         let i2c_baro_cfg = I2cConfig {
             speed: I2cSpeed::Fast400K,
             ..Default::default()
         };
 
-        // We use I2C2 for offboard sensors: Magnetometer, GPS, and TOF sensor.
+        // We use I2C1 for offboard sensors: Magnetometer, GPS, and TOF sensor.
+        let mut i2c1 = I2c::new(dp.I2C1, i2c_external_sensors_cfg, &clock_cfg);
+
+        // We use I2C2 for the onboard barometer (altimeter).
         let mut i2c2 = I2c::new(dp.I2C2, i2c_baro_cfg, &clock_cfg);
-
-        println!("Setting up alt");
-        let mut altimeter = baro::Altimeter::new(&mut i2c2);
-
-        println!("Altimeter setup complete");
-
-        // loop {
-        //     let reading = altimeter.read_pressure(&mut i2c2);
-        //     println!("Alt: {:?}", reading);
-        //     delay.delay_ms(500);
-        // }
 
         // todo: ID connected sensors etc by checking their device ID etc.
         let mut state_volatile = StateVolatile::default();
@@ -678,10 +670,8 @@ mod app {
 
         // todo: For params, consider raw readings without DMA. Currently you're just passign in the
         // todo default; not going to cut it.?
-        state_volatile.system_status = setup::init_sensors(
+        (state_volatile.system_status, altimeter) = setup::init_sensors(
             &mut params,
-            &mut altimeter,
-            &mut state_volatile.system_status,
             &mut state_volatile.base_point,
             &mut spi1,
             &mut i2c1,

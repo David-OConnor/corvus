@@ -24,12 +24,27 @@
 
 use core::f32::consts::TAU;
 
-use stm32_hal2::{i2c::I2c, pac::I2C1};
+use stm32_hal2::{
+    i2c::{self, I2c},
+    pac::I2C1,
+};
 
 use lin_alg2::f32::{Quaternion, Vec3};
 
 // use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sqrt_f32}; // todo: sqrt missing?
 use cmsis_dsp_sys::arm_cos_f32;
+
+pub enum TofError {
+    NotConnected,
+    BankThreshExceeded,
+    DistThreshExceeded,
+}
+
+impl From<i2c::Error> for TofError {
+    fn from(e: i2c::Error) -> Self {
+        Self::NotConnected
+    }
+}
 
 /// Square a number.
 /// todo: Alternatively, use the `num_traits` dep
@@ -61,9 +76,7 @@ const THRESH_DIST: f32 = 12.; // meters. IOC VL53L1CB specs, and extended
 const THRESH_ANGLE: f32 = 0.03 * TAU; // radians, from level, in any direction.
 const READING_QUAL_THRESH: f32 = 0.7;
 
-pub struct GpsNotConnectedError {}
-
-pub fn setup(i2c: &mut I2c<I2C1>) -> Result<(), GpsNotConnectedError> {
+pub fn setup(i2c: &mut I2c<I2C1>) -> Result<(), TofError> {
     // todo
 
     Ok(())
@@ -78,7 +91,7 @@ struct Reading {
 // todo: Don't use a blocking read. Use DMA etc.
 /// Read from the sensor. Result is in meters. Return `None` if the measured reading,
 /// or aircraft attitude is outside the maximum range we consider acceptable,
-pub fn read(attitude: Quaternion, i2c: &mut I2c<I2C1>) -> Option<f32> {
+pub fn read(attitude: Quaternion, i2c: &mut I2c<I2C1>) -> Result<f32, TofError> {
     let down = Vec3::new(0., -1., 0.);
     let down_ac = attitude.rotate_vec(down);
 
@@ -87,11 +100,11 @@ pub fn read(attitude: Quaternion, i2c: &mut I2c<I2C1>) -> Option<f32> {
     let aircraft_angle_from_down = 0.; // todo temp; above should be right, but need acos.
 
     if aircraft_angle_from_down > THRESH_ANGLE {
-        return None;
+        return Err(TofError::BankThreshExceeded);
     }
 
     let mut result = [0];
-    // i2c.write_read(ADDR, &[READ_REG, 0], &mut result).ok();
+    i2c.write_read(ADDR, &[READ_REG, 0], &mut result)?;
 
     let reading = result[0];
 
@@ -102,10 +115,10 @@ pub fn read(attitude: Quaternion, i2c: &mut I2c<I2C1>) -> Option<f32> {
     };
 
     if reading.dist > THRESH_DIST || reading.quality < READING_QUAL_THRESH {
-        return None;
+        return Err(TofError::DistThreshExceeded);
     }
 
-    Some(reading.dist * cos(aircraft_angle_from_down))
+    Ok(reading.dist * cos(aircraft_angle_from_down))
 }
 
 // todo: Consider if you want to move the ST lib to one or more separate files, or a module.

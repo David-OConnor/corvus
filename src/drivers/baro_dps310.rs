@@ -13,7 +13,10 @@ use crate::{
     util,
 };
 
-use stm32_hal2::{i2c::I2c, pac::I2C2};
+use stm32_hal2::{
+    i2c::{self, I2c},
+    pac::I2C2,
+};
 
 use defmt::println;
 
@@ -21,40 +24,55 @@ use defmt::println;
 // pulled-down to GND).
 const ADDR: u8 = 0x77;
 
-// See Datasheet, secction 7: Register Map
-const PSR_B2: u8 = 0x00;
-const PSR_B1: u8 = 0x01;
-const PSR_B0: u8 = 0x02;
-const TMP_B0: u8 = 0x03;
-const TMP_B2: u8 = 0x04;
-const TMP_B1: u8 = 0x05;
-const PRS_CFG: u8 = 0x06;
-const TMP_CFG: u8 = 0x07;
-const MEAS_CFG: u8 = 0x08;
-const CFG_REG: u8 = 0x09;
-const INT_STS: u8 = 0x0A;
-const FIFO_STS: u8 = 0x0B;
-const RESET: u8 = 0x0C;
+pub struct BaroNotConnectedError {}
 
-// Some awkward boundaries due to being packed. See datasheet section 8.11
-const COEF_0: u8 = 0x10;
-const COEF_0_1: u8 = 0x11;
-const COEF_1: u8 = 0x12;
-const COEF_00_A: u8 = 0x13;
-const COEF_00_B: u8 = 0x14;
-const COEF_00_10: u8 = 0x15;
-const COEF_10_A: u8 = 0x16;
-const COEF_10_B: u8 = 0x17;
-const COEF_01_A: u8 = 0x18;
-const COEF_01_B: u8 = 0x19;
-const COEF_11_A: u8 = 0x1A;
-const COEF_11_B: u8 = 0x1B;
-const COEF_20_A: u8 = 0x1C;
-const COEF_20_B: u8 = 0x1D;
-const COEF_21_A: u8 = 0x1E;
-const COEF_21_B: u8 = 0x1F;
-const COEF_30_A: u8 = 0x20;
-const COEF_30_B: u8 = 0x21;
+impl From<i2c::Error> for BaroNotConnectedError {
+    fn from(e: i2c::Error) -> Self {
+        Self {}
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+#[repr(u8)]
+pub enum Reg {
+    PSR_B2 = 0x00,
+    PSR_B1 = 0x01,
+    PSR_B0 = 0x02,
+    TMP_B0 = 0x03,
+    TMP_B2 = 0x04,
+    TMP_B1 = 0x05,
+    PRS_CFG = 0x06,
+    TMP_CFG = 0x07,
+    MEAS_CFG = 0x08,
+    CFG_REG = 0x09,
+    INT_STS = 0x0A,
+    FIFO_STS = 0x0B,
+    RESET = 0x0C,
+
+    // Some awkward boundaries due to being packed. See datasheet section 8.11
+    COEF_0 = 0x10,
+    COEF_0_1 = 0x11,
+    COEF_1 = 0x12,
+    COEF_00_A = 0x13,
+    COEF_00_B = 0x14,
+    COEF_00_10 = 0x15,
+    COEF_10_A = 0x16,
+    COEF_10_B = 0x17,
+    COEF_01_A = 0x18,
+    COEF_01_B = 0x19,
+    COEF_11_A = 0x1A,
+    COEF_11_B = 0x1B,
+    COEF_20_A = 0x1C,
+    COEF_20_B = 0x1D,
+    COEF_21_A = 0x1E,
+    COEF_21_B = 0x1F,
+    COEF_30_A = 0x20,
+    COEF_30_B = 0x21,
+}
+
+// See Datasheet, secction 7: Register Map
+
 // ...
 
 // See datasheet, table 9. Used in pressure and temperature calculation. This is set up for 64-times
@@ -90,6 +108,8 @@ struct HardwareCoeffCal {
 
 /// Represents an Altimeter, storing several types of calibration values. Of note, this is mostly hardware-agnostic,
 /// but is in this hardware-specific module due to the factory-stored calibration coeffs.
+/// The default impl is used if the baro isn't connected, or there's a communciations error.
+#[derive(Default)]
 pub struct Altimeter {
     /// Calibration point taken during initialization; used to interpret pressure readings
     /// as pseudo-AGL. (QFE) This point's altitude field must be 0.
@@ -107,32 +127,32 @@ pub struct Altimeter {
 impl Altimeter {
     /// Configure settings, including pressure mreasurement rate, and return an instance.
     /// And load calibration data.
-    pub fn new(i2c: &mut I2c<I2C2>) -> Self {
+    pub fn new(i2c: &mut I2c<I2C2>) -> Result<Self, BaroNotConnectedError> {
         // todo temp
-        return Self {
-            ground_cal: Default::default(),
-            gps_cal_init: None,
-            gps_cal_air: None,
-            hardware_coeff_cal: Default::default(),
-        };
+        // return Ok(Self {
+        //     ground_cal: Default::default(),
+        //     gps_cal_init: None,
+        //     gps_cal_air: None,
+        //     hardware_coeff_cal: Default::default(),
+        // });
 
         // Set 64x oversampling, and 128 measurements per second, for both temp and pres.
-        i2c.write(ADDR, &[PRS_CFG, 0b0111_0110]).ok();
-        i2c.write(ADDR, &[TMP_CFG, 0b0111_0110]).ok();
+        i2c.write(ADDR, &[Reg::PRS_CFG as u8, 0b0111_0110])?;
+        i2c.write(ADDR, &[Reg::TMP_CFG as u8, 0b0111_0110])?;
 
         // Continuous pressure and temp measurement in background mode.
-        i2c.write(ADDR, &[MEAS_CFG, 0b0000_0111]).ok();
+        i2c.write(ADDR, &[Reg::MEAS_CFG as u8, 0b0000_0111])?;
 
         // Enable pressure and temp bit-shift due to our high sampling rate.
         // No interrupts enabled.
-        i2c.write(ADDR, &[CFG_REG, 0b0000_1100]).ok();
+        i2c.write(ADDR, &[Reg::CFG_REG as u8, 0b0000_1100])?;
 
         // todo temp debug
         let mut prs_buf = [0];
-        i2c.write_read(ADDR, &[PRS_CFG], &mut prs_buf).ok();
+        i2c.write_read(ADDR, &[Reg::PRS_CFG as u8], &mut prs_buf)?;
         println!("PRS CFG REG: {:b}", prs_buf[0]);
 
-        i2c.write_read(ADDR, &[MEAS_CFG], &mut prs_buf).ok();
+        i2c.write_read(ADDR, &[Reg::MEAS_CFG as u8], &mut prs_buf)?;
         println!("Meas REG: {:b}", prs_buf[0]);
 
         // Load calibration data, factory-coded.
@@ -140,7 +160,7 @@ impl Altimeter {
         // here as well.
         loop {
             let mut buf = [0];
-            i2c.write_read(ADDR, &[MEAS_CFG], &mut buf).ok();
+            i2c.write_read(ADDR, &[MEAS_CFG as u8], &mut buf)?;
             if (buf[0] & 0b1100_0000) == 0b1100_0000 {
                 break;
             }
@@ -152,42 +172,42 @@ impl Altimeter {
 
         // todo DRY. Split up into sub fns, at least for the last few that are uniform.
 
-        i2c.write_read(ADDR, &[COEF_0], &mut buf_a).ok();
-        i2c.write_read(ADDR, &[COEF_0_1], &mut buf_b).ok();
+        i2c.write_read(ADDR, &[Reg::COEF_0 as u8], &mut buf_a)?;
+        i2c.write_read(ADDR, &[Reg::COEF_0_1 as u8], &mut buf_b)?;
 
         let mut c0 = i16::from_be_bytes([buf_a[0], buf_b[0] >> 4]) as i32;
 
-        i2c.write_read(ADDR, &[COEF_1], &mut buf_a).ok();
+        i2c.write_read(ADDR, &[Reg::COEF_1 as u8], &mut buf_a)?;
 
         let mut c1 = i16::from_be_bytes([buf_b[0] & 0xF, buf_a[0]]) as i32;
 
-        i2c.write_read(ADDR, &[COEF_00_A], &mut buf_a).ok();
-        i2c.write_read(ADDR, &[COEF_00_B], &mut buf_b).ok();
-        i2c.write_read(ADDR, &[COEF_00_10], &mut buf_c).ok();
+        i2c.write_read(ADDR, &[Reg::COEF_00_A as u8], &mut buf_a)?;
+        i2c.write_read(ADDR, &[Reg::COEF_00_B as u8], &mut buf_b)?;
+        i2c.write_read(ADDR, &[Reg::COEF_00_10 as u8], &mut buf_c)?;
         let mut c00 = i32::from_be_bytes([0, buf_a[0], buf_b[0], buf_c[0] >> 4]);
 
-        i2c.write_read(ADDR, &[COEF_10_A], &mut buf_a).ok();
-        i2c.write_read(ADDR, &[COEF_10_B], &mut buf_b).ok();
+        i2c.write_read(ADDR, &[Reg::COEF_10_A as u8], &mut buf_a)?;
+        i2c.write_read(ADDR, &[Reg::COEF_10_B as u8], &mut buf_b)?;
         let mut c10 = i32::from_be_bytes([0, buf_c[0] & 0xF, buf_a[0], buf_b[0]]);
 
-        i2c.write_read(ADDR, &[COEF_01_A], &mut buf_a).ok();
-        i2c.write_read(ADDR, &[COEF_01_B], &mut buf_b).ok();
+        i2c.write_read(ADDR, &[Reg::COEF_01_A], &mut buf_a)?;
+        i2c.write_read(ADDR, &[Reg::COEF_01_B], &mut buf_b)?;
         let mut c01 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
 
-        i2c.write_read(ADDR, &[COEF_11_A], &mut buf_a).ok();
-        i2c.write_read(ADDR, &[COEF_11_B], &mut buf_b).ok();
+        i2c.write_read(ADDR, &[Reg::COEF_11_A as u8], &mut buf_a)?;
+        i2c.write_read(ADDR, &[Reg::COEF_11_B as u8], &mut buf_b)?;
         let mut c11 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
 
-        i2c.write_read(ADDR, &[COEF_20_A], &mut buf_a).ok();
-        i2c.write_read(ADDR, &[COEF_20_B], &mut buf_b).ok();
+        i2c.write_read(ADDR, &[Reg::COEF_20_A as u8], &mut buf_a)?;
+        i2c.write_read(ADDR, &[Reg::COEF_20_B as u8], &mut buf_b)?;
         let mut c20 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
 
-        i2c.write_read(ADDR, &[COEF_21_A], &mut buf_a).ok();
-        i2c.write_read(ADDR, &[COEF_21_B], &mut buf_b).ok();
+        i2c.write_read(ADDR, &[Reg::COEF_21_A as u8], &mut buf_a)?;
+        i2c.write_read(ADDR, &[Reg::COEF_21_B as u8], &mut buf_b)?;
         let mut c21 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
 
-        i2c.write_read(ADDR, &[COEF_30_A], &mut buf_a).ok();
-        i2c.write_read(ADDR, &[COEF_30_B], &mut buf_b).ok();
+        i2c.write_read(ADDR, &[Reg::COEF_30_A as u8], &mut buf_a)?;
+        i2c.write_read(ADDR, &[Reg::COEF_30_B as u8], &mut buf_b)?;
         let mut c30 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
 
         // c0 and c1 are 12 bits. c00 and c10 are 20 bits. The rest are 16.
@@ -222,7 +242,7 @@ impl Altimeter {
             temp: result.read_temp(i2c),
         };
 
-        result
+        Ok(result)
     }
 
     pub fn calibrate_from_gps(&mut self, gps_alt: Option<f32>, i2c: &mut I2c<I2C2>) {
@@ -276,7 +296,7 @@ impl Altimeter {
     // todo and computation.
 
     /// Read atmospheric pressure, in kPa.
-    pub fn read_pressure(&self, i2c: &mut I2c<I2C2>) -> f32 {
+    pub fn read_pressure(&self, i2c: &mut I2c<I2C2>) -> Result<f32, BaroNotConnectedError> {
         // The Pressure Data registers contains the 24 bit (3 bytes) 2's complement pressure measurement value.
         // If the FIFO is enabled, the register will contain the FIFO pressure and/or temperature results. Otherwise, the
         // register contains the pressure measurement results and will not be cleared after read.
@@ -284,26 +304,26 @@ impl Altimeter {
         let mut buf2 = [0];
         let mut buf1 = [0];
         let mut buf0 = [0];
-        i2c.write_read(ADDR, &[PSR_B2], &mut buf2).ok();
-        i2c.write_read(ADDR, &[PSR_B1], &mut buf1).ok();
-        i2c.write_read(ADDR, &[PSR_B0], &mut buf0).ok();
+        i2c.write_read(ADDR, &[Reg::PSR_B2 as u8], &mut buf2)?;
+        i2c.write_read(ADDR, &[Reg::PSR_B1 as u8], &mut buf1)?;
+        i2c.write_read(ADDR, &[Reg::PSR_B0 as u8], &mut buf0)?;
 
         let mut p_raw = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
         fix_int_sign(&mut p_raw, 24);
 
         // todo: DRY with above and temp readings below, also does this twice if getting temp at same time.
-        i2c.write_read(ADDR, &[TMP_B2], &mut buf2).ok();
-        i2c.write_read(ADDR, &[TMP_B1], &mut buf1).ok();
-        i2c.write_read(ADDR, &[TMP_B0], &mut buf0).ok();
+        i2c.write_read(ADDR, &[Reg::TMP_B2 as u8], &mut buf2)?;
+        i2c.write_read(ADDR, &[Reg::TMP_B1 as u8], &mut buf1)?;
+        i2c.write_read(ADDR, &[Reg::TMP_B0 as u8], &mut buf0)?;
 
         let mut t_raw = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
         fix_int_sign(&mut t_raw, 24);
 
-        self.pressure_from_reading(p_raw, t_raw)
+        Ok(self.pressure_from_reading(p_raw, t_raw))
     }
 
     /// Read temperature, in °C.
-    pub fn read_temp(&self, i2c: &mut I2c<I2C2>) -> f32 {
+    pub fn read_temp(&self, i2c: &mut I2c<I2C2>) -> Result<f32, BaroNotConnectedError> {
         // The Temperature Data registers contain the 24 bit (3 bytes) 2's complement temperature measurement value
         // ( unless the FIFO is enabled, please see FIFO operation ) and will not be cleared after the read.
 
@@ -312,13 +332,13 @@ impl Altimeter {
         let mut buf2 = [0];
         let mut buf1 = [0];
         let mut buf0 = [0];
-        i2c.write_read(ADDR, &[TMP_B2], &mut buf2).ok();
-        i2c.write_read(ADDR, &[TMP_B1], &mut buf1).ok();
-        i2c.write_read(ADDR, &[TMP_B0], &mut buf0).ok();
+        i2c.write_read(ADDR, &[Reg::TMP_B2 as u8], &mut buf2)?;
+        i2c.write_read(ADDR, &[Reg::TMP_B1 as u8], &mut buf1)?;
+        i2c.write_read(ADDR, &[Reg::TMP_B0 as u8], &mut buf0)?;
 
         let mut reading = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
         fix_int_sign(&mut reading, 24);
 
-        self.temp_from_reading(reading)
+        Ok(self.temp_from_reading(reading))
     }
 }

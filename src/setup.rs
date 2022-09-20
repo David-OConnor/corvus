@@ -21,7 +21,10 @@ cfg_if! {
     }
 }
 use crate::{
-    drivers::{baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu, tof_vl53l1 as tof},
+    drivers::{
+        baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
+        tof_vl53l1 as tof,
+    },
     flight_ctrls::common::{AttitudeCommanded, Motor, Params},
     ppks::{Location, LocationType},
     state::{SensorStatus, SystemStatus},
@@ -40,50 +43,75 @@ pub const CRSF_TX_CH: DmaChannel = DmaChannel::C6;
 
 pub const BATT_CURR_DMA_CH: DmaChannel = DmaChannel::C7;
 
+// todo: You should ideally have a channel for the baro.
+
+// Channel for GPS, magnetometer, and TOF sensor.
+#[cfg(feature = "h7")]
+pub const EXT_SENSORS_TX_CH: DmaChannel = DmaChannel::C0;
+#[cfg(feature = "g4")]
+pub const EXT_SENSORS_TX_CH: DmaChannel = DmaChannel::C8;
+
+// pub const BARO_TX_CH: DmaChannel = DmaChannel::C1; // DMA2
+// pub const BARO_RX_CH: DmaChannel = DmaChannel::C1; // DMA2
+// todo: You need an RX channel for ext sensors, and both for baro.
+// todo: You need to add HAL support for DMA2 to support more channels.
+
 /// Run on startup, or when desired. Run on the ground. Gets an initial GPS fix,
-/// and other initialization functions.
+/// and other initialization functions. We currently use the sensor initialization
+/// bus communication results here to detemrine how to set system status flags.
+/// todo: Periodically check these sensor statuses after init.
 pub fn init_sensors(
     params: &mut Params,
-    altimeter: &mut baro::Altimeter,
-    optional_sensor_status: &mut SystemStatus,
     base_pt: &mut Location,
     spi1: &mut Spi<SPI1>,
     i2c1: &mut I2c<I2C1>,
     i2c2: &mut I2c<I2C2>,
     cs_imu: &mut Pin,
     delay: &mut Delay,
-) -> SystemStatus {
-    let mut result = Default::default();
+) -> (SystemStatus, baro::Altimeter) {
+    let mut system_status = SystemStatus::default();
 
     let eps = 0.001;
 
-    // Don't init if in motion.
-    if params.v_x > eps
-        || params.v_y > eps
-        || params.v_z > eps
-        || params.v_pitch > eps
-        || params.v_roll > eps
-    {
-        return result;
+    match gps::setup(i2c1) {
+        Ok(_) => system_status.gps = SensorStatus::Pass,
+        Err(_) => system_status.gps = SensorStatus::NotConnected,
     }
 
-    match gps::setup(i2c1) {
-        Ok(_) => optional_sensor_status.gps = SensorStatus::Pass,
-        Err(_) => optional_sensor_status.gps = SensorStatus::NotConnected,
+    match mag::setup(i2c1) {
+        Ok(_) => system_status.magnetometer = SensorStatus::Pass,
+        Err(_) => system_status.magnetometer = SensorStatus::NotConnected,
     }
 
     match tof::setup(i2c1) {
-        Ok(_) => optional_sensor_status.tof = SensorStatus::Pass,
-        Err(_) => optional_sensor_status.tof = SensorStatus::NotConnected,
+        Ok(_) => system_status.tof = SensorStatus::Pass,
+        Err(_) => system_status.tof = SensorStatus::NotConnected,
     }
 
-    imu::setup(spi1, cs_imu, delay);
+    match imu::setup(spi1, cs_imu, delay) {
+        Ok(_) => system_status.imu = SensorStatus::Pass,
+        Err(_) => system_status.imu = SensorStatus::NotConnected,
+    };
 
-    if let Some(agl) = tof::read(params.quaternion, i2c1) {
-        if agl > 0.01 {
-            return result;
+    // if let Some(agl) = tof::read(params.quaternion, i2c1) {
+    //     if agl > 0.01 {
+    //         return result;
+    //     }
+    // }
+
+    println!("Setting up alt");
+    let mut altimeter = match baro::Altimeter::new(i2c2) {
+        Ok(a) => {
+            system_status.baro = SensorStatus::Pass;
+            a
         }
-    }
+        Err(_) => {
+            system_status.baro = SensorStatus::NotConnected;
+            Default::default()
+        }
+    };
+
+    println!("Altimeter setup complete");
 
     let fix = gps::get_fix(i2c1);
 
@@ -103,7 +131,7 @@ pub fn init_sensors(
     }
     // todo: Use Rel0 location type if unable to get fix.
 
-    result
+    (system_status, altimeter)
 }
 
 cfg_if! {
@@ -341,6 +369,10 @@ pub fn setup_dma(dma: &mut Dma<DMA1>) {
     dma::mux(BATT_CURR_DMA_CH, DmaInput::Adc2);
 
     dma::mux(OSD_CH, DmaInput::Usart2Tx);
+
+    // todo: We need to free up a channel for external sensors Rx.
+    dma::mux(EXT_SENSORS_TX_CH, DmaInput::I2c1Tx);
+    // dma::mux(EXT_SENSORS_RX_CH, DmaInput::I2CcRx);
 
     // TOF sensor
     // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx);
