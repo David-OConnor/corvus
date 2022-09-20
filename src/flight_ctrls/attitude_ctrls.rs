@@ -1,8 +1,6 @@
 //! This module contains code for attitude-based controls. This includes sticks mapping
 //! to attitude, and an internal attitude model with rate-like controls, where attitude is the target.
 
-use core::cmp;
-
 use crate::control_interface::ChannelData;
 
 use super::common::{Params, RatesCommanded};

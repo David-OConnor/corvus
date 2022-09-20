@@ -99,7 +99,6 @@ pub fn init_sensors(
     //     }
     // }
 
-    println!("Setting up alt");
     let mut altimeter = match baro::Altimeter::new(i2c2) {
         Ok(a) => {
             system_status.baro = SensorStatus::Pass;
@@ -110,8 +109,6 @@ pub fn init_sensors(
             Default::default()
         }
     };
-
-    println!("Altimeter setup complete");
 
     let fix = gps::get_fix(i2c1);
 

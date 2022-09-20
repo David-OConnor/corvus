@@ -104,7 +104,7 @@ pub fn read(attitude: Quaternion, i2c: &mut I2c<I2C1>) -> Result<f32, TofError> 
     }
 
     let mut result = [0];
-    i2c.write_read(ADDR, &[READ_REG, 0], &mut result)?;
+    // i2c.write_read(ADDR, &[READ_REG, 0], &mut result)?;
 
     let reading = result[0];
 

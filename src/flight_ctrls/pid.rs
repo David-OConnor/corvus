@@ -9,7 +9,6 @@
 use stm32_hal2::{dma::Dma, pac::DMA1};
 
 use cmsis_dsp_api as dsp_api;
-use cmsis_dsp_sys as dsp_sys;
 
 use crate::{
     control_interface::ChannelData,
@@ -26,8 +25,6 @@ use super::{
     ControlMapping,
 };
 
-use lin_alg2::f32::Quaternion;
-
 use cfg_if::cfg_if;
 
 cfg_if! {
@@ -35,7 +32,7 @@ cfg_if! {
         use crate::flight_ctrls::{ControlPositions};
     } else {
         use crate::flight_ctrls::{InputMode, MotorPower,
-         MAX_ROTOR_POWER, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED};
+         MAX_ROTOR_POWER};
     }
 }
 

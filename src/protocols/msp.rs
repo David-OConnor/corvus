@@ -14,10 +14,7 @@ use stm32_hal2::{
     usart::Usart,
 };
 
-use crate::{
-    protocols::msp_defines::{Function, OSD_CONFIG_SIZE},
-    util,
-};
+use crate::{protocols::msp_defines::Function, util};
 
 // const CRC_POLY: u8 = 0xd;
 const CRC_POLY: u8 = 0x0; // todo: WHich one, this or the above?

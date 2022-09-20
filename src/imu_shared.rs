@@ -2,7 +2,7 @@
 //! DMA buffer.
 
 use stm32_hal2::{
-    dma::{Dma, DmaChannel},
+    dma::Dma,
     gpio::Pin,
     pac::{DMA1, SPI1},
     spi::Spi,

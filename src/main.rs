@@ -72,7 +72,6 @@ use drivers::{
     tof_vl53l1 as tof,
 };
 
-use filter_imu::ImuFilters;
 use flight_ctrls::{
     attitude_ctrls,
     autopilot::AutopilotStatus,
@@ -83,6 +82,8 @@ use flight_ctrls::{
     },
     ControlMapping,
 };
+
+use filter_imu::ImuFilters;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
@@ -95,7 +96,7 @@ cfg_if! {
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
-use state::{OperationMode, SensorStatus, StateVolatile, SystemStatus, UserCfg};
+use state::{StateVolatile, SystemStatus, OperationMode, UserCfg};
 
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.
@@ -670,7 +671,7 @@ mod app {
 
         // todo: For params, consider raw readings without DMA. Currently you're just passign in the
         // todo default; not going to cut it.?
-        (state_volatile.system_status, altimeter) = setup::init_sensors(
+        let (system_status, altimeter) = setup::init_sensors(
             &mut params,
             &mut state_volatile.base_point,
             &mut spi1,
@@ -679,6 +680,8 @@ mod app {
             &mut cs_imu,
             &mut delay,
         );
+
+        state_volatile.system_status = system_status;
 
         // loop {
         //     let pressure = altimeter.read_pressure(&mut i2c2);

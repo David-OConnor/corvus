@@ -6,7 +6,7 @@
 // todo: For that last option, perhaps impl wise to maintain 8kHz etc update rate, make the inner
 // todo loop attitude-based, instead of deferring to the mid loop.
 
-use crate::{ppks::Location, safety::ArmStatus, util::map_linear};
+use crate::util::map_linear;
 
 use stm32_hal2::{pac, timer::Timer};
 
@@ -20,7 +20,7 @@ cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use super::ControlPositions;
     } else {
-        use super::{MotorPower, THROTTLE_MAX_MNVR_CLAMP, THROTTLE_MIN_MNVR_CLAMP};
+        // use super::{MotorPower, THROTTLE_MAX_MNVR_CLAMP, THROTTLE_MIN_MNVR_CLAMP};
     }
 }
 
