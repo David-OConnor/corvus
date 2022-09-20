@@ -96,7 +96,7 @@ cfg_if! {
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
-use state::{StateVolatile, SystemStatus, OperationMode, UserCfg};
+use state::{OperationMode, StateVolatile, SystemStatus, UserCfg};
 
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.

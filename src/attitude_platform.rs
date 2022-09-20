@@ -15,6 +15,9 @@
 //! Python guide: https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python
 //!
 //! [Youtube video: Phil's Lab](https://www.youtube.com/watch?v=hQUkiC5o0JI)
+//!
+//! Important: We define X to be left/right (pitch), Y to be forward/back (roll, and
+//! Z to be up/down (yaw)
 
 // todo: Try this : https://github.com/Mayitzin/ahrs/blob/master/ahrs/filters/ekf.py
 

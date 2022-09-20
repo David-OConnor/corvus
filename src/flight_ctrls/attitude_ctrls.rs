@@ -74,7 +74,7 @@ pub fn motor_power_from_atts(
 
     // Split the rotation into 3 euler angles. We do this due to our controls acting primarily
     // along individual axes.
-    let (rot_pitch, rot_yaw, rot_roll) = rotation_cmd.to_euler();
+    let (rot_pitch, rot_roll, rot_yaw) = rotation_cmd.to_euler();
 
     // Compare the current (measured) angular velocities to what we need to apply this rotation.
     let mut target_rate_pitch = if rot_pitch > max_rate_dist_pitch {
@@ -134,7 +134,7 @@ pub fn control_posits_from_atts(
 
     let rotation_cmd = target_attitude * current_attitude.inverse();
 
-    let (rot_pitch, rot_yaw, rot_roll) = rotation_cmd.to_euler();
+    let (rot_pitch, rot_roll, rot_yaw) = rotation_cmd.to_euler();
 
     ControlPositions::from_cmds(pitch_cmd, roll_cmd, yaw_cmd, throttle)
 }
