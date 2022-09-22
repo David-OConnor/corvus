@@ -4,9 +4,9 @@
 //! [Betaflight Signal flow diagram](https://github.com/betaflight/betaflight/wiki/Signal-Flow-Diagram)
 //! Note that this is just an example, and isn't necesssarily something to emulate.
 
-pub mod ctrl_logic;
 pub mod autopilot;
 pub mod common;
+pub mod ctrl_logic;
 pub mod pid;
 // pub mod pid_tuning; // todo: Implement A/R
 

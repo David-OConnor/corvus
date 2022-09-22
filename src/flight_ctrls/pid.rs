@@ -19,10 +19,9 @@ use crate::{
 };
 
 use super::{
-    ctrl_logic,
     autopilot::AutopilotStatus,
     common::{AttitudeCommanded, CtrlInputs, InputMap, MotorTimers, Params, RatesCommanded},
-    ControlMapping,
+    ctrl_logic, ControlMapping,
 };
 
 use cfg_if::cfg_if;

@@ -73,9 +73,9 @@ use drivers::{
 };
 
 use flight_ctrls::{
-    ctrl_logic,
     autopilot::AutopilotStatus,
     common::{AltType, CtrlInputs, InputMap, MotorTimers, Params, RatesCommanded},
+    ctrl_logic,
     pid::{
         self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
         PID_CONTROL_ADJ_TIMEOUT,
@@ -655,7 +655,7 @@ mod app {
         // todo: Testing flash
         let mut flash_buf = [0; 8];
         // let cfg_data =
-        #[cfg(feature = "h7")]F
+        #[cfg(feature = "h7")]
         flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
         flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);

@@ -81,8 +81,8 @@ pub fn motor_power_from_atts(
     let rotation_cmd = target_attitude * current_attitude.inverse();
 
     // todo: Common fn for shared code between here and quad.
-    
-    // todo: See if you can briefen this 
+
+    // todo: See if you can briefen this
 
     // todo: These params should be in `UserCfg`.
     let p_pitch = 1.;
@@ -99,11 +99,24 @@ pub fn motor_power_from_atts(
     let max_rate_dist_roll = 1.; // radians
     let max_rate_dist_yaw = 1.; // radians
 
-    // todo: Fn to reduce dry between P, R, Y?
+    let ang_accel_pitch = params.v_pitch - params_prev.v_pitch;
+    let ang_accel_roll = params.v_roll - params_prev.v_roll;
+    let ang_accel_yaw = params.v_yaw - params_prev.v_yaw;
+
+    // If the rate is within this value of the target rate, don't change motor power. This is
+    // an experimental way to save power and maybe reduce oscillations(?)
+    let rate_thresh = 0.1;
+
+    // todo: Should these go in the delegation fn?
+    let tgt_rate_chg_pitch = target_rate_pitch - params.v_pitch;
+    let tgt_rate_chg_roll = target_rate_roll - params.v_roll;
+    let tgt_rate_chg_yaw = target_rate_yaw - params.v_yaw;
 
     // Split the rotation into 3 euler angles. We do this due to our controls acting primarily
     // along individual axes.
     let (rot_pitch, rot_roll, rot_yaw) = rotation_cmd.to_euler();
+
+    // todo Start code that should be delegated to by-axis fns
 
     // Compare the current (measured) angular velocities to what we need to apply this rotation.
     let mut target_rate_pitch = if rot_pitch > max_rate_dist_pitch {
@@ -127,52 +140,56 @@ pub fn motor_power_from_atts(
         max_rate_yaw
     };
 
-    // todo Look at how this current power setting is changing rates over time (derivative?)
-    let ang_accel_pitch = params.v_pitch - params_prev.v_pitch;
-    let ang_accel_roll = params.v_roll - params_prev.v_roll;
-    let ang_accel_yaw = params.v_yaw - params_prev.v_yaw;
-
-    // todo: ang accels as well
-
-    // Dist: 10
-    // rate: 1
-    // change: 2x
-
-    // Without accel: takes 10
-    // First: rate = 1, dist = 9
-    // 2: rate = 2, dist = 7
-    // 3: rate = 4, dist = 3
-    // 4: rate = 8, dist = made it
-
-    // todo: Try anylitically` integrating.
-
-    let tgt_rate_chg_pitch = target_rate_pitch - params.v_pitch;
-    let tgt_rate_chg_roll = target_rate_roll - params.v_roll;
-    let tgt_rate_chg_yaw = target_rate_yaw - params.v_yaw;
-
     // Estimate the time it will take to arrive at our target attitude,
     // given the current angular velocity, and angular acceleration.
     // We numerically integrate, then solve for time.
+
+    // todo: Take into account reduction in accel as velocity increases due to drag?
 
     // Integrate using angular rate, and angular accel:
     // θ(t) = θ_0 + ω_0 * t + ω_dot * t^2
 
     // wolfram alpha: `theta = h + v * t + a * Power[t,2] solve for t`
-    // 1/(2*ω_dot) * (sqrt(-4 * 0. + 4ω_dot θ(t) + ω_0^2) + ω_0)
+    // 1/(2*ω_dot) * (sqrt(-4 * 0. + 4ω_dot θ(t) + ω_0^2) +/- ω_0)
 
-    // todo: Test this in python etc with a common-sense check.
-    let a = 2. * ang_accel_pitch;
-    let b = (4. * ang_accel_pitch * rot_pitch + params.v_pitch.powi(2)).sqrt() + params.v_pitch;
-    let time_to_tgt_att_pitch = b / a;
+    // todo: Should you apply filtering to any of these terms?
+
+    const EPS_1: f32 = 0.0001;
+
+    // todo: From tests, the second variant (b2) appears to work for test examples.
+    // todo: Figure out when to use each
+    // todo: Figure out what to do when it will never convege; ie it it's accelerating in the wrong
+    // todo direction.
+    let time_to_tgt_att_pitch = if ang_accel_pitch.abs() < EPS_1 {
+        Some(rot_pitch / params.v_pitch)
+    } else {
+        let a = 2. * ang_accel_pitch;
+
+        let inner = 4. * ang_accel_pitch * rot_pitch + params.v_pitch.powi(2);
+        if inner < 0. {
+            // Will never reach target (without wrapping around).
+            // todo: Use modulus TAU and allow going the wrong way?
+            None
+        } else {
+            let b1 = inner.sqrt() + params.v_pitch;
+            let b2 = inner.sqrt() - params.v_pitch;
+
+            let v1 = b2 / a;
+            // todo: Is this the approach you want? Pick the positive one?
+            // todo: Maybe choose the one with smaller abs? I think that indicates going
+            // todo back in time, so probably not.
+            if v1 > 0. {
+                Some(v1)
+            } else {
+                Some(-(b1 / a))
+            }
+        }
+    };
 
     let target_time_to_tgt_att_pitch = rot_pitch * asdf;
 
     // For each channel, compare the previous control positions to the [rate? change in rate?)
     // Then adjust the motor powers A/R.
-
-    // If the rate is within this value of the target rate, don't change motor power. This is
-    // an experimental way to save power and maybe reduce oscillations(?)
-    let rate_thresh = 0.1;
 
     // todo OK, say it is like a pid...
     let d_term_pitch = d_pitch_param * p_pitch;
@@ -184,7 +201,6 @@ pub fn motor_power_from_atts(
 
     // eg 5 m/s delta
     //
-
 
     // if tgt_rate_chg_pitch <= rate_thresh {
     //     // power_chg_pitch = 0.

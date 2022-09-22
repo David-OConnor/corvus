@@ -6,7 +6,7 @@ use cfg_if::cfg_if;
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
-    dma::{self, DmaPeriph, Dma, DmaChannel, DmaInput, DmaInterrupt},
+    dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::I2c,
     pac::{DMA1, DMA2, I2C1, I2C2, SPI1},
@@ -345,11 +345,19 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 
     // DSHOT, motors 1 and 2 (all 4 for H7)
     #[cfg(feature = "g4")]
-    dma::mux(DmaPeriph::Dma1, Motor::M1.dma_channel(), Motor::M1.dma_input());
+    dma::mux(
+        DmaPeriph::Dma1,
+        Motor::M1.dma_channel(),
+        Motor::M1.dma_input(),
+    );
 
     // DSHOT, motors 3 and 4 (not used on H7)
     #[cfg(not(feature = "h7"))]
-    dma::mux(DmaPeriph::Dma1, Motor::M3.dma_channel(), Motor::M3.dma_input());
+    dma::mux(
+        DmaPeriph::Dma1,
+        Motor::M3.dma_channel(),
+        Motor::M3.dma_input(),
+    );
 
     // CRSF (onboard ELRS)
     #[cfg(feature = "h7")]
