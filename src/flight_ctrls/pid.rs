@@ -19,7 +19,7 @@ use crate::{
 };
 
 use super::{
-    attitude_ctrls,
+    ctrl_logic,
     autopilot::AutopilotStatus,
     common::{AttitudeCommanded, CtrlInputs, InputMap, MotorTimers, Params, RatesCommanded},
     ControlMapping,
@@ -525,7 +525,7 @@ pub fn run_attitude(
         // control positions.
         InputMode::Attitude => {
             *attitude_commanded = AttitudeCommanded {
-                quat: Some(attitude_ctrls::from_controls(ch_data)),
+                quat: Some(ctrl_logic::from_controls(ch_data)),
                 ..Default::default()
             }
             // *attitudes_commanded = CtrlInputs {

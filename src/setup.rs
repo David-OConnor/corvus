@@ -6,10 +6,10 @@ use cfg_if::cfg_if;
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
-    dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt},
+    dma::{self, DmaPeriph, Dma, DmaChannel, DmaInput, DmaInterrupt},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::I2c,
-    pac::{DMA1, I2C1, I2C2, SPI1},
+    pac::{DMA1, DMA2, I2C1, I2C2, SPI1},
     spi::Spi,
     timer::TimChannel,
 };
@@ -31,6 +31,8 @@ use crate::{
 };
 
 // Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.
+
+// DMA 1
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
 pub const IMU_RX_CH: DmaChannel = DmaChannel::C2;
 
@@ -43,18 +45,15 @@ pub const CRSF_TX_CH: DmaChannel = DmaChannel::C6;
 
 pub const BATT_CURR_DMA_CH: DmaChannel = DmaChannel::C7;
 
-// todo: You should ideally have a channel for the baro.
+// We still have CH8 (or CH0) avail on DMA1)
 
-// Channel for GPS, magnetometer, and TOF sensor.
-#[cfg(feature = "h7")]
-pub const EXT_SENSORS_TX_CH: DmaChannel = DmaChannel::C0;
-#[cfg(feature = "g4")]
-pub const EXT_SENSORS_TX_CH: DmaChannel = DmaChannel::C8;
+// DMA 2
+pub const BARO_TX_CH: DmaChannel = DmaChannel::C1;
+pub const BARO_RX_CH: DmaChannel = DmaChannel::C2;
 
-// pub const BARO_TX_CH: DmaChannel = DmaChannel::C1; // DMA2
-// pub const BARO_RX_CH: DmaChannel = DmaChannel::C1; // DMA2
-// todo: You need an RX channel for ext sensors, and both for baro.
-// todo: You need to add HAL support for DMA2 to support more channels.
+// Channels for GPS, magnetometer, and TOF sensor.
+pub const EXT_SENSORS_TX_CH: DmaChannel = DmaChannel::C3;
+pub const EXT_SENSORS_RX_CH: DmaChannel = DmaChannel::C4;
 
 /// Run on startup, or when desired. Run on the ground. Gets an initial GPS fix,
 /// and other initialization functions. We currently use the sensor initialization
@@ -339,37 +338,39 @@ pub fn setup_pins() {
 }
 
 /// Assign DMA channels to peripherals.
-pub fn setup_dma(dma: &mut Dma<DMA1>) {
+pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // IMU
-    dma::mux(IMU_TX_CH, DmaInput::Spi1Tx);
-    dma::mux(IMU_RX_CH, DmaInput::Spi1Rx);
+    dma::mux(DmaPeriph::Dma1, IMU_TX_CH, DmaInput::Spi1Tx);
+    dma::mux(DmaPeriph::Dma1, IMU_RX_CH, DmaInput::Spi1Rx);
 
     // DSHOT, motors 1 and 2 (all 4 for H7)
     #[cfg(feature = "g4")]
-    dma::mux(Motor::M1.dma_channel(), Motor::M1.dma_input());
+    dma::mux(DmaPeriph::Dma1, Motor::M1.dma_channel(), Motor::M1.dma_input());
 
     // DSHOT, motors 3 and 4 (not used on H7)
     #[cfg(not(feature = "h7"))]
-    dma::mux(Motor::M3.dma_channel(), Motor::M3.dma_input());
+    dma::mux(DmaPeriph::Dma1, Motor::M3.dma_channel(), Motor::M3.dma_input());
 
     // CRSF (onboard ELRS)
     #[cfg(feature = "h7")]
     let elrs_dma_ch = DmaInput::Usart7Rx;
     #[cfg(feature = "g4")]
     let elrs_dma_ch = DmaInput::Usart3Rx;
-    dma::mux(CRSF_RX_CH, elrs_dma_ch);
+    dma::mux(DmaPeriph::Dma1, CRSF_RX_CH, elrs_dma_ch);
 
     // Note: If we run out of DMA channels, consider removing the CRSF transmit channel;
     // we only have it set up to respond to pings, and that's probably unecessary.
     // dma::mux(DmaChannel::C8, DmaInput::Usart3Tx);
 
-    dma::mux(BATT_CURR_DMA_CH, DmaInput::Adc2);
+    dma::mux(DmaPeriph::Dma1, BATT_CURR_DMA_CH, DmaInput::Adc2);
 
-    dma::mux(OSD_CH, DmaInput::Usart2Tx);
+    dma::mux(DmaPeriph::Dma1, OSD_CH, DmaInput::Usart2Tx);
 
-    // todo: We need to free up a channel for external sensors Rx.
-    dma::mux(EXT_SENSORS_TX_CH, DmaInput::I2c1Tx);
-    // dma::mux(EXT_SENSORS_RX_CH, DmaInput::I2CcRx);
+    dma::mux(DmaPeriph::Dma2, BARO_TX_CH, DmaInput::I2c2Tx);
+    dma::mux(DmaPeriph::Dma2, BARO_RX_CH, DmaInput::I2c2Rx);
+
+    dma::mux(DmaPeriph::Dma2, EXT_SENSORS_TX_CH, DmaInput::I2c1Tx);
+    dma::mux(DmaPeriph::Dma2, EXT_SENSORS_RX_CH, DmaInput::I2c1Rx);
 
     // TOF sensor
     // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx);

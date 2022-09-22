@@ -7,6 +7,8 @@ use super::common::{Params, RatesCommanded};
 
 use lin_alg2::f32::{Quaternion, Vec3};
 
+use num_traits::float::Float; // For sqrt.
+
 use cfg_if::cfg_if;
 
 cfg_if! {
@@ -37,6 +39,31 @@ const FWD: Vec3 = Vec3 {
     z: 1.,
 };
 
+// todo: COde shortner 3x.
+
+// #[cfg(feature = "quad")]
+// fn motor_power_chan(rot: f32, max_rate_dist: f32, max_rate: f32, ) -> f32 {
+//     // Compare the current (measured) angular velocities to what we need to apply this rotation.
+//     let mut target_rate = if rot > max_rate_dist {
+//         max_rate_dist * max_rate
+//     } else {
+//         // Clamp
+//         max_rate
+//     };
+//
+//     // todo Look at how this current power setting is changing rates over time (derivative?)
+//     let d_param = params.v - params_prev.v;
+//
+//     // todo: d rate targets as well?
+//
+//     let target_rate_change = target_rate - params.v;
+//
+//     // For each channel, compare the previous control positions to the [rate? change in rate?)
+//     // Then adjust the motor powers A/R.
+//
+//     target_rate_change * p;
+// }
+
 #[cfg(feature = "quad")]
 pub fn motor_power_from_atts(
     target_attitude: Quaternion,
@@ -54,6 +81,8 @@ pub fn motor_power_from_atts(
     let rotation_cmd = target_attitude * current_attitude.inverse();
 
     // todo: Common fn for shared code between here and quad.
+    
+    // todo: See if you can briefen this 
 
     // todo: These params should be in `UserCfg`.
     let p_pitch = 1.;
@@ -99,22 +128,82 @@ pub fn motor_power_from_atts(
     };
 
     // todo Look at how this current power setting is changing rates over time (derivative?)
-    let d_pitch_param = params.v_pitch - params_prev.v_pitch;
-    let d_roll_param = params.v_roll - params_prev.v_roll;
-    let d_yaw_param = params.v_yaw - params_prev.v_yaw;
+    let ang_accel_pitch = params.v_pitch - params_prev.v_pitch;
+    let ang_accel_roll = params.v_roll - params_prev.v_roll;
+    let ang_accel_yaw = params.v_yaw - params_prev.v_yaw;
 
-    // todo: d rate targets as well?
+    // todo: ang accels as well
+
+    // Dist: 10
+    // rate: 1
+    // change: 2x
+
+    // Without accel: takes 10
+    // First: rate = 1, dist = 9
+    // 2: rate = 2, dist = 7
+    // 3: rate = 4, dist = 3
+    // 4: rate = 8, dist = made it
+
+    // todo: Try anylitically` integrating.
+
+    let tgt_rate_chg_pitch = target_rate_pitch - params.v_pitch;
+    let tgt_rate_chg_roll = target_rate_roll - params.v_roll;
+    let tgt_rate_chg_yaw = target_rate_yaw - params.v_yaw;
+
+    // Estimate the time it will take to arrive at our target attitude,
+    // given the current angular velocity, and angular acceleration.
+    // We numerically integrate, then solve for time.
+
+    // Integrate using angular rate, and angular accel:
+    // θ(t) = θ_0 + ω_0 * t + ω_dot * t^2
+
+    // wolfram alpha: `theta = h + v * t + a * Power[t,2] solve for t`
+    // 1/(2*ω_dot) * (sqrt(-4 * 0. + 4ω_dot θ(t) + ω_0^2) + ω_0)
+
+    // todo: Test this in python etc with a common-sense check.
+    let a = 2. * ang_accel_pitch;
+    let b = (4. * ang_accel_pitch * rot_pitch + params.v_pitch.powi(2)).sqrt() + params.v_pitch;
+    let time_to_tgt_att_pitch = b / a;
+
+    let target_time_to_tgt_att_pitch = rot_pitch * asdf;
 
     // For each channel, compare the previous control positions to the [rate? change in rate?)
     // Then adjust the motor powers A/R.
 
-    let target_rate_pitch_change = target_rate_pitch - params.v_pitch;
-    let target_rate_roll_change = target_rate_roll - params.v_roll;
-    let target_rate_yaw_change = target_rate_yaw - params.v_yaw;
+    // If the rate is within this value of the target rate, don't change motor power. This is
+    // an experimental way to save power and maybe reduce oscillations(?)
+    let rate_thresh = 0.1;
 
-    let pitch_cmd = target_rate_pitch_change * p_pitch;
-    let roll_cmd = target_rate_roll_change * p_roll;
-    let yaw_cmd = target_rate_yaw_change * p_yaw;
+    // todo OK, say it is like a pid...
+    let d_term_pitch = d_pitch_param * p_pitch;
+    let p_term_pitch = tgt_rate_chg_pitch * p_pitch;
+
+    // Calculate how long it will take to reach the target pitch rate at the current rate
+    // of change.
+    let time_to_tgt_rate_pitch = tgt_rate_chg_pitch / d_term_pitch;
+
+    // eg 5 m/s delta
+    //
+
+
+    // if tgt_rate_chg_pitch <= rate_thresh {
+    //     // power_chg_pitch = 0.
+    // }
+
+    let power_chg_pitch = if tgt_rate_chg_pitch > rate_thresh {
+        // todo: YOu need to take rate changes into effect
+        tgt_rate_chg_pitch * p_pitch
+    } else {
+        0.
+    };
+
+    let pitch_cmd = prev_power.pitch + power_chg_pitch;
+    let roll_cmd = prev_power.roll + power_chg_roll;
+    let yaw_cmd = prev_power.yaw + power_chg_yaw;
+
+    let pitch_cmd = tgt_rate_chg_pitch * p_pitch;
+    let roll_cmd = tgt_rate_chg_roll * p_roll;
+    let yaw_cmd = tgt_rate_chg_yaw * p_yaw;
 
     // Examine if our current control settings are appropriately effecting the change we want.
     MotorPower::from_cmds(pitch_cmd, roll_cmd, yaw_cmd, throttle, front_left_dir)

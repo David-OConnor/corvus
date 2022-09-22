@@ -22,7 +22,7 @@ use stm32_hal2::{
     flash::{Bank, Flash},
     gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, I2C1, I2C2, SPI1, TIM1, TIM16, TIM17, USART2},
+    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, TIM1, TIM16, TIM17, USART2},
     // rtc::Rtc,
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{Timer, TimerConfig, TimerInterrupt},
@@ -73,7 +73,7 @@ use drivers::{
 };
 
 use flight_ctrls::{
-    attitude_ctrls,
+    ctrl_logic,
     autopilot::AutopilotStatus,
     common::{AltType, CtrlInputs, InputMap, MotorTimers, Params, RatesCommanded},
     pid::{
@@ -252,6 +252,7 @@ mod app {
         pid_rate: PidGroup,
         control_channel_data: ChannelData,
         dma: Dma<DMA1>,
+        dma2: Dma<DMA2>,
         spi1: Spi<SPI1>,
         cs_imu: Pin,
         i2c1: I2c<I2C1>,
@@ -344,10 +345,11 @@ mod app {
         setup::setup_pins();
 
         let mut dma = Dma::new(dp.DMA1);
+        let mut dma2 = Dma::new(dp.DMA2);
         #[cfg(feature = "g4")]
         dma::enable_mux1();
 
-        setup::setup_dma(&mut dma);
+        setup::setup_dma(&mut dma, &mut dma2);
 
         // We use SPI1 for the IMU
         // SPI input clock is 400MHz for H7, and 170Mhz for G4. 400MHz / 32 = 12.5 MHz. 170Mhz / 8 = 21.25Mhz.
@@ -653,7 +655,7 @@ mod app {
         // todo: Testing flash
         let mut flash_buf = [0; 8];
         // let cfg_data =
-        #[cfg(feature = "h7")]
+        #[cfg(feature = "h7")]F
         flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
         flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
@@ -732,6 +734,7 @@ mod app {
                 pid_rate: Default::default(),
                 control_channel_data: Default::default(),
                 dma,
+                dma2,
                 spi1,
                 cs_imu,
                 i2c1,
@@ -743,7 +746,6 @@ mod app {
                 rf_limiter_timer,
                 lost_link_timer,
                 motor_timers,
-                // delay_timer,
                 usb_dev,
                 usb_serial,
                 flash_onboard,
@@ -1214,7 +1216,7 @@ mod app {
                             yaw: Some(cfg.input_map.calc_yaw_rate(control_channel_data.yaw)),
                         };
 
-                        state_volatile.attitude_commanded.quat = Some(attitude_ctrls::modify_att_target(
+                        state_volatile.attitude_commanded.quat = Some(ctrl_logic::modify_att_target(
                             state_volatile.attitude_commanded.quat.unwrap_or(Quaternion::new_identity()),
                             &state_volatile.rates_commanded,
                             DT_IMU,
@@ -1228,7 +1230,7 @@ mod app {
 
                         cfg_if! {
                             if #[cfg(feature = "quad")] {
-                                let motor_power = attitude_ctrls::motor_power_from_atts(
+                                let motor_power = ctrl_logic::motor_power_from_atts(
                                     state_volatile.attitude_commanded.quat.unwrap(),
                                     params.quaternion,
                                     throttle,
@@ -1248,7 +1250,7 @@ mod app {
                                 motor_power.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status, dma);
                                 state_volatile.current_pwr = motor_power;
                             } else {
-                                let control_posits = attitude_ctrls::control_posits_from_atts(
+                                let control_posits = ctrl_logic::control_posits_from_atts(
                                     state_volatile.attitude_commanded.quat.unwrap(),
                                     params.quaternion,
                                     throttle,
