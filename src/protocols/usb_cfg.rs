@@ -51,25 +51,25 @@ use num_enum::TryFromPrimitive; // Enum from integer
 
 use defmt::println;
 
-// These sizes are in bytes.
-const F32_BYTES: usize = 4;
-
 const CRC_POLY: u8 = 0xab;
 const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
 
-const QUATERNION_SIZE: usize = F32_BYTES * 4;
+// These sizes are in bytes.
+const F32_SIZE: usize = 4;
+
+const QUATERNION_SIZE: usize = F32_SIZE * 4;
 
 // Quaternion (4x4 + altimeter + altimeter_agl +
 // voltage reading + current reading + option byte for altimeter.)
-const PARAMS_SIZE: usize = QUATERNION_SIZE + F32_BYTES * 4 + 1; //
+const PARAMS_SIZE: usize = QUATERNION_SIZE + F32_SIZE * 4 + 1; //
 const CONTROLS_SIZE: usize = 18;
 // const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
 const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
 
 // 3 coords + option to indicate if used. (Some/None)
-pub const WAYPOINT_SIZE: usize = F32_BYTES * 3 + WAYPOINT_MAX_NAME_LEN + 1;
+pub const WAYPOINT_SIZE: usize = F32_SIZE * 3 + WAYPOINT_MAX_NAME_LEN + 1;
 pub const WAYPOINTS_SIZE: usize = crate::state::MAX_WAYPOINTS * WAYPOINT_SIZE;
-pub const SET_SERVO_POSIT_SIZE: usize = 1 + F32_BYTES; // Servo num, value
+pub const SET_SERVO_POSIT_SIZE: usize = 1 + F32_SIZE; // Servo num, value
 
 // Packet sizes are payload size + 2. Additional data are message type, and CRC.
 const PARAMS_PACKET_SIZE: usize = PARAMS_SIZE + 2;
@@ -273,8 +273,8 @@ pub fn handle_rx(
             i += QUATERNION_SIZE;
 
             let altimeter_bytes = altimeter.to_be_bytes();
-            tx_buf[i..F32_BYTES + i].copy_from_slice(&altimeter_bytes);
-            i += F32_BYTES;
+            tx_buf[i..F32_SIZE + i].copy_from_slice(&altimeter_bytes);
+            i += F32_SIZE;
 
             tx_buf[i] = if altimeter_agl.is_some() { 1 } else { 0 };
             i += 1;
@@ -282,11 +282,11 @@ pub fn handle_rx(
             match altimeter_agl {
                 Some(alt) => {
                     let altimeter_agl_bytes = alt.to_be_bytes();
-                    tx_buf[i..F32_BYTES + i].copy_from_slice(&altimeter_agl_bytes)
+                    tx_buf[i..F32_SIZE + i].copy_from_slice(&altimeter_agl_bytes)
                 }
                 None => (),
             }
-            i += F32_BYTES;
+            i += F32_SIZE;
 
             let batt_v = adc.reading_to_voltage(unsafe { crate::ADC_READ_BUF }[0])
                 * crate::ADC_BATT_DIVISION;
@@ -294,12 +294,12 @@ pub fn handle_rx(
                 * crate::ADC_CURR_DIVISION;
 
             let batt_bytes = batt_v.to_be_bytes();
-            tx_buf[i..F32_BYTES + i].copy_from_slice(&batt_bytes);
-            i += F32_BYTES;
+            tx_buf[i..F32_SIZE + i].copy_from_slice(&batt_bytes);
+            i += F32_SIZE;
 
             let curr_bytes = curr.to_be_bytes();
-            tx_buf[i..F32_BYTES + i].copy_from_slice(&curr_bytes);
-            i += F32_BYTES;
+            tx_buf[i..F32_SIZE + i].copy_from_slice(&curr_bytes);
+            i += F32_SIZE;
 
             let payload_size = MsgType::Params.payload_size();
             tx_buf[payload_size + 1] = util::calc_crc(

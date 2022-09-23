@@ -7,6 +7,7 @@ use crate::{
     flight_ctrls::{
         autopilot::{AutopilotStatus, LandingCfg},
         common::{AttitudeCommanded, CtrlInputs, InputMap, RatesCommanded},
+        ctrl_logic::CtrlCoeffs,
         ControlMapping,
     },
     ppks::Location,
@@ -97,9 +98,10 @@ pub struct UserCfg {
     #[cfg(feature = "fixed-wing")]
     /// (Alternative is no rudder)
     pub rudder_used: bool,
-    /// Modify `rate` mode to command an orientation that changes based on rate control inputs.
-    pub attitude_based_rate_mode: bool,
+    // ///Modify `rate` mode to command an orientation that changes based on rate control inputs.
+    // pub attitude_based_rate_mode: bool,
     pub input_map: InputMap,
+    pub ctrl_coeffs: CtrlCoeffs,
 }
 
 impl Default for UserCfg {
@@ -149,8 +151,9 @@ impl Default for UserCfg {
             landing_cfg: Default::default(),
             #[cfg(feature = "fixed-wing")]
             rudder_used: false,
-            attitude_based_rate_mode: true,
+            // attitude_based_rate_mode: true,
             input_map: Default::default(),
+            ctrl_coeffs: Default::default(),
         }
     }
 }

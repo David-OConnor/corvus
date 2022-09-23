@@ -21,7 +21,7 @@ use stm32_hal2::{
 use crate::{
     app::{Shared, Local, Monotomic},
     lin_alg::{Mat3, Vec3},
-    pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup},
+    // pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::{Location, LocationType},
     protocols::{crsf, dshot, usb_cfg},
     safety::ArmStatus,
@@ -321,7 +321,7 @@ pub fn init() -> (Shared, Local, Monotomic) {
         }
         AircraftType::FlyingWing => {
             flying_wing::setup_timers(&mut rotor_timer_a, &mut rotor_timer_b);
-            ctrl_coeffs = CtrlCoeffGroup::default_flying_wing();
+            // ctrl_coeffs = CtrlCoeffGroup::default_flying_wing();
         }
     }
 

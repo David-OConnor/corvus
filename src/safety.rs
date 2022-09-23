@@ -8,7 +8,7 @@ use crate::{
         autopilot::AutopilotStatus,
         common::{AltType, Params},
     },
-    pid::PidGroup,
+    // pid::PidGroup,
     ppks::{Location, LocationType},
     state::{SensorStatus, SystemStatus},
 };
@@ -75,8 +75,8 @@ pub fn handle_arm_status(
     controller_arm_status: ArmStatus,
     arm_status: &mut ArmStatus,
     throttle: f32,
-    pid_rate: &mut PidGroup,
-    pid_attitude: &mut PidGroup,
+    // pid_rate: &mut PidGroup,
+    // pid_attitude: &mut PidGroup,
     // pid_velocity: &mut PidGroup,
 ) {
     // println!("arm rec: {:?}",  arm_signals_received);
@@ -94,8 +94,8 @@ pub fn handle_arm_status(
 
                 // Reset integrator on rate PIDs, for example so the value from one flight doesn't
                 // affect the next.
-                pid_rate.reset_integrator();
-                pid_attitude.reset_integrator();
+                // pid_rate.reset_integrator();
+                // pid_attitude.reset_integrator();
                 // pid_velocity.reset_integrator();
 
                 println!("Aircraft disarmed.");

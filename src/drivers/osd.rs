@@ -114,9 +114,9 @@ pub struct OsdData {
     pub pitch: f32,
     pub roll: f32,
     pub yaw: f32,
-    pub pid_p: f32,
-    pub pid_i: f32,
-    pub pid_d: f32,
+    // pub pid_p: f32,
+    // pub pid_i: f32,
+    // pub pid_d: f32,
     pub autopilot: AutopilotData,
     /// Distance and bearing to the base point (usually takeoff location), in m, radians respectively.
     pub base_dist_bearing: (f32, f32),

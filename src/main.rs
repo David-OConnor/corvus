@@ -75,11 +75,11 @@ use drivers::{
 use flight_ctrls::{
     autopilot::AutopilotStatus,
     common::{AltType, CtrlInputs, InputMap, MotorTimers, Params, RatesCommanded},
-    ctrl_logic,
-    pid::{
-        self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
-        PID_CONTROL_ADJ_TIMEOUT,
-    },
+    ctrl_logic::{self, CtrlCoeffs},
+    // pid::{
+    //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
+    //     PID_CONTROL_ADJ_TIMEOUT,
+    // },
     ControlMapping,
 };
 
@@ -241,15 +241,14 @@ mod app {
         user_cfg: UserCfg,
         state_volatile: StateVolatile,
         autopilot_status: AutopilotStatus,
-        ctrl_coeffs: CtrlCoeffGroup,
         current_params: Params,
         // todo: `params_prev` is an experimental var used in our alternative/experimental
         // todo flight controls code as a derivative.
         params_prev: Params,
         // velocities_commanded: CtrlInputs,
         // pid_velocity: PidGroup,
-        pid_attitude: PidGroup,
-        pid_rate: PidGroup,
+        // pid_attitude: PidGroup,
+        // pid_rate: PidGroup,
         control_channel_data: ChannelData,
         dma: Dma<DMA1>,
         dma2: Dma<DMA2>,
@@ -551,7 +550,6 @@ mod app {
             alt_msl: 3.,
         });
 
-        let mut ctrl_coeffs = Default::default();
         cfg_if! {
             if #[cfg(feature = "fixed-wing")] {
                 flight_ctrls::setup_timers(&mut motor_timers);
@@ -724,14 +722,13 @@ mod app {
                 user_cfg,
                 state_volatile,
                 autopilot_status: Default::default(),
-                ctrl_coeffs,
                 current_params: params.clone(),
                 params_prev: params,
                 // velocities_commanded: Default::default(),
                 // attitudes_commanded: Default::default(),
                 // pid_velocity: Default::default(),
-                pid_attitude: Default::default(),
-                pid_rate: Default::default(),
+                // pid_attitude: Default::default(),
+                // pid_rate: Default::default(),
                 control_channel_data: Default::default(),
                 dma,
                 dma2,
@@ -808,8 +805,7 @@ mod app {
     #[task(
     binds = TIM1_BRK_TIM15,
     shared = [current_params,
-    pid_attitude, pid_rate,
-    pid_deriv_filters, power_used, autopilot_status, user_cfg, ctrl_coeffs,
+    pid_deriv_filters, power_used, autopilot_status, user_cfg,
     ahrs, control_channel_data,
     lost_link_timer, altimeter, i2c2, state_volatile, batt_curr_adc, dma,
     ],
@@ -828,14 +824,13 @@ mod app {
             cx.shared.control_channel_data,
             // cx.shared.velocities_commanded,
             // cx.shared.attitudes_commanded,
-            cx.shared.pid_rate,
-            cx.shared.pid_attitude,
+            // cx.shared.pid_rate,
+            // cx.shared.pid_attitude,
             // cx.shared.pid_velocity,
             cx.shared.pid_deriv_filters,
             cx.shared.power_used,
             cx.shared.autopilot_status,
             cx.shared.user_cfg,
-            cx.shared.ctrl_coeffs,
             cx.shared.lost_link_timer,
             cx.shared.altimeter,
             cx.shared.i2c2,
@@ -849,14 +844,13 @@ mod app {
                  control_channel_data,
                  // velocities_commanded,
                  // attitudes_commanded,
-                 pid_rate,
-                 pid_attitude,
+                 // pid_rate,
+                 // pid_attitude,
                  // pid_velocity,
                  filters,
                  power_used,
                  autopilot_status,
                  cfg,
-                 coeffs,
                  lost_link_timer,
                  altimeter,
                  i2c2,
@@ -937,8 +931,8 @@ mod app {
                         control_channel_data.arm_status,
                         &mut state_volatile.arm_status,
                         control_channel_data.throttle,
-                        pid_rate,
-                        pid_attitude,
+                        // pid_rate,
+                        // pid_attitude,
                     );
 
                     if state_volatile.link_lost {
@@ -977,9 +971,9 @@ mod app {
                         pitch: params.s_pitch,
                         roll: params.s_roll,
                         yaw: params.s_yaw_heading,
-                        pid_p: coeffs.roll.k_p_rate,
-                        pid_i: coeffs.roll.k_i_rate,
-                        pid_d: coeffs.roll.k_d_rate,
+                        // pid_p: coeffs.roll.k_p_rate,
+                        // pid_i: coeffs.roll.k_i_rate,
+                        // pid_d: coeffs.roll.k_d_rate,
                         autopilot: AutopilotData {
                             takeoff: autopilot_status.takeoff,
                             land: autopilot_status.land.is_some(),
@@ -1015,7 +1009,7 @@ mod app {
                     #[cfg(feature = "fixed-wing")]
                     let ap_cmds = autopilot_status.apply(
                         params,
-                        pid_attitude,
+                        // pid_attitude,
                         filters,
                         coeffs,
                         &state_volatile.system_status,
@@ -1026,36 +1020,36 @@ mod app {
                     state_volatile.autopilot_commands = ap_cmds;
 
                     // todo: Temp skipping the PID step while we evaluate our approaches.
-                    return;
+                    // return;
 
-                    #[cfg(feature = "quad")]
-                    pid::run_attitude(
-                        params,
-                        &mut state_volatile.attitude_commanded,
-                        &mut state_volatile.rates_commanded,
-                        &mut state_volatile.autopilot_commands,
-                        control_channel_data,
-                        &cfg.input_map,
-                        pid_attitude,
-                        filters,
-                        state_volatile.input_mode,
-                        autopilot_status,
-                        cfg,
-                        coeffs,
-                        &state_volatile.system_status,
-                    );
-                    #[cfg(feature = "fixed-wing")]
-                    pid::run_attitude(
-                        params,
-                        &mut state_volatile.attitude_commanded,
-                        &mut state_volatile.rates_commanded,
-                        &mut state_volatile.autopilot_commands,
-                        pid_attitude,
-                        filters,
-                        autopilot_status,
-                        coeffs,
-                        &state_volatile.system_status,
-                    );
+                    // #[cfg(feature = "quad")]
+                    // pid::run_attitude(
+                    //     params,
+                    //     &mut state_volatile.attitude_commanded,
+                    //     &mut state_volatile.rates_commanded,
+                    //     &mut state_volatile.autopilot_commands,
+                    //     control_channel_data,
+                    //     &cfg.input_map,
+                    //     pid_attitude,
+                    //     filters,
+                    //     state_volatile.input_mode,
+                    //     autopilot_status,
+                    //     cfg,
+                    //     coeffs,
+                    //     &state_volatile.system_status,
+                    // );
+                    // #[cfg(feature = "fixed-wing")]
+                    // pid::run_attitude(
+                    //     params,
+                    //     &mut state_volatile.attitude_commanded,
+                    //     &mut state_volatile.rates_commanded,
+                    //     &mut state_volatile.autopilot_commands,
+                    //     pid_attitude,
+                    //     filters,
+                    //     autopilot_status,
+                    //     coeffs,
+                    //     &state_volatile.system_status,
+                    // );
 
                     // #[cfg(feature = "quad")]
                     // match state_volatile.input_mode {
@@ -1095,7 +1089,7 @@ mod app {
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, params_prev, control_channel_data,
     autopilot_status,
-    pid_rate, pid_deriv_filters, imu_filters, ctrl_coeffs, cs_imu, user_cfg,
+    pid_deriv_filters, imu_filters, cs_imu, user_cfg,
     motor_timers, ahrs, state_volatile, rf_limiter_timer], local = [fixed_wing_rate_loop_i, update_loop_i2], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
@@ -1122,11 +1116,10 @@ mod app {
             cx.shared.ahrs,
             cx.shared.control_channel_data,
             cx.shared.autopilot_status,
-            cx.shared.pid_rate,
+            // cx.shared.pid_rate,
             cx.shared.pid_deriv_filters,
             cx.shared.motor_timers,
             cx.shared.dma,
-            cx.shared.ctrl_coeffs,
             cx.shared.user_cfg,
             cx.shared.spi1,
             // cx.shared.rf_limiter_timer, // todo temp
@@ -1138,11 +1131,10 @@ mod app {
                  ahrs,
                  control_channel_data,
                  autopilot_status,
-                 pid_rate,
+                 // pid_rate,
                  filters,
                  motor_timers,
                  dma,
-                 coeffs,
                  cfg,
                  spi1,
                  // rf_limiter_timer, // todo temp
@@ -1205,112 +1197,110 @@ mod app {
 
                     // todo: Impl once you've sorted out your control logic.
                     // todo: Delegate this to another module, eg `attitude_ctrls`.
-                    if cfg.attitude_based_rate_mode {
-                        // Update the target attitude based on control inputs
-                        // todo: Deconflict this with autopilot; probably by checking commanded
-                        // todo pitch, roll, yaw etc!
+                    // Update the target attitude based on control inputs
+                    // todo: Deconflict this with autopilot; probably by checking commanded
+                    // todo pitch, roll, yaw etc!
 
-                        state_volatile.rates_commanded = RatesCommanded {
-                            pitch: Some(cfg.input_map.calc_yaw_rate(control_channel_data.pitch)),
-                            roll: Some(cfg.input_map.calc_yaw_rate(control_channel_data.roll)),
-                            yaw: Some(cfg.input_map.calc_yaw_rate(control_channel_data.yaw)),
-                        };
+                    state_volatile.rates_commanded = RatesCommanded {
+                        pitch: Some(cfg.input_map.calc_yaw_rate(control_channel_data.pitch)),
+                        roll: Some(cfg.input_map.calc_yaw_rate(control_channel_data.roll)),
+                        yaw: Some(cfg.input_map.calc_yaw_rate(control_channel_data.yaw)),
+                    };
 
-                        state_volatile.attitude_commanded.quat = Some(ctrl_logic::modify_att_target(
-                            state_volatile.attitude_commanded.quat.unwrap_or(Quaternion::new_identity()),
-                            &state_volatile.rates_commanded,
-                            DT_IMU,
-                        ));
+                    state_volatile.attitude_commanded.quat = Some(ctrl_logic::modify_att_target(
+                        state_volatile.attitude_commanded.quat.unwrap_or(Quaternion::new_identity()),
+                        &state_volatile.rates_commanded,
+                        DT_IMU,
+                    ));
 
-                        // todo: DRY from pid::apply_common
-                        let throttle = match throttle_commanded {
-                            Some(t) => t,
-                            None => cfg.input_map.calc_manual_throttle(control_channel_data.throttle),
-                        };
-
-                        cfg_if! {
-                            if #[cfg(feature = "quad")] {
-                                let motor_power = ctrl_logic::motor_power_from_atts(
-                                    state_volatile.attitude_commanded.quat.unwrap(),
-                                    params.quaternion,
-                                    throttle,
-                                    cfg.control_mapping.frontleft_aftright_dir,
-                                    params,
-                                    params_prev,
-                                    &state_volatile.current_pwr,
-                                );
-                                //    target_attitude: Quaternion,
-                                //     current_attitude: Quaternion,
-                                //     throttle: f32,
-                                //     front_left_dir: RotationDir,
-                                //     // todo: Params is just for current angular rates. Maybe just pass those?
-                                //     params: &Params,
-                                //     current_power: &MotorPower,
-
-                                motor_power.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status, dma);
-                                state_volatile.current_pwr = motor_power;
-                            } else {
-                                let control_posits = ctrl_logic::control_posits_from_atts(
-                                    state_volatile.attitude_commanded.quat.unwrap(),
-                                    params.quaternion,
-                                    throttle,
-                                    params,
-                                    params_prev,
-                                    &state_volatile.ctrl_positions
-                                );
-
-                                control_posits.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status,  dma);
-                                state_volatile.ctrl_positions = control_posits;
-                            }
-                        }
-
-                        return; // Don't go through the normal PID.
-                    }
+                    // todo: DRY from pid::apply_common
+                    let throttle = match throttle_commanded {
+                        Some(t) => t,
+                        None => cfg.input_map.calc_manual_throttle(control_channel_data.throttle),
+                    };
 
                     cfg_if! {
                         if #[cfg(feature = "quad")] {
-                            pid::run_rate(
+                            let motor_power = ctrl_logic::motor_power_from_atts(
+                                state_volatile.attitude_commanded.quat.unwrap(),
+                                params.quaternion,
+                                throttle,
+                                cfg.control_mapping.frontleft_aftright_dir,
                                 params,
-                                control_channel_data,
-                                &mut state_volatile.rates_commanded,
-                                throttle_commanded,
-                                pid_rate,
-                                filters,
-                                &cfg.control_mapping,
-                                motor_timers,
-                                dma,
-                                coeffs,
-                                &cfg.input_map,
-                                state_volatile.arm_status,
+                                params_prev,
+                                &state_volatile.current_pwr,
                                 DT_IMU,
                             );
-                            // todo: Set motor power in state_volatile A/R
+                            //    target_attitude: Quaternion,
+                            //     current_attitude: Quaternion,
+                            //     throttle: f32,
+                            //     front_left_dir: RotationDir,
+                            //     // todo: Params is just for current angular rates. Maybe just pass those?
+                            //     params: &Params,
+                            //     current_power: &MotorPower,
+
+                            motor_power.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status, dma);
+                            state_volatile.current_pwr = motor_power;
                         } else {
-                            // Our fixed-wing update rate is limited by the servos, so we only run this
-                            // 1 out of 16 IMU updates.
-                            *cx.local.fixed_wing_rate_loop_i += 1;
-                            if *cx.local.fixed_wing_rate_loop_i % FIXED_WING_RATE_UPDATE_RATIO == 0
-                            {
-                                pid::run_rate(
-                                    params,
-                                    control_channel_data,
-                                    &mut state_volatile.rates_commanded,
-                                    throttle_commanded,
-                                    pid_rate,
-                                    filters,
-                                    &mut state_volatile.ctrl_positions,
-                                    &cfg.control_mapping,
-                                    motor_timers,
-                                    dma,
-                                    coeffs,
-                                    &cfg.input_map,
-                                    state_volatile.arm_status,
-                                    DT_IMU * FIXED_WING_RATE_UPDATE_RATIO as f32,
-                                );
-                                // todo: Set ctrl posits in state_volatile A/R
-                            }
+                            let control_posits = ctrl_logic::control_posits_from_atts(
+                                state_volatile.attitude_commanded.quat.unwrap(),
+                                params.quaternion,
+                                throttle,
+                                params,
+                                params_prev,
+                                &state_volatile.ctrl_positions,
+                                DT_IMU,
+                            );
+
+                            control_posits.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status,  dma);
+                            state_volatile.ctrl_positions = control_posits;
                         }
                     }
+
+                    //
+                    // cfg_if! {
+                    //     if #[cfg(feature = "quad")] {
+                    //         pid::run_rate(
+                    //             params,
+                    //             control_channel_data,
+                    //             &mut state_volatile.rates_commanded,
+                    //             throttle_commanded,
+                    //             pid_rate,
+                    //             filters,
+                    //             &cfg.control_mapping,
+                    //             motor_timers,
+                    //             dma,
+                    //             coeffs,
+                    //             &cfg.input_map,
+                    //             state_volatile.arm_status,
+                    //             DT_IMU,
+                    //         );
+                    //         // todo: Set motor power in state_volatile A/R
+                    //     } else {
+                    //         // Our fixed-wing update rate is limited by the servos, so we only run this
+                    //         // 1 out of 16 IMU updates.
+                    //         *cx.local.fixed_wing_rate_loop_i += 1;
+                    //         if *cx.local.fixed_wing_rate_loop_i % FIXED_WING_RATE_UPDATE_RATIO == 0
+                    //         {
+                    //             pid::run_rate(
+                    //                 params,
+                    //                 control_channel_data,
+                    //                 &mut state_volatile.rates_commanded,
+                    //                 throttle_commanded,
+                    //                 pid_rate,
+                    //                 filters,
+                    //                 &mut state_volatile.ctrl_positions,
+                    //                 &cfg.control_mapping,
+                    //                 motor_timers,
+                    //                 dma,
+                    //                 coeffs,
+                    //                 &cfg.input_map,
+                    //                 state_volatile.arm_status,
+                    //                 DT_IMU * FIXED_WING_RATE_UPDATE_RATIO as f32,
+                    //             );
+                    //             // todo: Set ctrl posits in state_volatile A/R
+                    //         }
+                    //     }
                 },
             );
     }
@@ -1519,7 +1509,7 @@ mod app {
 
     // #[task(binds = USART7, shared = [uart_elrs, dma, control_channel_data,
     #[task(binds = USART3, shared = [uart_elrs, dma, control_channel_data,
-    lost_link_timer, rf_limiter_timer, state_volatile, ctrl_coeffs], local = [pid_adj_timer], priority = 5)]
+    lost_link_timer, rf_limiter_timer, state_volatile], local = [pid_adj_timer], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
@@ -1531,16 +1521,9 @@ mod app {
             cx.shared.lost_link_timer,
             cx.shared.rf_limiter_timer,
             cx.shared.state_volatile,
-            cx.shared.ctrl_coeffs,
         )
             .lock(
-                |uart,
-                 dma,
-                 ch_data,
-                 lost_link_timer,
-                 rf_limiter_timer,
-                 state_volatile,
-                 ctrl_coeffs| {
+                |uart, dma, ch_data, lost_link_timer, rf_limiter_timer, state_volatile| {
                     uart.clear_interrupt(UsartInterrupt::Idle);
 
                     if rf_limiter_timer.is_enabled() {
@@ -1574,27 +1557,27 @@ mod app {
                                         PidTuneActuation::Neutral => (),
                                         _ => {
                                             println!("Adjusting PID");
-                                            match ch_data.pid_tune_mode {
-                                                PidTuneMode::Disabled => (),
-                                                PidTuneMode::P => {
-                                                    // todo: for now or forever, adjust pitch, roll, yaw
-                                                    // todo at once to keep UI simple
-                                                    ctrl_coeffs.pitch.k_p_rate += pid_adjustment;
-                                                    ctrl_coeffs.roll.k_p_rate += pid_adjustment;
-                                                    // todo: Maybe skip yaw here?
-                                                    ctrl_coeffs.yaw.k_p_rate += pid_adjustment;
-                                                }
-                                                PidTuneMode::I => {
-                                                    ctrl_coeffs.pitch.k_i_rate += pid_adjustment;
-                                                    ctrl_coeffs.roll.k_i_rate += pid_adjustment;
-                                                    ctrl_coeffs.yaw.k_i_rate += pid_adjustment;
-                                                }
-                                                PidTuneMode::D => {
-                                                    ctrl_coeffs.pitch.k_d_rate += pid_adjustment;
-                                                    ctrl_coeffs.roll.k_d_rate += pid_adjustment;
-                                                    ctrl_coeffs.yaw.k_d_rate += pid_adjustment;
-                                                }
-                                            }
+                                            // match ch_data.pid_tune_mode {
+                                            //     PidTuneMode::Disabled => (),
+                                            //     PidTuneMode::P => {
+                                            //         // todo: for now or forever, adjust pitch, roll, yaw
+                                            //         // todo at once to keep UI simple
+                                            //         ctrl_coeffs.pitch.k_p_rate += pid_adjustment;
+                                            //         ctrl_coeffs.roll.k_p_rate += pid_adjustment;
+                                            //         // todo: Maybe skip yaw here?
+                                            //         ctrl_coeffs.yaw.k_p_rate += pid_adjustment;
+                                            //     }
+                                            //     PidTuneMode::I => {
+                                            //         ctrl_coeffs.pitch.k_i_rate += pid_adjustment;
+                                            //         ctrl_coeffs.roll.k_i_rate += pid_adjustment;
+                                            //         ctrl_coeffs.yaw.k_i_rate += pid_adjustment;
+                                            //     }
+                                            //     PidTuneMode::D => {
+                                            //         ctrl_coeffs.pitch.k_d_rate += pid_adjustment;
+                                            //         ctrl_coeffs.roll.k_d_rate += pid_adjustment;
+                                            //         ctrl_coeffs.yaw.k_d_rate += pid_adjustment;
+                                            //     }
+                                            // }
                                         }
                                     }
                                     cx.local.pid_adj_timer.reset_count();

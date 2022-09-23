@@ -10,6 +10,9 @@ use lin_alg2::f32::{Quaternion, Vec3};
 use num_traits::float::Float; // For sqrt.
 
 use cfg_if::cfg_if;
+use core::cmp::max;
+
+// todo: YOu probably need filters.
 
 cfg_if! {
     if #[cfg(feature = "quad")] {
@@ -17,11 +20,7 @@ cfg_if! {
     } else {
         use super::ControlPositions;
     }
-
 }
-
-// Used as a crude PID, while we are experimenting.
-const P_COEFF: f32 = 1.;
 
 const RIGHT: Vec3 = Vec3 {
     x: 1.,
@@ -39,106 +38,64 @@ const FWD: Vec3 = Vec3 {
     z: 1.,
 };
 
+/// Control coefficients that affect the toleranaces and restrictions of the flight controls.
+#[derive(Default)]
+pub struct CtrlCoeffs {
+    /// This field is used for a simple target angular velocity for a given angular distance
+    /// from the target angle (eg pitch, roll, yaw). Units are (rad/s) / rad = 1/s
+    /// Eg with value = 1, at tau/2 rad (max angle), we get target a rate of tau/2 rad/s. At 0 angle,
+    /// we command 0 rad/s regardless of thi value. Higher values for this constant
+    /// raise the rate for a given angular distance. This value is the time, at this
+    /// rate, it takes to travel a whole revolution.
+    /// todo: More complicated, non-linear model? Eg specified by a LUT.
+    /// todo: Another possible approach is with a clipped value past a certain angle.
+    /// todo: Consider different values for pitch, roll, and yaw.
+    p_ω: f32,
+    /// Time to correction is a coefficient that determines how quickly the angular
+    /// velocity will be corrected to the target.
+    /// Lower values mean more aggressive corrections.
+    time_to_correction: f32,
+    /// In rad/s^2. A higher value will allow for more aggressive corrections.
+    max_ω_dot: f32,
+}
+
+// todo: Maybe a sep `CtrlCoeffs` struct for each axis.
+
+// todo: Diff defaults for quad and fixed wing.
+impl Default for CtrlCoeffs {
+    fn default() -> Self {
+        Self {
+            p_ω: 10.,
+            max_ω_dot: 10., // todo: What should this be?
+        }
+    }
+}
+
 // todo: COde shortner 3x.
 
-// #[cfg(feature = "quad")]
-// fn motor_power_chan(rot: f32, max_rate_dist: f32, max_rate: f32, ) -> f32 {
-//     // Compare the current (measured) angular velocities to what we need to apply this rotation.
-//     let mut target_rate = if rot > max_rate_dist {
-//         max_rate_dist * max_rate
-//     } else {
-//         // Clamp
-//         max_rate
-//     };
-//
-//     // todo Look at how this current power setting is changing rates over time (derivative?)
-//     let d_param = params.v - params_prev.v;
-//
-//     // todo: d rate targets as well?
-//
-//     let target_rate_change = target_rate - params.v;
-//
-//     // For each channel, compare the previous control positions to the [rate? change in rate?)
-//     // Then adjust the motor powers A/R.
-//
-//     target_rate_change * p;
-// }
-
 #[cfg(feature = "quad")]
-pub fn motor_power_from_atts(
-    target_attitude: Quaternion,
-    current_attitude: Quaternion,
-    throttle: f32,
-    front_left_dir: RotationDir,
-    // todo: Params is just for current angular rates. Maybe just pass those?
-    params: &Params,
-    params_prev: &Params,
-    prev_power: &MotorPower,
-) -> MotorPower {
-    // todo: This fn and approach is a WIP!!
-
-    // This is the rotation we need to cause to arrive at the target attitude.
-    let rotation_cmd = target_attitude * current_attitude.inverse();
-
-    // todo: Common fn for shared code between here and quad.
-
-    // todo: See if you can briefen this
-
-    // todo: These params should be in `UserCfg`.
-    let p_pitch = 1.;
-    let p_roll = 1.;
-    let p_yaw = 1.;
-
-    let max_rate_pitch = 20.; // radians/s
-    let max_rate_roll = 20.; // radians/s
-    let max_rate_yaw = 20.; // radians/s
-
-    // We target the `max_rate`s defined above when the distance to travel on a given axes is
-    // greater than or equal to these distances.
-    let max_rate_dist_pitch = 1.; // radians
-    let max_rate_dist_roll = 1.; // radians
-    let max_rate_dist_yaw = 1.; // radians
-
-    let ang_accel_pitch = params.v_pitch - params_prev.v_pitch;
-    let ang_accel_roll = params.v_roll - params_prev.v_roll;
-    let ang_accel_yaw = params.v_yaw - params_prev.v_yaw;
-
-    // If the rate is within this value of the target rate, don't change motor power. This is
-    // an experimental way to save power and maybe reduce oscillations(?)
-    let rate_thresh = 0.1;
-
-    // todo: Should these go in the delegation fn?
-    let tgt_rate_chg_pitch = target_rate_pitch - params.v_pitch;
-    let tgt_rate_chg_roll = target_rate_roll - params.v_roll;
-    let tgt_rate_chg_yaw = target_rate_yaw - params.v_yaw;
-
-    // Split the rotation into 3 euler angles. We do this due to our controls acting primarily
-    // along individual axes.
-    let (rot_pitch, rot_roll, rot_yaw) = rotation_cmd.to_euler();
-
-    // todo Start code that should be delegated to by-axis fns
+fn motor_power_chan(dθ: f32, ω: f32, ω_dot: f32, ctrl_cmd_prev: f32, dt: f32, coeffs: &CtrlCoeffs) -> f32 {
+    const EPS_1: f32 = 0.0001;
 
     // Compare the current (measured) angular velocities to what we need to apply this rotation.
-    let mut target_rate_pitch = if rot_pitch > max_rate_dist_pitch {
-        max_rate_dist_pitch * max_rate_pitch
-    } else {
-        // Clamp
-        max_rate_pitch
-    };
+    let ω_target = dθ * coeffs.p_ω;
 
-    let mut target_rate_roll = if rot_roll > max_rate_dist_roll {
-        max_rate_dist_roll * max_rate_roll
-    } else {
-        // Clamp
-        max_rate_roll
-    };
+    let dω = ω_target - ω;
 
-    let mut target_rate_yaw = if rot_yaw > max_rate_dist_yaw {
-        max_rate_dist_yaw * max_rate_yaw
-    } else {
-        // Clamp
-        max_rate_yaw
-    };
+    // todo: Evaluate how this will work. Should possibly take dθ into account.
+    let time_to_correction = 0.1 * dω;
+
+    let ω_dot_target = max(
+        dω * dt / time_to_correction,
+        coeffs.max_ω_dot
+    );
+
+    // Calculate how, most recently, the control command is affecting angular accel.
+    // A higher constant means a given command has a higher affect on angular accel.
+    let ctrl_effectiveness = ω_dot / ctrl_cmd_prev;
+
+    return ctrl_effectiveness / ω_dot_target;
+
 
     // Estimate the time it will take to arrive at our target attitude,
     // given the current angular velocity, and angular acceleration.
@@ -153,8 +110,6 @@ pub fn motor_power_from_atts(
     // 1/(2*ω_dot) * (sqrt(-4 * 0. + 4ω_dot θ(t) + ω_0^2) +/- ω_0)
 
     // todo: Should you apply filtering to any of these terms?
-
-    const EPS_1: f32 = 0.0001;
 
     // todo: From tests, the second variant (b2) appears to work for test examples.
     // todo: Figure out when to use each
@@ -220,6 +175,62 @@ pub fn motor_power_from_atts(
     let pitch_cmd = tgt_rate_chg_pitch * p_pitch;
     let roll_cmd = tgt_rate_chg_roll * p_roll;
     let yaw_cmd = tgt_rate_chg_yaw * p_yaw;
+}
+
+#[cfg(feature = "quad")]
+pub fn motor_power_from_atts(
+    target_attitude: Quaternion,
+    current_attitude: Quaternion,
+    throttle: f32,
+    front_left_dir: RotationDir,
+    // todo: Params is just for current angular rates. Maybe just pass those?
+    params: &Params,
+    params_prev: &Params,
+    prev_power: &MotorPower, // todo: Wrong type. Maybe need a new one. Def need to store it.
+    dt: f32, // seconds
+    coeffs: &CtrlCoeffs,
+) -> MotorPower {
+    // todo: This fn and approach is a WIP!!
+
+    // This is the rotation we need to cause to arrive at the target attitude.
+    let rotation_cmd = target_attitude * current_attitude.inverse();
+
+    // todo: Common fn for shared code between here and quad.
+
+    // todo: See if you can briefen this
+
+    let max_rate_pitch = 20.; // radians/s
+    let max_rate_roll = 20.; // radians/s
+    let max_rate_yaw = 20.; // radians/s
+
+    // We target the `max_rate`s defined above when the distance to travel on a given axes is
+    // greater than or equal to these distances.
+    let max_rate_dist_pitch = 1.; // radians
+    let max_rate_dist_roll = 1.; // radians
+    let max_rate_dist_yaw = 1.; // radians
+
+    let ang_accel_pitch = (params.v_pitch - params_prev.v_pitch) * dt;
+    let ang_accel_roll = (params.v_roll - params_prev.v_roll) * dt;
+    let ang_accel_yaw = (params.v_yaw - params_prev.v_yaw) * dt;
+
+    // If the rate is within this value of the target rate, don't change motor power. This is
+    // an experimental way to save power and maybe reduce oscillations(?)
+    let rate_thresh = 0.1;
+
+    // todo: Should these go in the delegation fn?
+    let tgt_rate_chg_pitch = target_rate_pitch - params.v_pitch;
+    let tgt_rate_chg_roll = target_rate_roll - params.v_roll;
+    let tgt_rate_chg_yaw = target_rate_yaw - params.v_yaw;
+
+    // Split the rotation into 3 euler angles. We do this due to our controls acting primarily
+    // along individual axes.
+    let (rot_pitch, rot_roll, rot_yaw) = rotation_cmd.to_euler();
+
+    // todo Start code that should be delegated to by-axis fns
+
+    let pitch = motor_power_chan(rot_pitch, params.v_pitch, ang_accel_pitch, prev_power.pitch, dt, coeffs);
+    let roll = motor_power_chan(rot_roll, params.v_roll, ang_accel_roll, prev_power.roll, dt, coeffs);
+    let yaw = motor_power_chan(rot_yaw, params.v_yaw, ang_accel_yaw, prev_power.yaw, dt, coeffs);
 
     // Examine if our current control settings are appropriately effecting the change we want.
     MotorPower::from_cmds(pitch_cmd, roll_cmd, yaw_cmd, throttle, front_left_dir)
@@ -234,6 +245,8 @@ pub fn control_posits_from_atts(
     params: &Params,
     params_prev: &Params,
     prev_ctrls: &ControlPositions,
+    dt: f32, // seconds
+    coeffs: &CtrlCoeffs,
 ) -> ControlPositions {
     // todo: Modulate based on airspeed.
 

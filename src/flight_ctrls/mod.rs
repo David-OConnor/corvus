@@ -7,7 +7,7 @@
 pub mod autopilot;
 pub mod common;
 pub mod ctrl_logic;
-pub mod pid;
+// pub mod pid;
 // pub mod pid_tuning; // todo: Implement A/R
 
 use cfg_if::cfg_if;
