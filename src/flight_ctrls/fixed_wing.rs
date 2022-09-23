@@ -14,7 +14,7 @@ use stm32_hal2::{
 
 use crate::{dshot, safety::ArmStatus, util};
 
-use super::common::{InputMap, Motor, MotorTimers};
+use super::common::{CtrlMix, InputMap, Motor, MotorTimers};
 
 use cfg_if::cfg_if;
 // use defmt::println;
@@ -248,21 +248,21 @@ impl ControlPositions {
     /// Positive pitch means nose up. Positive roll means left wing up.
     ///
     /// Input deltas as on an abitrary scale based on PID output; they're not in real units like radians/s.
-    pub fn from_cmds(pitch_cmd: f32, roll_cmd: f32, yaw_cmd: f32, throttle: f32) -> Self {
+    pub fn from_cmds(mix: &CtrlMix) -> Self {
         let mut elevon_left = 0.;
         let mut elevon_right = 0.;
         let mut rudder = 0.;
 
-        elevon_left += pitch_cmd;
-        elevon_right += pitch_cmd;
+        elevon_left += mix.pitch;
+        elevon_right += mix.pitch;
 
-        elevon_left += roll_cmd * ROLL_COEFF;
-        elevon_right -= roll_cmd * ROLL_COEFF;
+        elevon_left += mix.roll * ROLL_COEFF;
+        elevon_right -= mix.roll * ROLL_COEFF;
 
-        rudder += pitch_cmd * YAW_COEFF;
+        rudder += mix.pitch * YAW_COEFF;
 
         let mut result = Self {
-            motor: throttle,
+            motor: mix.throttle,
             elevon_left,
             elevon_right,
             rudder,

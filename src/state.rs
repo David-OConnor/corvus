@@ -6,7 +6,7 @@ use crate::{
     control_interface::{InputModeSwitch, LinkStats},
     flight_ctrls::{
         autopilot::{AutopilotStatus, LandingCfg},
-        common::{AttitudeCommanded, CtrlInputs, InputMap, RatesCommanded},
+        common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap, RatesCommanded},
         ctrl_logic::CtrlCoeffs,
         ControlMapping,
     },
@@ -14,8 +14,6 @@ use crate::{
     safety::ArmStatus,
     usb_cfg::WAYPOINT_SIZE,
 };
-
-use lin_alg2::f32::Quaternion;
 
 use cfg_if::cfg_if;
 
@@ -216,4 +214,7 @@ pub struct StateVolatile {
     // /// On a scale of 0 to 1.
     // pub throttle_commanded: Option<f32>,
     pub autopilot_commands: CtrlInputs,
+    /// We us this to analyze how the current controls are impacting
+    /// angular accelerations.
+    pub ctrl_mix: CtrlMix,
 }

@@ -3,14 +3,13 @@
 
 use crate::control_interface::ChannelData;
 
-use super::common::{Params, RatesCommanded};
+use super::common::{CtrlMix, Params, RatesCommanded};
 
 use lin_alg2::f32::{Quaternion, Vec3};
 
 use num_traits::float::Float; // For sqrt.
 
 use cfg_if::cfg_if;
-use core::cmp::max;
 
 // todo: YOu probably need filters.
 
@@ -39,7 +38,6 @@ const FWD: Vec3 = Vec3 {
 };
 
 /// Control coefficients that affect the toleranaces and restrictions of the flight controls.
-#[derive(Default)]
 pub struct CtrlCoeffs {
     /// This field is used for a simple target angular velocity for a given angular distance
     /// from the target angle (eg pitch, roll, yaw). Units are (rad/s) / rad = 1/s
@@ -66,7 +64,8 @@ impl Default for CtrlCoeffs {
     fn default() -> Self {
         Self {
             p_ω: 10.,
-            max_ω_dot: 10., // todo: What should this be?
+            time_to_correction: 0.1, // todo?
+            max_ω_dot: 10.,         // todo: What should this be?
         }
     }
 }
@@ -74,7 +73,14 @@ impl Default for CtrlCoeffs {
 // todo: COde shortner 3x.
 
 #[cfg(feature = "quad")]
-fn motor_power_chan(dθ: f32, ω: f32, ω_dot: f32, ctrl_cmd_prev: f32, dt: f32, coeffs: &CtrlCoeffs) -> f32 {
+fn motor_power_chan(
+    dθ: f32,
+    ω: f32,
+    ω_dot: f32,
+    ctrl_cmd_prev: f32,
+    dt: f32,
+    coeffs: &CtrlCoeffs,
+) -> f32 {
     const EPS_1: f32 = 0.0001;
 
     // Compare the current (measured) angular velocities to what we need to apply this rotation.
@@ -85,17 +91,16 @@ fn motor_power_chan(dθ: f32, ω: f32, ω_dot: f32, ctrl_cmd_prev: f32, dt: f32,
     // todo: Evaluate how this will work. Should possibly take dθ into account.
     let time_to_correction = 0.1 * dω;
 
-    let ω_dot_target = max(
-        dω * dt / time_to_correction,
-        coeffs.max_ω_dot
-    );
+    let mut ω_dot_target = dω * dt / time_to_correction;
+    if ω_dot_target > coeffs.max_ω_dot {
+        ω_dot_target = coeffs.max_ω_dot;
+    }
 
     // Calculate how, most recently, the control command is affecting angular accel.
     // A higher constant means a given command has a higher affect on angular accel.
     let ctrl_effectiveness = ω_dot / ctrl_cmd_prev;
 
-    return ctrl_effectiveness / ω_dot_target;
-
+    ctrl_effectiveness / ω_dot_target
 
     // Estimate the time it will take to arrive at our target attitude,
     // given the current angular velocity, and angular acceleration.
@@ -115,66 +120,66 @@ fn motor_power_chan(dθ: f32, ω: f32, ω_dot: f32, ctrl_cmd_prev: f32, dt: f32,
     // todo: Figure out when to use each
     // todo: Figure out what to do when it will never convege; ie it it's accelerating in the wrong
     // todo direction.
-    let time_to_tgt_att_pitch = if ang_accel_pitch.abs() < EPS_1 {
-        Some(rot_pitch / params.v_pitch)
-    } else {
-        let a = 2. * ang_accel_pitch;
-
-        let inner = 4. * ang_accel_pitch * rot_pitch + params.v_pitch.powi(2);
-        if inner < 0. {
-            // Will never reach target (without wrapping around).
-            // todo: Use modulus TAU and allow going the wrong way?
-            None
-        } else {
-            let b1 = inner.sqrt() + params.v_pitch;
-            let b2 = inner.sqrt() - params.v_pitch;
-
-            let v1 = b2 / a;
-            // todo: Is this the approach you want? Pick the positive one?
-            // todo: Maybe choose the one with smaller abs? I think that indicates going
-            // todo back in time, so probably not.
-            if v1 > 0. {
-                Some(v1)
-            } else {
-                Some(-(b1 / a))
-            }
-        }
-    };
-
-    let target_time_to_tgt_att_pitch = rot_pitch * asdf;
-
-    // For each channel, compare the previous control positions to the [rate? change in rate?)
-    // Then adjust the motor powers A/R.
-
-    // todo OK, say it is like a pid...
-    let d_term_pitch = d_pitch_param * p_pitch;
-    let p_term_pitch = tgt_rate_chg_pitch * p_pitch;
-
-    // Calculate how long it will take to reach the target pitch rate at the current rate
-    // of change.
-    let time_to_tgt_rate_pitch = tgt_rate_chg_pitch / d_term_pitch;
-
-    // eg 5 m/s delta
+    // let time_to_tgt_att_pitch = if ang_accel_pitch.abs() < EPS_1 {
+    //     Some(rot_pitch / params.v_pitch)
+    // } else {
+    //     let a = 2. * ang_accel_pitch;
     //
-
-    // if tgt_rate_chg_pitch <= rate_thresh {
-    //     // power_chg_pitch = 0.
-    // }
-
-    let power_chg_pitch = if tgt_rate_chg_pitch > rate_thresh {
-        // todo: YOu need to take rate changes into effect
-        tgt_rate_chg_pitch * p_pitch
-    } else {
-        0.
-    };
-
-    let pitch_cmd = prev_power.pitch + power_chg_pitch;
-    let roll_cmd = prev_power.roll + power_chg_roll;
-    let yaw_cmd = prev_power.yaw + power_chg_yaw;
-
-    let pitch_cmd = tgt_rate_chg_pitch * p_pitch;
-    let roll_cmd = tgt_rate_chg_roll * p_roll;
-    let yaw_cmd = tgt_rate_chg_yaw * p_yaw;
+    //     let inner = 4. * ang_accel_pitch * rot_pitch + params.v_pitch.powi(2);
+    //     if inner < 0. {
+    //         // Will never reach target (without wrapping around).
+    //         // todo: Use modulus TAU and allow going the wrong way?
+    //         None
+    //     } else {
+    //         let b1 = inner.sqrt() + params.v_pitch;
+    //         let b2 = inner.sqrt() - params.v_pitch;
+    //
+    //         let v1 = b2 / a;
+    //         // todo: Is this the approach you want? Pick the positive one?
+    //         // todo: Maybe choose the one with smaller abs? I think that indicates going
+    //         // todo back in time, so probably not.
+    //         if v1 > 0. {
+    //             Some(v1)
+    //         } else {
+    //             Some(-(b1 / a))
+    //         }
+    //     }
+    // };
+    //
+    // let target_time_to_tgt_att_pitch = rot_pitch * asdf;
+    //
+    // // For each channel, compare the previous control positions to the [rate? change in rate?)
+    // // Then adjust the motor powers A/R.
+    //
+    // // todo OK, say it is like a pid...
+    // let d_term_pitch = d_pitch_param * p_pitch;
+    // let p_term_pitch = tgt_rate_chg_pitch * p_pitch;
+    //
+    // // Calculate how long it will take to reach the target pitch rate at the current rate
+    // // of change.
+    // let time_to_tgt_rate_pitch = tgt_rate_chg_pitch / d_term_pitch;
+    //
+    // // eg 5 m/s delta
+    // //
+    //
+    // // if tgt_rate_chg_pitch <= rate_thresh {
+    // //     // power_chg_pitch = 0.
+    // // }
+    //
+    // let power_chg_pitch = if tgt_rate_chg_pitch > rate_thresh {
+    //     // todo: YOu need to take rate changes into effect
+    //     tgt_rate_chg_pitch * p_pitch
+    // } else {
+    //     0.
+    // };
+    //
+    // let pitch_cmd = prev_power.pitch + power_chg_pitch;
+    // let roll_cmd = prev_power.roll + power_chg_roll;
+    // let yaw_cmd = prev_power.yaw + power_chg_yaw;
+    //
+    // let pitch_cmd = tgt_rate_chg_pitch * p_pitch;
+    // let roll_cmd = tgt_rate_chg_roll * p_roll;
+    // let yaw_cmd = tgt_rate_chg_yaw * p_yaw;
 }
 
 #[cfg(feature = "quad")]
@@ -186,10 +191,10 @@ pub fn motor_power_from_atts(
     // todo: Params is just for current angular rates. Maybe just pass those?
     params: &Params,
     params_prev: &Params,
-    prev_power: &MotorPower, // todo: Wrong type. Maybe need a new one. Def need to store it.
-    dt: f32, // seconds
+    mix_prev: &CtrlMix,
     coeffs: &CtrlCoeffs,
-) -> MotorPower {
+    dt: f32, // seconds
+) -> (CtrlMix, MotorPower) {
     // todo: This fn and approach is a WIP!!
 
     // This is the rotation we need to cause to arrive at the target attitude.
@@ -218,9 +223,9 @@ pub fn motor_power_from_atts(
     let rate_thresh = 0.1;
 
     // todo: Should these go in the delegation fn?
-    let tgt_rate_chg_pitch = target_rate_pitch - params.v_pitch;
-    let tgt_rate_chg_roll = target_rate_roll - params.v_roll;
-    let tgt_rate_chg_yaw = target_rate_yaw - params.v_yaw;
+    // let tgt_rate_chg_pitch = target_rate_pitch - params.v_pitch;
+    // let tgt_rate_chg_roll = target_rate_roll - params.v_roll;
+    // let tgt_rate_chg_yaw = target_rate_yaw - params.v_yaw;
 
     // Split the rotation into 3 euler angles. We do this due to our controls acting primarily
     // along individual axes.
@@ -228,12 +233,42 @@ pub fn motor_power_from_atts(
 
     // todo Start code that should be delegated to by-axis fns
 
-    let pitch = motor_power_chan(rot_pitch, params.v_pitch, ang_accel_pitch, prev_power.pitch, dt, coeffs);
-    let roll = motor_power_chan(rot_roll, params.v_roll, ang_accel_roll, prev_power.roll, dt, coeffs);
-    let yaw = motor_power_chan(rot_yaw, params.v_yaw, ang_accel_yaw, prev_power.yaw, dt, coeffs);
+    let pitch = motor_power_chan(
+        rot_pitch,
+        params.v_pitch,
+        ang_accel_pitch,
+        mix_prev.pitch,
+        dt,
+        coeffs,
+    );
+    let roll = motor_power_chan(
+        rot_roll,
+        params.v_roll,
+        ang_accel_roll,
+        mix_prev.roll,
+        dt,
+        coeffs,
+    );
+    let yaw = motor_power_chan(
+        rot_yaw,
+        params.v_yaw,
+        ang_accel_yaw,
+        mix_prev.yaw,
+        dt,
+        coeffs,
+    );
+
+    let mix_new = CtrlMix {
+        pitch,
+        roll,
+        yaw,
+        throttle,
+    };
+
+    let power = MotorPower::from_cmds(&mix_new, front_left_dir);
 
     // Examine if our current control settings are appropriately effecting the change we want.
-    MotorPower::from_cmds(pitch_cmd, roll_cmd, yaw_cmd, throttle, front_left_dir)
+    (mix_new, power)
 }
 
 #[cfg(feature = "fixed-wing")]
@@ -244,17 +279,26 @@ pub fn control_posits_from_atts(
     // todo: Params is just for current angular rates. Maybe just pass those?
     params: &Params,
     params_prev: &Params,
-    prev_ctrls: &ControlPositions,
+    mix_prev: &CtrlMix,
     dt: f32, // seconds
     coeffs: &CtrlCoeffs,
-) -> ControlPositions {
+) -> (CtrlMix, ControlPositions) {
     // todo: Modulate based on airspeed.
 
     let rotation_cmd = target_attitude * current_attitude.inverse();
 
-    let (rot_pitch, rot_roll, rot_yaw) = rotation_cmd.to_euler();
+    let (pitch, roll, yaw) = rotation_cmd.to_euler();
 
-    ControlPositions::from_cmds(pitch_cmd, roll_cmd, yaw_cmd, throttle)
+    let mix_new = CtrlMix {
+        pitch,
+        roll,
+        yaw,
+        throttle,
+    };
+
+    let posits = ControlPositions::from_cmds(&mix_new);
+
+    (mix_new, posits)
 }
 
 /// Modify our attitude commanded from rate-based user inputs. `ctrl_crates` are in radians/s, and `dt` is in s.

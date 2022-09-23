@@ -10,7 +10,7 @@ use crate::{
         self,
         common::{AltType, CtrlInputs, InputMap, Params},
     },
-    pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
+    // pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::{Location, LocationType},
     state::{SensorStatus, SystemStatus},
     DT_ATTITUDE,
@@ -226,8 +226,8 @@ impl AutopilotStatus {
     pub fn apply(
         &self,
         params: &Params,
-        filters: &mut PidDerivFilters,
-        coeffs: &CtrlCoeffGroup,
+        // filters: &mut PidDerivFilters,
+        // coeffs: &CtrlCoeffGroup,
         system_status: &SystemStatus,
     ) -> CtrlInputs {
         // We use if/else logic on these to indicate they're mutually-exlusive. Modes listed first
@@ -315,9 +315,9 @@ impl AutopilotStatus {
     pub fn apply(
         &self,
         params: &Params,
-        pid_attitude: &mut PidGroup,
-        filters: &mut PidDerivFilters,
-        coeffs: &CtrlCoeffGroup,
+        // pid_attitude: &mut PidGroup,
+        // filters: &mut PidDerivFilters,
+        // coeffs: &CtrlCoeffGroup,
         system_status: &SystemStatus,
     ) -> CtrlInputs {
         let mut autopilot_commands = CtrlInputs::default();
@@ -410,17 +410,18 @@ impl AutopilotStatus {
                     AltType::Agl => alt_commanded - params.tof_alt.unwrap_or(0.),
                 };
 
-                pid_attitude.pitch = pid::calc_pid_error(
-                    // If just entering this mode, default to 0. pitch as a starting point.
-                    autopilot_commands.pitch.unwrap_or(0.),
-                    dist,
-                    &pid_attitude.pitch,
-                    coeffs.pitch.k_p_attitude,
-                    coeffs.pitch.k_i_attitude,
-                    coeffs.pitch.k_d_attitude,
-                    &mut filters.pitch_attitude,
-                    DT_ATTITUDE,
-                );
+                // todo replacement for this and quad.
+                // pid_attitude.pitch = pid::calc_pid_error(
+                //     // If just entering this mode, default to 0. pitch as a starting point.
+                //     autopilot_commands.pitch.unwrap_or(0.),
+                //     dist,
+                //     &pid_attitude.pitch,
+                //     coeffs.pitch.k_p_attitude,
+                //     coeffs.pitch.k_i_attitude,
+                //     coeffs.pitch.k_d_attitude,
+                //     &mut filters.pitch_attitude,
+                //     DT_ATTITUDE,
+                // );
 
                 // todo: Set this at rate or attitude level?
 

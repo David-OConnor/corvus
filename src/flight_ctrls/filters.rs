@@ -31,7 +31,7 @@ static COEFFS_D: [f32; 5] = [
 
 /// Store lowpass IIR filter instances, for use with the deriv terms of our PID loop. Note that we don't
 /// need this for our horizontal velocity PIDs.
-pub struct PidDerivFilters {
+pub struct Filters {
     pub roll_attitude: IirInstWrapper,
     pub pitch_attitude: IirInstWrapper,
     pub yaw_attitude: IirInstWrapper,
@@ -43,7 +43,7 @@ pub struct PidDerivFilters {
     pub thrust: IirInstWrapper, // todo - do we need this?
 }
 
-impl Default for PidDerivFilters {
+impl Default for Filters {
     fn default() -> Self {
         let mut result = Self {
             roll_attitude: IirInstWrapper {

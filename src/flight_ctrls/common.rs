@@ -105,6 +105,16 @@ pub enum AltType {
     Msl,
 }
 
+#[derive(Clone, Default)]
+/// We use this to track how our control data changes over time. Similar to `CtrlInputs`,
+/// but without the options, and for a different use.
+pub struct CtrlMix {
+    pub pitch: f32,
+    pub roll: f32,
+    pub yaw: f32,
+    pub throttle: f32,
+}
+
 /// Stores inputs to the system. `pitch`, `yaw`, and `roll` are in range -1. to +1.
 /// `thrust` is in range 0. to 1. Corresponds to stick positions on a controller, but can
 /// also be used as a model for autonomous flight.

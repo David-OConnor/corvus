@@ -96,7 +96,7 @@ cfg_if! {
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
-use state::{OperationMode, StateVolatile, SystemStatus, UserCfg};
+use state::{OperationMode, SensorStatus, StateVolatile, SystemStatus, UserCfg};
 
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.
@@ -181,6 +181,11 @@ const MAX_RF_UPDATE_RATE: f32 = 800.; // Hz
 // loop.
 // const VELOCITY_ATTITUDE_UPDATE_RATIO: usize = 4;
 const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500Hz; apt for servos.
+
+// todo: Temp as we switch from PID to other controls; we still will have
+// todo params that can be adjusetd in flight.
+const PID_CONTROL_ADJ_TIMEOUT: f32 = 0.3; // seconds
+const PID_CONTROL_ADJ_AMT: f32 = 0.01; // seconds
 
 // todo: Course set mode. Eg, point at thing using controls, activate a button,
 // todo then the thing flies directly at the target.
@@ -268,8 +273,9 @@ mod app {
         usb_serial: SerialPort<'static, UsbBusType>,
         /// `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
         power_used: f32,
-        /// Store filter instances for the PID loop derivatives. One for each param used.
-        pid_deriv_filters: PidDerivFilters,
+        // todo: Put back filters once sorted for new FC system.
+        // /// Store filter instances for the PID loop derivatives. One for each param used.
+        // pid_deriv_filters: PidDerivFilters,
         imu_filters: ImuFilters,
         ahrs: Ahrs,
         imu_calibration: imu_calibration::ImuCalibration,
@@ -681,6 +687,15 @@ mod app {
             &mut delay,
         );
 
+        println!(
+            "System status:\n IMU: {}, Baro: {}, Mag: {}, GPS: {}, TOF: {}",
+            system_status.imu == SensorStatus::Pass,
+            system_status.baro == SensorStatus::Pass,
+            system_status.magnetometer == SensorStatus::Pass,
+            system_status.gps == SensorStatus::Pass,
+            system_status.tof == SensorStatus::Pass,
+        );
+
         state_volatile.system_status = system_status;
 
         // loop {
@@ -747,7 +762,7 @@ mod app {
                 usb_serial,
                 flash_onboard,
                 power_used: 0.,
-                pid_deriv_filters: Default::default(),
+                // pid_deriv_filters: Default::default(),
                 imu_filters: Default::default(),
                 ahrs,
                 imu_calibration,
@@ -805,7 +820,7 @@ mod app {
     #[task(
     binds = TIM1_BRK_TIM15,
     shared = [current_params,
-    pid_deriv_filters, power_used, autopilot_status, user_cfg,
+    power_used, autopilot_status, user_cfg,
     ahrs, control_channel_data,
     lost_link_timer, altimeter, i2c2, state_volatile, batt_curr_adc, dma,
     ],
@@ -827,7 +842,7 @@ mod app {
             // cx.shared.pid_rate,
             // cx.shared.pid_attitude,
             // cx.shared.pid_velocity,
-            cx.shared.pid_deriv_filters,
+            // cx.shared.pid_deriv_filters,
             cx.shared.power_used,
             cx.shared.autopilot_status,
             cx.shared.user_cfg,
@@ -847,7 +862,7 @@ mod app {
                  // pid_rate,
                  // pid_attitude,
                  // pid_velocity,
-                 filters,
+                 // filters,
                  power_used,
                  autopilot_status,
                  cfg,
@@ -1001,8 +1016,8 @@ mod app {
                     #[cfg(feature = "quad")]
                     let ap_cmds = autopilot_status.apply(
                         params,
-                        filters,
-                        coeffs,
+                        // filters,
+                        // coeffs,
                         &state_volatile.system_status,
                     );
 
@@ -1010,8 +1025,8 @@ mod app {
                     let ap_cmds = autopilot_status.apply(
                         params,
                         // pid_attitude,
-                        filters,
-                        coeffs,
+                        // filters,
+                        // coeffs,
                         &state_volatile.system_status,
                     );
 
@@ -1089,7 +1104,7 @@ mod app {
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, params_prev, control_channel_data,
     autopilot_status,
-    pid_deriv_filters, imu_filters, cs_imu, user_cfg,
+    imu_filters, cs_imu, user_cfg,
     motor_timers, ahrs, state_volatile, rf_limiter_timer], local = [fixed_wing_rate_loop_i, update_loop_i2], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
@@ -1117,7 +1132,7 @@ mod app {
             cx.shared.control_channel_data,
             cx.shared.autopilot_status,
             // cx.shared.pid_rate,
-            cx.shared.pid_deriv_filters,
+            // cx.shared.pid_deriv_filters,
             cx.shared.motor_timers,
             cx.shared.dma,
             cx.shared.user_cfg,
@@ -1132,7 +1147,7 @@ mod app {
                  control_channel_data,
                  autopilot_status,
                  // pid_rate,
-                 filters,
+                 // filters,
                  motor_timers,
                  dma,
                  cfg,
@@ -1221,14 +1236,15 @@ mod app {
 
                     cfg_if! {
                         if #[cfg(feature = "quad")] {
-                            let motor_power = ctrl_logic::motor_power_from_atts(
+                            let (ctrl_mix, motor_power) = ctrl_logic::motor_power_from_atts(
                                 state_volatile.attitude_commanded.quat.unwrap(),
                                 params.quaternion,
                                 throttle,
                                 cfg.control_mapping.frontleft_aftright_dir,
                                 params,
                                 params_prev,
-                                &state_volatile.current_pwr,
+                                &state_volatile.ctrl_mix,
+                                &cfg.ctrl_coeffs,
                                 DT_IMU,
                             );
                             //    target_attitude: Quaternion,
@@ -1240,19 +1256,24 @@ mod app {
                             //     current_power: &MotorPower,
 
                             motor_power.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status, dma);
+
+                            state_volatile.ctrl_mix = ctrl_mix;
                             state_volatile.current_pwr = motor_power;
                         } else {
-                            let control_posits = ctrl_logic::control_posits_from_atts(
+                            let (ctrl_mix, control_posits) = ctrl_logic::control_posits_from_atts(
                                 state_volatile.attitude_commanded.quat.unwrap(),
                                 params.quaternion,
                                 throttle,
                                 params,
                                 params_prev,
-                                &state_volatile.ctrl_positions,
+                                &state_volatile.ctrl_mix,
+                                &cfg.ctrl_coeffs,
                                 DT_IMU,
                             );
 
                             control_posits.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status,  dma);
+
+                            state_volatile.ctrl_mix = ctrl_mix;
                             state_volatile.ctrl_positions = control_posits;
                         }
                     }
