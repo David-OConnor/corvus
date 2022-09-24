@@ -72,16 +72,22 @@ impl Default for CtrlCoeffs {
 
 // todo: COde shortner 3x.
 
-#[cfg(feature = "quad")]
-fn motor_power_chan(
+// #[cfg(feature = "quad")]
+/// Find the desired control setting on a single axis; loosely corresponds to a
+/// commanded angular acceleration.
+fn find_ctrl_setting(
     dθ: f32,
     ω: f32,
     ω_dot: f32,
     ctrl_cmd_prev: f32,
-    dt: f32,
+    // dt: f32,
     coeffs: &CtrlCoeffs,
 ) -> f32 {
     const EPS_1: f32 = 0.0001;
+
+    // todo: Take RPM and/or time-to-spin up/down into account.
+    // todo: It's likely the best plan is to set up RPM measurement, and create a model
+    // todo based on that that relates speed change time to various regimes.
 
     // Compare the current (measured) angular velocities to what we need to apply this rotation.
     let ω_target = dθ * coeffs.p_ω;
@@ -91,7 +97,7 @@ fn motor_power_chan(
     // todo: Evaluate how this will work. Should possibly take dθ into account.
     let time_to_correction = 0.1 * dω;
 
-    let mut ω_dot_target = dω * dt / time_to_correction;
+    let mut ω_dot_target = dω / time_to_correction;
     if ω_dot_target > coeffs.max_ω_dot {
         ω_dot_target = coeffs.max_ω_dot;
     }
@@ -100,7 +106,12 @@ fn motor_power_chan(
     // A higher constant means a given command has a higher affect on angular accel.
     let ctrl_effectiveness = ω_dot / ctrl_cmd_prev;
 
-    ctrl_effectiveness / ω_dot_target
+    // This distills to: (dω / time_to_correction) / (ω_dot / ctrl_cmd_prev) =
+    // (dω / time_to_correction) x (ctrl_cmd_prev / ω_dot) =
+    // (dω x ctrl_cmd_prev) / (time_to_correction x ω_dot)
+    // Units: rad x cmd / (s * rad/s) = rad x cmd / rad = cmd
+    // `cmd` is the unit we use for ctrl inputs. Not sure what (if any?) units it has.
+    ω_dot_target / ctrl_effectiveness
 
     // Estimate the time it will take to arrive at our target attitude,
     // given the current angular velocity, and angular acceleration.
@@ -199,62 +210,36 @@ pub fn motor_power_from_atts(
 
     // This is the rotation we need to cause to arrive at the target attitude.
     let rotation_cmd = target_attitude * current_attitude.inverse();
-
-    // todo: Common fn for shared code between here and quad.
-
-    // todo: See if you can briefen this
-
-    let max_rate_pitch = 20.; // radians/s
-    let max_rate_roll = 20.; // radians/s
-    let max_rate_yaw = 20.; // radians/s
-
-    // We target the `max_rate`s defined above when the distance to travel on a given axes is
-    // greater than or equal to these distances.
-    let max_rate_dist_pitch = 1.; // radians
-    let max_rate_dist_roll = 1.; // radians
-    let max_rate_dist_yaw = 1.; // radians
+    // Split the rotation into 3 euler angles. We do this due to our controls acting primarily
+    // along individual axes.
+    let (rot_pitch, rot_roll, rot_yaw) = rotation_cmd.to_euler();
 
     let ang_accel_pitch = (params.v_pitch - params_prev.v_pitch) * dt;
     let ang_accel_roll = (params.v_roll - params_prev.v_roll) * dt;
     let ang_accel_yaw = (params.v_yaw - params_prev.v_yaw) * dt;
 
-    // If the rate is within this value of the target rate, don't change motor power. This is
-    // an experimental way to save power and maybe reduce oscillations(?)
-    let rate_thresh = 0.1;
-
-    // todo: Should these go in the delegation fn?
-    // let tgt_rate_chg_pitch = target_rate_pitch - params.v_pitch;
-    // let tgt_rate_chg_roll = target_rate_roll - params.v_roll;
-    // let tgt_rate_chg_yaw = target_rate_yaw - params.v_yaw;
-
-    // Split the rotation into 3 euler angles. We do this due to our controls acting primarily
-    // along individual axes.
-    let (rot_pitch, rot_roll, rot_yaw) = rotation_cmd.to_euler();
-
-    // todo Start code that should be delegated to by-axis fns
-
-    let pitch = motor_power_chan(
+    let pitch = find_ctrl_setting(
         rot_pitch,
         params.v_pitch,
         ang_accel_pitch,
         mix_prev.pitch,
-        dt,
+        // dt,
         coeffs,
     );
-    let roll = motor_power_chan(
+    let roll = find_ctrl_setting(
         rot_roll,
         params.v_roll,
         ang_accel_roll,
         mix_prev.roll,
-        dt,
+        // dt,
         coeffs,
     );
-    let yaw = motor_power_chan(
+    let yaw = find_ctrl_setting(
         rot_yaw,
         params.v_yaw,
         ang_accel_yaw,
         mix_prev.yaw,
-        dt,
+        // dt,
         coeffs,
     );
 
@@ -272,6 +257,8 @@ pub fn motor_power_from_atts(
 }
 
 #[cfg(feature = "fixed-wing")]
+/// Similar to the above fn on quads. Note that we do not handle yaw command using this. Yaw
+/// is treated as coupled to pitch and roll, with yaw controls used to counter adverse-yaw.
 pub fn control_posits_from_atts(
     target_attitude: Quaternion,
     current_attitude: Quaternion,
@@ -280,14 +267,35 @@ pub fn control_posits_from_atts(
     params: &Params,
     params_prev: &Params,
     mix_prev: &CtrlMix,
-    dt: f32, // seconds
     coeffs: &CtrlCoeffs,
+    dt: f32, // seconds
 ) -> (CtrlMix, ControlPositions) {
     // todo: Modulate based on airspeed.
 
     let rotation_cmd = target_attitude * current_attitude.inverse();
+    let (rot_pitch, rot_roll, _rot_yaw) = rotation_cmd.to_euler();
 
-    let (pitch, roll, yaw) = rotation_cmd.to_euler();
+    let ang_accel_pitch = (params.v_pitch - params_prev.v_pitch) * dt;
+    let ang_accel_roll = (params.v_roll - params_prev.v_roll) * dt;
+
+    let pitch = find_ctrl_setting(
+        rot_pitch,
+        params.v_pitch,
+        ang_accel_pitch,
+        mix_prev.pitch,
+        // dt,
+        coeffs,
+    );
+    let roll = find_ctrl_setting(
+        rot_roll,
+        params.v_roll,
+        ang_accel_roll,
+        mix_prev.roll,
+        // dt,
+        coeffs,
+    );
+
+    let yaw = 0.; // todo?
 
     let mix_new = CtrlMix {
         pitch,

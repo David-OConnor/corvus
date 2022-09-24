@@ -35,15 +35,20 @@ cfg_if! {
 use stm32_hal2::{
     adc::Adc,
     dma::Dma,
-    pac::{ADC2, DMA1},
+    pac::{self, DMA1},
 };
 
 // use cfg_if::cfg_if;
 
-#[cfg(feature = "g4")]
-use stm32_hal2::usb::UsbBusType;
-#[cfg(feature = "h7")]
-use stm32_hal2::usb_otg::Usb1BusType as UsbBusType;
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        use stm32_hal2::usb_otg::Usb1BusType as UsbBusType;
+        type ADC = pac::ADC1;
+    } else {
+        use stm32_hal2::usb::UsbBusType;
+        type ADC = pac::ADC2;
+    }
+}
 
 use usbd_serial::SerialPort;
 
@@ -228,7 +233,7 @@ pub fn handle_rx(
     control_mapping: &mut ControlMapping,
     op_mode: &mut OperationMode,
     motor_timers: &mut MotorTimers,
-    adc: &Adc<ADC2>,
+    adc: &Adc<ADC>,
     dma: &mut Dma<DMA1>,
 ) {
     let rx_msg_type: MsgType = match rx_buf[0].try_into() {

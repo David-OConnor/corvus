@@ -47,6 +47,10 @@ pub const BATT_CURR_DMA_CH: DmaChannel = DmaChannel::C7;
 
 // We still have CH8 (or CH0) avail on DMA1)
 
+// todo: You can possibly share channels here for Tx and Rx for each fo baro, ext,
+// todo since the xfers are not active at once. This would free up channels,
+// but require more logic to determine wheather read or write fired for ext sensors.
+
 // DMA 2
 pub const BARO_TX_CH: DmaChannel = DmaChannel::C1;
 pub const BARO_RX_CH: DmaChannel = DmaChannel::C2;
@@ -133,8 +137,8 @@ pub fn init_sensors(
 cfg_if! {
     if #[cfg(feature = "h7")] {
         pub const OSD_CH: DmaChannel = DmaChannel::C0;
-        pub const BATT_ADC_CH: u8 = 16;
-        pub const CURR_ADC_CH: u8 = 18;
+        pub const BATT_ADC_CH: u8 = 18;
+        pub const CURR_ADC_CH: u8 = 16;
     } else {
         pub const OSD_CH: DmaChannel = DmaChannel::C8;
         pub const BATT_ADC_CH: u8 = 17;
@@ -239,9 +243,6 @@ pub fn setup_pins() {
 
     let _buzzer = Pin::new(Port::A, 10, PinMode::Alt(6)); // Tim1 ch3
 
-    let _batt_v_adc = Pin::new(Port::A, 4, PinMode::Analog); // ADC2, channel 17
-    let _current_sense_adc = Pin::new(Port::B, 2, PinMode::Analog); // ADC2, channel 12
-
     // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
     let mut sck1 = Pin::new(Port::A, 5, PinMode::Alt(5));
     let mut miso1 = Pin::new(Port::A, 6, PinMode::Alt(5));
@@ -255,6 +256,9 @@ pub fn setup_pins() {
     // SPI2 for the LoRa chip on G4; OctoSPI1 (in Quad mode) on H7.
     cfg_if! {
         if #[cfg(feature = "h7")] {
+            let _batt_v_adc = Pin::new(Port::A, 4, PinMode::Analog); // ADC12, channel 18
+            let _current_sense_adc = Pin::new(Port::A, 0, PinMode::Analog); // ADC1, channel 16
+
             let qspi_sck = Pin::new(Port::B, 2, PinMode::Alt(9));
             let qspi_nss = Pin::new(Port::E, 11, PinMode::Alt(11));
             let io0 = Pin::new(Port::D, 11, PinMode::Alt(9));
@@ -262,6 +266,9 @@ pub fn setup_pins() {
             let io2 = Pin::new(Port::B, 13, PinMode::Alt(4));
             let io3 = Pin::new(Port::D, 13, PinMode::Alt(9));
         } else {
+            let _batt_v_adc = Pin::new(Port::A, 4, PinMode::Analog); // ADC2, channel 17
+            let _current_sense_adc = Pin::new(Port::B, 2, PinMode::Analog); // ADC2, channel 12
+
             let sck2 = Pin::new(Port::B, 13, PinMode::Alt(5));
             let miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
             let mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
@@ -348,7 +355,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 
     // CRSF (onboard ELRS)
     #[cfg(feature = "h7")]
-    let elrs_dma_ch = DmaInput::Usart7Rx;
+    let elrs_dma_ch = DmaInput::Uart7Rx;
     #[cfg(feature = "g4")]
     let elrs_dma_ch = DmaInput::Usart3Rx;
     dma::mux(DmaPeriph::Dma1, CRSF_RX_CH, elrs_dma_ch);
@@ -357,6 +364,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // we only have it set up to respond to pings, and that's probably unecessary.
     // dma::mux(DmaChannel::C8, DmaInput::Usart3Tx);
 
+    #[cfg(feature = "h7")]
+    dma::mux(DmaPeriph::Dma1, BATT_CURR_DMA_CH, DmaInput::Adc1);
+    #[cfg(feature = "g4")]
     dma::mux(DmaPeriph::Dma1, BATT_CURR_DMA_CH, DmaInput::Adc2);
 
     dma::mux(DmaPeriph::Dma1, OSD_CH, DmaInput::Usart2Tx);

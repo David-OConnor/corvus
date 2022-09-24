@@ -54,7 +54,7 @@ cfg_if! {
         use stm32_hal2::{
             clocks::{PllCfg, VosRange},
             usb_otg::{Usb1, UsbBus, Usb1BusType as UsbBusType},
-            pac::OCTOSPI,
+            pac::OCTOSPI1,
             qspi::{Qspi},
         };
         // This USART alias is made pub here, so we don't repeat this line in other modules.
@@ -319,11 +319,12 @@ mod app {
                         // todo: Do we want a 64Mhz HSE for H7?
                         divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
                         // divn: 275, // For 550Mhz with freq boost enabled.
-                        ..Clocks::full_speed()
+                        ..Default::default()
                     },
                     hsi48_on: true,
                     usb_src: clocks::UsbSrc::Hsi48,
-                    ..Default::default()
+
+                    ..Clocks::full_speed()
                 };
             } else {
                 let clock_cfg = Clocks {
@@ -1625,23 +1626,16 @@ mod app {
 
     // todo: For now, we start new transfers in the main loop.
 
-    // // binds = DMA2_STR2,
-    // #[task(binds = DMA2_CH2, shared = [dma2, i2c2], priority = 5)]
-    // /// Baro write read; handle data, and start next write.
-    // fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
-    //     cx.shared.dma2.lock(|dma2| {
-    //         dma2.clear_interrupt(setup::BARO_TX_CH, DmaInterrupt::TransferComplete);
-    //
-    //         unsafe {
-    //             i2c2.read_dma(
-    //                 baro::ADDR,
-    //                 &mut sensors::BARO_READINGS,
-    //                 setup::BARO_RX_CH,
-    //                 Default::default(),
-    //             );
-    //         }
-    //     });
-    // }
+    // binds = DMA2_STR2,
+    #[task(binds = DMA2_CH2, shared = [dma2], priority = 5)]
+    /// Baro read complete; handle data, and start next write.
+    fn baro_read_tc_isr(mut cx: baro_read_tc_isr::Context) {
+        cx.shared.dma2.lock(|dma2| {
+            dma2.clear_interrupt(setup::BARO_RX_CH, DmaInterrupt::TransferComplete);
+
+            // todo: Process your baro reading here.
+        });
+    }
 
     // binds = DMA2_STR3,
     #[task(binds = DMA2_CH3, shared = [dma2, i2c1, ext_sensor_active], priority = 5)]
@@ -1658,7 +1652,7 @@ mod app {
                         ExtSensor::Mag => {
                             i2c1.read_dma(
                                 mag::ADDR,
-                                &mut sensors_shared::BARO_READINGS,
+                                &mut sensors_shared::MAG_READINGS,
                                 setup::EXT_SENSORS_RX_CH,
                                 Default::default(),
                                 dma2,
