@@ -94,6 +94,7 @@ use flight_ctrls::{
     autopilot::AutopilotStatus,
     common::{AltType, CtrlInputs, InputMap, MotorTimers, Params, RatesCommanded},
     ctrl_logic::{self, CtrlCoeffs},
+    filters::FlightCtrlFilters,
     // pid::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
     //     PID_CONTROL_ADJ_TIMEOUT,
@@ -276,9 +277,8 @@ mod app {
         /// `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
         power_used: f32,
         // todo: Put back filters once sorted for new FC system.
-        // /// Store filter instances for the PID loop derivatives. One for each param used.
-        // pid_deriv_filters: PidDerivFilters,
         imu_filters: ImuFilters,
+        flight_ctrl_filters: FlightCtrlFilters,
         ahrs: Ahrs,
         imu_calibration: imu_calibration::ImuCalibration,
         ext_sensor_active: ExtSensor,
@@ -735,8 +735,8 @@ mod app {
                 usb_serial,
                 flash_onboard,
                 power_used: 0.,
-                // pid_deriv_filters: Default::default(),
                 imu_filters: Default::default(),
+                flight_ctrl_filters: Default::default(),
                 ahrs,
                 imu_calibration,
                 ext_sensor_active: ExtSensor::Mag,

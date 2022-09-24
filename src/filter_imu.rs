@@ -119,6 +119,7 @@ impl Default for ImuFilters {
         result
     }
 }
+
 impl ImuFilters {
     /// Apply the filters to IMU readings, modifying in place. Block size = 1.
     pub fn apply(&mut self, data: &mut ImuReadings) {

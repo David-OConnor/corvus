@@ -3,7 +3,10 @@
 
 use crate::control_interface::ChannelData;
 
-use super::common::{CtrlMix, Params, RatesCommanded};
+use super::{
+    common::{CtrlMix, Params, RatesCommanded},
+    filters::FlightCtrlFilters,
+};
 
 use lin_alg2::f32::{Quaternion, Vec3};
 
@@ -52,20 +55,32 @@ pub struct CtrlCoeffs {
     /// Time to correction is a coefficient that determines how quickly the angular
     /// velocity will be corrected to the target.
     /// Lower values mean more aggressive corrections.
-    time_to_correction: f32,
+    time_to_correction_p_ω: f32,
+    time_to_correction_p_θ: f32,
     /// In rad/s^2. A higher value will allow for more aggressive corrections.
     max_ω_dot: f32,
 }
 
 // todo: Maybe a sep `CtrlCoeffs` struct for each axis.
 
-// todo: Diff defaults for quad and fixed wing.
 impl Default for CtrlCoeffs {
+    #[cfg(feature = "quad")]
     fn default() -> Self {
         Self {
             p_ω: 10.,
-            time_to_correction: 0.1, // todo?
+            time_to_correction_p_ω: 0.1, // todo?
+            time_to_correction_p_θ: 0.5, // todo?
             max_ω_dot: 10.,         // todo: What should this be?
+        }
+    }
+
+    #[cfg(feature = "fixed-wing")]
+    fn default() -> Self {
+        Self {
+            p_ω: 10.,
+            time_to_correction_p_ω: 0.1,
+            time_to_correction_p_θ: 0.5,
+            max_ω_dot: 10.,
         }
     }
 }
@@ -82,6 +97,7 @@ fn find_ctrl_setting(
     ctrl_cmd_prev: f32,
     // dt: f32,
     coeffs: &CtrlCoeffs,
+    filters: &mut FlightCtrlFilters,
 ) -> f32 {
     const EPS_1: f32 = 0.0001;
 
@@ -95,7 +111,7 @@ fn find_ctrl_setting(
     let dω = ω_target - ω;
 
     // todo: Evaluate how this will work. Should possibly take dθ into account.
-    let time_to_correction = 0.1 * dω;
+    let time_to_correction = coeffs.time_to_correction_p_ω * dω.abs() + coeffs.time_to_correction_p_θ * dθ.abs();
 
     let mut ω_dot_target = dω / time_to_correction;
     if ω_dot_target > coeffs.max_ω_dot {
@@ -104,7 +120,16 @@ fn find_ctrl_setting(
 
     // Calculate how, most recently, the control command is affecting angular accel.
     // A higher constant means a given command has a higher affect on angular accel.
+    // todo: Track and/or lowpass effectiveness over recent history, at diff params.
+    // todo: Once you have bidir dshot, use RPM instead of power.
+
+
     let ctrl_effectiveness = ω_dot / ctrl_cmd_prev;
+
+    // Apply our lowpass.
+    let ctrl_effectiveness = filters.apply(ctrl_effectiveness);
+
+
 
     // This distills to: (dω / time_to_correction) / (ω_dot / ctrl_cmd_prev) =
     // (dω / time_to_correction) x (ctrl_cmd_prev / ω_dot) =
@@ -204,6 +229,7 @@ pub fn motor_power_from_atts(
     params_prev: &Params,
     mix_prev: &CtrlMix,
     coeffs: &CtrlCoeffs,
+    filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
 ) -> (CtrlMix, MotorPower) {
     // todo: This fn and approach is a WIP!!
@@ -225,6 +251,7 @@ pub fn motor_power_from_atts(
         mix_prev.pitch,
         // dt,
         coeffs,
+        filters,
     );
     let roll = find_ctrl_setting(
         rot_roll,
@@ -233,6 +260,7 @@ pub fn motor_power_from_atts(
         mix_prev.roll,
         // dt,
         coeffs,
+        filters,
     );
     let yaw = find_ctrl_setting(
         rot_yaw,
@@ -241,6 +269,7 @@ pub fn motor_power_from_atts(
         mix_prev.yaw,
         // dt,
         coeffs,
+        filters,
     );
 
     let mix_new = CtrlMix {
@@ -268,6 +297,7 @@ pub fn control_posits_from_atts(
     params_prev: &Params,
     mix_prev: &CtrlMix,
     coeffs: &CtrlCoeffs,
+    filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
 ) -> (CtrlMix, ControlPositions) {
     // todo: Modulate based on airspeed.
@@ -285,6 +315,7 @@ pub fn control_posits_from_atts(
         mix_prev.pitch,
         // dt,
         coeffs,
+        filters,
     );
     let roll = find_ctrl_setting(
         rot_roll,
@@ -293,6 +324,7 @@ pub fn control_posits_from_atts(
         mix_prev.roll,
         // dt,
         coeffs,
+        filters,
     );
 
     let yaw = 0.; // todo?
