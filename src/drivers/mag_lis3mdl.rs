@@ -8,12 +8,12 @@ use stm32_hal2::{
 
 use cortex_m::delay::Delay;
 
-// DS: "The Slave ADdress (SAD) associated to the LIS3MDL is 00111x0b, whereas the x bit is
+// DS: "The Slave Address (SAD) associated to the LIS3MDL is 00111x0b, whereas the x bit is
 // modified by the SDO/SA1 pin in order to modify the device address. If the SDO/SA1 pin is
 // connected to the voltage supply, the address is 0011110b, otherwise, if the SDO/SA1 pin is
 // connected to ground, the address is 0011100b."
 // Our board has it wired to ground.
-const ADDR: u8 = 0b11100; // ie 0x1C
+pub const ADDR: u8 = 0b11100; // ie 0x1C
 
 pub struct MagNotConnectedError {}
 

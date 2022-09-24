@@ -305,19 +305,6 @@ pub fn setup_pins() {
     imu_interrupt.pull(Pull::Up);
     imu_interrupt.enable_interrupt(Edge::Falling);
 
-    // ELRS busy and DIO currently in the main fn.
-    //
-    // // Used to trigger a a control-data-received update based on new ELRS data.
-    // let mut elrs_busy = Pin::new(Port::C, 14, PinMode::Input);
-    // elrs_busy.output_type(OutputType::OpenDrain);
-    // elrs_busy.pull(Pull::Up);
-    // elrs_busy.enable_interrupt(Edge::Falling);
-    //
-    // let mut elrs_dio = Pin::new(Port::C, 14, PinMode::Input);
-    // elrs_busy.output_type(OutputType::OpenDrain);
-    // elrs_busy.pull(Pull::Up);
-    // elrs_busy.enable_interrupt(Edge::Falling);
-
     // I2C1 for external sensors, via pads
     let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
     scl1.output_type(OutputType::OpenDrain);
@@ -392,4 +379,11 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
     #[cfg(not(feature = "h7"))]
     dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
+
+    // Enable TC interrupts for all I2C sections; we use this to sequence readings,
+    // and store reading data.
+    dma.enable_interrupt(BARO_TX_CH, DmaInterrupt::TransferComplete);
+    dma.enable_interrupt(BARO_RX_CH, DmaInterrupt::TransferComplete);
+    dma.enable_interrupt(EXT_SENSORS_TX_CH, DmaInterrupt::TransferComplete);
+    dma.enable_interrupt(EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);
 }

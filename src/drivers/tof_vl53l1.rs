@@ -67,7 +67,7 @@ fn cos(val: f32) -> f32 {
     unsafe { arm_cos_f32(val) }
 }
 
-const ADDR: u8 = 0x52;
+pub const ADDR: u8 = 0x52;
 
 // todo: Make sure to compensate for A/C angle.
 

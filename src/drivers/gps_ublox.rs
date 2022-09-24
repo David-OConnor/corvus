@@ -18,7 +18,7 @@ impl From<i2c::Error> for GpsNotConnectedError {
     }
 }
 
-const ADDR: u8 = 0x69; // todo
+pub const ADDR: u8 = 0x69; // todo
 
 /// See Datasheet, Section 13.1 (Note: This doesn't include all regs)
 #[allow(dead_code)]

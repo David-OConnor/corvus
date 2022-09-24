@@ -22,7 +22,7 @@ use defmt::println;
 
 // The sensor's address is 0x77 (if SDO pin is left floating or pulled-up to VDDIO) or 0x76 (if the SDO pin is
 // pulled-down to GND).
-const ADDR: u8 = 0x77;
+pub const ADDR: u8 = 0x77;
 
 pub struct BaroNotConnectedError {}
 

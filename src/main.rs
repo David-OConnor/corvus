@@ -18,7 +18,7 @@ use stm32_hal2::{
     self,
     adc::{self, Adc, AdcConfig, AdcDevice},
     clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
-    dma::{self, ChannelCfg, Dma},
+    dma::{self, ChannelCfg, Dma, DmaInterrupt},
     flash::{Bank, Flash},
     gpio::{self, Pin, PinMode, Port},
     i2c::{I2c, I2cConfig, I2cSpeed},
@@ -30,6 +30,24 @@ use stm32_hal2::{
 };
 
 use lin_alg2::f32::Quaternion;
+
+mod ahrs_fusion;
+mod atmos_model;
+mod attitude_platform;
+mod cfg_storage;
+mod control_interface;
+mod drivers;
+mod filter_imu;
+mod flight_ctrls;
+mod imu_calibration;
+mod imu_shared;
+mod ppks;
+mod protocols;
+mod safety;
+mod sensors_shared;
+mod setup;
+mod state;
+mod util;
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
@@ -96,28 +114,12 @@ cfg_if! {
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
+use sensors_shared::ExtSensor;
 use state::{OperationMode, SensorStatus, StateVolatile, SystemStatus, UserCfg};
 
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.
 static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
-
-mod ahrs_fusion;
-mod atmos_model;
-mod attitude_platform;
-mod cfg_storage;
-mod control_interface;
-mod drivers;
-mod filter_imu;
-mod flight_ctrls;
-mod imu_calibration;
-mod imu_shared;
-mod ppks;
-mod protocols;
-mod safety;
-mod setup;
-mod state;
-mod util;
 
 // todo: Can't get startup code working separately since Shared and Local must be private per an RTIC restriction.
 // todo: See this GH issue: https://github.com/rtic-rs/cortex-m-rtic/issues/505
@@ -279,6 +281,7 @@ mod app {
         imu_filters: ImuFilters,
         ahrs: Ahrs,
         imu_calibration: imu_calibration::ImuCalibration,
+        ext_sensor_active: ExtSensor,
     }
 
     #[local]
@@ -453,22 +456,6 @@ mod app {
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
         batt_curr_adc.set_sample_time(setup::CURR_ADC_CH, adc::SampleTime::T601);
 
-        // Note: With this circular DMA approach, we discard many readings,
-        // but shouldn't have consequences other than higher power use, compared to commanding
-        // conversions when needed.
-        unsafe {
-            batt_curr_adc.read_dma(
-                &mut ADC_READ_BUF,
-                &[setup::BATT_ADC_CH, setup::CURR_ADC_CH],
-                setup::BATT_CURR_DMA_CH,
-                ChannelCfg {
-                    circular: dma::Circular::Enabled,
-                    ..Default::default()
-                },
-                &mut dma,
-            );
-        }
-
         // Set rate to UPDATE_RATE_ATTITUDE; the slower velocity-update timer will run once
         // every few of these updates.
         let mut update_timer = Timer::new_tim15(
@@ -564,37 +551,6 @@ mod app {
             }
         }
 
-        // todo temp
-        // loop {
-        //     flying_wing::set_elevon_posit(
-        //         flying_wing::ServoWing::S1,
-        //         -0.5,
-        //         &user_cfg.control_mapping,
-        //         &mut rotor_timer_b,
-        //     );
-        //     flying_wing::set_elevon_posit(
-        //         flying_wing::ServoWing::S2,
-        //         -0.5,
-        //         &user_cfg.servo_wing_mapping,
-        //         &mut rotor_timer_b,
-        //     );
-        //
-        //     delay.delay_ms(2000);
-        //     flying_wing::set_elevon_posit(
-        //         flying_wing::ServoWing::S1,
-        //         0.5,
-        //         &user_cfg.control_mapping,
-        //         &mut rotor_timer_b,
-        //     );
-        //     flying_wing::set_elevon_posit(
-        //         flying_wing::ServoWing::S2,
-        //         0.5,
-        //         &user_cfg.control_mapping,
-        //         &mut rotor_timer_b,
-        //     );
-        //     delay.delay_ms(2000);
-        // }
-
         // We use I2C1 for the GPS, magnetometer, and TOF sensor. Some details:
         // The U-BLOX GPS' max speed is 400kHz.
         // The LIS3MDL altimeter's max speed is 400kHz.
@@ -616,6 +572,22 @@ mod app {
 
         // We use I2C2 for the onboard barometer (altimeter).
         let mut i2c2 = I2c::new(dp.I2C2, i2c_baro_cfg, &clock_cfg);
+
+        // Note: With this circular DMA approach, we discard many readings,
+        // but shouldn't have consequences other than higher power use, compared to commanding
+        // conversions when needed.
+        unsafe {
+            batt_curr_adc.read_dma(
+                &mut ADC_READ_BUF,
+                &[setup::BATT_ADC_CH, setup::CURR_ADC_CH],
+                setup::BATT_CURR_DMA_CH,
+                ChannelCfg {
+                    circular: dma::Circular::Enabled,
+                    ..Default::default()
+                },
+                &mut dma,
+            );
+        }
 
         // todo: ID connected sensors etc by checking their device ID etc.
         let mut state_volatile = StateVolatile::default();
@@ -766,6 +738,7 @@ mod app {
                 imu_filters: Default::default(),
                 ahrs,
                 imu_calibration,
+                ext_sensor_active: ExtSensor::Mag,
             },
             Local {
                 // spi_flash, // todo: Fix flash in HAL, then do this.
@@ -822,7 +795,7 @@ mod app {
     shared = [current_params,
     power_used, autopilot_status, user_cfg,
     ahrs, control_channel_data,
-    lost_link_timer, altimeter, i2c2, state_volatile, batt_curr_adc, dma,
+    lost_link_timer, altimeter, i2c1, i2c2, state_volatile, batt_curr_adc, dma, dma2,
     ],
     local = [arm_signals_received, disarm_signals_received, update_loop_i, uart_osd],
 
@@ -848,10 +821,12 @@ mod app {
             cx.shared.user_cfg,
             cx.shared.lost_link_timer,
             cx.shared.altimeter,
+            cx.shared.i2c1,
             cx.shared.i2c2,
             cx.shared.state_volatile,
             cx.shared.batt_curr_adc,
             cx.shared.dma,
+            cx.shared.dma2,
         )
             .lock(
                 |params,
@@ -868,10 +843,12 @@ mod app {
                  cfg,
                  lost_link_timer,
                  altimeter,
+                 i2c1,
                  i2c2,
                  state_volatile,
                  adc,
-                 dma| {
+                 dma,
+                 dma2| {
                     // Update barometric altitude
                     // todo: Put back.
                     // let pressure = altimeter.read_pressure(i2c2);
@@ -928,6 +905,10 @@ mod app {
                         //     state_volatile.link_stats.uplink_snr,
                         // );
                     }
+
+                    // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
+                    // DMA TC isrs are sequenced.
+                    sensors_shared::start_transfers(i2c1, i2c2, dma2);
 
                     if let OperationMode::Preflight = state_volatile.op_mode {
                         // exit this fn during preflight *after* measuring voltages using ADCs.
@@ -1497,7 +1478,8 @@ mod app {
 
     /// If this triggers, it means we've lost the link. (Note that this is for TIM17)
     // #[task(binds = TIM17, shared = [lost_link_timer, state_volatile, user_cfg, autopilot_status], priority = 2)]
-    #[task(binds = TIM1_TRG_COM, shared = [lost_link_timer, state_volatile, user_cfg, autopilot_status, current_params], priority = 2)]
+    #[task(binds = TIM1_TRG_COM, shared = [lost_link_timer, state_volatile, user_cfg, autopilot_status,
+    current_params], priority = 2)]
     fn lost_link_isr(mut cx: lost_link_isr::Context) {
         println!("Lost the link!");
 
@@ -1620,6 +1602,136 @@ mod app {
                     }
                 },
             );
+    }
+
+    // binds = DMA2_STR1,
+    #[task(binds = DMA2_CH1, shared = [dma2, i2c2], priority = 5)]
+    /// Baro write complete; start baro read.
+    fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
+        (cx.shared.dma2, cx.shared.i2c2).lock(|dma2, i2c2| {
+            dma2.clear_interrupt(setup::BARO_TX_CH, DmaInterrupt::TransferComplete);
+
+            unsafe {
+                i2c2.read_dma(
+                    baro::ADDR,
+                    &mut sensors_shared::BARO_READINGS,
+                    setup::BARO_RX_CH,
+                    Default::default(),
+                    dma2,
+                );
+            }
+        });
+    }
+
+    // todo: For now, we start new transfers in the main loop.
+
+    // // binds = DMA2_STR2,
+    // #[task(binds = DMA2_CH2, shared = [dma2, i2c2], priority = 5)]
+    // /// Baro write read; handle data, and start next write.
+    // fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
+    //     cx.shared.dma2.lock(|dma2| {
+    //         dma2.clear_interrupt(setup::BARO_TX_CH, DmaInterrupt::TransferComplete);
+    //
+    //         unsafe {
+    //             i2c2.read_dma(
+    //                 baro::ADDR,
+    //                 &mut sensors::BARO_READINGS,
+    //                 setup::BARO_RX_CH,
+    //                 Default::default(),
+    //             );
+    //         }
+    //     });
+    // }
+
+    // binds = DMA2_STR3,
+    #[task(binds = DMA2_CH3, shared = [dma2, i2c1, ext_sensor_active], priority = 5)]
+    /// Baro write complete; start baro read.
+    fn ext_sensors_write_tc_isr(mut cx: ext_sensors_write_tc_isr::Context) {
+        (cx.shared.dma2, cx.shared.i2c1, cx.shared.ext_sensor_active).lock(
+            |dma2, i2c1, ext_sensor_active| {
+                dma2.clear_interrupt(setup::EXT_SENSORS_TX_CH, DmaInterrupt::TransferComplete);
+
+                // todo: Skip sensors if marked as not connected?
+
+                unsafe {
+                    match ext_sensor_active {
+                        ExtSensor::Mag => {
+                            i2c1.read_dma(
+                                mag::ADDR,
+                                &mut sensors_shared::BARO_READINGS,
+                                setup::EXT_SENSORS_RX_CH,
+                                Default::default(),
+                                dma2,
+                            );
+                        }
+                        ExtSensor::Gps => {
+                            i2c1.read_dma(
+                                gps::ADDR,
+                                &mut sensors_shared::GPS_READINGS,
+                                setup::EXT_SENSORS_RX_CH,
+                                Default::default(),
+                                dma2,
+                            );
+                        }
+                        ExtSensor::Tof => {
+                            i2c1.read_dma(
+                                tof::ADDR,
+                                &mut sensors_shared::TOF_READINGS,
+                                setup::EXT_SENSORS_RX_CH,
+                                Default::default(),
+                                dma2,
+                            );
+                        }
+                    }
+                }
+            },
+        );
+    }
+
+    // binds = DMA2_STR4,
+    #[task(binds = DMA2_CH4, shared = [dma2, i2c1, ext_sensor_active], priority = 5)]
+    /// Baro write complete; start baro read.
+    fn ext_sensors_read_tc_isr(mut cx: ext_sensors_read_tc_isr::Context) {
+        (cx.shared.dma2, cx.shared.i2c1, cx.shared.ext_sensor_active).lock(
+            |dma2, i2c1, ext_sensor_active| {
+                dma2.clear_interrupt(setup::EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);
+
+                // todo: Skip sensors if marked as not connected?
+
+                // todo: Interp data, and place data into its apt struct here.
+
+                unsafe {
+                    match ext_sensor_active {
+                        ExtSensor::Mag => {
+                            i2c1.write_dma(
+                                gps::ADDR,
+                                &mut sensors_shared::WRITE_BUF_GPS,
+                                false,
+                                setup::EXT_SENSORS_RX_CH,
+                                Default::default(),
+                                dma2,
+                            );
+                            *ext_sensor_active = ExtSensor::Gps;
+                        }
+                        ExtSensor::Gps => {
+                            i2c1.write_dma(
+                                tof::ADDR,
+                                &mut sensors_shared::WRITE_BUF_TOF,
+                                false,
+                                setup::EXT_SENSORS_RX_CH,
+                                Default::default(),
+                                dma2,
+                            );
+                            *ext_sensor_active = ExtSensor::Tof;
+                        }
+                        ExtSensor::Tof => {
+                            *ext_sensor_active = ExtSensor::Mag;
+                            // End of sequence; don't start a new transfer.
+                        }
+                    }
+                }
+            },
+        );
     }
 }
 
