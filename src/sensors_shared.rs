@@ -16,7 +16,7 @@ use crate::{
 // Each of these values is register, value to write to register.
 // todo: Populate these.
 // We sequence these using TC ISRs.
-pub static mut WRITE_BUF_GPS: [u8; 1] = [0; 2];
+pub static mut WRITE_BUF_GPS: [u8; 1] = [0; 1];
 pub static mut WRITE_BUF_TOF: [u8; 2] = [0; 2];
 
 /// We use this to sequence DMA writes and reads among the extenral sensors.
@@ -46,7 +46,7 @@ pub fn start_transfers(
 ) {
     // let write_buf_ext_sensors = [starting_addr, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let write_buf_mag = [0, 0];
-    let write_buf_baro = [baro::Reg::PsrB2];
+    let write_buf_baro = [baro::Reg::PsrB2 as u8];
     // todo: Hal-level write_read_dma fn?
 
     unsafe {

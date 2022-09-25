@@ -36,6 +36,9 @@ use defmt::println;
 
 use cfg_if::cfg_if;
 
+// Enable bidirectional DSHOT, which returns RPM data
+pub const BIDIR_EN: bool = false;
+
 // Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
 // so we can set duty cycle appropriately for DSHOT.
 // (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period.
@@ -179,6 +182,12 @@ pub fn setup_timers(timers: &mut MotorTimers) {
             timers.r34_servos.enable_pwm_output(Motor::M3.tim_channel(), OutputCompare::Pwm1, 0.);
             timers.r34_servos.enable_pwm_output(Motor::M4.tim_channel(), OutputCompare::Pwm1, 0.);
         }
+    }
+
+    if BIDIR_EN {
+        enable_bidirectional(timers);
+    } else {
+        disable_bidirectional(timers);
     }
 }
 
@@ -353,7 +362,7 @@ pub fn set_power_single(rotor: Motor, power: f32, timers: &mut MotorTimers, dma:
 /// Send the stored payload.
 fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     // The previous transfer should already be complete, but just in case.
-    dma.stop(Motor::M1.dma_channel()); // both H7 and G4
+    dma.stop(Motor::M1.dma_channel());
 
     // Note that timer enabling is handled by `write_dma_burst`.
 
@@ -416,8 +425,74 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     }
 }
 
+/// Receive an RPM payload; for bidirectional mode.
+pub fn receive_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
+    // The previous transfer should already be complete, but just in case.
+    dma.stop(Motor::M1.dma_channel());
+
+    // Note that timer enabling is handled by `write_dma_burst`.
+
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+             // Set back to alternate function.
+            unsafe {
+                (*pac::GPIOC::ptr()).moder.modify(|_, w| {
+                    w.moder6().bits(0b10);
+                    w.moder7().bits(0b10);
+                    w.moder8().bits(0b10);
+                    w.moder9().bits(0b10)
+                });
+
+                timers.r1234.read_dma_burst(
+                    &PAYLOAD,
+                    Motor::M1.base_addr_offset(),
+                    4, // Burst len of 4, since we're updating 4 channels.
+                    Motor::M1.dma_channel(),
+                    Default::default(),
+                    dma,
+                    true,
+                );
+            }
+
+        } else {
+            dma.stop(Motor::M3.dma_channel());
+
+            unsafe {
+                (*pac::GPIOA::ptr()).moder.modify(|_, w| {
+                    w.moder0().bits(0b10);
+                    w.moder1().bits(0b10)
+                });
+                (*pac::GPIOB::ptr()).moder.modify(|_, w| {
+                    w.moder0().bits(0b10);
+                    w.moder1().bits(0b10)
+                });
+
+                timers.r12.read_dma_burst(
+                    &PAYLOAD_R1_2,
+                    Motor::M1.base_addr_offset(),
+                    2, // Burst len of 2, since we're updating 2 channels.
+                    Motor::M1.dma_channel(),
+                    Default::default(),
+                    dma,
+                    true,
+                );
+                timers.r34_servos.write_dma_burst(
+                    &PAYLOAD_R3_4,
+                    Motor::M3.base_addr_offset(),
+                    2,
+                    Motor::M3.dma_channel(),
+                    Default::default(),
+                    dma,
+                    false,
+                );
+            }
+
+        }
+    }
+}
+
 /// Configure the PWM to be active low, used for bidirectional DSHOT
-pub fn _enable_bidirectional(timers: &mut MotorTimers) {
+pub fn enable_bidirectional(timers: &mut MotorTimers) {
     cfg_if! {
         if #[cfg(feature = "h7")] {
             timers.r1234.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveHigh);
@@ -444,7 +519,7 @@ pub fn _enable_bidirectional(timers: &mut MotorTimers) {
 }
 
 /// Configure the PWM to be active high, used for unidirectional DSHOT
-pub fn _disable_bidirectional(timers: &mut MotorTimers) {
+pub fn disable_bidirectional(timers: &mut MotorTimers) {
     // todo: DRY with enable
     cfg_if! {
         if #[cfg(feature = "h7")] {

@@ -111,8 +111,17 @@ fn find_ctrl_setting(
     // Calculate a time to which will be the target to get the angular velocity
     // to the target. Note that the angular position (and therefore target rate)
     // will change during this time.
+    // todo: Forward predict, with a change in accel program per a schedule?
     let time_to_correction =
         coeffs.time_to_correction_p_ω * dω.abs() + coeffs.time_to_correction_p_θ * dθ.abs();
+
+    // todo: Even more in-depth: If adjusting to manual or other rapidly-changing controls, extrapolate
+    // todo the response, ie cut corners to the predicted attitude during a control actuation?
+    // todo: You may need to re-consider an analytic solution to ODE here.
+
+    // BCs
+    // A: ω = ω. ω_dot = ω_dot. ω_dot_dot = 0(?)
+    // B: ω = ωtarget_at_calculated_posit?
 
     // Find the instantaneous angular acceleration that will correct angular rate in the time
     // determined above.

@@ -1393,13 +1393,14 @@ mod app {
 
     // Note: We don't use `dshot_isr_r12` on H7; this is associated with timer 2.
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
-    #[cfg(not(feature = "h7"))]
+    #[cfg(feature = "g4")]
     #[task(binds = DMA1_CH3, shared = [motor_timers], priority = 6)]
-    /// We use this ISR to disable the DSHOT timer upon completion of a packet send.
+    /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
+    /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
-        // Feature-gating this fn isn't working,
-        #[cfg(not(feature = "h7"))]
         // todo: Why is this gate required when we have feature-gated the fn?
+        // todo: Maybe RTIC is messing up the fn-level feature gate?
+        #[cfg(feature = "g4")]
         unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit())
         }
@@ -1408,21 +1409,34 @@ mod app {
             timers.r12.disable();
         });
 
-        // Set to Output pin, low.
-        unsafe {
-            (*pac::GPIOA::ptr()).moder.modify(|_, w| {
-                w.moder0().bits(0b01);
-                w.moder1().bits(0b01)
-            });
+        // todo: Before adding dma to shared state here, make sure it wasn't
+        // todo deliberately ommitted...
+        if dshot::BIDIR_EN {
+            // motor_timers.r12.enable_input_capture();
+            // dshot::receive_payload(motor_timers, dma);
+        } else {
+            // Set to Output pin, low.
+            unsafe {
+                (*pac::GPIOA::ptr()).moder.modify(|_, w| {
+                    w.moder0().bits(0b01);
+                    w.moder1().bits(0b01)
+                });
+            }
+            // if dshot::BIDIR_EN {
+            //     // todo: This is unreachable...
+            //     // gpio::set_high(Port::A, 0);
+            //     // gpio::set_high(Port::A, 1);
+            // } else {
+            gpio::set_low(Port::A, 0);
+            gpio::set_low(Port::A, 1);
         }
-        gpio::set_low(Port::A, 0);
-        gpio::set_low(Port::A, 1);
+        // }
     }
 
-    #[task(binds = DMA1_CH4, shared = [motor_timers], priority = 6)]
     // #[task(binds = DMA1_STR4, shared = [motor_timers], priority = 6)]
-    /// We use this ISR to disable the DSHOT t
-    /// imer upon completion of a packet send.
+    #[task(binds = DMA1_CH4, shared = [motor_timers], priority = 6)]
+    /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
+    /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
         // todo: Feature-gate this out on H7 or something? Not used.
         #[cfg(feature = "h7")]
@@ -1441,33 +1455,59 @@ mod app {
             timers.r34_servos.disable();
         });
 
-        // Set to Output pin, low.
-        cfg_if! {
-            if #[cfg(feature = "h7")] {
-                unsafe {
-                     (*pac::GPIOC::ptr()).moder.modify(|_, w| {
-                        w.moder6().bits(0b01);
-                        w.moder7().bits(0b01);
-                        w.moder8().bits(0b01);
-                        w.moder9().bits(0b01)
-                    });
+
+        if dshot::BIDIR_EN {
+            cfg_if! {
+                if #[cfg(feature = "h7")] {
+                    // motor_timers.r1234.enable_input_capture();
+                } else {
+                    // motor_timers.r34_servos.enable_input_capture();
                 }
+            }
+            // dshot::receive_payload(motor_timers, dma);
+        } else {
+            // Set to Output pin, low.
+            cfg_if! {
+                if #[cfg(feature = "h7")] {
+                    unsafe {
+                         (*pac::GPIOC::ptr()).moder.modify(|_, w| {
+                            w.moder6().bits(0b01);
+                            w.moder7().bits(0b01);
+                            w.moder8().bits(0b01);
+                            w.moder9().bits(0b01)
+                        });
+                    }
 
-                gpio::set_low(Port::C, 6);
-                gpio::set_low(Port::C, 7);
-                gpio::set_low(Port::C, 8);
-                gpio::set_low(Port::C, 9);
+                    // if dshot::BIDIR_EN {
+                    //     // todo: This is unreachable...
+                    //     // gpio::set_high(Port::C, 6);
+                    //     // gpio::set_high(Port::C, 7);
+                    //     // gpio::set_high(Port::C, 8);
+                    //     // gpio::set_high(Port::C, 9);
+                    // } else {
+                    gpio::set_low(Port::C, 6);
+                    gpio::set_low(Port::C, 7);
+                    gpio::set_low(Port::C, 8);
+                    gpio::set_low(Port::C, 9);
+                    // }
 
-            } else {
-                unsafe {
-                    (*pac::GPIOB::ptr()).moder.modify(|_, w| {
-                        w.moder0().bits(0b01);
-                        w.moder1().bits(0b01)
-                    });
+                } else {
+                    unsafe {
+                        (*pac::GPIOB::ptr()).moder.modify(|_, w| {
+                            w.moder0().bits(0b01);
+                            w.moder1().bits(0b01)
+                        });
+                    }
+
+                    // if dshot::BIDIR_EN {
+                    //     // todo: This is unreachable...
+                    //     // gpio::set_high(Port::B, 0);
+                    //     // gpio::set_high(Port::B, 1);
+                    // } else {
+                    gpio::set_low(Port::B, 0);
+                    gpio::set_low(Port::B, 1);
+                    // }
                 }
-
-                gpio::set_low(Port::B, 0);
-                gpio::set_low(Port::B, 1);
             }
         }
     }
@@ -1649,14 +1689,14 @@ mod app {
     // todo: For now, we start new transfers in the main loop.
 
     // binds = DMA2_STR2,s
-    #[task(binds = DMA2_CH2, shared = [dma2, altimeter, params], priority = 1)]
+    #[task(binds = DMA2_CH2, shared = [dma2, altimeter, current_params], priority = 1)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(mut cx: baro_read_tc_isr::Context) {
-        cx.shared.dma2.lock(|dma2| {
+        (cx.shared.dma2, cx.shared.altimeter, cx.shared.current_params).lock(|dma2, altimeter, params| {
             dma2.clear_interrupt(setup::BARO_RX_CH, DmaInterrupt::TransferComplete);
 
             // code shortener.
-            let buf = unsafe { &BARO_READINGS };
+            let buf = unsafe { &sensors_shared::BARO_READINGS };
             // todo: Process your baro reading here.
             let pressure =
                 altimeter.pressure_from_readings(buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
