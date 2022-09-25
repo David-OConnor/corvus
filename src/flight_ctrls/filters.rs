@@ -2,6 +2,8 @@
 
 use cmsis_dsp_api as dsp_api;
 
+use crate::util::IirInstWrapper;
+
 static mut FILTER_STATE_CTRL_EFFECTIVENESS: [f32; 4] = [0.; 4];
 
 // filter_ = signal.iirfilter(1, 100, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
@@ -39,7 +41,7 @@ impl Default for FlightCtrlFilters {
             // todo: Re-initialize fn?
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.ctrl_effectiveness.inner,
-                &COEFFS_D,
+                &COEFFS_CTRL_EFFECTIVENESS,
                 &mut FILTER_STATE_CTRL_EFFECTIVENESS
             );
         }

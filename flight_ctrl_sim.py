@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 TAU = 2. * np.pi
 
-N = 10_000
+N = 1_000
 
 DT = 1. / 6_666.666
 
@@ -12,9 +12,9 @@ SIM_RATIO = 1
 
 ctrl_effectiveness = 1
 
-p_ω = 10.
-time_to_correction_p_ω = 0.1
-time_to_correction_p_θ = 0.5
+p_ω = 1.
+time_to_correction_p_ω = 1000
+time_to_correction_p_θ = 1000
 max_ω_dot = 10.
 
 # The change we need to effect given the initial conditions below.
@@ -30,7 +30,7 @@ max_ω_dot = 10.
 
 ω_dot_current = 0;
 
-for i in range(1, N-1):
+for i in range(1, N-2):
     # if i % SIM_RATIO == 0:
     dθ = θ_target - θ[i]
     
@@ -39,8 +39,8 @@ for i in range(1, N-1):
     # dist = 10
     dω = ω_target - ω[i]
 
-    print(f"θ[i]: {θ[i]}, dθ: {dθ}, ω_target: {ω_target}, \
-         dω: {dω}, ω_dot_current: {ω_dot_current}")
+    # print(f"θ[i]: {θ[i]}, dθ: {dθ}, ω_target: {ω_target}, \
+    #      dω: {dω}, ω_dot_current: {ω_dot_current}")
 
     time_to_correction = time_to_correction_p_ω * abs(dω) + \
         time_to_correction_p_θ * abs(dθ)
@@ -57,15 +57,15 @@ for i in range(1, N-1):
     ω_dot_current = ω_dot_target / ctrl_effectiveness
 
     # todo: More sophisticated integration method.
-    ω[i + 1] = ω[i-1] + ω_dot_current * DT / SIM_RATIO
-    θ[i + 1] = θ[i-1] + ω[i] * DT / SIM_RATIO
+    ω[i + 1] = ω[i] + ω_dot_current * DT / SIM_RATIO
+    θ[i + 1] = θ[i] + ω[i + 1] * DT / SIM_RATIO
     
 
 
 plt.plot(θ)
 plt.show()
-# plt.plot(ω)
-# plt.show()
+plt.plot(ω)
+plt.show()
 
 # plt.plot(ω_dot)
 

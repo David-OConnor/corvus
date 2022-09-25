@@ -163,7 +163,7 @@ const UPDATE_RATE_ATTITUDE: f32 = 1_600.; // IMU rate / 5.
 const LOGGING_UPDATE_RATIO: usize = 100;
 
 const DT_IMU: f32 = 1. / IMU_UPDATE_RATE;
-const DT_ATTITUDE: f32 = 1. / UPDATE_RATE_ATTITUDE;
+const DT_MAIN_LOOP: f32 = 1. / UPDATE_RATE_ATTITUDE;
 // const DT_VELOCITY: f32 = 1. / UPDATE_RATE_VELOCITY;
 
 static mut ADC_READ_BUF: [u16; 2] = [0; 2];
@@ -296,6 +296,7 @@ mod app {
         fixed_wing_rate_loop_i: usize,
         pid_adj_timer: Timer<TIM1>,
         uart_osd: Usart<USART2>, // for our DJI OSD, via MSP protocol
+        time_with_high_throttle: f32,
     }
 
     #[init]
@@ -750,6 +751,7 @@ mod app {
                 fixed_wing_rate_loop_i: 0,
                 pid_adj_timer,
                 uart_osd,
+                time_with_high_throttle: 0.,
             },
             init::Monotonics(),
         )
@@ -798,7 +800,7 @@ mod app {
     ahrs, control_channel_data,
     lost_link_timer, altimeter, i2c1, i2c2, state_volatile, batt_curr_adc, dma, dma2,
     ],
-    local = [arm_signals_received, disarm_signals_received, update_loop_i, uart_osd],
+    local = [arm_signals_received, disarm_signals_received, update_loop_i, uart_osd, time_with_high_throttle],
 
     priority = 2
     )]
@@ -932,6 +934,15 @@ mod app {
                         // pid_attitude,
                     );
 
+                    if !state_volatile.has_taken_off {
+                        safety::handle_takeoff_attitude_lock(
+                            control_channel_data.throttle,
+                            &mut cx.local.time_with_high_throttle,
+                            &mut state_volatile.has_taken_off,
+                            DT_MAIN_LOOP
+                        );
+                    }
+
                     if state_volatile.link_lost {
                         safety::link_lost(
                             &state_volatile.system_status,
@@ -1012,9 +1023,12 @@ mod app {
                         &state_volatile.system_status,
                     );
 
-                    // The intermediate variable is due to a attribute binding
-                    // issue with teh direct approach.
-                    state_volatile.autopilot_commands = ap_cmds;
+                    // Don't apply autopilot modes if on the ground.
+                    if !state_volatile.has_taken_off {
+                        // The intermediate variable is due to a attribute binding
+                        // issue with teh direct approach.
+                        state_volatile.autopilot_commands = ap_cmds;
+                    }
 
                     // todo: Temp skipping the PID step while we evaluate our approaches.
                     // return;
@@ -1085,8 +1099,7 @@ mod app {
 
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, params_prev, control_channel_data,
-    autopilot_status,
-    imu_filters, cs_imu, user_cfg,
+    autopilot_status, imu_filters, flight_ctrl_filters, cs_imu, user_cfg,
     motor_timers, ahrs, state_volatile, rf_limiter_timer], local = [fixed_wing_rate_loop_i, update_loop_i2], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
@@ -1121,6 +1134,7 @@ mod app {
             cx.shared.spi1,
             // cx.shared.rf_limiter_timer, // todo temp
             cx.shared.state_volatile,
+            cx.shared.flight_ctrl_filters,
         )
             .lock(
                 |params,
@@ -1135,7 +1149,8 @@ mod app {
                  cfg,
                  spi1,
                  // rf_limiter_timer, // todo temp
-                 state_volatile| {
+                 state_volatile,
+                 flight_ctrl_filters| {
                     // Note that these steps are mandatory, per STM32 RM.
                     // spi.stop_dma only can stop a single channel atm, hence the 2 calls here.
                     dma.stop(setup::IMU_TX_CH);
@@ -1204,11 +1219,16 @@ mod app {
                         yaw: Some(cfg.input_map.calc_yaw_rate(control_channel_data.yaw)),
                     };
 
-                    state_volatile.attitude_commanded.quat = Some(ctrl_logic::modify_att_target(
-                        state_volatile.attitude_commanded.quat.unwrap_or(Quaternion::new_identity()),
-                        &state_volatile.rates_commanded,
-                        DT_IMU,
-                    ));
+                    // If we haven't taken off, apply the attitude lock.
+                    if state_volatile.has_taken_off {
+                        state_volatile.attitude_commanded.quat = Some(ctrl_logic::modify_att_target(
+                            state_volatile.attitude_commanded.quat.unwrap_or(Quaternion::new_identity()),
+                            &state_volatile.rates_commanded,
+                            DT_IMU,
+                        ));
+                    } else {
+                        state_volatile.attitude_commanded.quat = Some(cfg.takeoff_attitude);
+                    }
 
                     // todo: DRY from pid::apply_common
                     let throttle = match throttle_commanded {
@@ -1227,6 +1247,7 @@ mod app {
                                 params_prev,
                                 &state_volatile.ctrl_mix,
                                 &cfg.ctrl_coeffs,
+                                flight_ctrl_filters,
                                 DT_IMU,
                             );
                             //    target_attitude: Quaternion,
@@ -1250,6 +1271,7 @@ mod app {
                                 params_prev,
                                 &state_volatile.ctrl_mix,
                                 &cfg.ctrl_coeffs,
+                                flight_ctrl_filters,
                                 DT_IMU,
                             );
 

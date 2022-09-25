@@ -49,6 +49,11 @@ const LOST_LINK_RTB_ALT: f32 = 100.;
 // towards base etc.
 const ALT_EPSILON_BEFORE_LATERAL: f32 = 20.;
 
+// If power has been higher than this power level for this time, consider teh craft airborne
+// for the purposes of the attitude lock.
+const TAKEOFF_POWER_THRESH: f32 = 0.3;
+const TAKEOFF_POWER_TIME: f32 = 1.;
+
 /// Indicates master motor arm status. Used for both pre arm, and arm. If either is
 /// set to `Disarmed`, the motors will not spin (or stop spinning immediately).
 /// Repr u8 is for passing over USB serial.
@@ -175,4 +180,25 @@ pub fn link_lost(
         // Climb with reverse heading if no GPS available.
         // Note that quadcopter movements may be too unstable to attempt this.
     }
+}
+
+/// Unlock the takeoff attitude lock if motor power has exceed a certain power level for a
+/// certain amount of time. This is done by changing the `has_taken_off` variable.
+pub fn handle_takeoff_attitude_lock(
+    throttle: f32,
+    time_with_high_throttle: &mut f32,
+    has_taken_off: &mut bool,
+    dt: f32,
+) {
+    if throttle >= TAKEOFF_POWER_THRESH {
+        if *time_with_high_throttle >= TAKEOFF_POWER_TIME {
+            *has_taken_off = true;
+            *time_with_high_throttle = 0.;
+            return
+        }
+        *time_with_high_throttle += dt;
+    } else {
+        *time_with_high_throttle = 0.;
+    }
+
 }

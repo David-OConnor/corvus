@@ -15,6 +15,8 @@ use crate::{
     usb_cfg::WAYPOINT_SIZE,
 };
 
+use lin_alg2::f32::{Vec3, Quaternion};
+
 use cfg_if::cfg_if;
 
 cfg_if! {
@@ -100,6 +102,7 @@ pub struct UserCfg {
     // pub attitude_based_rate_mode: bool,
     pub input_map: InputMap,
     pub ctrl_coeffs: CtrlCoeffs,
+    pub takeoff_attitude: Quaternion,
 }
 
 impl Default for UserCfg {
@@ -152,6 +155,10 @@ impl Default for UserCfg {
             // attitude_based_rate_mode: true,
             input_map: Default::default(),
             ctrl_coeffs: Default::default(),
+            #[cfg(feature = "quad")]
+            takeoff_attitude: Quaternion::new_unit(),
+            #[cfg(feature = "fixed-wing")]
+            takeoff_attitude: Quaternion::from_axis_angle(Vec3::new(1., 0., 0.), 0.35),
         }
     }
 }
@@ -218,4 +225,6 @@ pub struct StateVolatile {
     /// We us this to analyze how the current controls are impacting
     /// angular accelerations.
     pub ctrl_mix: CtrlMix,
+    /// We use this to determine if we can unlock the attitude controls from the takeoff attitude.
+    pub has_taken_off: bool
 }

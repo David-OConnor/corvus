@@ -13,7 +13,7 @@ use crate::{
     // pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::{Location, LocationType},
     state::{SensorStatus, SystemStatus},
-    DT_ATTITUDE,
+    DT_MAIN_LOOP,
 };
 
 // Max distance from curent location, to point, then base a
@@ -298,7 +298,7 @@ impl AutopilotStatus {
                 //     coeffs.thrust.k_i_attitude,
                 //     coeffs.thrust.k_d_attitude,
                 //     &mut filters.thrust,
-                //     DT_ATTITUDE,
+                //     DT_MAIN_LOOP,
                 // );
                 let scaler = 0.1; // todo: Quick hack.
                 autopilot_commands.throttle = Some(dist * scaler);
@@ -420,7 +420,7 @@ impl AutopilotStatus {
                 //     coeffs.pitch.k_i_attitude,
                 //     coeffs.pitch.k_d_attitude,
                 //     &mut filters.pitch_attitude,
-                //     DT_ATTITUDE,
+                //     DT_MAIN_LOOP,
                 // );
 
                 // todo: Set this at rate or attitude level?
