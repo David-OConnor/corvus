@@ -99,8 +99,6 @@ fn find_ctrl_setting(
     coeffs: &CtrlCoeffs,
     filters: &mut FlightCtrlFilters,
 ) -> f32 {
-    const EPS_1: f32 = 0.0001;
-
     // todo: Take RPM and/or time-to-spin up/down into account.
     // todo: It's likely the best plan is to set up RPM measurement, and create a model
     // todo based on that that relates speed change time to various regimes.
@@ -130,6 +128,8 @@ fn find_ctrl_setting(
     let ctrl_effectiveness = filters.apply(ctrl_effectiveness);
 
 
+
+    // const EPS_1: f32 = 0.0001;
 
     // This distills to: (dω / time_to_correction) / (ω_dot / ctrl_cmd_prev) =
     // (dω / time_to_correction) x (ctrl_cmd_prev / ω_dot) =

@@ -181,6 +181,7 @@ pub struct SystemStatus {
     ///  magnetometer is connected. Likely on the same module as GPS. Detected on init.
     pub magnetometer: SensorStatus,
     pub esc_telemetry: SensorStatus,
+    pub esc_rpm: SensorStatus,
 }
 
 /// State that doesn't get saved to flash.
