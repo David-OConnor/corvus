@@ -6,20 +6,19 @@ use crate::util::IirInstWrapper;
 
 static mut FILTER_STATE_CTRL_EFFECTIVENESS: [f32; 4] = [0.; 4];
 
-// filter_ = signal.iirfilter(1, 100, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
+// filter_ = signal.iirfilter(1, 80, btype="lowpass", ftype="bessel", output="sos", fs=6_666)
 // coeffs = []
 // for row in filter_:
 //     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
 
 #[allow(clippy::excessive_precision)]
 static COEFFS_CTRL_EFFECTIVENESS: [f32; 5] = [
-    0.037804754170896473,
-    0.037804754170896473,
+    0.03634962200119309,
+    0.03634962200119309,
     0.0,
-    0.9243904916582071,
+    0.9273007559976137,
     -0.0,
 ];
-
 
 /// Store lowpass IIR filter instances, for use with the deriv terms of our PID loop. Note that we don't
 /// need this for our horizontal velocity PIDs.
@@ -42,7 +41,7 @@ impl Default for FlightCtrlFilters {
             dsp_api::biquad_cascade_df1_init_f32(
                 &mut result.ctrl_effectiveness.inner,
                 &COEFFS_CTRL_EFFECTIVENESS,
-                &mut FILTER_STATE_CTRL_EFFECTIVENESS
+                &mut FILTER_STATE_CTRL_EFFECTIVENESS,
             );
         }
 
@@ -58,7 +57,12 @@ impl FlightCtrlFilters {
 
         let mut ctrl_effectiveness = [0.];
 
-        dsp_api::biquad_cascade_df1_f32(&mut self.ctrl_effectiveness.inner, &[ctrl_effectiveness_raw], &mut ctrl_effectiveness, block_size);
+        dsp_api::biquad_cascade_df1_f32(
+            &mut self.ctrl_effectiveness.inner,
+            &[ctrl_effectiveness_raw],
+            &mut ctrl_effectiveness,
+            block_size,
+        );
 
         ctrl_effectiveness[0]
         // data.a_x = a_x[0];

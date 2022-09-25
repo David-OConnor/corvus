@@ -70,7 +70,7 @@ impl Default for CtrlCoeffs {
             p_ω: 10.,
             time_to_correction_p_ω: 0.1, // todo?
             time_to_correction_p_θ: 0.5, // todo?
-            max_ω_dot: 10.,         // todo: What should this be?
+            max_ω_dot: 10.,              // todo: What should this be?
         }
     }
 
@@ -87,7 +87,6 @@ impl Default for CtrlCoeffs {
 
 // todo: COde shortner 3x.
 
-// #[cfg(feature = "quad")]
 /// Find the desired control setting on a single axis; loosely corresponds to a
 /// commanded angular acceleration.
 fn find_ctrl_setting(
@@ -95,7 +94,6 @@ fn find_ctrl_setting(
     ω: f32,
     ω_dot: f32,
     ctrl_cmd_prev: f32,
-    // dt: f32,
     coeffs: &CtrlCoeffs,
     filters: &mut FlightCtrlFilters,
 ) -> f32 {
@@ -104,13 +102,20 @@ fn find_ctrl_setting(
     // todo based on that that relates speed change time to various regimes.
 
     // Compare the current (measured) angular velocities to what we need to apply this rotation.
+    // We currently use a linear model to find a rate proportional to the angular
+    // distance to travel on this axis.
     let ω_target = dθ * coeffs.p_ω;
 
     let dω = ω_target - ω;
 
-    // todo: Evaluate how this will work. Should possibly take dθ into account.
-    let time_to_correction = coeffs.time_to_correction_p_ω * dω.abs() + coeffs.time_to_correction_p_θ * dθ.abs();
+    // Calculate a time to which will be the target to get the angular velocity
+    // to the target. Note that the angular position (and therefore target rate)
+    // will change during this time.
+    let time_to_correction =
+        coeffs.time_to_correction_p_ω * dω.abs() + coeffs.time_to_correction_p_θ * dθ.abs();
 
+    // Find the instantaneous angular acceleration that will correct angular rate in the time
+    // determined above.
     let mut ω_dot_target = dω / time_to_correction;
     if ω_dot_target > coeffs.max_ω_dot {
         ω_dot_target = coeffs.max_ω_dot;
@@ -121,101 +126,21 @@ fn find_ctrl_setting(
     // todo: Track and/or lowpass effectiveness over recent history, at diff params.
     // todo: Once you have bidir dshot, use RPM instead of power.
 
-
     let ctrl_effectiveness = ω_dot / ctrl_cmd_prev;
 
-    // Apply our lowpass.
+    // Apply a lowpass filter to our effectiveness, to reduce noise and fluctuations.
     let ctrl_effectiveness = filters.apply(ctrl_effectiveness);
-
-
-
-    // const EPS_1: f32 = 0.0001;
 
     // This distills to: (dω / time_to_correction) / (ω_dot / ctrl_cmd_prev) =
     // (dω / time_to_correction) x (ctrl_cmd_prev / ω_dot) =
-    // (dω x ctrl_cmd_prev) / (time_to_correction x ω_dot)
+    // (dω x ctrl_cmd_prev) / (time_to_correction x ω_dot) =
+    //
+    // (dθ * coeffs.p_ω - ω x ctrl_cmd_prev) /
+    // ((coeffs.time_to_correction_p_ω * dω.abs() + coeffs.time_to_correction_p_θ * dθ.abs()) x ω_dot)
+
     // Units: rad x cmd / (s * rad/s) = rad x cmd / rad = cmd
     // `cmd` is the unit we use for ctrl inputs. Not sure what (if any?) units it has.
     ω_dot_target / ctrl_effectiveness
-
-    // Estimate the time it will take to arrive at our target attitude,
-    // given the current angular velocity, and angular acceleration.
-    // We numerically integrate, then solve for time.
-
-    // todo: Take into account reduction in accel as velocity increases due to drag?
-
-    // Integrate using angular rate, and angular accel:
-    // θ(t) = θ_0 + ω_0 * t + ω_dot * t^2
-
-    // wolfram alpha: `theta = h + v * t + a * Power[t,2] solve for t`
-    // 1/(2*ω_dot) * (sqrt(-4 * 0. + 4ω_dot θ(t) + ω_0^2) +/- ω_0)
-
-    // todo: Should you apply filtering to any of these terms?
-
-    // todo: From tests, the second variant (b2) appears to work for test examples.
-    // todo: Figure out when to use each
-    // todo: Figure out what to do when it will never convege; ie it it's accelerating in the wrong
-    // todo direction.
-    // let time_to_tgt_att_pitch = if ang_accel_pitch.abs() < EPS_1 {
-    //     Some(rot_pitch / params.v_pitch)
-    // } else {
-    //     let a = 2. * ang_accel_pitch;
-    //
-    //     let inner = 4. * ang_accel_pitch * rot_pitch + params.v_pitch.powi(2);
-    //     if inner < 0. {
-    //         // Will never reach target (without wrapping around).
-    //         // todo: Use modulus TAU and allow going the wrong way?
-    //         None
-    //     } else {
-    //         let b1 = inner.sqrt() + params.v_pitch;
-    //         let b2 = inner.sqrt() - params.v_pitch;
-    //
-    //         let v1 = b2 / a;
-    //         // todo: Is this the approach you want? Pick the positive one?
-    //         // todo: Maybe choose the one with smaller abs? I think that indicates going
-    //         // todo back in time, so probably not.
-    //         if v1 > 0. {
-    //             Some(v1)
-    //         } else {
-    //             Some(-(b1 / a))
-    //         }
-    //     }
-    // };
-    //
-    // let target_time_to_tgt_att_pitch = rot_pitch * asdf;
-    //
-    // // For each channel, compare the previous control positions to the [rate? change in rate?)
-    // // Then adjust the motor powers A/R.
-    //
-    // // todo OK, say it is like a pid...
-    // let d_term_pitch = d_pitch_param * p_pitch;
-    // let p_term_pitch = tgt_rate_chg_pitch * p_pitch;
-    //
-    // // Calculate how long it will take to reach the target pitch rate at the current rate
-    // // of change.
-    // let time_to_tgt_rate_pitch = tgt_rate_chg_pitch / d_term_pitch;
-    //
-    // // eg 5 m/s delta
-    // //
-    //
-    // // if tgt_rate_chg_pitch <= rate_thresh {
-    // //     // power_chg_pitch = 0.
-    // // }
-    //
-    // let power_chg_pitch = if tgt_rate_chg_pitch > rate_thresh {
-    //     // todo: YOu need to take rate changes into effect
-    //     tgt_rate_chg_pitch * p_pitch
-    // } else {
-    //     0.
-    // };
-    //
-    // let pitch_cmd = prev_power.pitch + power_chg_pitch;
-    // let roll_cmd = prev_power.roll + power_chg_roll;
-    // let yaw_cmd = prev_power.yaw + power_chg_yaw;
-    //
-    // let pitch_cmd = tgt_rate_chg_pitch * p_pitch;
-    // let roll_cmd = tgt_rate_chg_roll * p_roll;
-    // let yaw_cmd = tgt_rate_chg_yaw * p_yaw;
 }
 
 #[cfg(feature = "quad")]
@@ -288,6 +213,7 @@ pub fn motor_power_from_atts(
 #[cfg(feature = "fixed-wing")]
 /// Similar to the above fn on quads. Note that we do not handle yaw command using this. Yaw
 /// is treated as coupled to pitch and roll, with yaw controls used to counter adverse-yaw.
+/// Yaw is to maintain coordinated flight, or deviate from it.
 pub fn control_posits_from_atts(
     target_attitude: Quaternion,
     current_attitude: Quaternion,

@@ -15,7 +15,7 @@ use crate::{
     usb_cfg::WAYPOINT_SIZE,
 };
 
-use lin_alg2::f32::{Vec3, Quaternion};
+use lin_alg2::f32::{Quaternion, Vec3};
 
 use cfg_if::cfg_if;
 
@@ -226,5 +226,5 @@ pub struct StateVolatile {
     /// angular accelerations.
     pub ctrl_mix: CtrlMix,
     /// We use this to determine if we can unlock the attitude controls from the takeoff attitude.
-    pub has_taken_off: bool
+    pub has_taken_off: bool,
 }

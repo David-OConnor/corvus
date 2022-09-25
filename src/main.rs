@@ -939,7 +939,7 @@ mod app {
                             control_channel_data.throttle,
                             &mut cx.local.time_with_high_throttle,
                             &mut state_volatile.has_taken_off,
-                            DT_MAIN_LOOP
+                            DT_MAIN_LOOP,
                         );
                     }
 
@@ -1628,7 +1628,7 @@ mod app {
     }
 
     // binds = DMA2_STR1,
-    #[task(binds = DMA2_CH1, shared = [dma2, i2c2], priority = 5)]
+    #[task(binds = DMA2_CH1, shared = [dma2, i2c2], priority = 1)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
         (cx.shared.dma2, cx.shared.i2c2).lock(|dma2, i2c2| {
@@ -1648,19 +1648,26 @@ mod app {
 
     // todo: For now, we start new transfers in the main loop.
 
-    // binds = DMA2_STR2,
-    #[task(binds = DMA2_CH2, shared = [dma2], priority = 5)]
+    // binds = DMA2_STR2,s
+    #[task(binds = DMA2_CH2, shared = [dma2, altimeter, params], priority = 1)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(mut cx: baro_read_tc_isr::Context) {
         cx.shared.dma2.lock(|dma2| {
             dma2.clear_interrupt(setup::BARO_RX_CH, DmaInterrupt::TransferComplete);
 
+            // code shortener.
+            let buf = unsafe { &BARO_READINGS };
             // todo: Process your baro reading here.
+            let pressure =
+                altimeter.pressure_from_readings(buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+
+            // todo: Altitude from pressure! Maybe in a diff module? (which?)
+            params.baro_alt_msl = pressure;
         });
     }
 
     // binds = DMA2_STR3,
-    #[task(binds = DMA2_CH3, shared = [dma2, i2c1, ext_sensor_active], priority = 5)]
+    #[task(binds = DMA2_CH3, shared = [dma2, i2c1, ext_sensor_active], priority = 1)]
     /// Baro write complete; start baro read.
     fn ext_sensors_write_tc_isr(mut cx: ext_sensors_write_tc_isr::Context) {
         (cx.shared.dma2, cx.shared.i2c1, cx.shared.ext_sensor_active).lock(
@@ -1705,7 +1712,7 @@ mod app {
     }
 
     // binds = DMA2_STR4,
-    #[task(binds = DMA2_CH4, shared = [dma2, i2c1, ext_sensor_active], priority = 5)]
+    #[task(binds = DMA2_CH4, shared = [dma2, i2c1, ext_sensor_active], priority = 1)]
     /// Baro write complete; start baro read.
     fn ext_sensors_read_tc_isr(mut cx: ext_sensors_read_tc_isr::Context) {
         (cx.shared.dma2, cx.shared.i2c1, cx.shared.ext_sensor_active).lock(

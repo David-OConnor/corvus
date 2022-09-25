@@ -194,11 +194,10 @@ pub fn handle_takeoff_attitude_lock(
         if *time_with_high_throttle >= TAKEOFF_POWER_TIME {
             *has_taken_off = true;
             *time_with_high_throttle = 0.;
-            return
+            return;
         }
         *time_with_high_throttle += dt;
     } else {
         *time_with_high_throttle = 0.;
     }
-
 }

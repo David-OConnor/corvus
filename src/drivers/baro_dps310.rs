@@ -39,9 +39,9 @@ pub enum Reg {
     PsrB2 = 0x00,
     PsrB1 = 0x01,
     PsrB0 = 0x02,
-    TmpB0 = 0x03,
-    TmpB2 = 0x04,
-    TmpB1 = 0x05,
+    TmpB2 = 0x03,
+    TmpB1 = 0x04,
+    TmpB0 = 0x05,
     PrsCfg = 0x06,
     TmpCfg = 0x07,
     MeasCfg = 0x08,
@@ -268,7 +268,7 @@ impl Altimeter {
     /// Apply compensation values from calibration coefficients to the pressure reading.
     /// Output is in Pa (todo is it?). Datasheet, section 4.9.1. We use naming conventions
     /// to match the DS.
-    fn pressure_from_reading(&self, p_raw: i32, t_raw: i32) -> f32 {
+    fn pressure_from_raw(&self, p_raw: i32, t_raw: i32) -> f32 {
         let t_raw_sc = t_raw / K_T;
         let p_raw_sc = p_raw / K_P;
 
@@ -281,7 +281,7 @@ impl Altimeter {
     }
 
     /// Datasheet, section 4.9.1
-    fn temp_from_reading(&self, t_raw: i32) -> f32 {
+    fn temp_from_raw(&self, t_raw: i32) -> f32 {
         let t_raw_sc = t_raw / K_T;
         // (self.pressure_cal.c0 * 0.5 * self.pressure_call.c1 * t_raw_sc) as f32
         // todo: Should we be doing these operations (Here and above in pressure-from_reading
@@ -294,6 +294,17 @@ impl Altimeter {
 
     // todo: Given you use temp readings to feed into pressure, combine somehow to reduce reading
     // todo and computation.
+
+    /// Given readings (eg from DMA0), calcualte pressure.
+    pub fn pressure_from_readings(&self, p2: u8, p1: u8, p0: u8, t2: u8, t1: u8, t0: u8) -> f32 {
+        let mut p_raw = i32::from_be_bytes([0, p2, p1, p0]);
+        fix_int_sign(&mut p_raw, 24);
+
+        let mut t_raw = i32::from_be_bytes([0, t2, t1, t0]);
+        fix_int_sign(&mut t_raw, 24);
+
+        self.pressure_from_raw(p_raw, t_raw)
+    }
 
     /// Read atmospheric pressure, in kPa.
     pub fn read_pressure(&self, i2c: &mut I2c<I2C2>) -> Result<f32, BaroNotConnectedError> {
@@ -308,18 +319,15 @@ impl Altimeter {
         i2c.write_read(ADDR, &[Reg::PsrB1 as u8], &mut buf1)?;
         i2c.write_read(ADDR, &[Reg::PsrB0 as u8], &mut buf0)?;
 
-        let mut p_raw = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
-        fix_int_sign(&mut p_raw, 24);
-
+        let mut buft_2 = [0];
+        let mut buft_1 = [0];
+        let mut buft_0 = [0];
         // todo: DRY with above and temp readings below, also does this twice if getting temp at same time.
-        i2c.write_read(ADDR, &[Reg::TmpB2 as u8], &mut buf2)?;
-        i2c.write_read(ADDR, &[Reg::TmpB1 as u8], &mut buf1)?;
-        i2c.write_read(ADDR, &[Reg::TmpB0 as u8], &mut buf0)?;
+        i2c.write_read(ADDR, &[Reg::TmpB2 as u8], &mut buft_2)?;
+        i2c.write_read(ADDR, &[Reg::TmpB1 as u8], &mut buft_1)?;
+        i2c.write_read(ADDR, &[Reg::TmpB0 as u8], &mut buft_0)?;
 
-        let mut t_raw = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
-        fix_int_sign(&mut t_raw, 24);
-
-        Ok(self.pressure_from_reading(p_raw, t_raw))
+        Ok(self.pressure_from_readings(buf2[0], buf1[0], buf0[0], buft_2[0], buft_1[0], buft_0[0]))
     }
 
     /// Read temperature, in °C.
@@ -339,6 +347,6 @@ impl Altimeter {
         let mut reading = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
         fix_int_sign(&mut reading, 24);
 
-        Ok(self.temp_from_reading(reading))
+        Ok(self.temp_from_raw(reading))
     }
 }
