@@ -23,7 +23,7 @@ cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use crate::flight_ctrls::{ControlPositions};
     } else {
-        use crate::flight_ctrls::{AxisLocks, MotorPower, InputMode};
+        use crate::flight_ctrls::{MotorPower, InputMode};
     }
 }
 
@@ -156,7 +156,7 @@ impl Default for UserCfg {
             input_map: Default::default(),
             ctrl_coeffs: Default::default(),
             #[cfg(feature = "quad")]
-            takeoff_attitude: Quaternion::new_unit(),
+            takeoff_attitude: Quaternion::new_identity(),
             #[cfg(feature = "fixed-wing")]
             takeoff_attitude: Quaternion::from_axis_angle(Vec3::new(1., 0., 0.), 0.35),
         }
@@ -204,8 +204,8 @@ pub struct StateVolatile {
     // connected_to_controller: bool,
     pub link_lost: bool,
     #[cfg(feature = "quad")]
-    /// Attitudes to hold for each axis, eg if control input is neutral
-    pub axis_locks: AxisLocks,
+    // /// Attitudes to hold for each axis, eg if control input is neutral
+    // pub axis_locks: AxisLocks,
     #[cfg(feature = "quad")]
     pub current_pwr: MotorPower,
     #[cfg(feature = "fixed-wing")]

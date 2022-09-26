@@ -220,14 +220,19 @@ impl ServoWing {
 
 /// Set up the pins that have structs that don't need to be accessed after.
 pub fn setup_pins() {
-    // Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
+    // G4: Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
+    // H7: Rotors connected to Tim3 CH1-4, or Tim8 ch 1-4
     cfg_if! {
         if #[cfg(feature = "mercury-h7")] {
-            // todo: If flying wing on H7, set rotors 3 and 4 to Alt3, for TIM8 (same channels)
-            let mut rotor1 = Pin::new(Port::C, 6, PinMode::Alt(2)); // Tim3 ch1
-            let mut rotor2 = Pin::new(Port::C, 7, PinMode::Alt(2)); // Tim3 ch2
-            let mut rotor3 = Pin::new(Port::C, 8, PinMode::Alt(2)); // Tim3 ch3
-            let mut rotor4 = Pin::new(Port::C, 9, PinMode::Alt(2)); // Tim3 ch4
+            if #[cfg(feature = "fixed-wing")] {
+                let alt = 3; // TIM8
+            } else {
+                let alt = 2; // TIM3
+            }
+            let mut rotor1 = Pin::new(Port::C, 6, PinMode::Alt(alt)); // Tim3/8 ch1
+            let mut rotor2 = Pin::new(Port::C, 7, PinMode::Alt(alt)); // Tim3/8 ch2
+            let mut rotor3 = Pin::new(Port::C, 8, PinMode::Alt(alt)); // Tim3/8 ch3
+            let mut rotor4 = Pin::new(Port::C, 9, PinMode::Alt(alt)); // Tim3/8 ch4
         } else {
             let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(1)); // Tim2 ch1
             let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(1)); // Tim2 ch2

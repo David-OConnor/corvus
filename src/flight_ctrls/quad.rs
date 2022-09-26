@@ -7,7 +7,7 @@
 
 use core::f32::consts::TAU;
 
-use stm32_hal2::{dma::Dma, pac::DMA1};
+use stm32_hal2::{dma::Dma, pac::DMA1, timer::TimerInterrupt};
 
 use crate::{
     control_interface::InputModeSwitch,
@@ -22,6 +22,8 @@ use super::common::{CtrlMix, InputMap, Motor, MotorTimers, Params};
 use defmt::println;
 
 use cmsis_dsp_sys as dsp_sys;
+
+use cfg_if::cfg_if;
 
 // Min power setting for any individual rotor at idle setting.
 const MIN_ROTOR_POWER: f32 = 0.03;
@@ -101,15 +103,15 @@ impl AircraftProperties {
     }
 }
 
-/// We use this to freeze an axis in acro mode, when the control for that axis is neutral.
-/// this prevents drift from accumulation of errors. Values are uuler angle locked at, in radians. Only used
-/// for pitch and roll, since yaw is coupled to those, and can't be maintained independently.
-/// todo: Is there a way to do this using portions of a quaternion?
-#[derive(Default)]
-pub struct AxisLocks {
-    pub pitch_locked: Option<f32>,
-    pub roll_locked: Option<f32>,
-}
+// /// We use this to freeze an axis in acro mode, when the control for that axis is neutral.
+// /// this prevents drift from accumulation of errors. Values are uuler angle locked at, in radians. Only used
+// /// for pitch and roll, since yaw is coupled to those, and can't be maintained independently.
+// /// todo: Is there a way to do this using portions of a quaternion?
+// #[derive(Default)]
+// pub struct AxisLocks {
+//     pub pitch_locked: Option<f32>,
+//     pub roll_locked: Option<f32>,
+// }
 
 /// Specify the rotor by position. Used in power application code.
 /// repr(u8) is for use in Preflight.
@@ -205,6 +207,36 @@ impl ControlMapping {
         } else {
             Motor::M4
         }
+    }
+}
+
+/// Configures all 4 motor timers for quadcopters. For setting up motors for fixed-wing, see
+/// `fixed_wing::setup_timers`.
+pub fn setup_timers(timers: &mut MotorTimers) {
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            timers.r1234.set_prescaler(dshot::DSHOT_PSC_600);
+            timers.r1234.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
+
+            timers.r1234.enable_interrupt(TimerInterrupt::UpdateDma);
+        } else if #[cfg(feature = "g4")] {
+            timers.r12.set_prescaler(dshot::DSHOT_PSC_600);
+            timers.r12.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
+
+            timers.r34_servos.set_prescaler(dshot::DSHOT_PSC_600);
+            timers.r34_servos.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
+
+            timers.r12.enable_interrupt(TimerInterrupt::UpdateDma);
+            timers.r34_servos.enable_interrupt(TimerInterrupt::UpdateDma);
+        }
+    }
+
+    dshot::set_to_output(timers);
+
+    if dshot::BIDIR_EN {
+        dshot::enable_bidirectional(timers);
+    } else {
+        dshot::disable_bidirectional(timers);
     }
 }
 

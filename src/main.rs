@@ -108,7 +108,7 @@ cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use flight_ctrls::{autopilot::Orbit, ControlPositions};
     } else {
-        use flight_ctrls::{AxisLocks, InputMode, MotorPower, RotationDir, RotorPosition};
+        use flight_ctrls::{InputMode, MotorPower, RotationDir, RotorPosition};
     }
 }
 
@@ -545,13 +545,7 @@ mod app {
             alt_msl: 3.,
         });
 
-        cfg_if! {
-            if #[cfg(feature = "fixed-wing")] {
-                flight_ctrls::setup_timers(&mut motor_timers);
-            } else {
-                dshot::setup_timers(&mut motor_timers);
-            }
-        }
+        flight_ctrls::setup_timers(&mut motor_timers);
 
         // We use I2C1 for the GPS, magnetometer, and TOF sensor. Some details:
         // The U-BLOX GPS' max speed is 400kHz.
@@ -1455,7 +1449,6 @@ mod app {
             timers.r34_servos.disable();
         });
 
-
         if dshot::BIDIR_EN {
             cfg_if! {
                 if #[cfg(feature = "h7")] {
@@ -1692,18 +1685,23 @@ mod app {
     #[task(binds = DMA2_CH2, shared = [dma2, altimeter, current_params], priority = 1)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(mut cx: baro_read_tc_isr::Context) {
-        (cx.shared.dma2, cx.shared.altimeter, cx.shared.current_params).lock(|dma2, altimeter, params| {
-            dma2.clear_interrupt(setup::BARO_RX_CH, DmaInterrupt::TransferComplete);
+        (
+            cx.shared.dma2,
+            cx.shared.altimeter,
+            cx.shared.current_params,
+        )
+            .lock(|dma2, altimeter, params| {
+                dma2.clear_interrupt(setup::BARO_RX_CH, DmaInterrupt::TransferComplete);
 
-            // code shortener.
-            let buf = unsafe { &sensors_shared::BARO_READINGS };
-            // todo: Process your baro reading here.
-            let pressure =
-                altimeter.pressure_from_readings(buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+                // code shortener.
+                let buf = unsafe { &sensors_shared::BARO_READINGS };
+                // todo: Process your baro reading here.
+                let pressure = altimeter
+                    .pressure_from_readings(buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
 
-            // todo: Altitude from pressure! Maybe in a diff module? (which?)
-            params.baro_alt_msl = pressure;
-        });
+                // todo: Altitude from pressure! Maybe in a diff module? (which?)
+                params.baro_alt_msl = pressure;
+            });
     }
 
     // binds = DMA2_STR3,

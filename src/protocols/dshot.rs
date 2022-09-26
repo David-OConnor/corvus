@@ -20,7 +20,10 @@ use stm32_hal2::{
     dma::Dma,
     pac,
     pac::DMA1,
-    timer::{CountDir, OutputCompare, Polarity, TimerInterrupt},
+    timer::{
+        CaptureCompare, CountDir, InputSlaveMode, InputTrigger, OutputCompare, Polarity,
+        TimerInterrupt,
+    },
 };
 
 use crate::flight_ctrls::common::{Motor, MotorTimers};
@@ -81,9 +84,12 @@ pub const REPEAT_COMMAND_COUNT: u32 = 10; // todo: Set back to 6 once sorted out
 cfg_if! {
     if #[cfg(feature = "h7")] {
         static mut PAYLOAD: [u16; 72] = [0; 72];
+        static mut PAYLOAD_REC: [u16; 72] = [0; 72];
     } else if #[cfg(feature = "g4")] {
         static mut PAYLOAD_R1_2: [u16; 36] = [0; 36];
+        static mut PAYLOAD_R1_2_REC: [u16; 36] = [0; 36];
         static mut PAYLOAD_R3_4: [u16; 36] = [0; 36];
+        static mut PAYLOAD_R3_4_REC: [u16; 36] = [0; 36];
     }
 }
 
@@ -152,43 +158,6 @@ pub enum Command {
 pub enum CmdType {
     Command(Command),
     Power(f32),
-}
-
-pub fn setup_timers(timers: &mut MotorTimers) {
-    cfg_if! {
-        if #[cfg(feature = "h7")] {
-            timers.r1234.set_prescaler(DSHOT_PSC_600);
-            timers.r1234.set_auto_reload(DSHOT_ARR_600 as u32);
-
-            timers.r1234.enable_interrupt(TimerInterrupt::UpdateDma);
-
-            // Arbitrary duty cycle set, since we'll override it with DMA bursts.
-            timers.r1234.enable_pwm_output(Motor::M1.tim_channel(), OutputCompare::Pwm1, 0.);
-            timers.r1234.enable_pwm_output(Motor::M2.tim_channel(), OutputCompare::Pwm1, 0.);
-            timers.r1234.enable_pwm_output(Motor::M3.tim_channel(), OutputCompare::Pwm1, 0.);
-            timers.r1234.enable_pwm_output(Motor::M4.tim_channel(), OutputCompare::Pwm1, 0.);
-        } else if #[cfg(feature = "g4")] {
-            timers.r12.set_prescaler(DSHOT_PSC_600);
-            timers.r12.set_auto_reload(DSHOT_ARR_600 as u32);
-            timers.r34_servos.set_prescaler(DSHOT_PSC_600);
-            timers.r34_servos.set_auto_reload(DSHOT_ARR_600 as u32);
-
-            timers.r12.enable_interrupt(TimerInterrupt::UpdateDma);
-            timers.r34_servos.enable_interrupt(TimerInterrupt::UpdateDma);
-
-            // Arbitrary duty cycle set, since we'll override it with DMA bursts.
-            timers.r12.enable_pwm_output(Motor::M1.tim_channel(), OutputCompare::Pwm1, 0.);
-            timers.r12.enable_pwm_output(Motor::M2.tim_channel(), OutputCompare::Pwm1, 0.);
-            timers.r34_servos.enable_pwm_output(Motor::M3.tim_channel(), OutputCompare::Pwm1, 0.);
-            timers.r34_servos.enable_pwm_output(Motor::M4.tim_channel(), OutputCompare::Pwm1, 0.);
-        }
-    }
-
-    if BIDIR_EN {
-        enable_bidirectional(timers);
-    } else {
-        disable_bidirectional(timers);
-    }
 }
 
 /// Stop all motors, by setting their power to 0. Note that the Motor Stop command may not
@@ -364,6 +333,11 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     // The previous transfer should already be complete, but just in case.
     dma.stop(Motor::M1.dma_channel());
 
+    if BIDIR_EN {
+        // Was likely in input mode previously; update.
+        set_to_output(timers);
+    }
+
     // Note that timer enabling is handled by `write_dma_burst`.
 
     cfg_if! {
@@ -444,7 +418,7 @@ pub fn receive_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                 });
 
                 timers.r1234.read_dma_burst(
-                    &PAYLOAD,
+                    &PAYLOAD_REC,
                     Motor::M1.base_addr_offset(),
                     4, // Burst len of 4, since we're updating 4 channels.
                     Motor::M1.dma_channel(),
@@ -468,7 +442,7 @@ pub fn receive_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                 });
 
                 timers.r12.read_dma_burst(
-                    &PAYLOAD_R1_2,
+                    &PAYLOAD_R1_2_REC,
                     Motor::M1.base_addr_offset(),
                     2, // Burst len of 2, since we're updating 2 channels.
                     Motor::M1.dma_channel(),
@@ -476,8 +450,8 @@ pub fn receive_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     dma,
                     true,
                 );
-                timers.r34_servos.write_dma_burst(
-                    &PAYLOAD_R3_4,
+                timers.r34_servos.read_dma_burst(
+                    &PAYLOAD_R3_4_REC,
                     Motor::M3.base_addr_offset(),
                     2,
                     Motor::M3.dma_channel(),
@@ -542,6 +516,65 @@ pub fn disable_bidirectional(timers: &mut MotorTimers) {
 
             timers.r12.set_dir();
             timers.r34_servos.set_dir();
+        }
+    }
+}
+
+/// Set the timer(s) to output mode. Do this in init, and after a reveive phase of bidirectional DSHOT.
+pub fn set_to_output(timers: &mut MotorTimers) {
+    let oc = OutputCompare::Pwm1;
+
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            // Arbitrary duty cycle set, since we'll override it with DMA bursts.
+            timers.r1234.enable_pwm_output(Motor::M1.tim_channel(), oc, 0.);
+            timers.r1234.enable_pwm_output(Motor::M2.tim_channel(), oc, 0.);
+            timers.r1234.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
+            timers.r1234.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
+        } else {
+            timers.r12.enable_pwm_output(Motor::M1.tim_channel(), oc, 0.);
+            timers.r12.enable_pwm_output(Motor::M2.tim_channel(), oc, 0.);
+            timers.r34_servos.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
+            timers.r34_servos.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
+        }
+    }
+}
+
+/// Set the timer(s) to input mode. Used to receive PWM data in bidirectional mode.
+fn set_to_input(timers: &mut MotorTimers) {
+    let cc = CaptureCompare::Output;
+    let trigger = InputTrigger::Internal0;
+
+    // let trigger = InputTrigger::FilteredTimerInput1; // todo?
+
+    // Reset mode - Rising edge of the selected trigger input (TRGI) reinitializes the counter
+    // and generates an update of the registers.
+    let ism = InputSlaveMode::Reset; // todo?
+
+    // Slave mode disabled - if CEN = ‘1 then the prescaler is clocked directly by the internal
+    // clock
+    // let ism = InputSlaveMode::Disabled; // todo?
+
+    // Trigger Mode - The counter starts at a rising edge of the trigger TRGI (but it is not
+    // reset). Only the start of the counter is controlled.
+    // let ism = InputSlaveMode::Trigger; // todo?
+
+    let pol_p = Polarity::ActiveLow;
+    let pol_n = Polarity::ActiveHigh;
+
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            // Arbitrary duty cycle set, since we'll override it with DMA bursts.
+
+            timers.r1234.set_input_capture(Motor::M1.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            timers.r1234.set_input_capture(Motor::M2.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            timers.r1234.set_input_capture(Motor::M3.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            timers.r1234.set_input_capture(Motor::M4.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+        } else {
+            timers.r12.set_input_capture(Motor::M1.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            timers.r12.set_input_capture(Motor::M2.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            timers.r34_servos.set_input_capture(Motor::M3.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            timers.r34_servos.set_input_capture(Motor::M4.tim_channel(), cc, trigger, ism, pol_p, pol_n);
         }
     }
 }

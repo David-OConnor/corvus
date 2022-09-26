@@ -120,7 +120,7 @@ pub fn set_elevon_posit(
     timers.r34_servos.set_duty(elevon.tim_channel(), duty_arr);
 }
 
-/// See also: `dshot::setup_timers`.
+/// Similar to `dshot::setup_timers`, but for fixed-wing.
 pub fn setup_timers(timers: &mut MotorTimers) {
     cfg_if! {
         if #[cfg(feature = "h7")] {
