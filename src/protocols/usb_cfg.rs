@@ -255,6 +255,11 @@ pub fn handle_rx(
         // todo: return here.
     }
 
+    #[cfg(feature = "quad")]
+    let motors_armed = ArmStatus::Armed;
+    #[cfg(feature = "fixed-wing")]
+    let motors_armed = ArmStatus::MotorsControlsArmed;
+
     match rx_msg_type {
         MsgType::Params => {}
         MsgType::SetMotorDirs => {
@@ -357,13 +362,14 @@ pub fn handle_rx(
         MsgType::ArmMotors => {
             // We use the same `ArmStatus` flag for testing motors in preflight as we do
             // for flight.
-            *arm_status = ArmStatus::Armed;
+            *arm_status = motors_armed;
         }
         MsgType::DisarmMotors => {
             // We use the same `ArmStatus` flag for testing motors in preflight as we do
             // for flight.
             *arm_status = ArmStatus::Disarmed;
         }
+        // todo: Message type for set arm to arm controls.
         MsgType::StartMotor => {
             cfg_if! {
                 if #[cfg(feature = "fixed-wing")]{

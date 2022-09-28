@@ -288,6 +288,11 @@ impl Packet {
             data[i] = self.payload[i] as u16;
         }
 
+        #[cfg(feature = "quad")]
+        let motors_armed = ArmStatus::Armed;
+        #[cfg(feature = "fixed-wing")]
+        let motors_armed = ArmStatus::MotorsControlsArmed;
+
         // As you change the number of channels used, increase the `raw_channels` size,
         // and comment or uncomment the unpacking lines below.
         let mut raw_channels = [0_u16; 12];
@@ -314,7 +319,9 @@ impl Packet {
         // "WARNING: Put your arm switch on AUX1, and set it as ~1000 is disarmed, ~2000 is armed."
         let arm_status = match raw_channels[4] {
             0..=1_500 => ArmStatus::Disarmed,
-            _ => ArmStatus::Armed,
+            // todo: On fixed wing, you want this to be a 3-pos switch, but this may not be
+            // todo possible with ELRS, with this channel hard-coded as a 2-pos arm sw?
+            _ => motors_armed,
         };
         let input_mode = match raw_channels[5] {
             0..=1_000 => InputModeSwitch::Acro,

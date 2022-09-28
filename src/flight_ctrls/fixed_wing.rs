@@ -283,8 +283,15 @@ impl ControlPositions {
     ) {
         // M2 isn't used here, but keeps our API similar to Quad.
         match arm_status {
-            ArmStatus::Armed => {
+            ArmStatus::MotorsControlsArmed => {
                 dshot::set_power(self.motor, 0., 0., 0., motor_timers, dma);
+
+                // todo: Apply to left and right wing by mapping etc! Here or upstream.
+                set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, motor_timers);
+                set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, motor_timers);
+            }
+            ArmStatus::ControlsArmed => {
+                dshot::stop_all(motor_timers, dma);
 
                 // todo: Apply to left and right wing by mapping etc! Here or upstream.
                 set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, motor_timers);

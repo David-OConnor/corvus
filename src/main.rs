@@ -994,7 +994,7 @@ mod app {
 
                     // Note: Arm status primary handler is in the `set_power` fn, but there's no reason
                     // to apply flight controls if not armed.
-                    if state_volatile.arm_status != ArmStatus::Armed {
+                    if state_volatile.arm_status == ArmStatus::Disarmed {
                         return;
                     }
 
@@ -1145,11 +1145,8 @@ mod app {
                  // rf_limiter_timer, // todo temp
                  state_volatile,
                  flight_ctrl_filters| {
-                    // Note that these steps are mandatory, per STM32 RM.
-                    // spi.stop_dma only can stop a single channel atm, hence the 2 calls here.
-                    dma.stop(setup::IMU_TX_CH);
-
-                    spi1.stop_dma(setup::IMU_RX_CH, dma);
+                    // Note that this step is mandatory, per STM32 RM.
+                    spi1.stop_dma(setup::IMU_TX_CH, Some(setup::IMU_RX_CH), dma);
 
                     // // todo: TSing geting wrong freq. (3.5khz instead of 8)
                     // if *cx.local.update_loop_i2 % 700 == 0 {

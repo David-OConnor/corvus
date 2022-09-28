@@ -13,6 +13,11 @@ use crate::{
     state::{SensorStatus, SystemStatus},
 };
 
+use stm32_hal2::{
+    gpio::{self, Port},
+    pac,
+};
+
 use cfg_if::cfg_if;
 
 cfg_if! {
@@ -57,18 +62,92 @@ const TAKEOFF_POWER_TIME: f32 = 1.;
 /// Indicates master motor arm status. Used for both pre arm, and arm. If either is
 /// set to `Disarmed`, the motors will not spin (or stop spinning immediately).
 /// Repr u8 is for passing over USB serial.
+#[cfg(feature = "quad")]
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
 pub enum ArmStatus {
-    /// Motors are [pre]disarmed
+    /// Motors are disarmed
     Disarmed = 0,
     /// Motors are [pre]armed
     Armed = 1,
 }
 
+#[cfg(feature = "fixed-wing")]
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq)]
+pub enum ArmStatus {
+    /// Motors are and control surfaces aredisarmed
+    Disarmed = 0,
+    /// Control surfaces armed; motors disarmed
+    ControlsArmed = 1,
+    /// Motors and control surface are armed.
+    MotorsControlsArmed = 2,
+}
+
 impl Default for ArmStatus {
     fn default() -> Self {
         Self::Disarmed
+    }
+}
+
+#[cfg(feature = "fixed-wing")]
+/// Enable servos, by resetting its pins.
+fn enable_servos() {
+    // todo: Pass pin args.
+    let alt_mode = 0b10;
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            unsafe {
+                (*pac::GPIOC::ptr()).moder.modify(|_, w| {
+                    w.moder8().bits(alt_mode);
+                    w.moder9().bits(alt_mode)
+                });
+            }
+
+        } else {
+            unsafe {
+                (*pac::GPIOB::ptr()).moder.modify(|_, w| {
+                    w.moder0().bits(alt_mode);
+                    w.moder1().bits(alt_mode)
+                });
+            }
+
+        }
+    }
+}
+
+#[cfg(feature = "fixed-wing")]
+/// Disble servos, by setting mode to output, and forcing low. # todo: high?
+/// This helps prevent a cutoff pulse from driving servos beyond a control surface's acceptable
+/// range
+fn disable_servos() {
+    // todo: Pass pin args.
+    let out_mode = 0b01;
+
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            unsafe {
+                (*pac::GPIOC::ptr()).moder.modify(|_, w| {
+                    w.moder8().bits(out_mode);
+                    w.moder9().bits(out_mode)
+                });
+            }
+
+            // todo: Set low?
+            // Set high, since setting low might cut off a pulse.
+           gpio::set_high(Port::C, 8); // Ch 3
+           gpio::set_high(Port::C, 9); // Ch 4
+        } else {
+            unsafe {
+                (*pac::GPIOB::ptr()).moder.modify(|_, w| {
+                    w.moder0().bits(out_mode);
+                    w.moder1().bits(out_mode)
+                });
+            }
+
+           gpio::set_high(Port::B, 0); // Ch 3
+           gpio::set_high(Port::B, 1); // Ch 4
+        }
     }
 }
 
@@ -80,13 +159,14 @@ pub fn handle_arm_status(
     controller_arm_status: ArmStatus,
     arm_status: &mut ArmStatus,
     throttle: f32,
-    // pid_rate: &mut PidGroup,
-    // pid_attitude: &mut PidGroup,
-    // pid_velocity: &mut PidGroup,
 ) {
-    // println!("arm rec: {:?}",  arm_signals_received);
+    #[cfg(feature = "quad")]
+    let motor_arm = ArmStatus::Armed;
+    #[cfg(feature = "fixed-wing")]
+    let motor_arm = ArmStatus::MotorsControlsArmed;
+
     match arm_status {
-        ArmStatus::Armed => {
+        motor_arm => {
             if controller_arm_status == ArmStatus::Disarmed {
                 *disarm_signals_received += 1;
             } else {
@@ -103,11 +183,14 @@ pub fn handle_arm_status(
                 // pid_attitude.reset_integrator();
                 // pid_velocity.reset_integrator();
 
-                println!("Aircraft disarmed.");
+                println!("Aircraft motors disarmed.");
             }
+
+            #[cfg(feature = "fixed-wing")]
+            enable_servos();
         }
         ArmStatus::Disarmed => {
-            if controller_arm_status == ArmStatus::Armed {
+            if controller_arm_status == motor_arm {
                 *arm_signals_received += 1;
             } else {
                 RECEIVED_INITIAL_DISARM.store(true, Ordering::Release);
@@ -124,7 +207,7 @@ pub fn handle_arm_status(
                             disarm signal."
                             );
                         } else {
-                            *arm_status = ArmStatus::Armed;
+                            *arm_status = motor_arm;
                             *arm_signals_received = 0;
                             println!("Aircraft armed.");
                         }
@@ -139,6 +222,13 @@ pub fn handle_arm_status(
                     // println!("(Cycle arm switch to arm.)");
                 }
             }
+
+            #[cfg(feature = "fixed-wing")]
+            disable_servos();
+        }
+        #[cfg(feature = "fixed-wing")]
+        ArmStatus::ControlsArmed => {
+            enable_servos();
         }
     }
 }
