@@ -143,7 +143,7 @@ impl Default for InputModeSwitch {
 /// [ELRS FAQ](https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support)
 /// Assumes "Wide hybrid mode", as described in the FAQ.
 #[derive(Default)]
-pub struct ElrsChannelData {
+pub struct _ElrsChannelData {
     /// Channels 1-4 are 10-bit channels.
     pub channel_1: u16,
     pub channel_2: u16,
@@ -195,7 +195,8 @@ pub struct ChannelData {
     /// "Rudder", -1. to 1.
     pub yaw: f32,
     /// Master arm switch for rotor power and perhaps other systems. Ideally on 2-position non-spring
-    /// switch.
+    /// switch. (Quad), 3-pos switch (fixed-wing)
+    /// todo: Currently, the ELRS arm channel is hard set and 2-pos, so we use 2 2-pos switches.
     pub arm_status: ArmStatus,
     /// Ie angular-rate-based (Acro), or Command (with GPS present) or attitude-based
     /// (no GPS present). Ideally on 2-position non-spring switch.
@@ -211,6 +212,8 @@ pub struct ChannelData {
     pub pid_tune_mode: PidTuneMode,
     /// For live PID tuning, ideally on 3-position spring switch. Could also be as 2 buttons.
     pub pid_tune_actuation: PidTuneActuation, // todo: Auto-recover commanded, auto-TO/land/RTB, obstacle avoidance etc.
+    /// Auto command level attitude. Ideally on a button
+    pub level_attitude_commanded: bool,
 }
 
 /// ELRS Transmit power. `u8` is the value reported over CRSF in the uplink tx power field.

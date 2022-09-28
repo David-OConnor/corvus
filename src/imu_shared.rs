@@ -15,6 +15,8 @@ const G: f32 = 9.8; // m/s
 const GYRO_FULLSCALE: f32 = 34.90659; // In radians per second; equals 2,000 degrees/sec
 const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
 
+static mut WRITE_BUF: [u8; 13] = [0; 13];
+
 // IMU readings buffer. 3 accelerometer, and 3 gyro measurements; 2 bytes each. 0-padded on the left,
 // since that's where we pass the register in the write buffer.
 // We use this buffer for DMA transfers of IMU readings. Note that reading order is different
@@ -74,13 +76,15 @@ impl ImuReadings {
 pub fn read_imu(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
     // First byte is the first data reg, per this IMU's. Remaining bytes are empty, while
     // the MISO line transmits readings.
-    let write_buf = [starting_addr, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    unsafe {
+        WRITE_BUF[0] = starting_addr;
+    }
 
     cs.set_low();
 
     unsafe {
         spi.transfer_dma(
-            &write_buf,
+            &WRITE_BUF,
             &mut IMU_READINGS,
             IMU_TX_CH,
             IMU_RX_CH,

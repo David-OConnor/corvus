@@ -165,7 +165,11 @@ pub fn handle_arm_status(
     #[cfg(feature = "fixed-wing")]
     let motor_arm = ArmStatus::MotorsControlsArmed;
 
-    match arm_status {
+    // This intermediate variable avoids ownership/mutable ref issues.
+    // We update the `arm_status` param with it at the end of this fn.
+    let mut arm_status_ = arm_status.clone();
+
+    match arm_status_ {
         motor_arm => {
             if controller_arm_status == ArmStatus::Disarmed {
                 *disarm_signals_received += 1;
@@ -174,7 +178,7 @@ pub fn handle_arm_status(
             }
 
             if *disarm_signals_received >= NUM_ARM_DISARM_SIGNALS_REQUIRED {
-                *arm_status = ArmStatus::Disarmed;
+                arm_status_ = ArmStatus::Disarmed;
                 *disarm_signals_received = 0;
 
                 // Reset integrator on rate PIDs, for example so the value from one flight doesn't
@@ -207,7 +211,7 @@ pub fn handle_arm_status(
                             disarm signal."
                             );
                         } else {
-                            *arm_status = motor_arm;
+                            arm_status_ = motor_arm;
                             *arm_signals_received = 0;
                             println!("Aircraft armed.");
                         }
@@ -231,6 +235,7 @@ pub fn handle_arm_status(
             enable_servos();
         }
     }
+    *arm_status = arm_status_;
 }
 
 /// If we are lost link haven't received a radio signal in a certain amount of time, execute a lost-link
