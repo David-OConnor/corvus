@@ -9,14 +9,16 @@ N = 50_000
 DT = 1./10.
 
 # this many sim ticks per DT.
-SIM_RATIO = 60
+SIM_RATIO = 200
 
 ctrl_effectiveness = 1
 
-p_ω = 0.10
-time_to_correction_p_ω = 0.1
-time_to_correction_p_θ = 0.1
+p_ω = 0.30
+time_to_correction_p_ω = 0.2
+time_to_correction_p_θ = 0.5
 max_ω_dot = 10.
+
+drag_coeff_ctrls = 0.01
 
 # The change we need to effect given the initial conditions below.
 θ_target = 10.
@@ -30,6 +32,8 @@ max_ω_dot = 10.
 θ[0] = 0
 ω[0] = 0
 
+drag_coeff_sim = 0.01
+
 
 #ω_dot[0] = 0
 
@@ -39,6 +43,9 @@ for i in range(1, N-2):
 
     # todo: More sophisticated integration method.
     # ω[i] = ω[i-1] + ω_dot[i-1] * DT / SIM_RATIO
+    
+    # todo: Incorporate drag in sim and control code
+
     ω[i] = ω[i-1] + ω_dot_current * DT / SIM_RATIO
     θ[i] = θ[i-1] + ω[i-1] * DT / SIM_RATIO
     

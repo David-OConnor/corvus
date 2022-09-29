@@ -95,8 +95,10 @@ pub struct CtrlCoeffs {
     /// Lower values mean more aggressive corrections.
     time_to_correction_p_ω: f32,
     time_to_correction_p_θ: f32,
-    /// In rad/s^2. A higher value will allow for more aggressive corrections.
-    max_ω_dot: f32,
+    dist_to_correction_p_ω: f32,
+    dist_to_correction_p_θ: f32,
+    // /// In rad/s^2. A higher value will allow for more aggressive corrections.
+    // max_ω_dot: f32,
 }
 
 // todo: Maybe a sep `CtrlCoeffs` struct for each axis.
@@ -108,7 +110,9 @@ impl Default for CtrlCoeffs {
             p_ω: 10.,
             time_to_correction_p_ω: 0.1, // todo?
             time_to_correction_p_θ: 0.5, // todo?
-            max_ω_dot: 10.,              // todo: What should this be?
+            dist_to_correction_p_ω: 0.1,
+            dist_to_correction_p_θ: 0.1,
+            // max_ω_dot: 10.,              // todo: What should this be?
         }
     }
 
@@ -118,7 +122,9 @@ impl Default for CtrlCoeffs {
             p_ω: 10.,
             time_to_correction_p_ω: 0.1,
             time_to_correction_p_θ: 0.5,
-            max_ω_dot: 10.,
+            dist_to_correction_p_ω: 0.1,
+            dist_to_correction_p_θ: 0.1,
+            // max_ω_dot: 10.,
         }
     }
 }
@@ -146,13 +152,6 @@ fn find_ctrl_setting(
 
     let dω = ω_target - ω;
 
-    // https://physics.stackexchange.com/questions/304742/angular-drag-on-body
-    // This coefficient maps angular velocity to drag acceleration directly,
-    // and is measured (and filtered).
-    let drag_coeff = 1.; // todo: Measure this.
-    let drag_accel = drag_coeff * ω; // Angular trag. Assuming it's linear with ω
-
-
     // ω_target = dθ * coeffs.p_ω;
     // ω_dot = ω_dot + ω_dot_dot * dt
     // find ω_dot_dot where... ω = dθ * coeffs.p_ω in a short time, while adhearing to
@@ -169,6 +168,10 @@ fn find_ctrl_setting(
     let time_to_correction =
         coeffs.time_to_correction_p_ω * dω.abs() + coeffs.time_to_correction_p_θ * dθ.abs();
 
+    let dist_to_correction =
+        coeffs.dist_to_correction_p_ω * dω.abs() + coeffs.dist_to_correction_p_θ * dθ.abs();
+
+
     // todo: Even more in-depth: If adjusting to manual or other rapidly-changing controls, extrapolate
     // todo the response, ie cut corners to the predicted attitude during a control actuation?
     // todo: You may need to re-consider an analytic solution to ODE here.
@@ -180,9 +183,21 @@ fn find_ctrl_setting(
     // Find the instantaneous angular acceleration that will correct angular rate in the time
     // determined above.
     let mut ω_dot_target = dω / time_to_correction;
-    if ω_dot_target > coeffs.max_ω_dot {
-        ω_dot_target = coeffs.max_ω_dot;
-    }
+    // todo: COnsider if you want this, or something like it.
+    // if ω_dot_target > coeffs.max_ω_dot {
+    //     ω_dot_target = coeffs.max_ω_dot;
+    // }
+
+    // https://physics.stackexchange.com/questions/304742/angular-drag-on-body
+    // This coefficient maps angular velocity to drag acceleration directly,
+    // and is measured (and filtered).
+    let drag_coeff = 0.01; // todo: Measure this.
+    let drag_accel = drag_coeff * -ω; // Angular trag. Assuming it's linear with ω
+
+
+    // The target acceleration needs to include both the correction, and drag compensation.
+    // todo: QC sign etc on this.
+    ω_dot_target -= drag_accel;
 
     // Calculate how, most recently, the control command is affecting angular accel.
     // A higher constant means a given command has a higher affect on angular accel.
