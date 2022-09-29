@@ -1,7 +1,10 @@
 //! This module contains code for attitude-based controls. This includes sticks mapping
 //! to attitude, and an internal attitude model with rate-like controls, where attitude is the target.
 
-use crate::control_interface::ChannelData;
+use crate::{
+    control_interface::ChannelData,
+    util::map_linear,
+};
 
 use super::{
     common::{CtrlMix, Params, RatesCommanded},
@@ -39,6 +42,41 @@ const FWD: Vec3 = Vec3 {
     y: 0.,
     z: 1.,
 };
+
+// todo: Experimental. Mappings between power level and RPM (once settled). Do we want an array?
+// todo: More or fewer points? A simple linear (or otherwise) analytic model?
+/// Map commanded motor power to RPM. Average over time, and over all props.
+struct RpmMap {
+    // Value are in percent.
+
+    // Lower power should probably be from idle, not 0. So inclide p_0 here.
+    p_0: f32,
+    // p_10: f32,
+    p_20: f32,
+    // p_30: f32,
+    p_40: f32,
+    // p_50: f32,
+    p_60: f32,
+    // p_70: f32,
+    p_80: f32,
+    // p_90: f32,
+    p_100: f32,
+}
+
+// todo: Model spin-up/down of props to power change.
+
+impl RpmMap {
+    /// Interpolate, to get power from this LUT.
+    pub fn rpm_fm_power(&self, pwr: f32) -> f32 {
+        match pwr {
+            (0.0..=0.2) => map_linear(pwr, (0.0, 0.2), (self.p_0, self.p_20)),
+            (0.2..=0.4) => map_linear(pwr, (0.2, 0.4), (self.p_20, self.p_40)),
+            (0.4..=0.6) => map_linear(pwr, (0.4, 0.6), (self.p_40, self.p_60)),
+            (0.6..=0.8) => map_linear(pwr, (0.6, 0.8), (self.p_60, self.p_80)),
+            _ => map_linear(pwr, (0.8, 1.0), (self.p_80, self.p_100)),
+        }
+    }
+}
 
 /// Control coefficients that affect the toleranaces and restrictions of the flight controls.
 pub struct CtrlCoeffs {
@@ -107,6 +145,22 @@ fn find_ctrl_setting(
     let ω_target = dθ * coeffs.p_ω;
 
     let dω = ω_target - ω;
+
+    // https://physics.stackexchange.com/questions/304742/angular-drag-on-body
+    // This coefficient maps angular velocity to drag acceleration directly,
+    // and is measured (and filtered).
+    let drag_coeff = 1.; // todo: Measure this.
+    let drag_accel = drag_coeff * ω; // Angular trag. Assuming it's linear with ω
+
+
+    // ω_target = dθ * coeffs.p_ω;
+    // ω_dot = ω_dot + ω_dot_dot * dt
+    // find ω_dot_dot where... ω = dθ * coeffs.p_ω in a short time, while adhearing to
+    // certain requirements?
+    // A correction might involve acceleration ramping up then down. Should we target
+    // a certain shape. Gaussian? Maybe hit peak accel you need for a gradual
+    // reduction in motor speed, settling on our ω_target curve.
+
 
     // Calculate a time to which will be the target to get the angular velocity
     // to the target. Note that the angular position (and therefore target rate)
@@ -281,14 +335,14 @@ pub fn modify_att_target(orientation: Quaternion, rates: &RatesCommanded, dt: f3
     // todo: Error handling on this?
 
     // Rotate our basis vecs using the orientation, such that control inputs are relative to the
-    // current attitude.
-    let right = orientation.rotate_vec(RIGHT);
-    let fwd = orientation.rotate_vec(FWD);
-    let up = orientation.rotate_vec(UP);
+    // aircraft's attitude.
+    let right_ac = orientation.rotate_vec(RIGHT);
+    let fwd_ac = orientation.rotate_vec(FWD);
+    let up_ac = orientation.rotate_vec(UP);
 
-    let rotation_pitch = Quaternion::from_axis_angle(right, rates.pitch.unwrap() * dt);
-    let rotation_roll = Quaternion::from_axis_angle(fwd, rates.roll.unwrap() * dt);
-    let rotation_yaw = Quaternion::from_axis_angle(up, rates.yaw.unwrap() * dt);
+    let rotation_pitch = Quaternion::from_axis_angle(right_ac, rates.pitch.unwrap() * dt);
+    let rotation_roll = Quaternion::from_axis_angle(fwd_ac, rates.roll.unwrap() * dt);
+    let rotation_yaw = Quaternion::from_axis_angle(up_ac, rates.yaw.unwrap() * dt);
 
     // todo: Order?
     rotation_yaw * rotation_roll * rotation_pitch * orientation
