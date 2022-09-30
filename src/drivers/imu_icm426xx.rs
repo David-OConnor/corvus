@@ -23,7 +23,7 @@ use crate::imu_shared::_ImuReadingsRaw;
 pub struct ImuNotConnectedError {}
 
 impl From<spi::Error> for ImuNotConnectedError {
-    fn from(e: spi::Error) -> Self {
+    fn from(_e: spi::Error) -> Self {
         Self {}
     }
 }

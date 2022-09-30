@@ -1,19 +1,58 @@
 #![no_main]
 #![no_std]
 
-//! Potential markets:
-//! - Hobby / racing (duh)
-//! Tower inspections (Maybe market disruption by using fixed-wing + tpod?)
+// Potential markets:
+// - Hobby / racing (duh)
+// Tower inspections (Maybe market disruption by using fixed-wing + tpod?)
+//
+//
+//
+// https://www.youtube.com/watch?v=zOByx3Izf5U
+// For state estimation
+// https://www.youtube.com/watch?v=RZd6XDx5VXo (Series)
+// https://www.youtube.com/watch?v=whSw42XddsU
+// https://www.youtube.com/playlist?list=PLn8PRpmsu08ryYoBpEKzoMOveSTyS-h4a
+// For quadrotor PID control
+// https://www.youtube.com/playlist?list=PLn8PRpmsu08oOLBVYYIwwN_nvuyUqEjrj
+// https://www.youtube.com/playlist?list=PLn8PRpmsu08pQBgjxYFXSsODEF3Jqmm-y
+// https://www.youtube.com/playlist?list=PLn8PRpmsu08pFBqgd_6Bi7msgkWFKL33b
+//
+// todo: Movable camera that moves with head motion.
+// - Ir cam to find or avoid people
 
+use ahrs_fusion::Ahrs;
+use cfg_if::cfg_if;
+use control_interface::{
+    AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData, LinkStats, PidTuneActuation,
+    PidTuneMode,
+};
 use cortex_m::{self, asm, delay::Delay};
-
 use defmt::println;
 use defmt_rtt as _;
-
+use drivers::{
+    baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
+    osd::{self, AutopilotData, OsdData},
+    tof_vl53l1 as tof,
+};
+use filter_imu::ImuFilters;
+use flight_ctrls::{
+    autopilot::AutopilotStatus,
+    common::{AltType, CtrlInputs, InputMap, MotorTimers, Params, RatesCommanded},
+    ctrl_logic::{self, CtrlCoeffs},
+    // pid::{
+    //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
+    //     PID_CONTROL_ADJ_TIMEOUT,
+    // },
+    filters::FlightCtrlFilters,
+    ControlMapping,
+};
+use lin_alg2::f32::Quaternion;
 use panic_probe as _;
-
-use cfg_if::cfg_if;
-
+use ppks::{Location, LocationType};
+use protocols::{crsf, dshot, usb_cfg};
+use safety::ArmStatus;
+use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
+use state::{OperationMode, SensorStatus, StateVolatile, SystemStatus, UserCfg};
 use stm32_hal2::{
     self,
     adc::{self, Adc, AdcConfig, AdcDevice},
@@ -21,15 +60,14 @@ use stm32_hal2::{
     dma::{self, ChannelCfg, Dma, DmaInterrupt},
     flash::{Bank, Flash},
     gpio::{self, Pin, PinMode, Port},
-    i2c::{I2c, I2cConfig, I2cSpeed},
+    i2c::I2c,
     pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, TIM1, TIM16, TIM17, USART2},
-    // rtc::Rtc,
-    spi::{BaudRate, Spi, SpiConfig, SpiMode},
+    spi::Spi,
     timer::{Timer, TimerConfig, TimerInterrupt},
     usart::{Usart, UsartInterrupt},
 };
-
-use lin_alg2::f32::Quaternion;
+use usb_device::{bus::UsbBusAllocator, prelude::*};
+use usbd_serial::{self, SerialPort};
 
 mod ahrs_fusion;
 mod atmos_model;
@@ -74,36 +112,6 @@ cfg_if! {
     }
 }
 
-use usb_device::{bus::UsbBusAllocator, prelude::*};
-use usbd_serial::{self, SerialPort};
-
-use ahrs_fusion::Ahrs;
-
-use control_interface::{
-    AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData, LinkStats, PidTuneActuation,
-    PidTuneMode,
-};
-
-use drivers::{
-    baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
-    osd::{self, AutopilotData, OsdData},
-    tof_vl53l1 as tof,
-};
-
-use flight_ctrls::{
-    autopilot::AutopilotStatus,
-    common::{AltType, CtrlInputs, InputMap, MotorTimers, Params, RatesCommanded},
-    ctrl_logic::{self, CtrlCoeffs},
-    filters::FlightCtrlFilters,
-    // pid::{
-    //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
-    //     PID_CONTROL_ADJ_TIMEOUT,
-    // },
-    ControlMapping,
-};
-
-use filter_imu::ImuFilters;
-
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use flight_ctrls::{autopilot::Orbit, ControlPositions};
@@ -111,12 +119,6 @@ cfg_if! {
         use flight_ctrls::{InputMode, MotorPower, RotationDir, RotorPosition};
     }
 }
-
-use ppks::{Location, LocationType};
-use protocols::{crsf, dshot, usb_cfg};
-use safety::ArmStatus;
-use sensors_shared::ExtSensor;
-use state::{OperationMode, SensorStatus, StateVolatile, SystemStatus, UserCfg};
 
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.
@@ -155,18 +157,13 @@ cfg_if! {
     }
 }
 
-// todo: Set update rate attitude back to 1600 etc. Slower rate now since we're using this loop to TS.
-const UPDATE_RATE_ATTITUDE: f32 = 1_600.; // IMU rate / 5.
-                                          // const UPDATE_RATE_VELOCITY: f32 = 400.; // IMU rate / 20.
+const UPDATE_RATE_MAIN_LOOP: f32 = 1_600.; // IMU rate / 5.
 
-// Every _ main update loops, log parameters etc to flash.
+// Every x main update loops, log parameters etc to flash.
 const LOGGING_UPDATE_RATIO: usize = 100;
 
 const DT_IMU: f32 = 1. / IMU_UPDATE_RATE;
-const DT_MAIN_LOOP: f32 = 1. / UPDATE_RATE_ATTITUDE;
-// const DT_VELOCITY: f32 = 1. / UPDATE_RATE_VELOCITY;
-
-static mut ADC_READ_BUF: [u16; 2] = [0; 2];
+const DT_MAIN_LOOP: f32 = 1. / UPDATE_RATE_MAIN_LOOP;
 
 #[cfg(feature = "h7")]
 static mut USB_EP_MEMORY: [u32; 1024] = [0; 1024];
@@ -183,62 +180,15 @@ const MAX_RF_UPDATE_RATE: f32 = 800.; // Hz
 // We use `LOOP_I` to manage sequencing the velocity-update PID from within the attitude-update PID
 // loop.
 // const VELOCITY_ATTITUDE_UPDATE_RATIO: usize = 4;
+// todo: Currently unused.
 const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500Hz; apt for servos.
 
 // todo: Temp as we switch from PID to other controls; we still will have
 // todo params that can be adjusetd in flight.
-const PID_CONTROL_ADJ_TIMEOUT: f32 = 0.3; // seconds
-const PID_CONTROL_ADJ_AMT: f32 = 0.01; // seconds
-
-// todo: Course set mode. Eg, point at thing using controls, activate a button,
-// todo then the thing flies directly at the target.
-
-// With this in mind: Store params in a global array. Maybe [ParamsInst; N], or maybe a numerical array for each param.
-
-// todo: Consider a nested loop, where inner manages fine-tuning of angle, and outer
-// manages directions etc. (?) look up prior art re quads and inner/outer loops.
-
-// todo: Panic button that recovers the aircraft if you get spacial D etc.
-
-// todo: For fixed wing: make inner loop 500Hz. Figure out the best way to do it
+const CTRL_COEFF_ADJ_TIMEOUT: f32 = 0.3; // seconds
+const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 
 // todo: Bit flags that display as diff colored LEDs, and OSD items
-
-// Data dump from Hypershield on Matrix:
-// You typically don't change the PID gains during flight. They are often tuned experimentally by
-//  first tuning the attitude gains, then altitude pid and then the horizontal pids. If you want your
-//  pids to cover a large flight envelope (agile flight, hover) then you can use different flight modes
-//  that switch between the different gains or use gain scheduling. I don't see a reason to use pitot
-// tubes for a quadrotor. Pitot tubes are used to get the airspeed for fixed-wing cause it has a large
-// influence on the aerodynamics. For a quadrotor it's less important and if you want your velocity
-// it's more common to use a down ward facing camera that uses optical flow. If you want LIDAR
-// (velodyne puck for instance) then we are talking about a very large quadrotor, similar to
-//
-// the ones used for the darpa subterranean challenge. Focus rather on something smaller first.
-//  The STM32F4 series is common for small quadrotors but if you want to do any sort of SLAM or
-// VIO processing you'll need a companion computer since that type of processing is very demanding.
-//  You don't need a state estimator if you are manually flying it and the stick is provided desired
-// angular velocities (similar to what emuflight does). For autonomous flight you need a state estimator
-//  where the Extended Kalman Filter is the most commonly used one. A state estimator does not
-// estimate flight parameters, but it estimates the state of the quadrotor (typically position,
-// velocity, orientation). Flight parameters would need to be obtained experimentally for
-// instance through system identification methods (an EKF can actually be used for this purpose
-// by pretending the unknown parameters are states). When it comes to the I term for a PID you
-// would typically create a PID struct or class where the I term is a member, then whenever
-//  you compute the output of the PID you also update this variable. See here for instance:
-//
-// https://www.youtube.com/watch?v=zOByx3Izf5U
-// For state estimation
-// https://www.youtube.com/watch?v=RZd6XDx5VXo (Series)
-// https://www.youtube.com/watch?v=whSw42XddsU
-// https://www.youtube.com/playlist?list=PLn8PRpmsu08ryYoBpEKzoMOveSTyS-h4a
-// For quadrotor PID control
-// https://www.youtube.com/playlist?list=PLn8PRpmsu08oOLBVYYIwwN_nvuyUqEjrj
-// https://www.youtube.com/playlist?list=PLn8PRpmsu08pQBgjxYFXSsODEF3Jqmm-y
-// https://www.youtube.com/playlist?list=PLn8PRpmsu08pFBqgd_6Bi7msgkWFKL33b
-
-// todo: Movable camera that moves with head motion.
-// - Ir cam to find or avoid people
 
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
@@ -253,8 +203,6 @@ mod app {
         // todo: `params_prev` is an experimental var used in our alternative/experimental
         // todo flight controls code as a derivative.
         params_prev: Params,
-        // velocities_commanded: CtrlInputs,
-        // pid_velocity: PidGroup,
         // pid_attitude: PidGroup,
         // pid_rate: PidGroup,
         control_channel_data: ChannelData,
@@ -268,7 +216,6 @@ mod app {
         uart_elrs: Usart<UART_ELRS>, // for ELRS over CRSF.
         flash_onboard: Flash,
         batt_curr_adc: Adc<ADC>,
-        /// rtc: Rtc,
         rf_limiter_timer: Timer<TIM16>,
         lost_link_timer: Timer<TIM17>,
         motor_timers: MotorTimers,
@@ -294,13 +241,14 @@ mod app {
         update_loop_i: usize,
         update_loop_i2: usize, // todo d
         fixed_wing_rate_loop_i: usize,
-        pid_adj_timer: Timer<TIM1>,
+        ctrl_coeff_adj_timer: Timer<TIM1>,
         uart_osd: Usart<USART2>, // for our DJI OSD, via MSP protocol
         time_with_high_throttle: f32,
     }
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
+        // See note above about an RTIC limit preventing us from initing this way.
         // startup::init(&cx.core)
 
         // Cortex-M peripherals
@@ -361,83 +309,15 @@ mod app {
 
         setup::setup_dma(&mut dma, &mut dma2);
 
-        // We use SPI1 for the IMU
-        // SPI input clock is 400MHz for H7, and 170Mhz for G4. 400MHz / 32 = 12.5 MHz. 170Mhz / 8 = 21.25Mhz.
-        // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
-        // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
-        #[cfg(feature = "g4")]
-        // todo: Switch to higher speed.
-        let imu_baud_div = BaudRate::Div8; // for ICM426xx, for 24Mhz limit
-                                           // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
-                                           // let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
         #[cfg(feature = "h7")]
-        let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
-                                            // let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
+        let UART_ELRS = dp.UART7;
+        #[cfg(feature = "g4")]
+        let UART_ELRS = dp.USART3;
 
-        let imu_spi_cfg = SpiConfig {
-            // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
-            mode: SpiMode::mode3(),
-            ..Default::default()
-        };
-
-        let mut spi1 = Spi::new(dp.SPI1, imu_spi_cfg, imu_baud_div);
-
-        #[cfg(feature = "mercury-h7")]
-        let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
-        #[cfg(feature = "mercury-g4")]
-        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
-
-        cs_imu.set_high();
+        let (mut spi1, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_elrs) =
+            setup::setup_busses(dp.SPI1, dp.I2C1, dp.I2C2, dp.USART2, UART_ELRS, &clock_cfg);
 
         let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
-
-        // We use SPI3 for SPI flash on G4. On H7, we use octospi instead.
-        // todo: Find max speed and supported modes.
-        // todo: Commented this out due to a HAL/PAC limitation.
-        // cfg_if! {
-        //     if #[cfg(feature = "h7")] {
-        //         let spi_flash = Octospi::new(dp.OCTOSPI, Default::default(), BaudRate::Div32);
-        //
-        //     } else {
-        //         // todo: HAL issue where SPI needs to cast as SPI1
-        //         let spi_flash = Spi::new(dp.SPI3 as SPI1, Default::default(), BaudRate::Div32);
-        //         // let spi_flash = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
-        //     }
-        // }
-
-        #[cfg(feature = "h7")]
-        let flash_pin = 10;
-        #[cfg(not(feature = "h7"))]
-        let flash_pin = 6;
-        let mut cs_flash = Pin::new(Port::C, flash_pin, PinMode::Output);
-        cs_flash.set_high();
-
-        // We use UART2 for the OSD, for DJI, via the MSP protocol.
-        // todo: QC baud.
-        let mut uart_osd = Usart::new(dp.USART2, 115_200, Default::default(), &clock_cfg);
-
-        // We use `uart1` for the radio controller receiver, via CRSF protocol.
-        // CRSF protocol uses a single wire half duplex uart connection.
-        //  * The master sends one frame every 4ms and the slave replies between two frames from the master.
-        //  *
-        //  * 420000 baud
-        //  * not inverted
-        //  * 8 Bit
-        //  * 1 Stop bit
-        //  * Big endian
-        //  * 420000 bit/s = 46667 byte/s (including stop bit) = 21.43us per byte
-        //  * Max frame size is 64 bytes
-        //  * A 64 byte frame plus 1 sync byte can be transmitted in 1393 microseconds.
-
-        // todo note: We'd like to move to ELRS long term, but use this for now.
-        // The STM32-HAL default UART config includes stop bits = 1, parity disabled, and 8-bit words,
-        // which is what we want.
-        #[cfg(feature = "h7")]
-        let usart_regs = dp.UART7;
-        #[cfg(feature = "g4")]
-        let usart_regs = dp.USART3;
-        let mut uart_elrs = Usart::new(usart_regs, 420_000, Default::default(), &clock_cfg);
-        crsf::setup(&mut uart_elrs, setup::CRSF_RX_CH, &mut dma); // Keep this channel in sync with `setup.rs`.
 
         // We use the RTC to assist with power use measurement.
         // let rtc = Rtc::new(dp.RTC, Default::default());
@@ -462,7 +342,7 @@ mod app {
         // every few of these updates.
         let mut update_timer = Timer::new_tim15(
             dp.TIM15,
-            UPDATE_RATE_ATTITUDE,
+            UPDATE_RATE_MAIN_LOOP,
             Default::default(),
             &clock_cfg,
         );
@@ -484,9 +364,9 @@ mod app {
         // We use this PID adjustment timer to indicate the interval for updating PID from a controller
         // while the switch or button is held. (Equivalently, the min allowed time between actuations)
 
-        let pid_adj_timer = Timer::new_tim1(
+        let ctrl_coeff_adj_timer = Timer::new_tim1(
             dp.TIM1,
-            1. / PID_CONTROL_ADJ_TIMEOUT,
+            1. / CTRL_COEFF_ADJ_TIMEOUT,
             TimerConfig {
                 one_pulse_mode: true,
                 ..Default::default()
@@ -545,36 +425,16 @@ mod app {
             alt_msl: 3.,
         });
 
+        crsf::setup(&mut uart_elrs, setup::CRSF_RX_CH, &mut dma);
+
         flight_ctrls::setup_timers(&mut motor_timers);
-
-        // We use I2C1 for the GPS, magnetometer, and TOF sensor. Some details:
-        // The U-BLOX GPS' max speed is 400kHz.
-        // The LIS3MDL altimeter's max speed is 400kHz.
-        // todo: DO you want 100kHz due to the connection being external? (Lower freqs
-        // todo may have fewer issues)
-        let i2c_external_sensors_cfg = I2cConfig {
-            speed: I2cSpeed::Fast400K,
-            ..Default::default()
-        };
-
-        // We use I2C for the TOF sensor.(?)
-        let i2c_baro_cfg = I2cConfig {
-            speed: I2cSpeed::Fast400K,
-            ..Default::default()
-        };
-
-        // We use I2C1 for offboard sensors: Magnetometer, GPS, and TOF sensor.
-        let mut i2c1 = I2c::new(dp.I2C1, i2c_external_sensors_cfg, &clock_cfg);
-
-        // We use I2C2 for the onboard barometer (altimeter).
-        let mut i2c2 = I2c::new(dp.I2C2, i2c_baro_cfg, &clock_cfg);
 
         // Note: With this circular DMA approach, we discard many readings,
         // but shouldn't have consequences other than higher power use, compared to commanding
         // conversions when needed.
         unsafe {
             batt_curr_adc.read_dma(
-                &mut ADC_READ_BUF,
+                &mut V_A_ADC_READ_BUF,
                 &[setup::BATT_ADC_CH, setup::CURR_ADC_CH],
                 setup::BATT_CURR_DMA_CH,
                 ChannelCfg {
@@ -743,7 +603,7 @@ mod app {
                 update_loop_i: 0,
                 update_loop_i2: 0, // todo
                 fixed_wing_rate_loop_i: 0,
-                pid_adj_timer,
+                ctrl_coeff_adj_timer,
                 uart_osd,
                 time_with_high_throttle: 0.,
             },
@@ -752,6 +612,7 @@ mod app {
     }
 
     #[idle(shared = [user_cfg, motor_timers, dma])]
+    /// In this function, we perform setup code that must occur with interrupts enabled.
     fn idle(cx: idle::Context) -> ! {
         // Set up DSHOT here, since we need interrupts enabled.
 
@@ -768,6 +629,10 @@ mod app {
                 dshot::stop_all(motor_timers, dma);
 
                 delay.delay_ms(1);
+
+                // todo: When you get home from the deployment, consider that this is perhaps
+                // todo not run, on account of it getting overrided by higher-priority tasks.
+                // todo: QC if that's what the problem is.
 
                 // todo still not working
                 // dshot::setup_motor_dir(
@@ -807,12 +672,6 @@ mod app {
             cx.shared.current_params,
             cx.shared.ahrs,
             cx.shared.control_channel_data,
-            // cx.shared.velocities_commanded,
-            // cx.shared.attitudes_commanded,
-            // cx.shared.pid_rate,
-            // cx.shared.pid_attitude,
-            // cx.shared.pid_velocity,
-            // cx.shared.pid_deriv_filters,
             cx.shared.power_used,
             cx.shared.autopilot_status,
             cx.shared.user_cfg,
@@ -829,12 +688,6 @@ mod app {
                 |params,
                  ahrs,
                  control_channel_data,
-                 // velocities_commanded,
-                 // attitudes_commanded,
-                 // pid_rate,
-                 // pid_attitude,
-                 // pid_velocity,
-                 // filters,
                  power_used,
                  autopilot_status,
                  cfg,
@@ -856,10 +709,10 @@ mod app {
 
                     // Debug loop.
                     if *cx.local.update_loop_i % 700 == 0 {
-                        let batt_v =
-                            adc.reading_to_voltage(unsafe { ADC_READ_BUF }[0]) * ADC_BATT_DIVISION;
-                        let curr_v =
-                            adc.reading_to_voltage(unsafe { ADC_READ_BUF }[1]) * ADC_CURR_DIVISION;
+                        let batt_v = adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[0])
+                            * ADC_BATT_DIVISION;
+                        let curr_v = adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[1])
+                            * ADC_CURR_DIVISION;
 
                         let current = curr_v; // mA.
                                               // println!("Batt V: {} Curr V: {}", batt_v, curr_v);
@@ -957,9 +810,9 @@ mod app {
 
                     // todo: Store current adn batteyr in state_volatile if you end up using it elsewhere.
                     let batt_v =
-                        adc.reading_to_voltage(unsafe { ADC_READ_BUF }[0]) * ADC_BATT_DIVISION;
+                        adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[0]) * ADC_BATT_DIVISION;
                     let curr_v =
-                        adc.reading_to_voltage(unsafe { ADC_READ_BUF }[1]) * ADC_CURR_DIVISION;
+                        adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[1]) * ADC_CURR_DIVISION;
 
                     // todo: Find the current conversion factor. Probably slope + y int
                     let current = curr_v;
@@ -1126,7 +979,7 @@ mod app {
             cx.shared.dma,
             cx.shared.user_cfg,
             cx.shared.spi1,
-            // cx.shared.rf_limiter_timer, // todo temp
+            cx.shared.rf_limiter_timer,
             cx.shared.state_volatile,
             cx.shared.flight_ctrl_filters,
         )
@@ -1142,7 +995,7 @@ mod app {
                  dma,
                  cfg,
                  spi1,
-                 // rf_limiter_timer, // todo temp
+                 rf_limiter_timer, // todo temp
                  state_volatile,
                  flight_ctrl_filters| {
                     // Note that this step is mandatory, per STM32 RM.
@@ -1158,9 +1011,9 @@ mod app {
                     // }
                     // *cx.local.update_loop_i2 += 1;
 
-                    // rf_limiter_timer.disable();
-                    // rf_limiter_timer.reset_count();
-                    // rf_limiter_timer.enable();
+                    rf_limiter_timer.disable();
+                    rf_limiter_timer.reset_count();
+                    rf_limiter_timer.enable();
 
                     // todo: Temp TS code to verify rotordirection.
                     // if state_volatile.arm_status == ArmStatus::Armed {
@@ -1518,22 +1371,11 @@ mod app {
         });
     }
 
-    // #[task(binds = EXTI15_10, shared = [user_cfg, control_channel_data], local = [spi3], priority = 5)]
-    // /// We use this ISR when receiving data from the radio, via (direct) ELRS
-    // fn radio_data_isr(mut cx: radio_data_isr::Context) {
-    //     gpio::clear_exti_interrupt(14);
-    //     // todo: for when you impl native ELRS
-    //     // (cx.shared.user_cfg, cx.shared.control_channel_data).lock(|cfg, ch_data| {
-    //     //     // *manual_inputs = elrs::get_inputs(cx.local.spi_flash);
-    //     //     // *ch_data = CtrlInputs::get_manual_inputs(cfg); // todo: this?
-    //     // })
-    // }
-
     /// If this triggers, it means we've lost the link. (Note that this is for TIM17)
     // #[task(binds = TIM17, shared = [lost_link_timer, state_volatile, user_cfg, autopilot_status], priority = 2)]
     #[task(binds = TIM1_TRG_COM, shared = [lost_link_timer, state_volatile, user_cfg, autopilot_status,
     current_params], priority = 2)]
-    fn lost_link_isr(mut cx: lost_link_isr::Context) {
+    fn lost_link_isr(cx: lost_link_isr::Context) {
         println!("Lost the link!");
 
         (
@@ -1565,7 +1407,7 @@ mod app {
 
     // #[task(binds = USART7, shared = [uart_elrs, dma, control_channel_data,
     #[task(binds = USART3, shared = [uart_elrs, dma, control_channel_data,
-    lost_link_timer, rf_limiter_timer, state_volatile], local = [pid_adj_timer], priority = 5)]
+    lost_link_timer, rf_limiter_timer, state_volatile], local = [ctrl_coeff_adj_timer], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
@@ -1600,12 +1442,12 @@ mod app {
 
                                 // We have this PID adjustment here, since they're one-off actuations.
                                 // We handle other things like autopilot mode entry in the update fn.
-                                if cx.local.pid_adj_timer.is_enabled() {
+                                if cx.local.ctrl_coeff_adj_timer.is_enabled() {
                                     println!("PID timer is still running.");
                                 } else {
                                     let pid_adjustment = match ch_data.pid_tune_actuation {
-                                        PidTuneActuation::Increase => PID_CONTROL_ADJ_AMT,
-                                        PidTuneActuation::Decrease => -PID_CONTROL_ADJ_AMT,
+                                        PidTuneActuation::Increase => CTRL_COEFF_ADJ_AMT,
+                                        PidTuneActuation::Decrease => -CTRL_COEFF_ADJ_AMT,
                                         PidTuneActuation::Neutral => 0.,
                                     };
 
@@ -1636,8 +1478,8 @@ mod app {
                                             // }
                                         }
                                     }
-                                    cx.local.pid_adj_timer.reset_count();
-                                    cx.local.pid_adj_timer.enable();
+                                    cx.local.ctrl_coeff_adj_timer.reset_count();
+                                    cx.local.ctrl_coeff_adj_timer.enable();
                                 }
 
                                 lost_link_timer.reset_count();
@@ -1660,7 +1502,7 @@ mod app {
     // binds = DMA2_STR1,
     #[task(binds = DMA2_CH1, shared = [dma2, i2c2], priority = 1)]
     /// Baro write complete; start baro read.
-    fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
+    fn baro_write_tc_isr(cx: baro_write_tc_isr::Context) {
         (cx.shared.dma2, cx.shared.i2c2).lock(|dma2, i2c2| {
             dma2.clear_interrupt(setup::BARO_TX_CH, DmaInterrupt::TransferComplete);
 
@@ -1681,7 +1523,7 @@ mod app {
     // binds = DMA2_STR2,s
     #[task(binds = DMA2_CH2, shared = [dma2, altimeter, current_params], priority = 1)]
     /// Baro read complete; handle data, and start next write.
-    fn baro_read_tc_isr(mut cx: baro_read_tc_isr::Context) {
+    fn baro_read_tc_isr(cx: baro_read_tc_isr::Context) {
         (
             cx.shared.dma2,
             cx.shared.altimeter,
@@ -1704,7 +1546,7 @@ mod app {
     // binds = DMA2_STR3,
     #[task(binds = DMA2_CH3, shared = [dma2, i2c1, ext_sensor_active], priority = 1)]
     /// Baro write complete; start baro read.
-    fn ext_sensors_write_tc_isr(mut cx: ext_sensors_write_tc_isr::Context) {
+    fn ext_sensors_write_tc_isr(cx: ext_sensors_write_tc_isr::Context) {
         (cx.shared.dma2, cx.shared.i2c1, cx.shared.ext_sensor_active).lock(
             |dma2, i2c1, ext_sensor_active| {
                 dma2.clear_interrupt(setup::EXT_SENSORS_TX_CH, DmaInterrupt::TransferComplete);
@@ -1749,7 +1591,7 @@ mod app {
     // binds = DMA2_STR4,
     #[task(binds = DMA2_CH4, shared = [dma2, i2c1, ext_sensor_active], priority = 1)]
     /// Baro write complete; start baro read.
-    fn ext_sensors_read_tc_isr(mut cx: ext_sensors_read_tc_isr::Context) {
+    fn ext_sensors_read_tc_isr(cx: ext_sensors_read_tc_isr::Context) {
         (cx.shared.dma2, cx.shared.i2c1, cx.shared.ext_sensor_active).lock(
             |dma2, i2c1, ext_sensor_active| {
                 dma2.clear_interrupt(setup::EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);

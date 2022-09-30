@@ -192,23 +192,23 @@ impl Altimeter {
 
         i2c.write_read(ADDR, &[Reg::Coef01A as u8], &mut buf_a)?;
         i2c.write_read(ADDR, &[Reg::Coef01B as u8], &mut buf_b)?;
-        let mut c01 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
+        let c01 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
 
         i2c.write_read(ADDR, &[Reg::Coef11A as u8], &mut buf_a)?;
         i2c.write_read(ADDR, &[Reg::Coef11B as u8], &mut buf_b)?;
-        let mut c11 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
+        let c11 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
 
         i2c.write_read(ADDR, &[Reg::Coef20A as u8], &mut buf_a)?;
         i2c.write_read(ADDR, &[Reg::Coef20B as u8], &mut buf_b)?;
-        let mut c20 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
+        let c20 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
 
         i2c.write_read(ADDR, &[Reg::Coef21A as u8], &mut buf_a)?;
         i2c.write_read(ADDR, &[Reg::Coef21B as u8], &mut buf_b)?;
-        let mut c21 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
+        let c21 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
 
         i2c.write_read(ADDR, &[Reg::Coef30A as u8], &mut buf_a)?;
         i2c.write_read(ADDR, &[Reg::Coef30B as u8], &mut buf_b)?;
-        let mut c30 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
+        let c30 = i16::from_be_bytes([buf_a[0], buf_b[0]]) as i32;
 
         // c0 and c1 are 12 bits. c00 and c10 are 20 bits. The rest are 16.
         // All are 2's complement.

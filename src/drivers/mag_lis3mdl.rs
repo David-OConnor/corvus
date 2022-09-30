@@ -18,7 +18,7 @@ pub const ADDR: u8 = 0b11100; // ie 0x1C
 pub struct MagNotConnectedError {}
 
 impl From<i2c::Error> for MagNotConnectedError {
-    fn from(e: i2c::Error) -> Self {
+    fn from(_e: i2c::Error) -> Self {
         Self {}
     }
 }

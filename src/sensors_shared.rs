@@ -19,6 +19,8 @@ use crate::{
 pub static mut WRITE_BUF_GPS: [u8; 1] = [0; 1];
 pub static mut WRITE_BUF_TOF: [u8; 2] = [0; 2];
 
+pub static mut V_A_ADC_READ_BUF: [u16; 2] = [0; 2];
+
 /// We use this to sequence DMA writes and reads among the extenral sensors.
 #[derive(Clone, Copy)]
 pub enum ExtSensor {

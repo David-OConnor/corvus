@@ -1,10 +1,7 @@
 //! This module contains code for attitude-based controls. This includes sticks mapping
 //! to attitude, and an internal attitude model with rate-like controls, where attitude is the target.
 
-use crate::{
-    control_interface::ChannelData,
-    util::map_linear,
-};
+use crate::{control_interface::ChannelData, util::map_linear};
 
 use super::{
     common::{CtrlMix, Params, RatesCommanded},
@@ -43,10 +40,18 @@ const FWD: Vec3 = Vec3 {
     z: 1.,
 };
 
+// The motor RPM of each motor will not go below this. We use this for both quad and fixed-wing motors.
+// todo: unimplemented
+const IDLE_RPM: f32 = 100.;
+
+// todo: Impl BF's 'dynamic idle': Use RPM data to hdnle a per-motor idle in RPM (vice an overall power
+// todo setting)
+
 // todo: Experimental. Mappings between power level and RPM (once settled). Do we want an array?
 // todo: More or fewer points? A simple linear (or otherwise) analytic model?
 /// Map commanded motor power to RPM. Average over time, and over all props.
-struct RpmMap {
+/// This should be approximately linear.
+struct PwrToRpmMap {
     // Value are in percent.
 
     // Lower power should probably be from idle, not 0. So inclide p_0 here.
@@ -65,15 +70,61 @@ struct RpmMap {
 
 // todo: Model spin-up/down of props to power change.
 
-impl RpmMap {
+impl PwrToRpmMap {
     /// Interpolate, to get power from this LUT.
-    pub fn rpm_fm_power(&self, pwr: f32) -> f32 {
+    pub fn pwr_to_rpm(&self, pwr: f32) -> f32 {
         match pwr {
             (0.0..=0.2) => map_linear(pwr, (0.0, 0.2), (self.p_0, self.p_20)),
             (0.2..=0.4) => map_linear(pwr, (0.2, 0.4), (self.p_20, self.p_40)),
             (0.4..=0.6) => map_linear(pwr, (0.4, 0.6), (self.p_40, self.p_60)),
             (0.6..=0.8) => map_linear(pwr, (0.6, 0.8), (self.p_60, self.p_80)),
             _ => map_linear(pwr, (0.8, 1.0), (self.p_80, self.p_100)),
+        }
+    }
+}
+
+/// Map RPM to angular acceleration (thrust proxy). Average over time, and over all props.
+/// Note that this relationship may be exponential, or something similar, with RPM increases
+/// at higher ranges providing a bigger change in thrust.
+struct RpmToThrustMap {
+    // Value are in RPM.
+
+    // todo: What is the max expected RPM? Adjust this A/R.
+    // todo: An internet search implies 4-6k is normal.
+
+    // Lower power should probably be from idle, not 0. So inclide p_0 here.
+    r_0: f32, // Likely 0.
+    r_1k: f32,
+    r_2k: f32,
+    r_3k: f32,
+    r_4k: f32,
+    r_5k: f32,
+    r_6k: f32,
+    r_7k: f32,
+    r_8k: f32,
+    r_9k: f32,
+    r_10k: f32,
+}
+
+impl RpmToThrustMap {
+    // todo: DRY with pwr to rpm MAP
+    /// Interpolate, to get power from this LUT.
+    pub fn rpm_to_angular_accel(&self, rpm: f32) -> f32 {
+        let end_slope = (self.r_10k - self.r_9k) / 1_000.;
+
+        match rpm {
+            (0.0..=1_000.) => map_linear(rpm, (0.0, 1_000.), (self.r_0, self.r_1k)),
+            (1_000.0..=2_000.) => map_linear(rpm, (1_000., 2_000.), (self.r_1k, self.r_2k)),
+            (2_000.0..=3_000.) => map_linear(rpm, (2_000., 3_000.), (self.r_2k, self.r_3k)),
+            (3_000.0..=4_000.) => map_linear(rpm, (3_000., 4_000.), (self.r_3k, self.r_4k)),
+            (4_000.0..=5_000.) => map_linear(rpm, (4_000., 5_000.), (self.r_4k, self.r_5k)),
+            (5_000.0..=6_000.) => map_linear(rpm, (5_000., 6_000.), (self.r_5k, self.r_6k)),
+            (6_000.0..=7_000.) => map_linear(rpm, (6_000., 7_000.), (self.r_6k, self.r_7k)),
+            (7_000.0..=8_000.) => map_linear(rpm, (7_000., 8_000.), (self.r_7k, self.r_8k)),
+            (8_000.0..=9_000.) => map_linear(rpm, (8_000., 9_000.), (self.r_8k, self.r_9k)),
+            (9_000.0..=10_000.) => map_linear(rpm, (9_000., 10_000.), (self.r_9k, self.r_10k)),
+            // If above 10k, extrapolate from the prev range.
+            _ => rpm * end_slope,
         }
     }
 }
@@ -160,6 +211,8 @@ fn find_ctrl_setting(
     // a certain shape. Gaussian? Maybe hit peak accel you need for a gradual
     // reduction in motor speed, settling on our ω_target curve.
 
+    // todo: Alternatively compared to your angular rate timeline, consider a timeline
+    // todo where you calculate an acceleration profile.(?)
 
     // Calculate a time to which will be the target to get the angular velocity
     // to the target. Note that the angular position (and therefore target rate)
@@ -170,7 +223,6 @@ fn find_ctrl_setting(
 
     let dist_to_correction =
         coeffs.dist_to_correction_p_ω * dω.abs() + coeffs.dist_to_correction_p_θ * dθ.abs();
-
 
     // todo: Even more in-depth: If adjusting to manual or other rapidly-changing controls, extrapolate
     // todo the response, ie cut corners to the predicted attitude during a control actuation?
@@ -193,7 +245,6 @@ fn find_ctrl_setting(
     // and is measured (and filtered).
     let drag_coeff = 0.01; // todo: Measure this.
     let drag_accel = drag_coeff * -ω; // Angular trag. Assuming it's linear with ω
-
 
     // The target acceleration needs to include both the correction, and drag compensation.
     // todo: QC sign etc on this.

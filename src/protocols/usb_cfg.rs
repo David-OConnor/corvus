@@ -298,9 +298,11 @@ pub fn handle_rx(
             }
             i += F32_SIZE;
 
-            let batt_v = adc.reading_to_voltage(unsafe { crate::ADC_READ_BUF }[0])
+            let batt_v = adc
+                .reading_to_voltage(unsafe { crate::sensors_shared::V_A_ADC_READ_BUF }[0])
                 * crate::ADC_BATT_DIVISION;
-            let curr = adc.reading_to_voltage(unsafe { crate::ADC_READ_BUF }[1])
+            let curr = adc
+                .reading_to_voltage(unsafe { crate::sensors_shared::V_A_ADC_READ_BUF }[1])
                 * crate::ADC_CURR_DIVISION;
 
             let batt_bytes = batt_v.to_be_bytes();

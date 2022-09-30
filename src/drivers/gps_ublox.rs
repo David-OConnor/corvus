@@ -13,7 +13,7 @@ pub struct GpsNotConnectedError {}
 pub struct GpsFixError {}
 
 impl From<i2c::Error> for GpsNotConnectedError {
-    fn from(e: i2c::Error) -> Self {
+    fn from(_e: i2c::Error) -> Self {
         Self {}
     }
 }

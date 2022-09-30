@@ -18,7 +18,7 @@ use defmt::println;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
-        use super::ControlPositions;
+        // use super::ControlPositions;
     } else {
         // use super::{MotorPower, THROTTLE_MAX_MNVR_CLAMP, THROTTLE_MIN_MNVR_CLAMP};
     }

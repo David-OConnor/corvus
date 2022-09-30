@@ -6,12 +6,14 @@ use cfg_if::cfg_if;
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
+    clocks::Clocks,
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
-    i2c::I2c,
-    pac::{DMA1, DMA2, I2C1, I2C2, SPI1},
-    spi::Spi,
+    i2c::{I2c, I2cConfig, I2cSpeed},
+    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, USART2},
+    spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::TimChannel,
+    usart::Usart,
 };
 
 cfg_if! {
@@ -401,4 +403,123 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     dma.enable_interrupt(BARO_RX_CH, DmaInterrupt::TransferComplete);
     dma.enable_interrupt(EXT_SENSORS_TX_CH, DmaInterrupt::TransferComplete);
     dma.enable_interrupt(EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);
+}
+
+#[cfg(feature = "h7")]
+type UART_ELRS_REGS = pac::UART7;
+#[cfg(feature = "g4")]
+type UART_ELRS_REGS = pac::USART3;
+
+/// Configure the SPI and I2C busses.
+pub fn setup_busses(
+    spi1_pac: SPI1,
+    i2c1_pac: I2C1,
+    i2c2_pac: I2C2,
+    uart2_pac: USART2,
+    uart_elrs_pac: UART_ELRS_REGS,
+    clock_cfg: &Clocks,
+) -> (
+    Spi<SPI1>,
+    Pin,
+    Pin,
+    I2c<I2C1>,
+    I2c<I2C2>,
+    Usart<USART2>,
+    Usart<crate::UART_ELRS>,
+) {
+    // We use SPI1 for the IMU
+    // SPI input clock is 400MHz for H7, and 170Mhz for G4. 400MHz / 32 = 12.5 MHz. 170Mhz / 8 = 21.25Mhz.
+    // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
+    // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
+    #[cfg(feature = "g4")]
+    // todo: Switch to higher speed.
+    let imu_baud_div = BaudRate::Div8; // for ICM426xx, for 24Mhz limit
+                                       // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
+                                       // let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
+    #[cfg(feature = "h7")]
+    let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
+                                        // let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
+
+    let imu_spi_cfg = SpiConfig {
+        // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
+        mode: SpiMode::mode3(),
+        ..Default::default()
+    };
+
+    let spi1 = Spi::new(spi1_pac, imu_spi_cfg, imu_baud_div);
+
+    #[cfg(feature = "mercury-h7")]
+    let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
+    #[cfg(feature = "mercury-g4")]
+    let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+
+    cs_imu.set_high();
+
+    // We use I2C1 for the GPS, magnetometer, and TOF sensor. Some details:
+    // The U-BLOX GPS' max speed is 400kHz.
+    // The LIS3MDL altimeter's max speed is 400kHz.
+    // todo: DO you want 100kHz due to the connection being external? (Lower freqs
+    // todo may have fewer issues)
+    let i2c_external_sensors_cfg = I2cConfig {
+        speed: I2cSpeed::Fast400K,
+        ..Default::default()
+    };
+
+    // We use I2C for the TOF sensor.(?)
+    let i2c_baro_cfg = I2cConfig {
+        speed: I2cSpeed::Fast400K,
+        ..Default::default()
+    };
+
+    // We use I2C1 for offboard sensors: Magnetometer, GPS, and TOF sensor.
+    let i2c1 = I2c::new(i2c1_pac, i2c_external_sensors_cfg, clock_cfg);
+
+    // We use I2C2 for the onboard barometer (altimeter).
+    let i2c2 = I2c::new(i2c2_pac, i2c_baro_cfg, clock_cfg);
+
+    // We use SPI3 for SPI flash on G4. On H7, we use octospi instead.
+    // todo: Find max speed and supported modes.
+    // todo: Commented this out due to a HAL/PAC limitation.
+    // cfg_if! {
+    //     if #[cfg(feature = "h7")] {
+    //         let spi_flash = Octospi::new(dp.OCTOSPI, Default::default(), BaudRate::Div32);
+    //
+    //     } else {
+    //         // todo: HAL issue where SPI needs to cast as SPI1
+    //         let spi_flash = Spi::new(dp.SPI3 as SPI1, Default::default(), BaudRate::Div32);
+    //         // let spi_flash = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
+    //     }
+    // }
+
+    #[cfg(feature = "h7")]
+    let flash_pin = 10;
+    #[cfg(not(feature = "h7"))]
+    let flash_pin = 6;
+
+    let mut cs_flash = Pin::new(Port::C, flash_pin, PinMode::Output);
+    cs_flash.set_high();
+
+    // We use UART2 for the OSD, for DJI, via the MSP protocol.
+    // todo: QC baud.
+    let uart_osd = Usart::new(uart2_pac, 115_200, Default::default(), clock_cfg);
+
+    // We use `uart1` for the radio controller receiver, via CRSF protocol.
+    // CRSF protocol uses a single wire half duplex uart connection.
+    //  * The master sends one frame every 4ms and the slave replies between two frames from the master.
+    //  *
+    //  * 420000 baud
+    //  * not inverted
+    //  * 8 Bit
+    //  * 1 Stop bit
+    //  * Big endian
+    //  * 420000 bit/s = 46667 byte/s (including stop bit) = 21.43us per byte
+    //  * Max frame size is 64 bytes
+    //  * A 64 byte frame plus 1 sync byte can be transmitted in 1393 microseconds.
+
+    // The STM32-HAL default UART config includes stop bits = 1, parity disabled, and 8-bit words,
+    // which is what we want.
+
+    let uart_elrs = Usart::new(uart_elrs_pac, 420_000, Default::default(), clock_cfg);
+
+    (spi1, cs_imu, cs_flash, i2c1, i2c2, uart_osd, uart_elrs)
 }
