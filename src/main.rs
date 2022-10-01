@@ -188,6 +188,9 @@ const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500
 const CTRL_COEFF_ADJ_TIMEOUT: f32 = 0.3; // seconds
 const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 
+// The time, in ms, to wait during initializing to allow the ESC and RX to power up and initialize.
+const WARMUP_TIME: u32 = 2_000;
+
 // todo: Bit flags that display as diff colored LEDs, and OSD items
 
 #[rtic::app(device = pac, peripherals = false)]
@@ -244,6 +247,9 @@ mod app {
         ctrl_coeff_adj_timer: Timer<TIM1>,
         uart_osd: Usart<USART2>, // for our DJI OSD, via MSP protocol
         time_with_high_throttle: f32,
+        /// This lets you know we've started the motor direction change procedure; happens
+        /// once at startup.
+        motor_dir_started: bool,
     }
 
     #[init]
@@ -556,7 +562,15 @@ mod app {
 
         let ahrs = Ahrs::new(&ahrs_settings, crate::IMU_UPDATE_RATE as u32);
 
+        // Make sure the motors are commanded to 0 before setting motor direction. We
+        // set motor direction in the main update loop, since it needs to run with
+        // dshot interrupts enabled.
+        dshot::stop_all(&mut motor_timers, &mut dma);
+
         update_timer.enable();
+
+        // Allow ESC to warm up and the radio to connect before starting the main loop.
+        delay.delay_ms(WARMUP_TIME);
 
         println!("Entering main loop...");
         (
@@ -567,11 +581,6 @@ mod app {
                 autopilot_status: Default::default(),
                 current_params: params.clone(),
                 params_prev: params,
-                // velocities_commanded: Default::default(),
-                // attitudes_commanded: Default::default(),
-                // pid_velocity: Default::default(),
-                // pid_attitude: Default::default(),
-                // pid_rate: Default::default(),
                 control_channel_data: Default::default(),
                 dma,
                 dma2,
@@ -606,6 +615,7 @@ mod app {
                 ctrl_coeff_adj_timer,
                 uart_osd,
                 time_with_high_throttle: 0.,
+                motor_dir_started: false,
             },
             init::Monotonics(),
         )
@@ -614,35 +624,6 @@ mod app {
     #[idle(shared = [user_cfg, motor_timers, dma])]
     /// In this function, we perform setup code that must occur with interrupts enabled.
     fn idle(cx: idle::Context) -> ! {
-        // Set up DSHOT here, since we need interrupts enabled.
-
-        (cx.shared.user_cfg, cx.shared.motor_timers, cx.shared.dma).lock(
-            |user_cfg, motor_timers, dma| {
-                // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
-
-                let cp = unsafe { cortex_m::Peripherals::steal() };
-                let mut delay = Delay::new(cp.SYST, 170_000_000);
-
-                // Allow ESC to warm up and radio to connect before starting the main loop.
-                delay.delay_ms(2_000);
-
-                dshot::stop_all(motor_timers, dma);
-
-                delay.delay_ms(1);
-
-                // todo: When you get home from the deployment, consider that this is perhaps
-                // todo not run, on account of it getting overrided by higher-priority tasks.
-                // todo: QC if that's what the problem is.
-
-                // todo still not working
-                // dshot::setup_motor_dir(
-                //     user_cfg.motors_reversed,
-                //     motor_timers,
-                //     dma,
-                // );
-            },
-        );
-
         loop {
             asm::nop();
         }
@@ -656,10 +637,11 @@ mod app {
     binds = TIM1_BRK_TIM15,
     shared = [current_params,
     power_used, autopilot_status, user_cfg,
-    ahrs, control_channel_data,
+    ahrs, control_channel_data, motor_timers,
     lost_link_timer, altimeter, i2c1, i2c2, state_volatile, batt_curr_adc, dma, dma2,
     ],
-    local = [arm_signals_received, disarm_signals_received, update_loop_i, uart_osd, time_with_high_throttle],
+    local = [arm_signals_received, disarm_signals_received, update_loop_i, uart_osd,
+        time_with_high_throttle, motor_dir_started],
 
     priority = 2
     )]
@@ -680,6 +662,7 @@ mod app {
             cx.shared.i2c1,
             cx.shared.i2c2,
             cx.shared.state_volatile,
+            cx.shared.motor_timers,
             cx.shared.batt_curr_adc,
             cx.shared.dma,
             cx.shared.dma2,
@@ -696,6 +679,7 @@ mod app {
                  i2c1,
                  i2c2,
                  state_volatile,
+                 motor_timers,
                  adc,
                  dma,
                  dma2| {
@@ -706,6 +690,39 @@ mod app {
                     // params.s_z_msl = altimeter.estimate_altitude_msl(pressure, temp);
 
                     // todo: For these ADC readings, consider A: DMA. B: Not getting this data every update.
+
+                    // We must do this initializing with the dshot ISRs active, but can't send
+                    // motor commands, including the normal idle ones between its use. Hence the
+                    // `initializing_motors` flag.
+                    #[cfg(feature = "quad")]
+                    if state_volatile.initializing_motors {
+                        // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
+
+                        let motors_reversed = (
+                            // todo: TS using hard-set values. Put back these cfg values once sorted.
+                            // cfg.control_mapping.m1_reversed,
+                            // cfg.control_mapping.m2_reversed,
+                            // cfg.control_mapping.m3_reversed,
+                            // cfg.control_mapping.m4_reversed,
+                            false,
+                            false,
+                            false,
+                            false,
+                        );
+
+                        if !*cx.local.motor_dir_started {
+                            dshot::setup_motor_dir(
+                                motors_reversed,
+                                motor_timers,
+                                dma,
+                            );
+
+                            *cx.local.motor_dir_started = true;
+                        }
+
+                        return
+                    }
+
 
                     // Debug loop.
                     if *cx.local.update_loop_i % 700 == 0 {
@@ -973,8 +990,6 @@ mod app {
             cx.shared.ahrs,
             cx.shared.control_channel_data,
             cx.shared.autopilot_status,
-            // cx.shared.pid_rate,
-            // cx.shared.pid_deriv_filters,
             cx.shared.motor_timers,
             cx.shared.dma,
             cx.shared.user_cfg,
@@ -989,17 +1004,20 @@ mod app {
                  ahrs,
                  control_channel_data,
                  autopilot_status,
-                 // pid_rate,
-                 // filters,
                  motor_timers,
                  dma,
                  cfg,
                  spi1,
-                 rf_limiter_timer, // todo temp
+                 rf_limiter_timer,
                  state_volatile,
                  flight_ctrl_filters| {
                     // Note that this step is mandatory, per STM32 RM.
                     spi1.stop_dma(setup::IMU_TX_CH, Some(setup::IMU_RX_CH), dma);
+
+                    #[cfg(feature = "quad")]
+                    if state_volatile.initializing_motors {
+                        return
+                    }
 
                     // // todo: TSing geting wrong freq. (3.5khz instead of 8)
                     // if *cx.local.update_loop_i2 % 700 == 0 {

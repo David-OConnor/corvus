@@ -227,4 +227,6 @@ pub struct StateVolatile {
     pub ctrl_mix: CtrlMix,
     /// We use this to determine if we can unlock the attitude controls from the takeoff attitude.
     pub has_taken_off: bool,
+    /// We use this to disable normal motor commands until the motor direction has been set.
+    pub initializing_motors: bool
 }
