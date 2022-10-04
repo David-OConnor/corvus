@@ -51,34 +51,99 @@ const IDLE_RPM: f32 = 100.;
 // todo: More or fewer points? A simple linear (or otherwise) analytic model?
 /// Map commanded motor power to RPM. Average over time, and over all props.
 /// This should be approximately linear.
+/// For fixed wing, we use servo position instead of RPM. Unfortunately, we don't currently have
+/// a way to measure servo position.
+/// We store one value around each of these fields (names are in percent), but the
+/// logged value may not be this exactly.
 struct PwrToRpmMap {
-    // Value are in percent.
+    // todo: Make sure to debug print these to make sure it's working properly, ie is relatively
+    // todo stable, and the values make sense
 
-    // Lower power should probably be from idle, not 0. So inclide p_0 here.
-    p_0: f32,
-    // p_10: f32,
-    p_20: f32,
-    // p_30: f32,
-    p_40: f32,
-    // p_50: f32,
-    p_60: f32,
-    // p_70: f32,
-    p_80: f32,
-    // p_90: f32,
-    p_100: f32,
+    // Lower power should probably be from idle, not 0. So include p_0 here.
+    // first value is power level; second is rpm.
+    p_0: (f32, f32),
+    // p_10: (f32, f32),
+    p_20: (f32, f32),
+    // p_30: (f32, f32),
+    p_40: (f32, f32),
+    // p_50: (f32, f32),
+    p_60: (f32, f32),
+    // p_70: (f32, f32),
+    p_80: (f32, f32),
+    // p_90: (f32, f32),
+    p_100: (f32, f32),
+}
+
+impl Default for PwrToRpmMap {
+    #[cfg(feature = "quad")]
+    fn default() -> Self {
+        // todo: Populate this.
+        Self {
+            p_0: (0., 0.),
+            p_20: (0.2, 0.2),
+            p_40: (0.4, 0.4),
+            p_60: (0.6, 0.6),
+            p_80: (0.8, 0.8),
+            p_100: (1., 1.),
+        }
+    }
+
+    #[cfg(feature = "fixed-wing")]
+    /// 1:1 mapping for fixed-wings, due to being unable to measure servo posit.
+    fn default() -> Self {
+        Self {
+            p_0: (0., 0.),
+            p_20: (0.2, 0.2),
+            p_40: (0.4, 0.4),
+            p_60: (0.6, 0.6),
+            p_80: (0.8, 0.8),
+            p_100: (1., 1.),
+        }
+    }
+}
+
+impl PwrToRpmMap {
+    /// Log a power, and rpm.
+    pub fn log_val(&mut self, pwr: f32, rpm: f32) {
+        // todo: Allow for spin-up time.
+
+        // todo: filtering! But how, given the pwr these are logged at changes?
+        // todo: Maybe filter a an interpolation to the actual values, and store those?
+
+        if pwr < 0.1 {
+            self.p_0 = (pwr, rpm);
+        } else if pwr < 0.3 {
+            self.p_20 = (pwr, rpm);
+        } else if pwr < 0.5 {
+            self.p_40 = (pwr, rpm);
+        } else if pwr < 0.7 {
+            self.p_60 = (pwr, rpm);
+        } else if pwr < 0.9 {
+            self.p_80 = (pwr, rpm);
+        } else {
+            self.p_100 = (pwr, rpm);
+        }
+
+        self.p_x = (pwr, rpm);
+    }
 }
 
 // todo: Model spin-up/down of props to power change.
 
+#[cfg(feature = "quad")]
 impl PwrToRpmMap {
     /// Interpolate, to get power from this LUT.
     pub fn pwr_to_rpm(&self, pwr: f32) -> f32 {
-        match pwr {
-            (0.0..=0.2) => map_linear(pwr, (0.0, 0.2), (self.p_0, self.p_20)),
-            (0.2..=0.4) => map_linear(pwr, (0.2, 0.4), (self.p_20, self.p_40)),
-            (0.4..=0.6) => map_linear(pwr, (0.4, 0.6), (self.p_40, self.p_60)),
-            (0.6..=0.8) => map_linear(pwr, (0.6, 0.8), (self.p_60, self.p_80)),
-            _ => map_linear(pwr, (0.8, 1.0), (self.p_80, self.p_100)),
+        if pwr < self.p_20.0 {
+            map_linear(pwr, (self.p_0.0, self.p_20.0), (self.p_0.1, self.p_20.1))
+        } else if pwr < self.p_40.0 {
+            map_linear(pwr, (self.p_20.0, self.p_40.0), (self.p_20.1, self.p_40.1))
+        } else if pwr < self.p_60.0 {
+            map_linear(pwr, (self.p_40.0, self.p_60.0), (self.p_40.1, self.p_60.1))
+        } else if pwr < self.p_80.0 {
+            map_linear(pwr, (self.p_60.0, self.p_80.0), (self.p_60.1, self.p_80.1))
+        } else {
+            map_linear(pwr, (self.p_80.0, self.p_100.0), (self.p_80.1, self.p_100.1))
         }
     }
 }
@@ -86,8 +151,12 @@ impl PwrToRpmMap {
 /// Map RPM to angular acceleration (thrust proxy). Average over time, and over all props.
 /// Note that this relationship may be exponential, or something similar, with RPM increases
 /// at higher ranges providing a bigger change in thrust.
-struct RpmToThrustMap {
+/// /// For fixed wing, we use servo position instead of RPM.
+#[cfg(feature = "quad")]
+struct RpmToAccel {
     // Value are in RPM.
+
+    // todo: Use the same approach as power to RPM, where you log intermediate values.
 
     // todo: What is the max expected RPM? Adjust this A/R.
     // todo: An internet search implies 4-6k is normal.
@@ -106,7 +175,8 @@ struct RpmToThrustMap {
     r_10k: f32,
 }
 
-impl RpmToThrustMap {
+#[cfg(feature = "quad")]
+impl RpmToAccel {
     // todo: DRY with pwr to rpm MAP
     /// Interpolate, to get power from this LUT.
     pub fn rpm_to_angular_accel(&self, rpm: f32) -> f32 {
@@ -127,6 +197,18 @@ impl RpmToThrustMap {
             _ => rpm * end_slope,
         }
     }
+}
+
+/// This struct contains maps of 0-1 power level to RPM and angular accel.
+/// For fixed wing, substitude servo position setting for RPM.
+#[derive(Default)]
+pub struct PowerMaps {
+    pub pwr_to_rpm_pitch: PwrToRpmMap,
+    pub pwr_to_rpm_roll: PwrToRpmMap,
+    pub pwr_to_rpm_yaw: PwrToRpmMap,
+    pub rpm_to_accel_pitch: RpmToAccel,
+    pub rpm_to_accel_roll: RpmToAccel,
+    pub rpm_to_accel_yaw: RpmToAccel,
 }
 
 /// Control coefficients that affect the toleranaces and restrictions of the flight controls.
@@ -199,9 +281,9 @@ fn find_ctrl_setting(
     // Compare the current (measured) angular velocities to what we need to apply this rotation.
     // We currently use a linear model to find a rate proportional to the angular
     // distance to travel on this axis.
-    let ω_target = dθ * coeffs.p_ω;
+    // let ω_target = dθ * coeffs.p_ω;
 
-    let dω = ω_target - ω;
+    // let dω = ω_target - ω;
 
     // ω_target = dθ * coeffs.p_ω;
     // ω_dot = ω_dot + ω_dot_dot * dt
@@ -218,11 +300,12 @@ fn find_ctrl_setting(
     // to the target. Note that the angular position (and therefore target rate)
     // will change during this time.
     // todo: Forward predict, with a change in accel program per a schedule?
-    let time_to_correction =
-        coeffs.time_to_correction_p_ω * dω.abs() + coeffs.time_to_correction_p_θ * dθ.abs();
+    // let time_to_correction =
+    //     coeffs.time_to_correction_p_ω * dω.abs() + coeffs.time_to_correction_p_θ * dθ.abs();
+    let time_to_correction = coeffs.time_to_correction_p_θ * dθ.abs();
 
-    let dist_to_correction =
-        coeffs.dist_to_correction_p_ω * dω.abs() + coeffs.dist_to_correction_p_θ * dθ.abs();
+    // let dist_to_correction =
+    //     coeffs.dist_to_correction_p_ω * dω.abs() + coeffs.dist_to_correction_p_θ * dθ.abs();
 
     // todo: Even more in-depth: If adjusting to manual or other rapidly-changing controls, extrapolate
     // todo the response, ie cut corners to the predicted attitude during a control actuation?
@@ -234,11 +317,17 @@ fn find_ctrl_setting(
 
     // Find the instantaneous angular acceleration that will correct angular rate in the time
     // determined above.
-    let mut ω_dot_target = dω / time_to_correction;
+    // let mut ω_dot_target = dω / time_to_correction;
     // todo: COnsider if you want this, or something like it.
     // if ω_dot_target > coeffs.max_ω_dot {
     //     ω_dot_target = coeffs.max_ω_dot;
     // }
+
+    let ω_dot_start = -ω * 2. / time_to_correction.powi(2);
+
+    // Calculate a constant change in acceleration to apply the correction.
+    let ω_dot_dot = 6./ time_to_correction.powi(3) * (ω - dθ - ω * time_to_correction);
+
 
     // https://physics.stackexchange.com/questions/304742/angular-drag-on-body
     // This coefficient maps angular velocity to drag acceleration directly,

@@ -38,7 +38,7 @@ use filter_imu::ImuFilters;
 use flight_ctrls::{
     autopilot::AutopilotStatus,
     common::{AltType, CtrlInputs, InputMap, MotorTimers, Params, RatesCommanded},
-    ctrl_logic::{self, CtrlCoeffs},
+    ctrl_logic::{self, CtrlCoeffs, PowerMaps},
     // pid::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
     //     PID_CONTROL_ADJ_TIMEOUT,
@@ -162,6 +162,12 @@ const UPDATE_RATE_MAIN_LOOP: f32 = 1_600.; // IMU rate / 5.
 // Every x main update loops, log parameters etc to flash.
 const LOGGING_UPDATE_RATIO: usize = 100;
 
+// Every x main loops, log power to RPM (or servo posit) data.
+const RPM_LOG_RATIO: usize = 20;
+
+// Every x main loops, log RPM (or servo posit) to angular accel (thrust) data.
+const THRUST_LOG_RATIO: usize = 20;
+
 const DT_IMU: f32 = 1. / IMU_UPDATE_RATE;
 const DT_MAIN_LOOP: f32 = 1. / UPDATE_RATE_MAIN_LOOP;
 
@@ -232,6 +238,8 @@ mod app {
         ahrs: Ahrs,
         imu_calibration: imu_calibration::ImuCalibration,
         ext_sensor_active: ExtSensor,
+        pwr_maps: PowerMaps,
+
     }
 
     #[local]
@@ -604,6 +612,7 @@ mod app {
                 ahrs,
                 imu_calibration,
                 ext_sensor_active: ExtSensor::Mag,
+                pwr_maps: Default::default(),
             },
             Local {
                 // spi_flash, // todo: Fix flash in HAL, then do this.
@@ -894,59 +903,18 @@ mod app {
                         state_volatile.autopilot_commands = ap_cmds;
                     }
 
-                    // todo: Temp skipping the PID step while we evaluate our approaches.
-                    // return;
-
-                    // #[cfg(feature = "quad")]
-                    // pid::run_attitude(
-                    //     params,
-                    //     &mut state_volatile.attitude_commanded,
-                    //     &mut state_volatile.rates_commanded,
-                    //     &mut state_volatile.autopilot_commands,
-                    //     control_channel_data,
-                    //     &cfg.input_map,
-                    //     pid_attitude,
-                    //     filters,
-                    //     state_volatile.input_mode,
-                    //     autopilot_status,
-                    //     cfg,
-                    //     coeffs,
-                    //     &state_volatile.system_status,
-                    // );
-                    // #[cfg(feature = "fixed-wing")]
-                    // pid::run_attitude(
-                    //     params,
-                    //     &mut state_volatile.attitude_commanded,
-                    //     &mut state_volatile.rates_commanded,
-                    //     &mut state_volatile.autopilot_commands,
-                    //     pid_attitude,
-                    //     filters,
-                    //     autopilot_status,
-                    //     coeffs,
-                    //     &state_volatile.system_status,
-                    // );
-
-                    // #[cfg(feature = "quad")]
-                    // match state_volatile.input_mode {
-                    //     InputMode::Acro => {}
-                    //     _ => {} //     if input_mode == &InputMode::Command {
-                    //             //         if *cx.local.update_loop_i % VELOCITY_ATTITUDE_UPDATE_RATIO == 0 {
-                    //             //             pid::run_velocity(
-                    //             //                 params,
-                    //             //                 control_channel_data,
-                    //             //                 &cfg.input_map,
-                    //             //                 velocities_commanded,
-                    //             // //                 attitudes_commanded,
-                    //             //                 pid_velocity,
-                    //             //                 filters,
-                    //             //                 input_mode,
-                    //             //                 autopilot_status,
-                    //             //                 cfg,
-                    //             //                 coeffs,
-                    //             //             );
-                    //             //     }
-                    //             // }
-                    // }
+                    // todo: This should probably be delegatd to a fn; get it
+                    // todo out here
+                    if *cx.local.update_loop_i % RPM_LOG_RATIO == 0 {
+                        #[cfg(feature = "quad")]
+                        state_volatile.pwr_to_rpm_pitch.log_val(
+                            // todo: This is an average of the 4 powers and RPMs. Is this what you want?
+                            state_volatile.current_pwr.total() / 4.,
+                            0., // todo: Collect, and store all 4 motor powers; put here.
+                        );
+                        // Note: We currently don't have a way to measure servo position,
+                        // so we leave the default 1:1 mapping here.
+                    }
                 },
             )
     }
@@ -1143,51 +1111,6 @@ mod app {
                             state_volatile.ctrl_positions = control_posits;
                         }
                     }
-
-                    //
-                    // cfg_if! {
-                    //     if #[cfg(feature = "quad")] {
-                    //         pid::run_rate(
-                    //             params,
-                    //             control_channel_data,
-                    //             &mut state_volatile.rates_commanded,
-                    //             throttle_commanded,
-                    //             pid_rate,
-                    //             filters,
-                    //             &cfg.control_mapping,
-                    //             motor_timers,
-                    //             dma,
-                    //             coeffs,
-                    //             &cfg.input_map,
-                    //             state_volatile.arm_status,
-                    //             DT_IMU,
-                    //         );
-                    //         // todo: Set motor power in state_volatile A/R
-                    //     } else {
-                    //         // Our fixed-wing update rate is limited by the servos, so we only run this
-                    //         // 1 out of 16 IMU updates.
-                    //         *cx.local.fixed_wing_rate_loop_i += 1;
-                    //         if *cx.local.fixed_wing_rate_loop_i % FIXED_WING_RATE_UPDATE_RATIO == 0
-                    //         {
-                    //             pid::run_rate(
-                    //                 params,
-                    //                 control_channel_data,
-                    //                 &mut state_volatile.rates_commanded,
-                    //                 throttle_commanded,
-                    //                 pid_rate,
-                    //                 filters,
-                    //                 &mut state_volatile.ctrl_positions,
-                    //                 &cfg.control_mapping,
-                    //                 motor_timers,
-                    //                 dma,
-                    //                 coeffs,
-                    //                 &cfg.input_map,
-                    //                 state_volatile.arm_status,
-                    //                 DT_IMU * FIXED_WING_RATE_UPDATE_RATIO as f32,
-                    //             );
-                    //             // todo: Set ctrl posits in state_volatile A/R
-                    //         }
-                    //     }
                 },
             );
     }

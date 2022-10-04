@@ -275,26 +275,31 @@ impl MotorPower {
         let mut aft_left = mix.throttle;
         let mut aft_right = mix.throttle;
 
+        // inputs are a differential between opposing rotor pairs.
+        let half_pitch = mix.pitch / 2.;
+        let half_roll = mix.roll / 2.;
+        let half_yaw = mix.yaw / 2.;
+
         // Nose down for positive pitch.
-        front_left -= mix.pitch;
-        front_right -= mix.pitch;
-        aft_left += mix.pitch;
-        aft_right += mix.pitch;
+        front_left -= half_pitch;
+        front_right -= half_pitch;
+        aft_left += half_pitch;
+        aft_right += half_pitch;
 
         // Left side up for positive roll
-        front_left += mix.roll;
-        front_right -= mix.roll;
-        aft_left += mix.roll;
-        aft_right -= mix.roll;
+        front_left += half_roll;
+        front_right -= half_roll;
+        aft_left += half_roll;
+        aft_right -= half_roll;
 
         // Assumes positive yaw from the IMU means clockwise. // todo: Confirm this.
         // If props rotate in, front-left/aft-right rotors induce a CCW torque on the aircraft.
         // If props rotate out, these same rotors induce a CW torque.
         // This code assumes props rotate inwards towards the front and back ends.
         let yaw = if front_left_dir == RotationDir::Clockwise {
-            mix.yaw
+            half_yaw
         } else {
-            -mix.yaw
+            -half_yaw
         };
 
         front_left += yaw;
