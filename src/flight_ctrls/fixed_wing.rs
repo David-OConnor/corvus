@@ -76,11 +76,7 @@ impl Default for InputMap {
         Self {
             pitch_rate: (-6., 6.),
             roll_rate: (-6., 6.),
-            yaw_rate: (-0., 0.),        // N/A
-            throttle_clamped: (0., 0.), // N/A
-            pitch_angle: (0., 0.),      // N/A
-            roll_angle: (0., 0.),       // N/A
-            yaw_angle: (0., 0.),        // N/A
+            yaw_rate: (-6., 6.),
             alt_commanded_offset_msl: (0., 100.),
             alt_commanded_agl: (0.5, 8.),
         }

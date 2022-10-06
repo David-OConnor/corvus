@@ -34,6 +34,9 @@ impl Default for FlightCtrlFilters {
             ctrl_effectiveness: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
+            rpm: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
         };
 
         unsafe {

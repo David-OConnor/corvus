@@ -7,7 +7,7 @@ use crate::{
     flight_ctrls::{
         autopilot::{AutopilotStatus, LandingCfg},
         common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap, RatesCommanded},
-        ctrl_logic::{PowerMaps, CtrlCoeffs},
+        ctrl_logic::{CtrlCoeffs, PowerMaps},
         ControlMapping,
     },
     ppks::Location,
@@ -231,4 +231,6 @@ pub struct StateVolatile {
     pub initializing_motors: bool,
     /// Power to RPM, and RPM to angular acceleration data. (todo: Should this be stored in cfg?)
     pub power_maps: PowerMaps,
+    /// Angular drag coefficient, continuously updated.
+    pub angular_drag_coeff: f32,
 }

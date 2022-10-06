@@ -17,7 +17,10 @@ use crate::{
     util,
 };
 
-use super::common::{CtrlMix, InputMap, Motor, MotorTimers, Params};
+use super::{
+    common::{CtrlMix, InputMap, Motor, MotorTimers, Params},
+    pid,
+};
 
 use defmt::println;
 
@@ -25,8 +28,12 @@ use cmsis_dsp_sys as dsp_sys;
 
 use cfg_if::cfg_if;
 
-// Min power setting for any individual rotor at idle setting.
-const MIN_ROTOR_POWER: f32 = 0.03;
+// // Min power setting for any individual rotor at idle setting.
+// const MIN_ROTOR_POWER: f32 = 0.03;
+//
+
+// Min RPM setting for any individual rotor at idle setting.
+const MIN_ROTOR_RPM: f32 = 100.; // todo: Finda good value.
 
 // Max power setting for any individual rotor at idle setting.
 pub const MAX_ROTOR_POWER: f32 = 1.;
@@ -37,17 +44,15 @@ pub const MAX_ROTOR_POWER: f32 = 1.;
 // to reduce the risk and severity of individual rotors clamping due to throttle settings that
 // are too high or too low. They reduce user throttle authority, but provide more predictable
 // responses when maneucvering near min and max throttle
+// These are power settings, not RPM.
 pub const THROTTLE_MAX_MNVR_CLAMP: f32 = 0.80;
 // todo: You should probably disable the min maneuver clamp when on the ground (how to check?)
 // and have it higher otherwise.
 pub const THROTTLE_MIN_MNVR_CLAMP: f32 = 0.06;
 
-// // Even if PID output for a given axis is higher than this, don't allow more than this
-// // half-pair-delta between rotor power levels.
-// const ROTOR_HALF_DELTA_CLAMP: f32 = 0.15;
-
 // Don't execute the calibration procedure from below this altitude, in meters AGL, eg for safety.
-const MIN_CAL_ALT: f32 = 6.;
+// todo: Calibration unimplemented
+// const MIN_CAL_ALT: f32 = 6.;
 
 // Minimium speed before auto-yaw will engate. (if we end up setting up auto-yaw to align flight path
 // with heading)
@@ -59,15 +64,6 @@ pub const YAW_ASSIST_MIN_SPEED: f32 = 0.5; // m/s
 // angular velocity / accel: (radians/s) / (m/s^2) = radiants x s / m
 pub const YAW_ASSIST_COEFF: f32 = 0.1;
 
-// We use these LUTs to map thrust commanded to throttle position. Note that the starting values will
-// include an idle setting.
-// todo: Do we need to use these locally, to offset for idle setting?
-// const THRUST_LUT: [f32; 10] = [
-//     0.027, 0.075, 0.131, 0.225, 0.345, 0.473, 0.613, 0.751, 0.898, 1.0
-// ];
-
-pub const POWER_LUT: [f32; 10] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
-
 impl Default for InputMap {
     // todo: move deafult impls to their respective moudles (quad, flying wing)?
     fn default() -> Self {
@@ -78,7 +74,6 @@ impl Default for InputMap {
             throttle_clamped: (THROTTLE_MIN_MNVR_CLAMP, THROTTLE_MAX_MNVR_CLAMP),
             pitch_angle: (-TAU / 4., TAU / 4.),
             roll_angle: (-TAU / 4., TAU / 4.),
-            yaw_angle: (0., TAU),
             alt_commanded_offset_msl: (0., 100.),
             alt_commanded_agl: (0.5, 8.),
         }
@@ -86,31 +81,22 @@ impl Default for InputMap {
 }
 
 /// Represents a complete quadcopter. Used for setting control parameters.
-struct AircraftProperties {
-    mass: f32,               // grams
-    arm_len: f32,            // meters. COG to rotor center, horizontally.
-    drag_coeff: f32,         // unitless
-    thrust_coeff: f32,       // N/m^2
-    moment_of_intertia: f32, // kg x m^2
-    rotor_inertia: f32,      // kg x m^2
-}
+/// todo: Currently unimplemented.
+// struct AircraftProperties {
+//     mass: f32,               // grams
+//     arm_len: f32,            // meters. COG to rotor center, horizontally.
+//     drag_coeff: f32,         // unitless
+//     thrust_coeff: f32,       // N/m^2
+//     moment_of_intertia: f32, // kg x m^2
+//     rotor_inertia: f32,      // kg x m^2
+// }
 
-impl AircraftProperties {
-    /// Calculate the power level required, applied to each rotor, to maintain level flight
-    /// at a given MSL altitude. (Alt is in meters)
-    pub fn _level_pwr(&self, alt: f32) -> f32 {
-        0.1 // todo
-    }
-}
-
-// /// We use this to freeze an axis in acro mode, when the control for that axis is neutral.
-// /// this prevents drift from accumulation of errors. Values are uuler angle locked at, in radians. Only used
-// /// for pitch and roll, since yaw is coupled to those, and can't be maintained independently.
-// /// todo: Is there a way to do this using portions of a quaternion?
-// #[derive(Default)]
-// pub struct AxisLocks {
-//     pub pitch_locked: Option<f32>,
-//     pub roll_locked: Option<f32>,
+// impl AircraftProperties {
+//     /// Calculate the power level required, applied to each rotor, to maintain level flight
+//     /// at a given MSL altitude. (Alt is in meters)
+//     pub fn _level_pwr(&self, alt: f32) -> f32 {
+//         0.1 // todo
+//     }
 // }
 
 /// Specify the rotor by position. Used in power application code.
@@ -249,27 +235,27 @@ pub struct MotorPower {
     pub aft_right: f32,
 }
 
+/// Holds all 4 RPMs, by motor number.
+#[derive(Default)]
+pub struct MotorRpm {
+    // todo: DO we want this by rotor posit instead?
+    pub m1: f32,
+    pub m2: f32,
+    pub m3: f32,
+    pub m4: f32,
+}
+
 impl MotorPower {
-    /// Generate power settings from commands.
-    /// Helper function for `apply_controls`. Sets specific rotor power based on commanded rates and throttle.
-    /// We split this out so we can call it a second time, in case of a clamp due to min or max power
-    /// on a rotor.
-    ///
-    /// The ratios passed in params are on a scale between -1. and +1.
-    /// Throttle works differently - it's an overall scaler. If ratios are all 0, and power is 1., power for
-    /// all motors is 100%. No individual power level is allowed to be above 1, or below our idle power
-    /// setting.
-    /// Set rotor speed for all 4 rotors. We model pitch, roll, and yaw based on target angular rates.
-    /// We modify power ratio between the appropriate motor pairs to change these
-    /// parameters.
-    ///
-    /// Basic model: For each axis, the starting power is throttle. We then increase or decrease opposing
-    /// pair power up to a limit (Or absolute rotor power limit) based on the input commands.
-    ///
-    /// If a rotor exceeds min or max power settings, clamp it.
-    ///
-    /// Input deltas units are half-power-delta.  based on PID output; they're not in real units like radians/s.
+    /// Generate power settings for each motor, from RPM commands.
+    /// Pitch, roll, and yaw are in RPM difference between the sum of each pair.
+    /// todo: Not sure how to handle throttle.
     pub fn from_cmds(mix: &CtrlMix, front_left_dir: RotationDir) -> Self {
+        // todo: How do we initialize this ? You probably need some map of throttle to RPM
+        // todo as a temporary measure.
+
+        // todo: In general, you need to figure out how this function interactions
+        // todo with the RPM PID loop.
+
         let mut front_left = mix.throttle;
         let mut front_right = mix.throttle;
         let mut aft_left = mix.throttle;
@@ -368,17 +354,8 @@ impl MotorPower {
         self.aft_right *= scaler;
     }
 
-    /// Clamp rotor speeds. A simple form of dealing with a rotor out of limits.
+    /// Clamp rotor speeds by an RPM idle, and 1.0 max power.
     pub fn clamp_individual_rotors(&mut self) {
-        //Note: This loop approach is not working.
-        // for rotor in [self.front_left, self.front_right, self.aft_left, self.aft_right].iter_mut() {
-        //     if *rotor < THROTTLE_IDLE_POWER {
-        //         *rotor = THROTTLE_IDLE_POWER
-        //     } else if *rotor > THROTTLE_MAX_POWER {
-        //         *rotor = THROTTLE_MAX_POWER;
-        //     }
-        // }
-
         if self.front_left < MIN_ROTOR_POWER {
             self.front_left = MIN_ROTOR_POWER;
         } else if self.front_left > MAX_ROTOR_POWER {
@@ -425,17 +402,7 @@ impl MotorPower {
     }
 }
 
-/// Estimate the (single-axis) rotor tilt angle (relative to a level aircraft) to produce
-/// a desired amount of acceleration, with a given current velocity.
-/// todo: Assume level flight?
-/// // todo: come back to this later.
-fn estimate_rotor_angle(a_desired: f32, v_current: f32, ac_properties: &AircraftProperties) -> f32 {
-    // let drag = ac_properties.drag_coeff * v_current; // todo
-    // 1. / ac_properties.thrust_coeff; // todo
-    0. // todo
-}
-
-/// Calculate the horizontal arget velocity (m/s), for a given distance (m) from a point horizontally.
+/// Calculate the horizontal target velocity (m/s), for a given distance (m) from a point horizontally.
 pub fn enroute_speed_hor(dist: f32, max_v: f32) -> f32 {
     // todo: LUT?
 
@@ -477,33 +444,6 @@ pub fn enroute_speed_ver(dist: f32, max_v: f32, z_agl: f32) -> f32 {
         result *= -1.;
     }
     result
-}
-
-// todo:
-// /// Maybe we do map to acceleration at low speeds or power levels, but then go straight V pid?
-// fn enroute_accel(desired_v, current_v) -> Option<f32> {
-//}
-
-/// Calculate power level to send to the ESC, from throttle setting. This is set up in a way to map
-/// linearly between throttle setting and thrust, with an idle floor for power. Both values are on a scale of 0. to
-/// 1., but the map isn't linear.
-/// [This article](https://innov8tivedesigns.com/images/specs/Prop-Chart-Instructions-B.pdf) has
-/// some plots of relevant info. This fn is based on the "Propeller Thrust vs Throttle Position" chart.
-// todo: Fn, or LUT+interp? Maybe with CMSIS
-pub fn power_from_throttle(
-    throttle: f32,
-    interp_inst: &dsp_sys::arm_linear_interp_instance_f32,
-) -> f32 {
-    // todo: We currently have fixed spacing in our LUT between throttle settings,
-    // todo, but we need to reverse that!
-
-    // todo: Is the setting we pass to ESC raw power, or is it RPM???
-    // todo if RPM, you need to change this.
-
-    // todo: Can't find this fn? Why??
-    // dsp_sys::arm_linear_interp_f32(interp_inst, throttle)
-
-    throttle // todo 1:1 mapping, and ignoring idle power.
 }
 
 /// Calculate the landing vertical velocity (m/s), for a given height  (m) above the ground.

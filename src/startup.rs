@@ -24,7 +24,7 @@ use crate::{
     // pid::{CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::{Location, LocationType},
     protocols::{crsf, dshot, usb_cfg},
-    safety::ArmStatus,
+    safety::{LOST_LINK_TIMEOUT, ArmStatus},
     state::{AircraftType, OperationMode, StateVolatile, UserCfg},
     madgwick::{self, Ahrs},
 };
@@ -287,7 +287,7 @@ pub fn init() -> (Shared, Local, Monotomic) {
 
     let mut lost_link_timer = Timer::new_tim17(
         dp.TIM17,
-        1. / flight_ctrls::common::LOST_LINK_TIMEOUT,
+        1. / LOST_LINK_TIMEOUT,
         TimerConfig {
             one_pulse_mode: true,
             ..Default::default()

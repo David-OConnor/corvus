@@ -1,10 +1,5 @@
 //! This module contains flight control code not specific to an aircraft design category.
-
-// Todo: For rate-based controls on both fixed and quad: Consider using rate with PID while control
-// todo inputs are changing. When no controls are present, use attititude to maintain position.
-// todo: For the rate sub-loop, consider toning down I term, or possibly skipping the rate loop entirely.
-// todo: For that last option, perhaps impl wise to maintain 8kHz etc update rate, make the inner
-// todo loop attitude-based, instead of deferring to the mid loop.
+//! It is mostly types.
 
 use crate::util::map_linear;
 
@@ -16,25 +11,16 @@ use cfg_if::cfg_if;
 
 use defmt::println;
 
-cfg_if! {
-    if #[cfg(feature = "fixed-wing")] {
-        // use super::ControlPositions;
-    } else {
-        // use super::{MotorPower, THROTTLE_MAX_MNVR_CLAMP, THROTTLE_MIN_MNVR_CLAMP};
-    }
-}
-
 // Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
 const ROLL_IN_RNG: (f32, f32) = (-1., 1.);
 const YAW_IN_RNG: (f32, f32) = (-1., 1.);
 const THROTTLE_IN_RNG: (f32, f32) = (0., 1.);
 
-// Time in seconds between subsequent data received before we execute lost-link procedures.
-pub const LOST_LINK_TIMEOUT: f32 = 1.;
-
-/// Specify the rotor by its connection to the ESC. Includdes methods that get information regarding timer
+/// Specify the rotor by its connection to the ESC. Includes methods that get information regarding timer
 /// and DMA, per specific board setups, in `setup`.
+/// Note that this is more appplicable to quads, but isn't in the `quad` module due to how
+/// we've structured DSHOT code.
 #[derive(Clone, Copy)]
 pub enum Motor {
     M1,
@@ -43,8 +29,9 @@ pub enum Motor {
     M4,
 }
 
-/// Maps control inputs (range 0. to 1. or -1. to 1.) to velocities, rotational velocities etc
+/// Maps manual control inputs (range 0. to 1. or -1. to 1.) to velocities, rotational velocities etc
 /// for various flight modes. The values are for full input range.
+/// Note that defaults are defined in the `quad` and `fixed-wing` modules.
 pub struct InputMap {
     /// Pitch velocity commanded, (Eg Acro mode). radians/sec
     pub pitch_rate: (f32, f32),
@@ -52,16 +39,19 @@ pub struct InputMap {
     pub roll_rate: (f32, f32),
     /// Yaw velocity commanded (Eg Acro mode)
     pub yaw_rate: (f32, f32),
+    #[cfg(feature = "quad")]
     /// Throttle setting, clamped to leave room for maneuvering near the limits.
     pub throttle_clamped: (f32, f32),
-    /// Pitch velocity commanded (Eg Attitude mode) // radians from vertical
+    #[cfg(feature = "quad")]
+    /// Pitch angle commanded (Eg Attitude mode) // radians from vertical
     pub pitch_angle: (f32, f32),
-    /// Pitch velocity commanded (Eg Attitude mode)
+    #[cfg(feature = "quad")]
+    /// Roll angle commanded (Eg Attitude mode)
     pub roll_angle: (f32, f32),
-    /// Yaw angle commanded v. Radians from north (?)
-    pub yaw_angle: (f32, f32),
+    /// When a stick (eg throttle) is mapped to a commanded baro altitude.
     /// Offset MSL is MSL, but 0 maps to launch alt
     pub alt_commanded_offset_msl: (f32, f32),
+    /// When a stick (eg throttle) is mapped to a commanded AGL altitude.
     pub alt_commanded_agl: (f32, f32),
 }
 
@@ -79,21 +69,19 @@ impl InputMap {
         map_linear(input, YAW_IN_RNG, self.yaw_rate)
     }
 
+    #[cfg(feature = "quad")]
     pub fn calc_manual_throttle(&self, input: f32) -> f32 {
         map_linear(input, THROTTLE_IN_RNG, self.throttle_clamped)
     }
 
-    /// eg for attitude mode.
+    #[cfg(feature = "quad")]
     pub fn calc_pitch_angle(&self, input: f32) -> f32 {
         map_linear(input, PITCH_IN_RNG, self.pitch_angle)
     }
 
+    #[cfg(feature = "quad")]
     pub fn calc_roll_angle(&self, input: f32) -> f32 {
         map_linear(input, ROLL_IN_RNG, self.roll_angle)
-    }
-
-    pub fn calc_yaw_angle(&self, input: f32) -> f32 {
-        map_linear(input, YAW_IN_RNG, self.yaw_angle)
     }
 }
 
@@ -106,8 +94,13 @@ pub enum AltType {
 }
 
 #[derive(Clone, Default)]
-/// We use this to track how our control data changes over time. Similar to `CtrlInputs`,
+/// We use this to store control commands, that map directly to motor power (quads), or
+/// elevon (and optionally rudder or differential engine/speedbrake power) on fixed-wing. Similar to `CtrlInputs`,
 /// but without the options, and for a different use.
+///
+/// For quads, pitch, roll, and yaw are in RPM difference between the sum of each pair.
+/// todo: For now, throttle is an absolute power setting on quads.
+/// For fixed-wing, they're in arbitrary units, due to being unable to measure servo position.
 pub struct CtrlMix {
     pub pitch: f32,
     pub roll: f32,
@@ -158,6 +151,7 @@ pub struct RatesCommanded {
 
 /// Aircraft flight parameters, at a given instant. Pitch and roll rates are in the aircraft's
 /// frame of reference.
+/// todo: This should be elsewhere.
 #[derive(Default, Clone)]
 pub struct Params {
     /// Latitude in radians. From GPS alone, or blended with accelerometer data.
@@ -197,23 +191,6 @@ pub struct Params {
     pub a_roll: f32,
     pub a_yaw: f32,
 }
-
-// /// Stores data on how the aircraft has performed in various recent flight conditions.
-// /// This data is used to estimate control surface positions or rotor power in response
-// /// to a change in commanded parameters. Rates are in rad/s.
-// pub struct _ResponseDataPt {
-//     /// Forward airspeed
-//     pub airspeed: f32,
-//     // todo: Options for these, or an enum?
-//     pub motor_power: MotorPower,
-//     #[cfg(feature = "fixed-wing")]
-//     pub control_posits: ControlPositions,
-//
-//     // todo: If you need more, consider using `Params`.
-//     pub pitch_rate: f32,
-//     pub roll_rate: f32,
-//     pub yaw_rate: f32,
-// }
 
 /// Abstraction over timers, that allows us to feature-gate struct fields based on MCU; this is
 /// because we can't use feature gates on function arguments, so we're gating upstream.

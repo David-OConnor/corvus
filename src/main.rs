@@ -5,8 +5,6 @@
 // - Hobby / racing (duh)
 // Tower inspections (Maybe market disruption by using fixed-wing + tpod?)
 //
-//
-//
 // https://www.youtube.com/watch?v=zOByx3Izf5U
 // For state estimation
 // https://www.youtube.com/watch?v=RZd6XDx5VXo (Series)
@@ -116,7 +114,7 @@ cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use flight_ctrls::{autopilot::Orbit, ControlPositions};
     } else {
-        use flight_ctrls::{InputMode, MotorPower, RotationDir, RotorPosition};
+        use flight_ctrls::{InputMode, MotorPower, RotationDir, RotorPosition, MotorRpm};
     }
 }
 
@@ -161,9 +159,6 @@ const UPDATE_RATE_MAIN_LOOP: f32 = 1_600.; // IMU rate / 5.
 
 // Every x main update loops, log parameters etc to flash.
 const LOGGING_UPDATE_RATIO: usize = 100;
-
-// Every x main loops, log power to RPM (or servo posit) data.
-const RPM_LOG_RATIO: usize = 20;
 
 // Every x main loops, log RPM (or servo posit) to angular accel (thrust) data.
 const THRUST_LOG_RATIO: usize = 20;
@@ -239,13 +234,17 @@ mod app {
         imu_calibration: imu_calibration::ImuCalibration,
         ext_sensor_active: ExtSensor,
         pwr_maps: PowerMaps,
-
+        #[cfg(feature = "quad")]
+        /// Store rotor RPM: (M1, M2, M3, M4)
+        rotor_rpms: MotorRpm,
+        /// PID motor coefficients
+        motor_pid_coeffs: pid::MotorCoeffs,
     }
 
     #[local]
     struct Local {
         // spi_flash: SpiFlash,  // todo: Fix flash in HAL, then do this.
-        arm_signals_received: u8, // todo: Put in state volatile.
+        arm_signals_received: u8, // todo: Put sharedin state volatile.
         disarm_signals_received: u8,
         /// We use this counter to subdivide the main loop into longer intervals,
         /// for various tasks like logging, and outer loops.
@@ -420,7 +419,7 @@ mod app {
 
         let mut lost_link_timer = Timer::new_tim17(
             dp.TIM17,
-            1. / flight_ctrls::common::LOST_LINK_TIMEOUT,
+            1. / safety::LOST_LINK_TIMEOUT,
             TimerConfig {
                 one_pulse_mode: true,
                 ..Default::default()
@@ -613,6 +612,7 @@ mod app {
                 imu_calibration,
                 ext_sensor_active: ExtSensor::Mag,
                 pwr_maps: Default::default(),
+                motor_pid_coeffs: Default::default(),
             },
             Local {
                 // spi_flash, // todo: Fix flash in HAL, then do this.
@@ -905,13 +905,35 @@ mod app {
 
                     // todo: This should probably be delegatd to a fn; get it
                     // todo out here
-                    if *cx.local.update_loop_i % RPM_LOG_RATIO == 0 {
-                        #[cfg(feature = "quad")]
-                        state_volatile.pwr_to_rpm_pitch.log_val(
-                            // todo: This is an average of the 4 powers and RPMs. Is this what you want?
-                            state_volatile.current_pwr.total() / 4.,
-                            0., // todo: Collect, and store all 4 motor powers; put here.
-                        );
+                    if *cx.local.update_loop_i % THRUST_LOG_RATIO == 0 {
+                        cfg_if! {
+                            if #[cfg(feature = "quad")] {
+                                let rpm = &state_volatile.rotor_rpms;
+
+                                state_volatile.power_maps.rpm_to_accel_pitch.log_val(
+                                // todo: Populate this, and consider if you want rpms to be by motor or rotor posit
+                                    pwr.front_left + pwr.front_right - pwr.aft_left - pwr.aft_right
+                                    // rpm.m1 + rpm.m2 + rpm.m3 + rpm.m4
+                                    // todo: Motors. Map Motor num to rotor position here.
+                                    // todo: Possibly with helper methods.
+                                    0.,
+                                );
+
+                                state_volatile.power_maps.rpm_to_accel__roll.log_val(
+                                0.,
+                                    0.,
+                                );
+
+                                let mut yaw_pwr = 0.;
+                                if cfg.control_mapping.frontleft_aftright_dir == RotationDir::Clockwise {
+                                    yaw_pwr *= 1.;
+                                }
+                                state_volatile.power_maps.rpm_to_accel_yaw.log_val(
+                                    yaw_pwr,
+                                    0.,
+                                );
+                            }
+                        }
                         // Note: We currently don't have a way to measure servo position,
                         // so we leave the default 1:1 mapping here.
                     }

@@ -44,110 +44,6 @@ const FWD: Vec3 = Vec3 {
 // todo: unimplemented
 const IDLE_RPM: f32 = 100.;
 
-// todo: Impl BF's 'dynamic idle': Use RPM data to hdnle a per-motor idle in RPM (vice an overall power
-// todo setting)
-
-// todo: Experimental. Mappings between power level and RPM (once settled). Do we want an array?
-// todo: More or fewer points? A simple linear (or otherwise) analytic model?
-/// Map commanded motor power to RPM. Average over time, and over all props.
-/// This should be approximately linear.
-/// For fixed wing, we use servo position instead of RPM. Unfortunately, we don't currently have
-/// a way to measure servo position.
-/// We store one value around each of these fields (names are in percent), but the
-/// logged value may not be this exactly.
-struct PwrToRpmMap {
-    // todo: Make sure to debug print these to make sure it's working properly, ie is relatively
-    // todo stable, and the values make sense
-
-    // Lower power should probably be from idle, not 0. So include p_0 here.
-    // first value is power level; second is rpm.
-    p_0: (f32, f32),
-    // p_10: (f32, f32),
-    p_20: (f32, f32),
-    // p_30: (f32, f32),
-    p_40: (f32, f32),
-    // p_50: (f32, f32),
-    p_60: (f32, f32),
-    // p_70: (f32, f32),
-    p_80: (f32, f32),
-    // p_90: (f32, f32),
-    p_100: (f32, f32),
-}
-
-impl Default for PwrToRpmMap {
-    #[cfg(feature = "quad")]
-    fn default() -> Self {
-        // todo: Populate this.
-        Self {
-            p_0: (0., 0.),
-            p_20: (0.2, 0.2),
-            p_40: (0.4, 0.4),
-            p_60: (0.6, 0.6),
-            p_80: (0.8, 0.8),
-            p_100: (1., 1.),
-        }
-    }
-
-    #[cfg(feature = "fixed-wing")]
-    /// 1:1 mapping for fixed-wings, due to being unable to measure servo posit.
-    fn default() -> Self {
-        Self {
-            p_0: (0., 0.),
-            p_20: (0.2, 0.2),
-            p_40: (0.4, 0.4),
-            p_60: (0.6, 0.6),
-            p_80: (0.8, 0.8),
-            p_100: (1., 1.),
-        }
-    }
-}
-
-impl PwrToRpmMap {
-    /// Log a power, and rpm.
-    pub fn log_val(&mut self, pwr: f32, rpm: f32) {
-        // todo: Allow for spin-up time.
-
-        // todo: filtering! But how, given the pwr these are logged at changes?
-        // todo: Maybe filter a an interpolation to the actual values, and store those?
-
-        if pwr < 0.1 {
-            self.p_0 = (pwr, rpm);
-        } else if pwr < 0.3 {
-            self.p_20 = (pwr, rpm);
-        } else if pwr < 0.5 {
-            self.p_40 = (pwr, rpm);
-        } else if pwr < 0.7 {
-            self.p_60 = (pwr, rpm);
-        } else if pwr < 0.9 {
-            self.p_80 = (pwr, rpm);
-        } else {
-            self.p_100 = (pwr, rpm);
-        }
-
-        self.p_x = (pwr, rpm);
-    }
-}
-
-// todo: Model spin-up/down of props to power change.
-
-#[cfg(feature = "quad")]
-impl PwrToRpmMap {
-    /// Interpolate, to get power from this LUT.
-    pub fn pwr_to_rpm(&self, pwr: f32) -> f32 {
-        if pwr < self.p_20.0 {
-            map_linear(pwr, (self.p_0.0, self.p_20.0), (self.p_0.1, self.p_20.1))
-        } else if pwr < self.p_40.0 {
-            map_linear(pwr, (self.p_20.0, self.p_40.0), (self.p_20.1, self.p_40.1))
-        } else if pwr < self.p_60.0 {
-            map_linear(pwr, (self.p_40.0, self.p_60.0), (self.p_40.1, self.p_60.1))
-        } else if pwr < self.p_80.0 {
-            map_linear(pwr, (self.p_60.0, self.p_80.0), (self.p_60.1, self.p_80.1))
-        } else {
-            map_linear(pwr, (self.p_80.0, self.p_100.0), (self.p_80.1, self.p_100.1))
-        }
-    }
-}
-
 /// Map RPM to angular acceleration (thrust proxy). Average over time, and over all props.
 /// Note that this relationship may be exponential, or something similar, with RPM increases
 /// at higher ranges providing a bigger change in thrust.
@@ -197,15 +93,39 @@ impl RpmToAccel {
             _ => rpm * end_slope,
         }
     }
+
+    /// Log a power, and rpm.
+    pub fn log_val(&mut self, rpm: f32, accel: f32) {
+        // todo: Allow for spin-up time.
+
+        // todo: filtering! But how, given the pwr these are logged at changes?
+        // todo: Maybe filter a an interpolation to the actual values, and store those?
+
+        if rpm < 0.1 {
+            self.p_0 = (rpm, accel);
+        } else if rpm < 0.3 {
+            self.p_20 = (rpm, accel);
+        } else if rpm < 0.5 {
+            self.p_40 = (rpm, accel);
+        } else if rpm < 0.7 {
+            self.p_60 = (rpm, accel);
+        } else if rpm < 0.9 {
+            self.p_80 = (rpm, accel);
+        } else {
+            self.p_100 = (rpm, accel);
+        }
+
+        self.p_x = (rpm, accel);
+    }
 }
 
 /// This struct contains maps of 0-1 power level to RPM and angular accel.
 /// For fixed wing, substitude servo position setting for RPM.
 #[derive(Default)]
 pub struct PowerMaps {
-    pub pwr_to_rpm_pitch: PwrToRpmMap,
-    pub pwr_to_rpm_roll: PwrToRpmMap,
-    pub pwr_to_rpm_yaw: PwrToRpmMap,
+    // pub pwr_to_rpm_pitch: PwrToRpmMap,
+    // pub pwr_to_rpm_roll: PwrToRpmMap,
+    // pub pwr_to_rpm_yaw: PwrToRpmMap,
     pub rpm_to_accel_pitch: RpmToAccel,
     pub rpm_to_accel_roll: RpmToAccel,
     pub rpm_to_accel_yaw: RpmToAccel,
@@ -226,10 +146,11 @@ pub struct CtrlCoeffs {
     /// Time to correction is a coefficient that determines how quickly the angular
     /// velocity will be corrected to the target.
     /// Lower values mean more aggressive corrections.
-    time_to_correction_p_ω: f32,
-    time_to_correction_p_θ: f32,
-    dist_to_correction_p_ω: f32,
-    dist_to_correction_p_θ: f32,
+    // time_to_correction_p_ω: f32,
+    // time_to_correction_p_θ: f32,
+    time_to_correction: f32,
+    // dist_to_correction_p_ω: f32,
+    // dist_to_correction_p_θ: f32,
     // /// In rad/s^2. A higher value will allow for more aggressive corrections.
     // max_ω_dot: f32,
 }
@@ -241,10 +162,9 @@ impl Default for CtrlCoeffs {
     fn default() -> Self {
         Self {
             p_ω: 10.,
-            time_to_correction_p_ω: 0.1, // todo?
-            time_to_correction_p_θ: 0.5, // todo?
-            dist_to_correction_p_ω: 0.1,
-            dist_to_correction_p_θ: 0.1,
+            // time_to_correction_p_ω: 0.1, // todo?
+            // time_to_correction_p_θ: 0.5, // todo?
+            time_to_correction: 0.1,
             // max_ω_dot: 10.,              // todo: What should this be?
         }
     }
@@ -253,87 +173,94 @@ impl Default for CtrlCoeffs {
     fn default() -> Self {
         Self {
             p_ω: 10.,
-            time_to_correction_p_ω: 0.1,
-            time_to_correction_p_θ: 0.5,
-            dist_to_correction_p_ω: 0.1,
-            dist_to_correction_p_θ: 0.1,
+            // time_to_correction_p_ω: 0.1,
+            // time_to_correction_p_θ: 0.5,
+            // dist_to_correction_p_ω: 0.1,
+            // dist_to_correction_p_θ: 0.1,
+            time_to_correction: 0.1,
             // max_ω_dot: 10.,
         }
     }
 }
 
-// todo: COde shortner 3x.
+/// Calculate the commanded acceleration required to meet a desired acceleration
+/// by taking drag into account
+fn calc_drag_coeff(ω_meas: f32, ω_dot_meas: f32, ω_dot_commanded: f32) -> f32 {
+    // https://physics.stackexchange.com/questions/304742/angular-drag-on-body
+    // This coefficient maps angular velocity to drag acceleration directly,
+    // and is measured (and filtered).
+
+    // todo: For "low-speeds", drag is proportionanl to ω. For high speeds, it's
+    // todo prop to ω^2. The distinction is the reynolds number.
+
+    // todo: Low speed for now.
+    // drag_accel = -cω
+    // ω_dot = ω_dot_commanded - cω
+    // c = -1/ω * (ω_dot - ω_dot_commanded)
+    // ω_dot_commanded = ω_dot + cω
+
+    -1. / ω_meas * (ω_dot - ω_dot_commanded)
+}
+
+/// Calculate the time in seconds allocated to perform an attitude change, based
+/// on the rotation angle to perform, and current angular velocity.
+/// ω positive means going towards the target; negative means away.
+fn calc_time_to_correction(dθ: f32, ω: f32, coeff: f32) -> f32 {
+    // Attempting an approach based on calculating an impulse.
+    // This is in units of force * units of time. Taking out mass,
+    // we use acceleration * time.
+    // J = F_average x (t2 - t1)
+
+    // dθ = ω * dt
+
+    // Let's say θ = 1. ω = 0. Let's say time = 1
+    // It takes 1 rad/s dωto arrive
+
+    // if θ = 1. ω = 1, it takes 0 rad/s to arrive in 1s
+    // if θ = 1. ω = 0, it takes 1 rad/s to arrive
+    // if θ = 1. ω = -1, it takes 2 rad/s to arrive
+    // if θ = 1. ω = -2, it takes 3 rad/s to arrive
+    // if θ = 2. ω = -2, it takes 4 rad/s to arrive in 1s
+
+    // if θ = 1. ω = 0, it takes 1/2 rad/s to arrive in 2s
+    // if θ = 1. ω = 1, it takes -1/2 rad/s to arrive in 2s
+    // if θ = 1. ω = -2, it takes -1/2 rad/s to arrive in 2s
+
+    // The rule: dω/dt  =  θ/t.      dω =      ω - t?
+    // θ/t - ω
+
+    //If
+    //
+
+    // todo: Probably not right?
+    // t
+
+    // rad/s - rad/s = 0
+
+    θ / t - ω
+}
 
 /// Find the desired control setting on a single axis; loosely corresponds to a
-/// commanded angular acceleration.
+/// commanded angular acceleration. We assume, physical limits (eg motor power available)
+/// aside, a constant change in angular acceleration (jerk) for a given correction.
 fn find_ctrl_setting(
     dθ: f32,
-    ω: f32,
+    ω_0: f32,
     ω_dot: f32,
     ctrl_cmd_prev: f32,
     coeffs: &CtrlCoeffs,
     filters: &mut FlightCtrlFilters,
 ) -> f32 {
     // todo: Take RPM and/or time-to-spin up/down into account.
-    // todo: It's likely the best plan is to set up RPM measurement, and create a model
-    // todo based on that that relates speed change time to various regimes.
 
-    // Compare the current (measured) angular velocities to what we need to apply this rotation.
-    // We currently use a linear model to find a rate proportional to the angular
-    // distance to travel on this axis.
-    // let ω_target = dθ * coeffs.p_ω;
+    // todo: More work here.
+    let ttc = calc_time_to_correction(dθ, ω_0, coeffs.time_to_correction);
 
-    // let dω = ω_target - ω;
+    // Calculate the "initial" target angular acceleration.
+    let ω_dot_0 = -(6. * dθ + 4. * ttc * ω_0) / ttc.powi(2);
 
-    // ω_target = dθ * coeffs.p_ω;
-    // ω_dot = ω_dot + ω_dot_dot * dt
-    // find ω_dot_dot where... ω = dθ * coeffs.p_ω in a short time, while adhearing to
-    // certain requirements?
-    // A correction might involve acceleration ramping up then down. Should we target
-    // a certain shape. Gaussian? Maybe hit peak accel you need for a gradual
-    // reduction in motor speed, settling on our ω_target curve.
-
-    // todo: Alternatively compared to your angular rate timeline, consider a timeline
-    // todo where you calculate an acceleration profile.(?)
-
-    // Calculate a time to which will be the target to get the angular velocity
-    // to the target. Note that the angular position (and therefore target rate)
-    // will change during this time.
-    // todo: Forward predict, with a change in accel program per a schedule?
-    // let time_to_correction =
-    //     coeffs.time_to_correction_p_ω * dω.abs() + coeffs.time_to_correction_p_θ * dθ.abs();
-    let time_to_correction = coeffs.time_to_correction_p_θ * dθ.abs();
-
-    // let dist_to_correction =
-    //     coeffs.dist_to_correction_p_ω * dω.abs() + coeffs.dist_to_correction_p_θ * dθ.abs();
-
-    // todo: Even more in-depth: If adjusting to manual or other rapidly-changing controls, extrapolate
-    // todo the response, ie cut corners to the predicted attitude during a control actuation?
-    // todo: You may need to re-consider an analytic solution to ODE here.
-
-    // BCs
-    // A: ω = ω. ω_dot = ω_dot. ω_dot_dot = 0(?)
-    // B: ω = ωtarget_at_calculated_posit?
-
-    // Find the instantaneous angular acceleration that will correct angular rate in the time
-    // determined above.
-    // let mut ω_dot_target = dω / time_to_correction;
-    // todo: COnsider if you want this, or something like it.
-    // if ω_dot_target > coeffs.max_ω_dot {
-    //     ω_dot_target = coeffs.max_ω_dot;
-    // }
-
-    let ω_dot_start = -ω * 2. / time_to_correction.powi(2);
-
-    // Calculate a constant change in acceleration to apply the correction.
-    let ω_dot_dot = 6./ time_to_correction.powi(3) * (ω - dθ - ω * time_to_correction);
-
-
-    // https://physics.stackexchange.com/questions/304742/angular-drag-on-body
-    // This coefficient maps angular velocity to drag acceleration directly,
-    // and is measured (and filtered).
-    let drag_coeff = 0.01; // todo: Measure this.
-    let drag_accel = drag_coeff * -ω; // Angular trag. Assuming it's linear with ω
+    // Calculate the (~constant for a given correction) change in angular acceleration.
+    let ω_dot_dot = 6. * (2. * dθ + ttc * ω_0) / ttc.powi(3);
 
     // The target acceleration needs to include both the correction, and drag compensation.
     // todo: QC sign etc on this.
