@@ -235,31 +235,32 @@ pub struct MotorPower {
     pub aft_right: f32,
 }
 
-/// Holds all 4 RPMs, by motor number.
+/// Holds all 4 RPMs, by position.
 #[derive(Default)]
 pub struct MotorRpm {
-    // todo: DO we want this by rotor posit instead?
-    pub m1: f32,
-    pub m2: f32,
-    pub m3: f32,
-    pub m4: f32,
+    pub front_left: f32,
+    pub front_right: f32,
+    pub aft_left: f32,
+    pub aft_right: f32,
 }
 
-impl MotorPower {
+fn estimate_rpm_from_pwr(pwr: f32) -> f32 {
+    // todo: Temp approach. The long-term play may be to estimate the max RPM
+    // todo from extrapolating commanded pwr and measured RPM using a model. (linear?)
+    // todo: Or, perhaps map power to thrust (non-linear!)
+    pwr * 5000.
+}
+
+impl MotorRpm {
     /// Generate power settings for each motor, from RPM commands.
     /// Pitch, roll, and yaw are in RPM difference between the sum of each pair.
-    /// todo: Not sure how to handle throttle.
     pub fn from_cmds(mix: &CtrlMix, front_left_dir: RotationDir) -> Self {
-        // todo: How do we initialize this ? You probably need some map of throttle to RPM
-        // todo as a temporary measure.
+        let baseline_rpm = estimate_rpm_from_pwr(mix.throttle);
 
-        // todo: In general, you need to figure out how this function interactions
-        // todo with the RPM PID loop.
-
-        let mut front_left = mix.throttle;
-        let mut front_right = mix.throttle;
-        let mut aft_left = mix.throttle;
-        let mut aft_right = mix.throttle;
+        let mut front_left = baseline_rpm;
+        let mut front_right = baseline_rpm;
+        let mut aft_left = baseline_rpm;
+        let mut aft_right = baseline_rpm;
 
         // inputs are a differential between opposing rotor pairs.
         let half_pitch = mix.pitch / 2.;
@@ -278,7 +279,7 @@ impl MotorPower {
         aft_left += half_roll;
         aft_right -= half_roll;
 
-        // Assumes positive yaw from the IMU means clockwise. // todo: Confirm this.
+        // Assumes positive yaw from the IMU means clockwise.
         // If props rotate in, front-left/aft-right rotors induce a CCW torque on the aircraft.
         // If props rotate out, these same rotors induce a CW torque.
         // This code assumes props rotate inwards towards the front and back ends.
@@ -305,6 +306,92 @@ impl MotorPower {
         result
     }
 
+    /// Clamp rotor speeds by an RPM idle.
+    pub fn clamp_individual_rotors(&mut self) {
+        if self.front_left < MIN_ROTOR_RPM {
+            self.front_left = MIN_ROTOR_RPM;
+        }
+
+        if self.front_right < MIN_ROTOR_RPM {
+            self.front_right = MIN_ROTOR_RPM;
+        }
+
+        if self.aft_left < MIN_ROTOR_RPM {
+            self.aft_left = MIN_ROTOR_RPM;
+        }
+
+        if self.aft_right < MIN_ROTOR_RPM {
+            self.aft_right = MIN_ROTOR_RPM;
+        }
+    }
+
+    /// Send this power command to the rotors, after converting to `MotorPower`,
+    /// via a power-to-RPM PID.
+    pub fn set(
+        &self,
+        pid_coeffs: pid::MotorCoeffGroup,
+        pids: pid::MotorPidGroup,
+        mapping: &ControlMapping,
+        motor_timers: &mut MotorTimers,
+        arm_status: ArmStatus,
+        dma: &mut Dma<DMA1>,
+    ) {
+        let fl = pid::run(
+            self.front_left,
+            measurement,
+            pids.front_left,
+            pid_coeffs.p_front_left,
+            pid_coeffs.i_front_left,
+            0.,
+            None,
+            crate::DT_IMU,
+        );
+
+        let fr = pid::run(
+            self.front_right,
+            measurement,
+            pids.front_right,
+            pid_coeffs.p_front_right,
+            pid_coeffs.i_front_right,
+            0.,
+            None,
+            crate::DT_IMU,
+        );
+
+        let al = pid::run(
+            self.aft_left,
+            measurement,
+            pids.aft_left,
+            pid_coeffs.p_aft_left,
+            pid_coeffs.i_aft_left,
+            0.,
+            None,
+            crate::DT_IMU,
+        );
+
+        let ar = pid::run(
+            self.aft_right,
+            measurement,
+            pids.aft_right,
+            pid_coeffs.p_aft_right,
+            pid_coeffs.i_aft_right,
+            0.,
+            None,
+            crate::DT_IMU,
+        );
+
+        let power = MotorPower {
+            front_left: fl.out(),
+            front_right: fr.out(),
+            aft_left: al.out(),
+            aft_right: ar.out(),
+        };
+
+        power.set(mapping, motor_timers, arm_status, dma);
+    }
+}
+
+impl MotorPower {
     /// Convert rotor position to its associated power setting.
     fn by_rotor_num(&self, mapping: &ControlMapping) -> (f32, f32, f32, f32) {
         // todo: DRY
@@ -341,42 +428,34 @@ impl MotorPower {
 
     /// Calculates total power. Used to normalize individual rotor powers when setting total
     /// power, eg from a thrust setting.
-    pub fn total(&self) -> f32 {
+    pub fn _total(&self) -> f32 {
         self.front_left + self.front_right + self.aft_left + self.aft_right
     }
 
     /// Calculates total power. Used to normalize individual rotor powers when setting total
     /// power, eg from a thrust setting.
-    pub fn scale_all(&mut self, scaler: f32) {
+    pub fn _scale_all(&mut self, scaler: f32) {
         self.front_left *= scaler;
         self.front_right *= scaler;
         self.aft_left *= scaler;
         self.aft_right *= scaler;
     }
 
-    /// Clamp rotor speeds by an RPM idle, and 1.0 max power.
+    /// Clamp rotor speeds to 1.0 max power.
     pub fn clamp_individual_rotors(&mut self) {
-        if self.front_left < MIN_ROTOR_POWER {
-            self.front_left = MIN_ROTOR_POWER;
-        } else if self.front_left > MAX_ROTOR_POWER {
+        if self.front_left > MAX_ROTOR_POWER {
             self.front_left = MAX_ROTOR_POWER;
         }
 
-        if self.front_right < MIN_ROTOR_POWER {
-            self.front_right = MIN_ROTOR_POWER;
-        } else if self.front_right > MAX_ROTOR_POWER {
+        if self.front_right > MAX_ROTOR_POWER {
             self.front_right = MAX_ROTOR_POWER;
         }
 
-        if self.aft_left < MIN_ROTOR_POWER {
-            self.aft_left = MIN_ROTOR_POWER;
-        } else if self.aft_left > MAX_ROTOR_POWER {
+        if self.aft_left > MAX_ROTOR_POWER {
             self.aft_left = MAX_ROTOR_POWER;
         }
 
-        if self.aft_right < MIN_ROTOR_POWER {
-            self.aft_right = MIN_ROTOR_POWER;
-        } else if self.aft_right > MAX_ROTOR_POWER {
+        if self.aft_right > MAX_ROTOR_POWER {
             self.aft_right = MAX_ROTOR_POWER;
         }
     }

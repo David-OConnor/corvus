@@ -70,20 +70,20 @@ pub enum LowpassCutoff {
 
 /// Coefficients and other configurable parameters for our motor PID
 pub struct MotorCoeffs {
-    pub p_m1: f32,
-    pub p_m2: f32,
-    pub p_m3: f32,
-    pub p_m4: f32,
+    pub p_front_left: f32,
+    pub p_front_right: f32,
+    pub p_aft_left: f32,
+    pub p_aft_right: f32,
 
-    pub i_m1: f32,
-    pub i_m2: f32,
-    pub i_m3: f32,
-    pub i_m4: f32,
+    pub i_front_left: f32,
+    pub i_front_right: f32,
+    pub i_aft_left: f32,
+    pub i_aft_right: f32,
 
-    // pub d_m1: f32,
-    // pub d_m2: f32,
-    // pub d_m3: f32,
-    // pub d_m4: f32,
+    // pub d_front_left: f32,
+    // pub d_front_right: f32,
+    // pub d_aft_left: f32,
+    // pub d_aft_right: f32,
     pub rpm_cutoff: LowpassCutoff,
 }
 
@@ -91,15 +91,15 @@ impl Default for MotorCoeffs {
     #[cfg(feature = "quad")]
     fn default() -> Self {
         Self {
-            p_m1: 0.,
-            p_m2: 0.,
-            p_m3: 0.,
-            p_m4: 0.,
+            p_front_left: 0.,
+            p_front_right: 0.,
+            p_aft_left: 0.,
+            p_aft_right: 0.,
 
-            i_m1: 0.,
-            i_m2: 0.,
-            i_m3: 0.,
-            i_m4: 0.,
+            i_front_left: 0.,
+            i_front_right: 0.,
+            i_aft_left: 0.,
+            i_aft_right: 0.,
 
             rpm_cutoff: LowpassCutoff::H1k,
         }
@@ -107,38 +107,38 @@ impl Default for MotorCoeffs {
 }
 
 pub struct MotorCoeffGroup {
-    pub m1: MotorCoeffs,
-    pub m2: MotorCoeffs,
-    pub m3: MotorCoeffs,
-    pub m4: MotorCoeffs,
+    pub front_left: MotorCoeffs,
+    pub front_right: MotorCoeffs,
+    pub aft_left: MotorCoeffs,
+    pub aft_right: MotorCoeffs,
 }
 
 impl Default for MotorCoeffGroup {
     fn default() -> Self {
         Self {
-            m1: Default::default(),
-            m2: Default::default(),
-            m3: Default::default(),
-            m4: Default::default(),
+            front_left: Default::default(),
+            front_right: Default::default(),
+            aft_left: Default::default(),
+            aft_right: Default::default(),
         }
     }
 }
 
 #[derive(Default)]
-pub struct PidGroup {
-    pub m1: PidState,
-    pub m2: PidState,
-    pub m3: PidState,
-    pub m4: PidState,
+pub struct MotorPidGroup {
+    pub front_left: PidState,
+    pub front_right: PidState,
+    pub aft_left: PidState,
+    pub aft_right: PidState,
 }
 
-impl PidGroup {
+impl MotorPidGroup {
     /// Reset the interator term on all components.
     pub fn reset_integrator(&mut self) {
-        self.m1.i = 0.;
-        self.m2.i = 0.;
-        self.m3.i = 0.;
-        self.m4.i = 0.;
+        self.front_left.i = 0.;
+        self.front_right.i = 0.;
+        self.aft_left.i = 0.;
+        self.aft_right.i = 0.;
     }
 }
 
@@ -163,7 +163,7 @@ pub struct PidState {
 
 impl PidState {
     /// Anti-windup integrator clamp
-    pub fn anti_windup_clamp(&mut self, error_p: f32) {
+    fn anti_windup_clamp(&mut self, error_p: f32) {
         //  Dynamic integrator clamping, from https://www.youtube.com/watch?v=zOByx3Izf5U
 
         // todo: Ac type; use clamp fixed wing
@@ -196,29 +196,29 @@ impl PidState {
 /// need this for our horizontal velocity PIDs.
 pub struct DerivFilters {
     /// For commanding an RPM, moduling power to meet the target RPM. Motor 1.
-    pub rpm1: IirInstWrapper,
+    pub rpm_front_left: IirInstWrapper,
     /// Motor 2
-    pub rpm2: IirInstWrapper,
+    pub rpm_front_right: IirInstWrapper,
     /// Motor 3
-    pub rpm3: IirInstWrapper,
+    pub rpm_aft_left: IirInstWrapper,
     /// Motor 3
-    pub rpm4: IirInstWrapper,
+    pub rpm_aft_right: IirInstWrapper,
 }
 
 impl Default for DerivFilters {
     fn default() -> Self {
         let mut result = Self {
-            rpm1: IirInstWrapper {
+            rpm_front_left: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-            rpm2: IirInstWrapper {
+            rpm_front_right: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
-            rpm3: IirInstWrapper {
+            rpm_aft_left: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
 
-            rpm4: IirInstWrapper {
+            rpm_aft_right: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
         };
@@ -256,14 +256,14 @@ impl Default for DerivFilters {
 /// command.
 /// Example: https://github.com/pms67/PID/blob/master/PID.c
 /// Example 2: https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Pid.c
-pub fn calc_pid_error(
+pub fn run(
     set_pt: f32,
     measurement: f32,
     prev_pid: &PidState,
     k_p: f32,
     k_i: f32,
     k_d: f32,
-    filter: &mut IirInstWrapper,
+    filter: Option<&mut IirInstWrapper>,
     // This `dt` is dynamic, since we don't necessarily run this function at a fixed interval.
     dt: f32,
 ) -> PidState {
@@ -282,7 +282,12 @@ pub fn calc_pid_error(
     let error_d_prefilt = k_d * (measurement - prev_pid.measurement) / dt;
 
     let mut error_d = [0.];
-    dsp_api::biquad_cascade_df1_f32(&mut filter.inner, &[error_d_prefilt], &mut error_d, 1);
+    match filter {
+        Some(f) => {
+            dsp_api::biquad_cascade_df1_f32(&mut filter.inner, &[error_d_prefilt], &mut error_d, 1);
+        }
+        None => error_d
+    }
 
     // println!(
     //     "SP {} M{} e {} p {} i {} d {}",
