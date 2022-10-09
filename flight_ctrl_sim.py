@@ -31,47 +31,59 @@ drag_coeff_ctrls = 0.01
 
 θ[0] = 1
 ω[0] = 1
-ω_dot[0] = -1
+# ω_dot[0] = -1
+
+θ[1] = 1
+ω[1] = 0
+# ω_dot[1] = -1
 
 drag_coeff_sim = 0.01
 
-# temp: fixing jerk
-omega_dot_dot_held = 0
+# omega_dot_dot_held = 0
 
 def run():
-    ω_dot_current = 0
+    ω_dot_commanded = -1
 
-    for i in range(1, N-2):
-        ω_dot[i] = ω[i] - ω[i-1]
+    for i in range(2, N-2):
 
-        EPS = 0.00001
+        ω[i-1] = ω[i-2] + ω_dot_commanded * DT / SIM_RATIO
+        # Subtract, due to how this sim is set up re delta theta.
+        θ[i] = θ[i-1] - ω[i-1] * DT / SIM_RATIO    
 
-        t = 0
-        if abs(ω_dot_0) < EPS:
-            t = -(3 * θ[i]) / (2. * ω[i])
-        else:
-            inner = 4. * ω[i]**2 - 6. * ω_dot_0 * θ[i]
+        if i % SIM_RATIO == 0:
 
-            if abs(inner) < EPS:
-                pass
-                # todo...
+            ω_dot_meas = ω[i-1] - ω[i-2]
+
+            EPS = 0.00001
+
+            if abs(ω_dot_meas) < EPS:
+                t = -(3 * θ[i]) / (2. * ω[i])
             else:
-                t_a = -(np.sqrt(inner) + 2. * ω[i]) / ω_dot_0
-                t_b = (np.sqrt(inner) - 2. * ω[i]) / ω_dot_0
-                
-                if t_a < 0:
-                    t = t_b
+                inner = 4. * ω[i]**2 - 6. * ω_dot_meas * θ[i]
+
+                if abs(inner) < EPS:
                     
+                    pass
+                    # todo...
                 else:
-                    t = t_a
+                    t_a = -(np.sqrt(inner) + 2. * ω[i]) / ω_dot_meas
+                    t_b = (np.sqrt(inner) - 2. * ω[i]) / ω_dot_meas
+                    
+                    if t_a < 0:
+                        t = t_b
+                        
+                    else:
+                        t = t_a
+            
+            ω_dot_dot = 6. * (2. * θ[i] + t * ω[i]) / t**3
+
+            ω_dot_commanded = ω_dot_meas + ω_dot_dot
 
         # todo: More sophisticated integration method.
         # ω[i] = ω[i-1] + ω_dot[i-1] * DT / SIM_RATIO
         
         # todo: Incorporate drag in sim and control code
-
-        ω[i] = ω[i-1] + ω_dot_current * DT / SIM_RATIO
-        θ[i] = θ[i-1] + ω[i-1] * DT / SIM_RATIO          
+     
 
     plt.plot(θ)
     plt.show()
@@ -82,53 +94,60 @@ def run():
 
 
 def plot_analytic():
-    # t = 1.
-    t = 1
-
     # for θ_0 in [0.5, 1.]:
         # for ω_0 in [0., 1., 2.]:
-    for θ_0 in [1]:
-        for ω_0 in [0]:
+    for θ_0 in [4]:
+        for ω_0 in [-2]:
             # time to correct
             # t = θ_0 + ω_0
 
             # Alternatively, specify initial angular accel
-            ω_dot_0 = -1.
+            ω_dot_0 = -2.
 
             EPS = 0.00001
            
-
-            # Our initial approach of specifying ttc:
-            # ω_dot_0 = -(6.*θ_0 + 4.*t*ω_0) / t**2
-            
-            # todo: Positive values are breaking. Find out why
-            # todo: Way to identify excessive TTC, and/or excessive J.
-
-            # todo: 
-
             # An alternative approach where we specify initial
             # acceleration. This has the advantage of being clearly
             # specified by measured params (theta, omega, omega_dot)
+
+            # todo: You have 2 edge cases, which require deviating from the
+            # todo linear correction #1: inner < 0. (no linear jerk solution from current
+            # accel) #2. ttc too higgh. We fix both by modifying the acceleration
+            # discontinuously.
+            # todo: Set a max ttc per theta.
+
             t = 0
             if abs(ω_dot_0) < EPS:
                 t = -(3 * θ_0) / (2. * ω_0)
                 print("c")
             else:
                 inner = 4. * ω_0**2 - 6. * ω_dot_0 * θ_0
-                print(inner, "INNER")
-                t_a = (np.sqrt(inner) + 2. * ω_0) / -ω_dot_0
-                t_b = (np.sqrt(inner) - 2. * ω_0) / ω_dot_0
-                
-                if t_a < 0:
-                    t = t_b
-                    print("b")
-                    
+
+                if inner < 0.:
+                    print("Unable to find solution")
+                    t = 6.9 # todo: Option in Rust
                 else:
-                    t = t_a
-                    print("a")
+
+                    t_a = (np.sqrt(inner) + 2. * ω_0) / -ω_dot_0
+                    t_b = (np.sqrt(inner) - 2. * ω_0) / ω_dot_0
+
+                    print(f"TA: {t_a}, TB: {t_b}")
+                    
+                    if t_a < 0:
+                        t = t_b
+                        print("b")
+                        
+                    else:
+                        t = t_a
+                        print("a")
+
+                if abs(t - 6.9) < EPS:
+                    pass
+                    # Set TTC; use our old method
+                    
+                    
 
               # todo: Which t? a or b may result in negative time; that's a clue
-
 
             ω_dot_dot = 6. * (2.*θ_0 + t*ω_0) / t**3
 
@@ -139,24 +158,14 @@ def plot_analytic():
 
             θ = np.zeros(n)
             ω = np.zeros(n)
-            j = np.zeros(n)
+            ω_dot = np.zeros(n)
             
-
-            # t1_2 = t/2.
-            # print(f"\nt=1/2, θ_0={θ_0} ω_0={ω_0}")
-            # print("θ",
-            # θ_0 + ω_0 * t1_2 + 1/2 * ω_dot_0 * t1_2**2 + \
-            #         1/6 * ω_dot_dot * t1_2**3
-            # )
-            # print("ω",
-            #     ω_0 + ω_dot_0 * t1_2 + 1/2 * ω_dot_dot * t1_2**2 
-            # )
-
             # This acceleration integral represents our "delta V" - it's a measure
             # of how much correction energy is needed. Its somewhat analagous to impulse.
             # it may be an analog of ttc.
-            ω_dot_integral = 0
-            ω_dot_integral_over_t = np.zeros(N)
+
+            # ω_dot_integral = 0
+            # ω_dot_integral_over_t = np.zeros(N)
 
             for i in range(n):
                 t_ = i * dt
@@ -168,40 +177,19 @@ def plot_analytic():
 
                 ω_dot[i] = ω_dot_0 + ω_dot_dot * t_
 
-                ω_dot_integral += abs(ω_dot[i])
+                # ω_dot_integral += abs(ω_dot[i])
 
                 # ω_dot_integral_over_t[i] = ω_dot_integral
-
-            # print(f"ω_dot integral, {ω_dot_integral/10_000}")
-            # plt.plot(ω_dot)
-            # plt.plot(ω_dot_integral_over_t)
-            # plt.plot(ω_dot)
-            # plt.show()
-
-            # n_ = 100
-            # ttc = np.zeros(n_)
-            # θ_ = np.zeros(n_)
-
-            # for k in range(n):
-            #     pass
-
-            # What's the relationsip between ω_0, dθ, ttc, and ω_dot integral?
-            # It's likely you need to work back from your main kinematics equation,
-            # likely with const jerk.
- 
-            
-
-            for j in [1, 1e3, 2e3, 3e3, 4e3, 5e3, 6e3, 7e3, 8e3, 9e3, 10e3, 11e3, 12e3]:
-                #    print(f"ttc: {1-j/10_000}, θ: {θ[int(j)]}, ω: {ω[int(j)]}")
-                pass
 
             # GUess: omega goes with square, theta goes with cube?
 
             plt.plot(θ)
+            plt.plot(ω)
+            plt.plot(ω_dot)
     plt.show()
 
-# plot_analytic()
-run()
+plot_analytic()
+# run()
 
 
 

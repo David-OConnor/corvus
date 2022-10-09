@@ -133,31 +133,33 @@ pub struct PowerMaps {
 
 /// Control coefficients that affect the toleranaces and restrictions of the flight controls.
 pub struct CtrlCoeffs {
-    /// Time to correction is a coefficient that determines how quickly the angular
-    /// velocity will be corrected to the target.
-    /// Lower values mean more aggressive corrections.
-    /// In units of ...
-    /// This coefficient scales impulse required to make a given attitude change.
-    /// Higher values will use more impulse, and perform corrections in a shorter time.
-    /// This means more responsive adjustments, but more power used, and potential clipping
-    /// against motor capabilities.
-    impulse_scale: f32,
+    /// todo: For fixed-wing, you should probably have separate roll and pitch values.
+    /// If unable to find a linear jerk to cause a correction given the current parameters (or
+    /// the resulting TTC is too long), use this TTC, and set an arbitrary thrust to achieve it.
+    /// Units: s/rad
+    pub ttc_per_dθ: f32,
+    /// If the calculated ttc from the continous-accel calculation is over this,
+    // use the discontinous logic. In rad/s
+    pub max_ttc_per_dθ: f32,
 }
 
-// todo: Maybe a sep `CtrlCoeffs` struct for each axis.
+// todo: Maybe a sep `CtrlCoeffs` struct for each axis - especially for fixed-wing!
+// todo: Or, have a fixed-wing pitch (or roll) scaler.
 
 impl Default for CtrlCoeffs {
     #[cfg(feature = "quad")]
     fn default() -> Self {
         Self {
-            impulse_scale: 0.1,
+            ttc_per_dθ: 0.3,
+            max_ttc_per_dθ: 0.5
         }
     }
 
     #[cfg(feature = "fixed-wing")]
     fn default() -> Self {
         Self {
-            impulse_scale: 0.1,
+            ttc_per_dθ: 0.5,
+            max_ttc_per_dθ: 0.7,
         }
     }
 }
@@ -181,31 +183,32 @@ fn calc_drag_coeff(ω_meas: f32, ω_dot_meas: f32, ω_dot_commanded: f32) -> f32
     -1. / ω_meas * (ω_dot - ω_dot_commanded)
 }
 
-/// Calculate the time in seconds allocated to perform an attitude change, based
-/// on the rotation angle to perform, and current angular velocity.
-/// ω positive means going towards the target; negative means away.
-/// The coeff is in units of ... (m/s^3?)
-fn calc_time_to_correction(dθ: f32, ω: f32, coeff: f32) -> f32 {
-    // Attempting an approach based on calculating an impulse.
-    // This is in units of force * units of time. Taking out mass,
-    // we use acceleration * time.
-    // J = F_average x (t2 - t1)
+/// If we're unable to use our current parameters to determine a linear-jerk trajectory,
+// we specify a time-to-correction based on the params, then using that time, calculate 
+// an angular accel and jerk. Returned result is ω_dot_0, ω_dot_dot
+fn ω_dot_from_ttc(dθ: f32,  ω: f32, ttc_per_dθ: f32) -> f32 {
+    // Time to correction
+    let ttc = ttc_per_dθ * dθ.abs();  // todo: Naive. Take vel and accel into account.
 
-    // We need to involve both impulse and time-to-correction.
+    // Calculate the "initial" target angular acceleration.
+    let ω_dot_0 = -(6. * dθ + 4. * ttc * ω_0) / ttc.powi(2);
 
+    // It appears we don't actually need to calculate ω_dot_dot
+    // for our controller; although this value calculated here should be 
+    // roughly maintained given how ω_dot evolves over time given
+    // the same control logic is applied repeatedly.
 
+    // Calculate the (~constant for a given correction) change in angular acceleration.
+    // let ω_dot_dot = 6. * (2. * dθ + ttc * ω_0) / ttc.powi(3);
 
-    // todo: your coeff should include both impulse, and time. A higher
-    // todo coeff means lower time-to-correction, and a higher impulse.
-    // (Impulse, TTC are negataively correlated)
-    //
-
+    // ω_dot_0, ω_dot_dot
+    ω_dot_0
 }
 
 fn find_ctrl_setting(
     dθ: f32,
     ω_0: f32,
-    ω_dot: f32,
+    ω_dot_meas: f32,
     ctrl_cmd_prev: f32,
     coeffs: &CtrlCoeffs,
     filters: &mut FlightCtrlFilters,
@@ -217,32 +220,48 @@ fn find_ctrl_setting(
     // `t` here is the total time to complete this correction, using the analytic
     // formula.
     let t = if ω_dot_0.abs() < EPS {
-        (3 * θ_0) / (2. * ω_0)
+        Some((3 * θ_0) / (2. * ω_0))
     } else {
         // If `inner` is negative, there is no solution for the desired ω_dot_0;
         // we must change it.
         // It would be negative if, for example, ω_dot_0 and/or θ_0 is high,
         // and/or ω_0 is low.
+        // This would manifest in an imaginary time.
+        // We resolve this by specifying a time-to-correction based on 
+        // current parameters, and applying a discontinuity in angular accel;
+        // this discontinuity allows us to still find a constant-jerk
+        // result.
         let inner = 4. * ω_0.powi(2) - 6. * ω_dot_0 * θ_0;
-
         if inner < 0. {
-            // todo: Adjust ω_dot_0, perhaps to just make it work.
-            0
+            None
         } else {
             let t_a = -(inner.sqrt() + 2. * ω_0) / ω_dot_0;
             let t_b = (inner.sqrt() - 2. * ω_0) / ω_dot_0;
 
             // todo: QC this.
             if t_a < 0 {
-                t_b
+                Some(t_b)
             } else {
-                t_a
+                Some(t_a)
             }
         }
     };
 
-    // Calculate the (~constant for a given correction) change in angular acceleration.
-    let ω_dot_dot = 6. * (2. * dθ + ttc * ω_0) / ttc.powi(3);
+    let ω_dot_target = match t {
+        Some(ttc) => {
+            if ttc > coeffs.max_ttc_dθ * dθ {
+                ω_dot_from_ttc(dθ, ω_0, coeffs.ttc_per_dθ)
+            } else {
+
+                // Calculate the (~constant for a given correction) change in angular acceleration.
+                ω_dot_dot = 6. * (2. * dθ + ttc * ω_0) / ttc.powi(3);
+
+                // This is the actual target acceleration, determined by the questions above:
+                ω_dot_meas + ω_dot_dot
+            }
+        }
+        None => ω_dot_from_ttc(dθ, ω_0, coeffs.ttc_per_dθ)
+    };
 
     // The target acceleration needs to include both the correction, and drag compensation.
     // todo: QC sign etc on this.
@@ -253,7 +272,7 @@ fn find_ctrl_setting(
     // todo: Track and/or lowpass effectiveness over recent history, at diff params.
     // todo: Once you have bidir dshot, use RPM instead of power.
 
-    let ctrl_effectiveness = ω_dot / ctrl_cmd_prev;
+    let ctrl_effectiveness = ω_dot_meas / ctrl_cmd_prev;
 
     // Apply a lowpass filter to our effectiveness, to reduce noise and fluctuations.
     let ctrl_effectiveness = filters.apply(ctrl_effectiveness);
@@ -268,6 +287,8 @@ fn find_ctrl_setting(
     // Units: rad x cmd / (s * rad/s) = rad x cmd / rad = cmd
     // `cmd` is the unit we use for ctrl inputs. Not sure what (if any?) units it has.
     ω_dot_target / ctrl_effectiveness
+
+    // todo: Map to RPM diff (or servo posit diff) here!!!
 }
 
 /// Find the desired control setting on a single axis; loosely corresponds to a

@@ -289,11 +289,6 @@ pub fn run(
         None => error_d
     }
 
-    // println!(
-    //     "SP {} M{} e {} p {} i {} d {}",
-    //     set_pt, measurement, error, error_p, error_i, error_d[0]
-    // );
-
     let mut result = PidState {
         measurement,
         e: error,
