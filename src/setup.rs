@@ -461,7 +461,8 @@ pub fn setup_busses(
     // todo: DO you want 100kHz due to the connection being external? (Lower freqs
     // todo may have fewer issues)
     let i2c_external_sensors_cfg = I2cConfig {
-        speed: I2cSpeed::Fast400K,
+        // Lower speeds may work better on external runs, hence not 400khz here.
+        speed: I2cSpeed::Standard100K,
         ..Default::default()
     };
 

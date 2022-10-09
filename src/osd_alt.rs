@@ -15,10 +15,8 @@ use defmt::println;
 
 use num_traits::float::Float;
 
-// todo: Maybe put in a struct etc? It's constant, but we use a function call to populate it.
-// Note: LUT is here, since it depends on the poly.
-static mut CRC_LUT: [u8; 256] = [0; 256];
 const CRC_POLY: u8 = 0xd;
+const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
 
 /// From the `metaverse` project.
 #[rustfmt::skip]
