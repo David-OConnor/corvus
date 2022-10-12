@@ -2,7 +2,7 @@
 //! regarding DMA operations on the barometer and external sensors I2C lines.
 
 use stm32_hal2::{
-    dma::{ChannelCfg, Dma},
+    dma::Dma,
     i2c::I2c,
     pac::{DMA1, DMA2, I2C1, I2C2},
 };

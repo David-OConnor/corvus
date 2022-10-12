@@ -5,18 +5,20 @@
 //! Format - Byte 0: message type. Byte -1: CRC. Rest: payload
 //! We use Little-endian float representations.
 
-// const START_BYTE: u8 =
-
 // todo: Should we use this module and/or a similar structure for data exchange over RF,
 // todo: beyond the normal control info used by ELRS? (Eg sending a route, autopilot data etc)
 
 use crate::{
     control_interface::ChannelData,
     dshot,
-    flight_ctrls::{self, common::MotorTimers, ControlMapping},
+    flight_ctrls::{
+        self,
+        common::{AttitudeCommanded, MotorTimers},
+        ControlMapping,
+    },
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},
     safety::ArmStatus,
-    state::{OperationMode, MAX_WAYPOINTS, SystemStatus},
+    state::{OperationMode, SystemStatus, MAX_WAYPOINTS},
     util, LinkStats,
 };
 
@@ -88,6 +90,8 @@ pub const WAYPOINTS_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
 pub const SET_SERVO_POSIT_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
 pub const SYS_AP_STATUS_PACKET_SIZE: usize = SYS_AP_STATUS_SIZE + 2;
 
+// const START_BYTE: u8 =
+
 struct _DecodeError {}
 
 // struct CrcError {} todo?
@@ -125,7 +129,7 @@ pub enum MsgType {
     /// Set all servo positions
     SetServoPosit = 15,
     /// Systems status, and autopilot data combined
-    ReqSysStatusAp = 16,
+    ReqSysApStatus = 16,
     SysApStatus = 17,
 }
 
@@ -149,7 +153,7 @@ impl MsgType {
             Self::Waypoints => WAYPOINTS_SIZE,
             #[cfg(feature = "fixed-wing")]
             Self::SetServoPosit => SET_SERVO_POSIT_SIZE,
-            Self::ReqSysStatusAp => 0,
+            Self::ReqSysApStatus => 0,
             Self::SysApStatus => SYS_AP_STATUS_SIZE,
         }
     }
@@ -180,8 +184,8 @@ fn params_to_bytes(
         None => (0., 0),
     };
 
-    result[0..QUATERNION_SIZE].clone_from_slice(&attitude.to_bytes());
-    result[QUATERNION_SIZE..2*QUATERNION_SIZE].clone_from_slice(&attitude_commanded.to_be_bytes());
+    result[0..QUATERNION_SIZE].clone_from_slice(quat_to_bytes(attitude));
+    result[QUATERNION_SIZE..2 * QUATERNION_SIZE].clone_from_slice(quat_to_bytes(attitude_commanded));
     result[32..36].clone_from_slice(&alt_baro.to_be_bytes());
     result[36..40].clone_from_slice(&agl.to_be_bytes());
     result[40] = agl_present;
@@ -274,12 +278,13 @@ pub fn handle_rx(
     usb_serial: &mut SerialPort<'static, UsbBusType>,
     rx_buf: &[u8],
     attitude: Quaternion,
-    attitude_commanded: Quaternion,
+    attitude_commanded: AttitudeCommanded,
     altitude_baro: f32,
     altitude_agl: Option<f32>,
     controls: &ChannelData,
     link_stats: &LinkStats,
     waypoints: &[Option<Location>; MAX_WAYPOINTS],
+    sys_status: &SystemStatus,
     arm_status: &mut ArmStatus,
     control_mapping: &mut ControlMapping,
     op_mode: &mut OperationMode,
@@ -322,12 +327,7 @@ pub fn handle_rx(
             // todo it back. This could potentially be dangerous.
             *op_mode = OperationMode::Preflight;
 
-            let mut i = 0;
-
-            let mut tx_buf = [0; PARAMS_PACKET_SIZE];
-
-            tx_buf[i] = MsgType::Params as u8;
-            i += 1;
+            println!("Req params");
 
             // todo: Delegate this v/current calc
             let batt_voltage = adc
@@ -337,63 +337,31 @@ pub fn handle_rx(
                 .reading_to_voltage(unsafe { crate::sensors_shared::V_A_ADC_READ_BUF }[1])
                 * crate::ADC_CURR_DIVISION;
 
-            tx_buf[i..i + PARAMS_SIZE] = params_to_bytes(
+            let payload = params_to_bytes(
                 attitude,
-                attitude_commanded,
+                // todo: Pass more than just the quat, here and in prelfight.
+                attitude_commanded
+                    .quat
+                    .unwrap_or(Quaternion::new_identity()),
                 altitude_baro,
                 altitude_agl,
                 batt_voltage,
-                esc_current
+                esc_current,
             );
 
-            i = i + PARAMS_SIZE;
-
-            let payload_size = MsgType::Params.payload_size();
-            tx_buf[payload_size + 1] = util::calc_crc(
-                &CRC_LUT,
-                &tx_buf[..payload_size + 1],
-                payload_size as u8 + 1,
-            );
-
-            usb_serial.write(&tx_buf).ok();
+            send_payload(MsgType::Params, &payload, usb_serial);
         }
         MsgType::Ack => {}
         MsgType::ReqControls => {
-            // todo: DRY with above.
-            let mut tx_buf = [0; CONTROLS_PACKET_SIZE];
-            tx_buf[0] = MsgType::Controls as u8;
-
+            println!("Req controls");
             let payload: [u8; CONTROLS_SIZE] = controls.into();
-
-            tx_buf[1..(CONTROLS_SIZE + 1)].copy_from_slice(&payload);
-
-            let payload_size = MsgType::Controls.payload_size();
-            tx_buf[payload_size + 1] = util::calc_crc(
-                &CRC_LUT,
-                &tx_buf[..payload_size + 1],
-                payload_size as u8 + 1,
-            );
-
-            usb_serial.write(&tx_buf).ok();
+            send_payload(MsgType::Controls, &payload, usb_serial);
         }
         MsgType::Controls => {}
         MsgType::ReqLinkStats => {
-            // todo: DRY with above.
-            let mut tx_buf = [0; LINK_STATS_PACKET_SIZE];
-            tx_buf[0] = MsgType::Controls as u8;
-
+            println!("Req link stats");
             let payload: [u8; LINK_STATS_SIZE] = link_stats.into();
-
-            tx_buf[1..(LINK_STATS_SIZE + 1)].copy_from_slice(&payload);
-
-            let payload_size = MsgType::LinkStats.payload_size();
-            tx_buf[payload_size + 1] = util::calc_crc(
-                &CRC_LUT,
-                &tx_buf[..payload_size + 1],
-                payload_size as u8 + 1,
-            );
-
-            usb_serial.write(&tx_buf).ok();
+            send_payload(MsgType::LinkStats, &payload, usb_serial);
         }
         MsgType::LinkStats => {}
         MsgType::ArmMotors => {
@@ -461,23 +429,9 @@ pub fn handle_rx(
             }
         }
         MsgType::ReqWaypoints => {
-            println!("Req wps");
-            // todo: DRY with above.
-            let mut tx_buf = [0; WAYPOINTS_PACKET_SIZE];
-            tx_buf[0] = MsgType::Waypoints as u8;
-
+            println!("Req waypoints");
             let payload: [u8; WAYPOINTS_SIZE] = waypoints_to_buf(waypoints);
-
-            tx_buf[1..(WAYPOINTS_SIZE + 1)].copy_from_slice(&payload);
-
-            let payload_size = MsgType::Waypoints.payload_size();
-            tx_buf[payload_size + 1] = util::calc_crc(
-                &CRC_LUT,
-                &tx_buf[..payload_size + 1],
-                payload_size as u8 + 1,
-            );
-
-            usb_serial.write(&tx_buf).ok();
+            send_payload(MsgType::Waypoints, &payload, usb_serial);
         }
         MsgType::Waypoints => {}
         MsgType::Updatewaypoints => {}
@@ -505,27 +459,39 @@ pub fn handle_rx(
                 motor_timers,
             );
         }
-        MsgType::ReqSysStatusAp => {
+        MsgType::ReqSysApStatus => {
             // todo: Just sys status for now; do AP too.
             println!("Req Sys status and AP status");
-
-            // todo: DRY with above.
-            let mut tx_buf = [0; SYS_AP_STATUS_PACKET_SIZE];
-            tx_buf[0] = MsgType::SysApStatus as u8;
-
             let payload: [u8; SYS_AP_STATUS_SIZE] = sys_status.into();
-
-            tx_buf[1..(SYS_AP_STATUS_SIZE + 1)].copy_from_slice(&payload);
-
-            let payload_size = MsgType::SysApStatus.payload_size();
-            tx_buf[payload_size + 1] = util::calc_crc(
-                &CRC_LUT,
-                &tx_buf[..payload_size + 1],
-                payload_size as u8 + 1,
-            );
-
-            usb_serial.write(&tx_buf).ok();
+            send_payload(MsgType::SysApStatus, &payload, usb_serial);
+            // send_payload<MsgType::SysApStatus.message_size()>(MsgType::SysApStatus, &payload, usb_serial);
         }
-        MsgType::ReqSysStatusAp => {},
+        MsgType::SysApStatus => {}
     }
+}
+
+fn send_payload<const N: usize>(
+    msg_type: MsgType,
+    payload: &[u8],
+    usb_serial: &mut SerialPort<'static, UsbBusType>,
+) {
+    // where M = N + 2{
+    // where N: Sized {
+    //     const M: usize = N + 2;
+
+    let payload_size = msg_type.payload_size();
+
+
+    let mut tx_buf = [0; N + 2] where [(); {N + 2}]:;
+
+    tx_buf[0] = MsgType::SysApStatus as u8;
+    tx_buf[1..(payload_size + 1)].copy_from_slice(&payload);
+
+    tx_buf[payload_size + 1] = util::calc_crc(
+        &CRC_LUT,
+        &tx_buf[..payload_size + 1],
+        payload_size as u8 + 1,
+    );
+
+    usb_serial.write(&tx_buf).ok();
 }

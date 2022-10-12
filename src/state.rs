@@ -5,7 +5,7 @@
 use crate::{
     control_interface::{InputModeSwitch, LinkStats},
     flight_ctrls::{
-        autopilot::{AutopilotStatus, LandingCfg},
+        autopilot::LandingCfg,
         common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap, RatesCommanded},
         ctrl_logic::{CtrlCoeffs, PowerMaps},
         ControlMapping,

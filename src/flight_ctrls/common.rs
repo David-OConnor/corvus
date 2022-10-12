@@ -17,6 +17,16 @@ const ROLL_IN_RNG: (f32, f32) = (-1., 1.);
 const YAW_IN_RNG: (f32, f32) = (-1., 1.);
 const THROTTLE_IN_RNG: (f32, f32) = (0., 1.);
 
+/// Holds all 4 RPMs, by position.
+/// todo: Quad-specific, but in `common` due to how we store it in Shared.
+#[derive(Default)]
+pub struct MotorRpm {
+    pub front_left: f32,
+    pub front_right: f32,
+    pub aft_left: f32,
+    pub aft_right: f32,
+}
+
 /// Specify the rotor by its connection to the ESC. Includes methods that get information regarding timer
 /// and DMA, per specific board setups, in `setup`.
 /// Note that this is more appplicable to quads, but isn't in the `quad` module due to how

@@ -9,7 +9,7 @@ use crate::{
         common::{AltType, Params},
     },
     // pid::PidGroup,
-    ppks::{Location, LocationType},
+    ppks::Location,
     state::{SensorStatus, SystemStatus},
 };
 

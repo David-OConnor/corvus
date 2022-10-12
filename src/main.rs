@@ -1,5 +1,8 @@
 #![no_main]
 #![no_std]
+// Used on USB protocol. Allows adding to the const param buff size
+// to make packet size.
+#![feature(generic_const_exprs)]
 
 // Potential markets:
 // - Hobby / racing (duh)
@@ -35,13 +38,14 @@ use drivers::{
 use filter_imu::ImuFilters;
 use flight_ctrls::{
     autopilot::AutopilotStatus,
-    common::{AltType, CtrlInputs, InputMap, MotorTimers, Params, RatesCommanded},
+    common::{AltType, CtrlInputs, InputMap, MotorRpm, MotorTimers, Params, RatesCommanded},
     ctrl_logic::{self, CtrlCoeffs, PowerMaps},
+    filters::FlightCtrlFilters,
     // pid::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
     //     PID_CONTROL_ADJ_TIMEOUT,
     // },
-    filters::FlightCtrlFilters,
+    pid::{MotorCoeffGroup, MotorCoeffs},
     ControlMapping,
 };
 use lin_alg2::f32::Quaternion;
@@ -57,7 +61,7 @@ use stm32_hal2::{
     clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
     dma::{self, ChannelCfg, Dma, DmaInterrupt},
     flash::{Bank, Flash},
-    gpio::{self, Pin, PinMode, Port},
+    gpio::{self, Pin, Port},
     i2c::I2c,
     pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, TIM1, TIM16, TIM17, USART2},
     spi::Spi,
@@ -114,7 +118,7 @@ cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use flight_ctrls::{autopilot::Orbit, ControlPositions};
     } else {
-        use flight_ctrls::{InputMode, MotorPower, RotationDir, RotorPosition, MotorRpm};
+        use flight_ctrls::{InputMode, MotorPower, RotationDir, RotorPosition};
     }
 }
 
@@ -234,11 +238,11 @@ mod app {
         imu_calibration: imu_calibration::ImuCalibration,
         ext_sensor_active: ExtSensor,
         pwr_maps: PowerMaps,
-        #[cfg(feature = "quad")]
-        /// Store rotor RPM: (M1, M2, M3, M4)
+        /// Store rotor RPM: (M1, M2, M3, M4). Quad only, but we can't feature gate
+        /// shared fields.
         rotor_rpms: MotorRpm,
         /// PID motor coefficients
-        motor_pid_coeffs: pid::MotorCoeffs,
+        motor_pid_coeffs: MotorCoeffGroup,
     }
 
     #[local]
@@ -613,6 +617,7 @@ mod app {
                 ext_sensor_active: ExtSensor::Mag,
                 pwr_maps: Default::default(),
                 motor_pid_coeffs: Default::default(),
+                rotor_rpms: Default::default(),
             },
             Local {
                 // spi_flash, // todo: Fix flash in HAL, then do this.
@@ -675,6 +680,7 @@ mod app {
             cx.shared.batt_curr_adc,
             cx.shared.dma,
             cx.shared.dma2,
+            cx.shared.rotor_rpms,
         )
             .lock(
                 |params,
@@ -691,7 +697,8 @@ mod app {
                  motor_timers,
                  adc,
                  dma,
-                 dma2| {
+                 dma2,
+                 rpms| {
                     // Update barometric altitude
                     // todo: Put back.
                     // let pressure = altimeter.read_pressure(i2c2);
@@ -908,12 +915,10 @@ mod app {
                     if *cx.local.update_loop_i % THRUST_LOG_RATIO == 0 {
                         cfg_if! {
                             if #[cfg(feature = "quad")] {
-                                let rpm = &state_volatile.rotor_rpms;
-
                                 state_volatile.power_maps.rpm_to_accel_pitch.log_val(
                                 // todo: Populate this, and consider if you want rpms to be by motor or rotor posit
-                                    pwr.front_left + pwr.front_right - pwr.aft_left - pwr.aft_right
-                                    // rpm.m1 + rpm.m2 + rpm.m3 + rpm.m4
+                                //     pwr.front_left + pwr.front_right - pwr.aft_left - pwr.aft_right,
+                                    // rpms.m1 + rpms.m2 + rpms.m3 + rpms.m4
                                     // todo: Motors. Map Motor num to rotor position here.
                                     // todo: Possibly with helper methods.
                                     0.,
@@ -1092,7 +1097,7 @@ mod app {
                         if #[cfg(feature = "quad")] {
                             let (ctrl_mix, motor_power) = ctrl_logic::motor_power_from_atts(
                                 state_volatile.attitude_commanded.quat.unwrap(),
-                                params.quaternion,
+                                params.attitude_quat,
                                 throttle,
                                 cfg.control_mapping.frontleft_aftright_dir,
                                 params,
@@ -1117,7 +1122,7 @@ mod app {
                         } else {
                             let (ctrl_mix, control_posits) = ctrl_logic::control_posits_from_atts(
                                 state_volatile.attitude_commanded.quat.unwrap(),
-                                params.quaternion,
+                                params.attitude_quat,
                                 throttle,
                                 params,
                                 params_prev,
@@ -1176,13 +1181,14 @@ mod app {
                             usb_cfg::handle_rx(
                                 usb_serial,
                                 &buf,
-                                params.quaternion,
+                                params.attitude_quat,
                                 state_volatile.attitude_commanded,
                                 params.baro_alt_msl,
                                 params.tof_alt,
                                 ch_data,
                                 &state_volatile.link_stats,
                                 &user_cfg.waypoints,
+                                &state_volatile.system_status,
                                 &mut state_volatile.arm_status,
                                 &mut user_cfg.control_mapping,
                                 &mut state_volatile.op_mode,

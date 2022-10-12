@@ -29,8 +29,7 @@ cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use crate::flight_ctrls::{ControlPositions};
     } else {
-        use crate::flight_ctrls::{InputMode, MotorPower,
-         MAX_ROTOR_POWER};
+        use crate::flight_ctrls::{};
     }
 }
 
@@ -40,6 +39,11 @@ const INTEGRATOR_CLAMP_MAX_QUAD: f32 = 0.4;
 const INTEGRATOR_CLAMP_MIN_QUAD: f32 = -INTEGRATOR_CLAMP_MAX_QUAD;
 const INTEGRATOR_CLAMP_MAX_FIXED_WING: f32 = 0.4;
 const INTEGRATOR_CLAMP_MIN_FIXED_WING: f32 = -INTEGRATOR_CLAMP_MAX_FIXED_WING;
+
+static mut FILTER_STATE_FRONT_LEFT: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_FRONT_RIGHT: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_AFT_LEFT: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_AFT_RIGHT: [f32; 4] = [0.; 4];
 
 // filter_ = signal.iirfilter(1, 100, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
 // coeffs = []
@@ -106,22 +110,12 @@ impl Default for MotorCoeffs {
     }
 }
 
+#[derive(Default)]
 pub struct MotorCoeffGroup {
     pub front_left: MotorCoeffs,
     pub front_right: MotorCoeffs,
     pub aft_left: MotorCoeffs,
     pub aft_right: MotorCoeffs,
-}
-
-impl Default for MotorCoeffGroup {
-    fn default() -> Self {
-        Self {
-            front_left: Default::default(),
-            front_right: Default::default(),
-            aft_left: Default::default(),
-            aft_right: Default::default(),
-        }
-    }
 }
 
 #[derive(Default)]
@@ -226,25 +220,25 @@ impl Default for DerivFilters {
         unsafe {
             // todo: Re-initialize fn?
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.roll_attitude.inner,
+                &mut result.rpm_front_left,
                 &COEFFS_D,
-                &mut FILTER_STATE_ROLL_ATTITUDE,
+                &mut FILTER_STATE_FRONT_LEFT,
             );
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.pitch_attitude.inner,
+                &mut result.rpm_front_right,
                 &COEFFS_D,
-                &mut FILTER_STATE_PITCH_ATTITUDE,
+                &mut FILTER_STATE_FRONT_RIGHT,
             );
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.yaw_attitude.inner,
+                &mut result.rpm_aft_left,
                 &COEFFS_D,
-                &mut FILTER_STATE_YAW_ATTITUDE,
+                &mut FILTER_STATE_AFT_LEFT,
             );
 
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.roll_rate.inner,
+                &mut result.rpm_aft_right,
                 &COEFFS_D,
-                &mut FILTER_STATE_ROLL_RATE,
+                &mut FILTER_STATE_AFT_RIGHT,
             );
         }
 
@@ -286,7 +280,7 @@ pub fn run(
         Some(f) => {
             dsp_api::biquad_cascade_df1_f32(&mut filter.inner, &[error_d_prefilt], &mut error_d, 1);
         }
-        None => error_d
+        None => error_d,
     }
 
     let mut result = PidState {

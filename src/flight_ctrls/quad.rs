@@ -18,7 +18,7 @@ use crate::{
 };
 
 use super::{
-    common::{CtrlMix, InputMap, Motor, MotorTimers, Params},
+    common::{CtrlMix, InputMap, Motor, MotorRpm, MotorTimers},
     pid,
 };
 
@@ -235,15 +235,6 @@ pub struct MotorPower {
     pub aft_right: f32,
 }
 
-/// Holds all 4 RPMs, by position.
-#[derive(Default)]
-pub struct MotorRpm {
-    pub front_left: f32,
-    pub front_right: f32,
-    pub aft_left: f32,
-    pub aft_right: f32,
-}
-
 fn estimate_rpm_from_pwr(pwr: f32) -> f32 {
     // todo: Temp approach. The long-term play may be to estimate the max RPM
     // todo from extrapolating commanded pwr and measured RPM using a model. (linear?)
@@ -331,6 +322,7 @@ impl MotorRpm {
         &self,
         pid_coeffs: pid::MotorCoeffGroup,
         pids: pid::MotorPidGroup,
+        measured_rpm: &Self,
         mapping: &ControlMapping,
         motor_timers: &mut MotorTimers,
         arm_status: ArmStatus,
@@ -338,8 +330,8 @@ impl MotorRpm {
     ) {
         let fl = pid::run(
             self.front_left,
-            measurement,
-            pids.front_left,
+            measured_rpm.front_left,
+            &pids.front_left,
             pid_coeffs.p_front_left,
             pid_coeffs.i_front_left,
             0.,
@@ -349,8 +341,8 @@ impl MotorRpm {
 
         let fr = pid::run(
             self.front_right,
-            measurement,
-            pids.front_right,
+            measured_rpm.front_right,
+            &pids.front_right,
             pid_coeffs.p_front_right,
             pid_coeffs.i_front_right,
             0.,
@@ -360,8 +352,8 @@ impl MotorRpm {
 
         let al = pid::run(
             self.aft_left,
-            measurement,
-            pids.aft_left,
+            measured_rpm.aft_left,
+            &pids.aft_left,
             pid_coeffs.p_aft_left,
             pid_coeffs.i_aft_left,
             0.,
@@ -371,8 +363,8 @@ impl MotorRpm {
 
         let ar = pid::run(
             self.aft_right,
-            measurement,
-            pids.aft_right,
+            measured_rpm.aft_right,
+            &pids.aft_right,
             pid_coeffs.p_aft_right,
             pid_coeffs.i_aft_right,
             0.,
@@ -547,14 +539,14 @@ pub fn takeoff_speed(height: f32, max_v: f32) -> f32 {
 
 pub struct UnsuitableParams {}
 
-/// Execute a profile designed to test PID and motor gain coefficients; update them.
-pub fn calibrate_coeffs(params: &Params) -> Result<(), UnsuitableParams> {
-    if params.tof_alt.unwrap_or(0.) < MIN_CAL_ALT {
-        return Err(UnsuitableParams {});
-    }
-
-    Ok(())
-}
+// /// Execute a profile designed to test PID and motor gain coefficients; update them.
+// pub fn calibrate_coeffs(params: &Params) -> Result<(), UnsuitableParams> {
+//     if params.tof_alt.unwrap_or(0.) < MIN_CAL_ALT {
+//         return Err(UnsuitableParams {});
+//     }
+//
+//     Ok(())
+// }
 
 pub fn set_input_mode(input_mode_control: InputModeSwitch, state_volatile: &mut StateVolatile) {
     state_volatile.input_mode_switch = input_mode_control; // todo: Do we need or use this field?

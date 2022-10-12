@@ -29,7 +29,7 @@ use cfg_if::cfg_if;
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
     } else {
-        use crate::flight_ctrls::{InputMode, POWER_LUT, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED, takeoff_speed};
+        use crate::flight_ctrls::{InputMode, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED, takeoff_speed};
     }
 }
 

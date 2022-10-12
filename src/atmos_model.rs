@@ -53,7 +53,7 @@ impl Default for AltitudeCalPt {
 /// Uses a linear map between 2 pointers: Either from the standard atmosphere model, or from
 /// GPS points, if available.
 /// `altimeter_setting` is the ground pressure in vacinityh of operation, in Pa. Temp is in K.
-/// https://en.wikipedia.org/wiki/Barometric_formula
+/// https://en.wikipedia.org/wiki/Bar3ometric_formula
 /// https://physics.stackexchange.com/questions/333475/how-to-calculate-altitude-from-current-temperature-and-pressure
 /// [NOAA formula](https://en.wikipedia.org/wiki/Pressure_altitude)
 pub fn estimate_altitude_msl(pressure: f32, temp: f32, ground_cal: AltitudeCalPt) -> f32 {
@@ -69,17 +69,17 @@ pub fn estimate_altitude_msl(pressure: f32, temp: f32, ground_cal: AltitudeCalPt
     //     //     (&POINT_0, &POINT_1)
     //     // };
 
-    // todo: You need to take ground cal's temp into account, at minimum!
-    (((ground_cal.pressure / pressure).powf(1. / 5.257) - 1.) * temp) / 0.00649
-
-        // todo: Which approach? how do we modify the below for temp
+    // todo: Which approach? how do we modify the below for temp
     // todo and atmospheric pressure.
     // NOAA formula (See Wikipedia link above). `h` is in feet.
     // Convert pressure from Pa to millibars.
     let p_mb = pressure * 0.01;
-    let h = 145_366.45 * (1. - (p_mb/1_013.25).pow(0.190284));
+    let h = 145_366.45 * (1. - (p_mb / 1_013.25).powf(0.190284));
     // Convert feet to meters.
-    h * 0.3048
+    h * 0.3048;
+
+    // todo: You need to take ground cal's temp into account, at minimum!
+    (((ground_cal.pressure / pressure).powf(1. / 5.257) - 1.) * temp) / 0.00649
 
     // todo: convert to feet
 
