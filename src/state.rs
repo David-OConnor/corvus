@@ -164,11 +164,12 @@ impl Default for UserCfg {
 }
 
 #[derive(Clone, Copy, PartialEq)]
+#[repr(u8)] // for USB ser
 pub enum SensorStatus {
-    Pass,
-    Fail,
+    Pass = 0,
+    Fail = 1,
     /// Either an external sensor not plugged in, or a complete failture, werein it's not recognized.
-    NotConnected,
+    NotConnected = 2,
 }
 
 impl Default for SensorStatus {

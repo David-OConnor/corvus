@@ -92,5 +92,5 @@ pub fn update_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     params.s_pitch = att_euler.0; // around x axis
     params.s_yaw_heading = att_euler.1; // around y axis
     params.s_roll = att_euler.2; // around z axis
-    params.quaternion = ahrs.quaternion;
+    params.attitude_quat = ahrs.quaternion;
 }

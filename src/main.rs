@@ -1177,6 +1177,7 @@ mod app {
                                 usb_serial,
                                 &buf,
                                 params.quaternion,
+                                state_volatile.attitude_commanded,
                                 params.baro_alt_msl,
                                 params.tof_alt,
                                 ch_data,

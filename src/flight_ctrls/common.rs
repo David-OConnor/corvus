@@ -169,7 +169,7 @@ pub struct Params {
     pub s_yaw_heading: f32,
 
     /// Quaternion of the attitude.
-    pub quaternion: Quaternion,
+    pub attitude_quat: Quaternion,
 
     // todo: AHRS quaternion field, or leave that as part of the `AHRS` struct?
 

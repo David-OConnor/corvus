@@ -158,6 +158,22 @@ pub struct LandingCfg {
     pub touchdown_point: Location,
 }
 
+#[cfg(feature = "quad")]
+#[repr(u8)] // for USB serialization
+#[derive(Clone, Copy)]
+enum YawAssist {
+    Disabled = 0,
+    YawAssist = 1,
+    /// Automatically adjust roll (rate? angle?) to zero out slip, ie based on rudder inputs.
+    RollAssist = 2,
+}
+
+impl Default for YawAssist {
+    fn default() -> Self {
+        Self::Disabled
+    }
+}
+
 #[cfg(feature = "fixed-wing")]
 #[derive(Default)]
 pub struct LandingCfg {
@@ -188,11 +204,9 @@ pub struct AutopilotStatus {
     /// Heading is fixed.
     pub hdg_hold: Option<f32>,
     // todo: Airspeed hold
-    /// Automatically adjust raw to zero out slip. Quad only.
-    pub yaw_assist: bool,
-    /// Automatically adjust roll (rate? angle?) to zero out slip, ie based on rudder inputs.
-    /// Don't enable both yaw assist and roll assist at the same time. Quad only.
-    pub roll_assist: bool,
+    #[cfg(feature = "quad")]
+    /// Automatically adjust raw to zero out slip.
+    pub yaw_assist: YawAssist,
     /// Continuously fly towards a path. Note that `pitch` and `yaw` for the
     /// parameters here correspond to the flight path; not attitude.
     pub velocity_vector: Option<(f32, f32)>, // pitch, yaw

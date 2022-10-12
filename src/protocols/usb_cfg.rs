@@ -16,7 +16,7 @@ use crate::{
     flight_ctrls::{self, common::MotorTimers, ControlMapping},
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},
     safety::ArmStatus,
-    state::{OperationMode, MAX_WAYPOINTS},
+    state::{OperationMode, MAX_WAYPOINTS, SystemStatus},
     util, LinkStats,
 };
 
@@ -64,9 +64,10 @@ const F32_SIZE: usize = 4;
 
 const QUATERNION_SIZE: usize = F32_SIZE * 4;
 
-// Quaternion (4x4 + altimeter + altimeter_agl +
-// voltage reading + current reading + option byte for altimeter.)
-const PARAMS_SIZE: usize = QUATERNION_SIZE + F32_SIZE * 4 + 1; //
+// Quaternion attitude + quaternion target + altimeter_baro + altimeter_agl +
+// + option byte for altimeter + voltage reading + current reading.
+
+const PARAMS_SIZE: usize = 2 * QUATERNION_SIZE + 4 * F32_SIZE + 1; //
 const CONTROLS_SIZE: usize = 18;
 // const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
 const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
@@ -75,6 +76,9 @@ const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
 pub const WAYPOINT_SIZE: usize = F32_SIZE * 3 + WAYPOINT_MAX_NAME_LEN + 1;
 pub const WAYPOINTS_SIZE: usize = crate::state::MAX_WAYPOINTS * WAYPOINT_SIZE;
 pub const SET_SERVO_POSIT_SIZE: usize = 1 + F32_SIZE; // Servo num, value
+pub const SYS_STATUS_SIZE: usize = 7; // Sensor status (u8) * 7
+pub const AP_STATUS_SIZE: usize = 0; // todo
+pub const SYS_AP_STATUS_SIZE: usize = SYS_STATUS_SIZE + AP_STATUS_SIZE;
 
 // Packet sizes are payload size + 2. Additional data are message type, and CRC.
 const PARAMS_PACKET_SIZE: usize = PARAMS_SIZE + 2;
@@ -82,6 +86,7 @@ const CONTROLS_PACKET_SIZE: usize = CONTROLS_SIZE + 2;
 const LINK_STATS_PACKET_SIZE: usize = LINK_STATS_SIZE + 2;
 pub const WAYPOINTS_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
 pub const SET_SERVO_POSIT_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
+pub const SYS_AP_STATUS_PACKET_SIZE: usize = SYS_AP_STATUS_SIZE + 2;
 
 struct _DecodeError {}
 
@@ -119,6 +124,9 @@ pub enum MsgType {
     #[cfg(feature = "fixed-wing")]
     /// Set all servo positions
     SetServoPosit = 15,
+    /// Systems status, and autopilot data combined
+    ReqSysStatusAp = 16,
+    SysApStatus = 17,
 }
 
 impl MsgType {
@@ -141,6 +149,8 @@ impl MsgType {
             Self::Waypoints => WAYPOINTS_SIZE,
             #[cfg(feature = "fixed-wing")]
             Self::SetServoPosit => SET_SERVO_POSIT_SIZE,
+            Self::ReqSysStatusAp => 0,
+            Self::SysApStatus => SYS_AP_STATUS_SIZE,
         }
     }
 }
@@ -152,6 +162,32 @@ fn quat_to_bytes(p: Quaternion) -> [u8; QUATERNION_SIZE] {
     result[4..8].clone_from_slice(&p.x.to_be_bytes());
     result[8..12].clone_from_slice(&p.y.to_be_bytes());
     result[12..16].clone_from_slice(&p.z.to_be_bytes());
+    result
+}
+
+fn params_to_bytes(
+    attitude: Quaternion,
+    attitude_commanded: Quaternion,
+    alt_baro: f32,
+    alt_agl: Option<f32>,
+    voltage: f32,
+    current: f32,
+) -> [u8; PARAMS_SIZE] {
+    let mut result = [0; PARAMS_SIZE];
+
+    let (agl, agl_present) = match alt_agl {
+        Some(a) => (a, 1),
+        None => (0., 0),
+    };
+
+    result[0..QUATERNION_SIZE].clone_from_slice(&attitude.to_bytes());
+    result[QUATERNION_SIZE..2*QUATERNION_SIZE].clone_from_slice(&attitude_commanded.to_be_bytes());
+    result[32..36].clone_from_slice(&alt_baro.to_be_bytes());
+    result[36..40].clone_from_slice(&agl.to_be_bytes());
+    result[40] = agl_present;
+    result[41..45].clone_from_slice(&voltage.to_be_bytes());
+    result[45..PARAMS_SIZE].clone_from_slice(&current.to_be_bytes());
+
     result
 }
 
@@ -180,6 +216,20 @@ impl From<&LinkStats> for [u8; LINK_STATS_SIZE] {
             p.uplink_link_quality,
             p.uplink_snr as u8,
             p.uplink_tx_power as u8,
+        ]
+    }
+}
+
+impl From<&SystemStatus> for [u8; SYS_STATUS_SIZE] {
+    fn from(p: &SystemStatus) -> Self {
+        [
+            p.imu as u8,
+            p.baro as u8,
+            p.gps as u8,
+            p.tof as u8,
+            p.magnetometer as u8,
+            p.esc_telemetry as u8,
+            p.esc_rpm as u8,
         ]
     }
 }
@@ -224,8 +274,9 @@ pub fn handle_rx(
     usb_serial: &mut SerialPort<'static, UsbBusType>,
     rx_buf: &[u8],
     attitude: Quaternion,
-    altimeter: f32,
-    altimeter_agl: Option<f32>,
+    attitude_commanded: Quaternion,
+    altitude_baro: f32,
+    altitude_agl: Option<f32>,
     controls: &ChannelData,
     link_stats: &LinkStats,
     waypoints: &[Option<Location>; MAX_WAYPOINTS],
@@ -278,40 +329,24 @@ pub fn handle_rx(
             tx_buf[i] = MsgType::Params as u8;
             i += 1;
 
-            let attitude_buf = quat_to_bytes(attitude);
-            tx_buf[i..QUATERNION_SIZE + i].copy_from_slice(&attitude_buf);
-            i += QUATERNION_SIZE;
-
-            let altimeter_bytes = altimeter.to_be_bytes();
-            tx_buf[i..F32_SIZE + i].copy_from_slice(&altimeter_bytes);
-            i += F32_SIZE;
-
-            tx_buf[i] = if altimeter_agl.is_some() { 1 } else { 0 };
-            i += 1;
-
-            match altimeter_agl {
-                Some(alt) => {
-                    let altimeter_agl_bytes = alt.to_be_bytes();
-                    tx_buf[i..F32_SIZE + i].copy_from_slice(&altimeter_agl_bytes)
-                }
-                None => (),
-            }
-            i += F32_SIZE;
-
-            let batt_v = adc
+            // todo: Delegate this v/current calc
+            let batt_voltage = adc
                 .reading_to_voltage(unsafe { crate::sensors_shared::V_A_ADC_READ_BUF }[0])
                 * crate::ADC_BATT_DIVISION;
-            let curr = adc
+            let esc_current = adc
                 .reading_to_voltage(unsafe { crate::sensors_shared::V_A_ADC_READ_BUF }[1])
                 * crate::ADC_CURR_DIVISION;
 
-            let batt_bytes = batt_v.to_be_bytes();
-            tx_buf[i..F32_SIZE + i].copy_from_slice(&batt_bytes);
-            i += F32_SIZE;
+            tx_buf[i..i + PARAMS_SIZE] = params_to_bytes(
+                attitude,
+                attitude_commanded,
+                altitude_baro,
+                altitude_agl,
+                batt_voltage,
+                esc_current
+            );
 
-            let curr_bytes = curr.to_be_bytes();
-            tx_buf[i..F32_SIZE + i].copy_from_slice(&curr_bytes);
-            i += F32_SIZE;
+            i = i + PARAMS_SIZE;
 
             let payload_size = MsgType::Params.payload_size();
             tx_buf[payload_size + 1] = util::calc_crc(
@@ -470,5 +505,27 @@ pub fn handle_rx(
                 motor_timers,
             );
         }
+        MsgType::ReqSysStatusAp => {
+            // todo: Just sys status for now; do AP too.
+            println!("Req Sys status and AP status");
+
+            // todo: DRY with above.
+            let mut tx_buf = [0; SYS_AP_STATUS_PACKET_SIZE];
+            tx_buf[0] = MsgType::SysApStatus as u8;
+
+            let payload: [u8; SYS_AP_STATUS_SIZE] = sys_status.into();
+
+            tx_buf[1..(SYS_AP_STATUS_SIZE + 1)].copy_from_slice(&payload);
+
+            let payload_size = MsgType::SysApStatus.payload_size();
+            tx_buf[payload_size + 1] = util::calc_crc(
+                &CRC_LUT,
+                &tx_buf[..payload_size + 1],
+                payload_size as u8 + 1,
+            );
+
+            usb_serial.write(&tx_buf).ok();
+        }
+        MsgType::ReqSysStatusAp => {},
     }
 }
