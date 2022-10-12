@@ -24,8 +24,6 @@ use super::{
 
 use defmt::println;
 
-use cmsis_dsp_sys as dsp_sys;
-
 use cfg_if::cfg_if;
 
 // // Min power setting for any individual rotor at idle setting.
@@ -298,7 +296,7 @@ impl MotorRpm {
     }
 
     /// Clamp rotor speeds by an RPM idle.
-    pub fn clamp_individual_rotors(&mut self) {
+    fn clamp_individual_rotors(&mut self) {
         if self.front_left < MIN_ROTOR_RPM {
             self.front_left = MIN_ROTOR_RPM;
         }
@@ -318,10 +316,10 @@ impl MotorRpm {
 
     /// Send this power command to the rotors, after converting to `MotorPower`,
     /// via a power-to-RPM PID.
-    pub fn set(
+    pub fn send_to_motors(
         &self,
-        pid_coeffs: pid::MotorCoeffGroup,
-        pids: pid::MotorPidGroup,
+        pid_coeffs: &pid::MotorCoeffs,
+        pids: &pid::MotorPidGroup,
         measured_rpm: &Self,
         mapping: &ControlMapping,
         motor_timers: &mut MotorTimers,

@@ -8,7 +8,7 @@ use crate::{
     control_interface::{AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData},
     flight_ctrls::{
         self,
-        common::{AltType, CtrlInputs, InputMap, Params},
+        common::{AltType, CtrlInputs, Params},
     },
     // pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::{Location, LocationType},

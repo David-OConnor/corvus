@@ -4,7 +4,7 @@
 use crate::{control_interface::ChannelData, util::map_linear};
 
 use super::{
-    common::{CtrlMix, Params, RatesCommanded},
+    common::{CtrlMix, MotorRpm, Params, RatesCommanded},
     filters::FlightCtrlFilters,
 };
 
@@ -234,7 +234,7 @@ fn find_ctrl_setting(
     // `t` here is the total time to complete this correction, using the analytic
     // formula.
     let t = if ω_dot_meas.abs() < EPS {
-        Some((3 * dθ) / (2. * ω_0))
+        Some((3. * dθ) / (2. * ω_0))
     } else {
         // If `inner` is negative, there is no solution for the desired ω_dot_0;
         // we must change it.
@@ -263,7 +263,7 @@ fn find_ctrl_setting(
 
     let mut ω_dot_target = match t {
         Some(ttc) => {
-            if ttc > coeffs.max_ttc_dθ * dθ {
+            if ttc > coeffs.max_ttc_per_dθ * dθ {
                 ω_dot_from_ttc(dθ, ω_0, coeffs.ttc_per_dθ)
             } else {
                 // Calculate the (~constant for a given correction) change in angular acceleration.
@@ -357,7 +357,7 @@ fn find_ctrl_setting(
 // }
 
 #[cfg(feature = "quad")]
-pub fn motor_power_from_atts(
+pub fn rotor_rpms_from_att(
     target_attitude: Quaternion,
     current_attitude: Quaternion,
     throttle: f32,
@@ -369,7 +369,7 @@ pub fn motor_power_from_atts(
     coeffs: &CtrlCoeffs,
     filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
-) -> (CtrlMix, MotorPower) {
+) -> (CtrlMix, MotorRpm) {
     // todo: This fn and approach is a WIP!!
 
     // This is the rotation we need to cause to arrive at the target attitude.
@@ -417,7 +417,7 @@ pub fn motor_power_from_atts(
         throttle,
     };
 
-    let power = MotorPower::from_cmds(&mix_new, front_left_dir);
+    let power = MotorRpm::from_cmds(&mix_new, front_left_dir);
 
     // Examine if our current control settings are appropriately effecting the change we want.
     (mix_new, power)
@@ -427,7 +427,7 @@ pub fn motor_power_from_atts(
 /// Similar to the above fn on quads. Note that we do not handle yaw command using this. Yaw
 /// is treated as coupled to pitch and roll, with yaw controls used to counter adverse-yaw.
 /// Yaw is to maintain coordinated flight, or deviate from it.
-pub fn control_posits_from_atts(
+pub fn control_posits_from_att(
     target_attitude: Quaternion,
     current_attitude: Quaternion,
     throttle: f32,

@@ -406,9 +406,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 }
 
 #[cfg(feature = "h7")]
-type UART_ELRS_REGS = pac::UART7;
+type UartElrsRegs = pac::UART7;
 #[cfg(feature = "g4")]
-type UART_ELRS_REGS = pac::USART3;
+type UartElrsRegs = pac::USART3;
 
 /// Configure the SPI and I2C busses.
 pub fn setup_busses(
@@ -416,7 +416,7 @@ pub fn setup_busses(
     i2c1_pac: I2C1,
     i2c2_pac: I2C2,
     uart2_pac: USART2,
-    uart_elrs_pac: UART_ELRS_REGS,
+    uart_elrs_pac: UartElrsRegs,
     clock_cfg: &Clocks,
 ) -> (
     Spi<SPI1>,

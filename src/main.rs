@@ -2,7 +2,6 @@
 #![no_std]
 // Used on USB protocol. Allows adding to the const param buff size
 // to make packet size.
-#![feature(generic_const_exprs)]
 
 // Potential markets:
 // - Hobby / racing (duh)
@@ -45,7 +44,7 @@ use flight_ctrls::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
     //     PID_CONTROL_ADJ_TIMEOUT,
     // },
-    pid::{MotorCoeffGroup, MotorCoeffs},
+    pid::{MotorCoeffs, MotorPidGroup},
     ControlMapping,
 };
 use lin_alg2::f32::Quaternion;
@@ -54,7 +53,7 @@ use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
 use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
-use state::{OperationMode, SensorStatus, StateVolatile, SystemStatus, UserCfg};
+use state::{OperationMode, SensorStatus, StateVolatile, UserCfg};
 use stm32_hal2::{
     self,
     adc::{self, Adc, AdcConfig, AdcDevice},
@@ -211,8 +210,6 @@ mod app {
         // todo: `params_prev` is an experimental var used in our alternative/experimental
         // todo flight controls code as a derivative.
         params_prev: Params,
-        // pid_attitude: PidGroup,
-        // pid_rate: PidGroup,
         control_channel_data: ChannelData,
         dma: Dma<DMA1>,
         dma2: Dma<DMA2>,
@@ -241,8 +238,9 @@ mod app {
         /// Store rotor RPM: (M1, M2, M3, M4). Quad only, but we can't feature gate
         /// shared fields.
         rotor_rpms: MotorRpm,
+        motor_pid_state: MotorPidGroup,
         /// PID motor coefficients
-        motor_pid_coeffs: MotorCoeffGroup,
+        motor_pid_coeffs: MotorCoeffs,
     }
 
     #[local]
@@ -616,6 +614,7 @@ mod app {
                 imu_calibration,
                 ext_sensor_active: ExtSensor::Mag,
                 pwr_maps: Default::default(),
+                motor_pid_state: Default::default(),
                 motor_pid_coeffs: Default::default(),
                 rotor_rpms: Default::default(),
             },
@@ -651,7 +650,7 @@ mod app {
     binds = TIM1_BRK_TIM15,
     shared = [current_params,
     power_used, autopilot_status, user_cfg,
-    ahrs, control_channel_data, motor_timers,
+    ahrs, control_channel_data, motor_timers, rotor_rpms,
     lost_link_timer, altimeter, i2c1, i2c2, state_volatile, batt_curr_adc, dma, dma2,
     ],
     local = [arm_signals_received, disarm_signals_received, update_loop_i, uart_osd,
@@ -924,7 +923,7 @@ mod app {
                                     0.,
                                 );
 
-                                state_volatile.power_maps.rpm_to_accel__roll.log_val(
+                                state_volatile.power_maps.rpm_to_accel_roll.log_val(
                                 0.,
                                     0.,
                                 );
@@ -958,7 +957,7 @@ mod app {
 
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, params_prev, control_channel_data,
-    autopilot_status, imu_filters, flight_ctrl_filters, cs_imu, user_cfg,
+    autopilot_status, imu_filters, flight_ctrl_filters, cs_imu, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timers, ahrs, state_volatile, rf_limiter_timer], local = [fixed_wing_rate_loop_i, update_loop_i2], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
@@ -986,6 +985,8 @@ mod app {
             cx.shared.control_channel_data,
             cx.shared.autopilot_status,
             cx.shared.motor_timers,
+            cx.shared.motor_pid_state,
+            cx.shared.motor_pid_coeffs,
             cx.shared.dma,
             cx.shared.user_cfg,
             cx.shared.spi1,
@@ -1000,6 +1001,8 @@ mod app {
                  control_channel_data,
                  autopilot_status,
                  motor_timers,
+                 pid_state,
+                 pid_coeffs,
                  dma,
                  cfg,
                  spi1,
@@ -1095,7 +1098,7 @@ mod app {
 
                     cfg_if! {
                         if #[cfg(feature = "quad")] {
-                            let (ctrl_mix, motor_power) = ctrl_logic::motor_power_from_atts(
+                            let (ctrl_mix, rpms) = ctrl_logic::rotor_rpms_from_att(
                                 state_volatile.attitude_commanded.quat.unwrap(),
                                 params.attitude_quat,
                                 throttle,
@@ -1114,13 +1117,22 @@ mod app {
                             //     // todo: Params is just for current angular rates. Maybe just pass those?
                             //     params: &Params,
                             //     current_power: &MotorPower,
-
-                            motor_power.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status, dma);
+                            rpms.send_to_motors(
+                                pid_coeffs,
+                                pid_state,
+                                &rpms,
+                                &cfg.control_mapping,
+                                motor_timers,
+                                state_volatile.arm_status,
+                                dma
+                            );
 
                             state_volatile.ctrl_mix = ctrl_mix;
-                            state_volatile.current_pwr = motor_power;
+                            // todo: Dynamics of `current_pwr` for quads, and `ctrl_posits`
+                            // todo for fixed-wing. You're saving it, but when is it used?
+                            // state_volatile.current_pwr = motor_power;
                         } else {
-                            let (ctrl_mix, control_posits) = ctrl_logic::control_posits_from_atts(
+                            let (ctrl_mix, control_posits) = ctrl_logic::control_posits_from_att(
                                 state_volatile.attitude_commanded.quat.unwrap(),
                                 params.attitude_quat,
                                 throttle,

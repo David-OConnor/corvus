@@ -12,7 +12,6 @@ use crate::{
     },
     ppks::Location,
     safety::ArmStatus,
-    usb_cfg::WAYPOINT_SIZE,
 };
 
 use lin_alg2::f32::{Quaternion, Vec3};

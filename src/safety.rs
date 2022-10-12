@@ -13,19 +13,17 @@ use crate::{
     state::{SensorStatus, SystemStatus},
 };
 
+#[cfg(feature = "fixed-wing")]
 use stm32_hal2::{
     gpio::{self, Port},
     pac,
 };
 
-use cfg_if::cfg_if;
-
-cfg_if! {
-    if #[cfg(feature = "fixed-wing")] {
-    } else {
-        use crate::flight_ctrls::InputMode;
-    }
-}
+// cfg_if! {
+//     if #[cfg(feature = "fixed-wing")] {
+//     } else {
+//     }
+// }
 
 use defmt::println;
 

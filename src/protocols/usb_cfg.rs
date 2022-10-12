@@ -83,12 +83,12 @@ pub const AP_STATUS_SIZE: usize = 0; // todo
 pub const SYS_AP_STATUS_SIZE: usize = SYS_STATUS_SIZE + AP_STATUS_SIZE;
 
 // Packet sizes are payload size + 2. Additional data are message type, and CRC.
-const PARAMS_PACKET_SIZE: usize = PARAMS_SIZE + 2;
-const CONTROLS_PACKET_SIZE: usize = CONTROLS_SIZE + 2;
-const LINK_STATS_PACKET_SIZE: usize = LINK_STATS_SIZE + 2;
-pub const WAYPOINTS_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
-pub const SET_SERVO_POSIT_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
-pub const SYS_AP_STATUS_PACKET_SIZE: usize = SYS_AP_STATUS_SIZE + 2;
+// const PARAMS_PACKET_SIZE: usize = PARAMS_SIZE + 2;
+// const CONTROLS_PACKET_SIZE: usize = CONTROLS_SIZE + 2;
+// const LINK_STATS_PACKET_SIZE: usize = LINK_STATS_SIZE + 2;
+// pub const WAYPOINTS_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
+// pub const SET_SERVO_POSIT_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
+// pub const SYS_AP_STATUS_PACKET_SIZE: usize = SYS_AP_STATUS_SIZE + 2;
 
 // const START_BYTE: u8 =
 
@@ -184,8 +184,9 @@ fn params_to_bytes(
         None => (0., 0),
     };
 
-    result[0..QUATERNION_SIZE].clone_from_slice(quat_to_bytes(attitude));
-    result[QUATERNION_SIZE..2 * QUATERNION_SIZE].clone_from_slice(quat_to_bytes(attitude_commanded));
+    result[0..QUATERNION_SIZE].clone_from_slice(&quat_to_bytes(attitude));
+    result[QUATERNION_SIZE..2 * QUATERNION_SIZE]
+        .clone_from_slice(&quat_to_bytes(attitude_commanded));
     result[32..36].clone_from_slice(&alt_baro.to_be_bytes());
     result[36..40].clone_from_slice(&agl.to_be_bytes());
     result[40] = agl_present;
@@ -349,19 +350,19 @@ pub fn handle_rx(
                 esc_current,
             );
 
-            send_payload(MsgType::Params, &payload, usb_serial);
+            send_payload::<{ PARAMS_SIZE + 2 }>(MsgType::Params, &payload, usb_serial);
         }
         MsgType::Ack => {}
         MsgType::ReqControls => {
             println!("Req controls");
             let payload: [u8; CONTROLS_SIZE] = controls.into();
-            send_payload(MsgType::Controls, &payload, usb_serial);
+            send_payload::<{ CONTROLS_SIZE + 2 }>(MsgType::Controls, &payload, usb_serial);
         }
         MsgType::Controls => {}
         MsgType::ReqLinkStats => {
             println!("Req link stats");
             let payload: [u8; LINK_STATS_SIZE] = link_stats.into();
-            send_payload(MsgType::LinkStats, &payload, usb_serial);
+            send_payload::<{ LINK_STATS_SIZE + 2 }>(MsgType::LinkStats, &payload, usb_serial);
         }
         MsgType::LinkStats => {}
         MsgType::ArmMotors => {
@@ -431,7 +432,7 @@ pub fn handle_rx(
         MsgType::ReqWaypoints => {
             println!("Req waypoints");
             let payload: [u8; WAYPOINTS_SIZE] = waypoints_to_buf(waypoints);
-            send_payload(MsgType::Waypoints, &payload, usb_serial);
+            send_payload::<{ WAYPOINTS_SIZE + 2 }>(MsgType::Waypoints, &payload, usb_serial);
         }
         MsgType::Waypoints => {}
         MsgType::Updatewaypoints => {}
@@ -463,8 +464,7 @@ pub fn handle_rx(
             // todo: Just sys status for now; do AP too.
             println!("Req Sys status and AP status");
             let payload: [u8; SYS_AP_STATUS_SIZE] = sys_status.into();
-            send_payload(MsgType::SysApStatus, &payload, usb_serial);
-            // send_payload<MsgType::SysApStatus.message_size()>(MsgType::SysApStatus, &payload, usb_serial);
+            send_payload::<{ SYS_AP_STATUS_SIZE + 2 }>(MsgType::SysApStatus, &payload, usb_serial);
         }
         MsgType::SysApStatus => {}
     }
@@ -475,14 +475,10 @@ fn send_payload<const N: usize>(
     payload: &[u8],
     usb_serial: &mut SerialPort<'static, UsbBusType>,
 ) {
-    // where M = N + 2{
-    // where N: Sized {
-    //     const M: usize = N + 2;
-
+    // N is the packet size.
     let payload_size = msg_type.payload_size();
 
-
-    let mut tx_buf = [0; N + 2] where [(); {N + 2}]:;
+    let mut tx_buf = [0; N];
 
     tx_buf[0] = MsgType::SysApStatus as u8;
     tx_buf[1..(payload_size + 1)].copy_from_slice(&payload);

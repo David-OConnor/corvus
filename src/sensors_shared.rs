@@ -4,12 +4,12 @@
 use stm32_hal2::{
     dma::Dma,
     i2c::I2c,
-    pac::{DMA1, DMA2, I2C1, I2C2},
+    pac::{DMA2, I2C1, I2C2},
 };
 
 use crate::{
     baro, gps, mag,
-    setup::{BARO_RX_CH, BARO_TX_CH, EXT_SENSORS_RX_CH, EXT_SENSORS_TX_CH},
+    setup::{BARO_TX_CH, EXT_SENSORS_TX_CH},
     tof,
 };
 

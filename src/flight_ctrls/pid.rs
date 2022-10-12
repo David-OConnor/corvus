@@ -6,8 +6,6 @@
 //! [Some info on the PID terms, focused on BF](https://gist.github.com/exocode/90339d7f946ad5f83dd1cf29bf5df0dc)
 //! https://oscarliang.com/quadcopter-pid-explained-tuning/
 
-use stm32_hal2::{dma::Dma, pac::DMA1};
-
 use cmsis_dsp_api as dsp_api;
 
 use crate::{
@@ -17,11 +15,7 @@ use crate::{
     DT_IMU,
 };
 
-use super::{
-    autopilot::AutopilotStatus,
-    common::{AttitudeCommanded, CtrlInputs, InputMap, MotorTimers, Params, RatesCommanded},
-    ctrl_logic, ControlMapping,
-};
+use super::common::Params;
 
 use cfg_if::cfg_if;
 
@@ -110,13 +104,13 @@ impl Default for MotorCoeffs {
     }
 }
 
-#[derive(Default)]
-pub struct MotorCoeffGroup {
-    pub front_left: MotorCoeffs,
-    pub front_right: MotorCoeffs,
-    pub aft_left: MotorCoeffs,
-    pub aft_right: MotorCoeffs,
-}
+// #[derive(Default)]
+// pub struct MotorCoeffGroup {
+//     pub front_left: MotorCoeffs,
+//     pub front_right: MotorCoeffs,
+//     pub aft_left: MotorCoeffs,
+//     pub aft_right: MotorCoeffs,
+// }
 
 #[derive(Default)]
 pub struct MotorPidGroup {
@@ -220,23 +214,23 @@ impl Default for DerivFilters {
         unsafe {
             // todo: Re-initialize fn?
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.rpm_front_left,
+                &mut result.rpm_front_left.inner,
                 &COEFFS_D,
                 &mut FILTER_STATE_FRONT_LEFT,
             );
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.rpm_front_right,
+                &mut result.rpm_front_right.inner,
                 &COEFFS_D,
                 &mut FILTER_STATE_FRONT_RIGHT,
             );
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.rpm_aft_left,
+                &mut result.rpm_aft_left.inner,
                 &COEFFS_D,
                 &mut FILTER_STATE_AFT_LEFT,
             );
 
             dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.rpm_aft_right,
+                &mut result.rpm_aft_right.inner,
                 &COEFFS_D,
                 &mut FILTER_STATE_AFT_RIGHT,
             );
@@ -276,11 +270,9 @@ pub fn run(
     let error_d_prefilt = k_d * (measurement - prev_pid.measurement) / dt;
 
     let mut error_d = [0.];
-    match filter {
-        Some(f) => {
-            dsp_api::biquad_cascade_df1_f32(&mut filter.inner, &[error_d_prefilt], &mut error_d, 1);
-        }
-        None => error_d,
+
+    if let Some(f) = filter {
+        dsp_api::biquad_cascade_df1_f32(&mut f.inner, &[error_d_prefilt], &mut error_d, 1);
     }
 
     let mut result = PidState {
