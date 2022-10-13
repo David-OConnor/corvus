@@ -23,8 +23,7 @@
 use ahrs_fusion::Ahrs;
 use cfg_if::cfg_if;
 use control_interface::{
-    AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData, LinkStats, PidTuneActuation,
-    PidTuneMode,
+    ChannelData, LinkStats, PidTuneActuation,
 };
 use cortex_m::{self, asm, delay::Delay};
 use defmt::println;
@@ -37,8 +36,8 @@ use drivers::{
 use filter_imu::ImuFilters;
 use flight_ctrls::{
     autopilot::AutopilotStatus,
-    common::{AltType, CtrlInputs, InputMap, MotorRpm, MotorTimers, Params, RatesCommanded},
-    ctrl_logic::{self, CtrlCoeffs, PowerMaps},
+    common::{MotorRpm, MotorTimers, Params, RatesCommanded},
+    ctrl_logic::{self, PowerMaps},
     filters::FlightCtrlFilters,
     // pid::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
@@ -162,6 +161,10 @@ const UPDATE_RATE_MAIN_LOOP: f32 = 1_600.; // IMU rate / 5.
 
 // Every x main update loops, log parameters etc to flash.
 const LOGGING_UPDATE_RATIO: usize = 100;
+
+// Every x main update loops, print system status and sensor readings to console,
+// if enabled with the `print-status` feature.
+const PRINT_STATUS_RATIO: usize = 100;
 
 // Every x main loops, log RPM (or servo posit) to angular accel (thrust) data.
 const THRUST_LOG_RATIO: usize = 20;
@@ -404,22 +407,23 @@ mod app {
         // Frequency here can be arbitrary; we set manually using PSC and ARR below.
         cfg_if! {
             if #[cfg(feature = "h7")] {
-                let r1234 = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
+                let r1234 = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg.clone(), &clock_cfg);
 
                 // For fixed wing on H7; need a separate timer from the 4 used for DSHOT.
-                // todo: PAC ommission??
-                let mut servos = Timer::new_tim8(dp.TIM8, 1., Default::default(), &clock_cfg);
+                let mut servos = Timer::new_tim8(dp.TIM8, 1., rotor_timer_cfg, &clock_cfg);
 
                 let mut motor_timers = MotorTimers { rotors, servos };
 
             } else if #[cfg(feature = "mercury-g4")] {
-
                 let mut r12 =
                     Timer::new_tim2(dp.TIM2, 1., rotor_timer_cfg.clone(), &clock_cfg);
 
                 let mut r34_servos = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
 
-                let mut motor_timers = MotorTimers { r12, r34_servos };
+                #[cfg(feature = "quad")]
+                let mut motor_timers = MotorTimers { r12, r34: r34_servos };
+                #[cfg(feature = "fixed-wing")]
+                let mut motor_timers = MotorTimers { r12, servos: r34_servos };
             }
         }
 
@@ -608,7 +612,7 @@ mod app {
                 // rtc,
                 rf_limiter_timer,
                 lost_link_timer,
-                link_lost: fales,
+                link_lost: false,
                 motor_timers,
                 usb_dev,
                 usb_serial,
@@ -690,30 +694,22 @@ mod app {
         )
             .lock(
                 |params,
-                 ahrs,
-                 control_channel_data,
-                 power_used,
-                 autopilot_status,
-                 cfg,
-                 lost_link_timer,
-                 link_lost,
-                 altimeter,
-                 i2c1,
-                 i2c2,
-                 state_volatile,
-                 motor_timers,
-                 adc,
-                 dma,
-                 dma2,
-                 rpms| {
-                    // Update barometric altitude
-                    // todo: Put back.
-                    // let pressure = altimeter.read_pressure(i2c2);
-                    // let temp = altimeter.read_temp(i2c2);
-                    // params.s_z_msl = altimeter.estimate_altitude_msl(pressure, temp);
-
-                    // todo: For these ADC readings, consider A: DMA. B: Not getting this data every update.
-
+                ahrs,
+                control_channel_data,
+                power_used,
+                autopilot_status,
+                cfg,
+                lost_link_timer,
+                link_lost,
+                altimeter,
+                i2c1,
+                i2c2,
+                state_volatile,
+                motor_timers,
+                adc,
+                dma,
+                dma2,
+                rpms| {
                     // We must do this initializing with the dshot ISRs active, but can't send
                     // motor commands, including the normal idle ones between its use. Hence the
                     // `initializing_motors` flag.
@@ -744,18 +740,34 @@ mod app {
                         }
 
                         return
-                    }
+                     }
 
 
-                    // Debug loop.
-                    if *cx.local.update_loop_i % 700 == 0 {
-                        let batt_v = adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[0])
-                            * ADC_BATT_DIVISION;
-                        let curr_v = adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[1])
-                            * ADC_CURR_DIVISION;
+                    #[cfg(feature = "print-status")]
+                    if *cx.local.update_loop_i % PRINT_STATUS_RATIO == 0 {
+                        // todo: Flesh this out, and perhaps make it more like Preflight.
 
-                        let current = curr_v; // mA.
-                                              // println!("Batt V: {} Curr V: {}", batt_v, curr_v);
+                        println!(
+                            "Control data:\nPitch: {} Roll: {}, Yaw: {}, Throttle: {}",
+                            control_channel_data.pitch, control_channel_data.roll,
+                            control_channel_data.yaw, control_channel_data.throttle,
+                        );
+
+                        #[cfg(feature = "quad")]
+                        let loiter = autopilot_status.loiter.is_some();
+                        #[cfg(feature = "fixed-wing")]
+                        let loiter = autopilot_status.orbit.is_some();
+
+                        println!(
+                            "Autopilot_status:\nAlt hold: {} Heading hold: {}, Yaw assist: {}, Direct to point: {}, \
+                            sequence: {}, takeoff: {}, land: {}, recover: {}, loiter/orbit: {}",
+                            autopilot_status.alt_hold.is_some(), autopilot_status.hdg_hold.is_some(),
+                            autopilot_status.direct_to_point.is_some(),
+                            autopilot_status.sequence, autopilot_status.takeoff, autopilot_status.land.is_some(),
+                            autopilot_status.recover.is_some(), loiter,
+                        );
+
+                        println!("Batt V: {} ESC current: {}", state_volatile.batt_v, state_volatile.esc_current);
                                               //
                                               // println!(
                                               //     "Accel: Ax {}, Ay: {}, Az: {}",
@@ -772,20 +784,23 @@ mod app {
                             params.s_roll, params.s_pitch, params.s_yaw_heading
                         );
 
+                        println!(
+                            "RPMs: FL {}, FR: {}, AL: {}, AR: {}\n",
+                            rpms.front_left, rpms.front_right, rpms.aft_left, rpms.aft_right
+                        );
+
                         // println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
                         // println!(
                         //     "Input mode sw: {:?}",
                         //     control_channel_data.input_mode == InputModeSwitch::Acro
                         // );
 
-                        // println!("AHRS Q: {} {} {} {}",
-                        //      ahrs.quaternion.w,
-                        //      ahrs.quaternion.x,
-                        //      ahrs.quaternion.y,
-                        //      ahrs.quaternion.z
-                        // );
-                        //
-
+                        println!("AHRS Quat: {} {} {} {}",
+                             ahrs.quaternion.w,
+                             ahrs.quaternion.x,
+                             ahrs.quaternion.y,
+                             ahrs.quaternion.z
+                        );
                     }
 
                     // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
@@ -822,7 +837,7 @@ mod app {
                         );
                     }
 
-                    if link_lost {
+                    if *link_lost {
                         safety::link_lost(
                             &state_volatile.system_status,
                             autopilot_status,
@@ -840,19 +855,21 @@ mod app {
                     // todo: Determine timing for OSD update, and if it should be in this loop,
                     // todo, or slower.
 
-                    // todo: Store current adn batteyr in state_volatile if you end up using it elsewhere.
                     let batt_v =
                         adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[0]) * ADC_BATT_DIVISION;
                     let curr_v =
                         adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[1]) * ADC_CURR_DIVISION;
 
                     // todo: Find the current conversion factor. Probably slope + y int
-                    let current = curr_v;
+                    let esc_current = curr_v;
+
+                    state_volatile.batt_v = batt_v;
+                    state_volatile.esc_current = esc_current;
 
                     let osd_data = OsdData {
                         arm_status: state_volatile.arm_status,
                         battery_voltage: batt_v,
-                        current_draw: current,
+                        current_draw: esc_current,
                         alt_msl_baro: params.baro_alt_msl,
                         gps_fix: Location::default(),
                         pitch: params.s_pitch,
@@ -1090,10 +1107,9 @@ mod app {
                         state_volatile.attitude_commanded.quat = Some(cfg.takeoff_attitude);
                     }
 
-                    // todo: DRY from pid::apply_common
                     let throttle = match throttle_commanded {
                         Some(t) => t,
-                        None => cfg.input_map.calc_manual_throttle(control_channel_data.throttle),
+                        None => control_channel_data.throttle,
                     };
 
                     cfg_if! {
@@ -1201,6 +1217,8 @@ mod app {
                                 state_volatile.attitude_commanded,
                                 params.baro_alt_msl,
                                 params.tof_alt,
+                                state_volatile.batt_v,
+                                state_volatile.esc_current,
                                 ch_data,
                                 &link_stats,
                                 &user_cfg.waypoints,
@@ -1221,7 +1239,8 @@ mod app {
             )
     }
 
-    // Note: We don't use `dshot_isr_r12` on H7; this is associated with timer 2.
+    // Note: We don't use `dshot_isr_r12` on H7; this is associated with timer 2. DSHOT
+    // uses a single timer on H7: `dshot_isr_r34`
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
     #[cfg(feature = "g4")]
     #[task(binds = DMA1_CH3, shared = [motor_timers], priority = 6)]
@@ -1281,8 +1300,10 @@ mod app {
         cx.shared.motor_timers.lock(|timers| {
             #[cfg(feature = "h7")]
             timers.r1234.disable();
-            #[cfg(feature = "g4")]
-            timers.r34_servos.disable();
+            #[cfg(all(feature = "g4", feature = "quad"))]
+            timers.r34.disable();
+            #[cfg(all(feature = "g4", feature = "fixed-wing"))]
+            timers.servos.disable();
         });
 
         if dshot::BIDIR_EN {
@@ -1379,7 +1400,7 @@ mod app {
             cx.shared.current_params,
         )
             .lock(
-                |timer, link_Lost, state_volatile, user_cfg, autopilot_status, params| {
+                |timer, link_lost, state_volatile, user_cfg, autopilot_status, params| {
                     timer.clear_interrupt(TimerInterrupt::Update);
                     timer.reset_count();
                     timer.disable(); // todo: Probably not required in one-pulse mode.
@@ -1416,7 +1437,7 @@ mod app {
             cx.shared.rf_limiter_timer,
         )
             .lock(
-                |uart, dma, ch_data, link_stats, lost_link_timer, rf_limiter_timer| {
+                |uart, dma, ch_data, link_stats, lost_link_timer, link_lost, rf_limiter_timer| {
                     uart.clear_interrupt(UsartInterrupt::Idle);
 
                     if rf_limiter_timer.is_enabled() {
@@ -1480,7 +1501,7 @@ mod app {
                                 lost_link_timer.reset_count();
                                 lost_link_timer.enable();
 
-                                if link_lost {
+                                if *link_lost {
                                     println!("Link re-aquired");
                                     // todo: Execute re-acq procedure
                                 }

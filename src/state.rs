@@ -202,10 +202,6 @@ pub struct StateVolatile {
     pub system_status: SystemStatus,
     // FOr now, we use "link lost" to include never having been connected.
     // connected_to_controller: bool,
-    pub link_lost: bool,
-    #[cfg(feature = "quad")]
-    // /// Attitudes to hold for each axis, eg if control input is neutral
-    // pub axis_locks: AxisLocks,
     #[cfg(feature = "quad")]
     pub current_pwr: MotorPower,
     #[cfg(feature = "fixed-wing")]
@@ -218,7 +214,6 @@ pub struct StateVolatile {
     pub attitude_commanded: AttitudeCommanded,
     pub rates_commanded: RatesCommanded,
     // /// On a scale of 0 to 1.
-    // pub throttle_commanded: Option<f32>,
     pub autopilot_commands: CtrlInputs,
     /// We us this to analyze how the current controls are impacting
     /// angular accelerations.
@@ -231,4 +226,6 @@ pub struct StateVolatile {
     pub power_maps: PowerMaps,
     /// Angular drag coefficient, continuously updated.
     pub angular_drag_coeff: f32,
+    pub batt_v: f32,      // volts
+    pub esc_current: f32, // amps
 }

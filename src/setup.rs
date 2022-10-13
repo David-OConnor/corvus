@@ -149,7 +149,7 @@ cfg_if! {
 }
 
 impl Motor {
-    // todo: Feature gate these methods based on board, as required.
+    /// This same channel arrangement applies for H7 and G4.
     pub fn tim_channel(&self) -> TimChannel {
         match self {
             Self::M1 => TimChannel::C1,
@@ -159,7 +159,7 @@ impl Motor {
         }
     }
 
-    /// Dma input channel. This should be in line with `tim_channel`.
+    /// Dma input channel. This should be in line with `tim_channel`. For DSHOT.
     pub fn dma_input(&self) -> DmaInput {
         cfg_if! {
             if #[cfg(feature = "h7")] {
@@ -355,7 +355,6 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     dma::mux(DmaPeriph::Dma1, IMU_RX_CH, DmaInput::Spi1Rx);
 
     // DSHOT, motors 1 and 2 (all 4 for H7)
-    #[cfg(feature = "g4")]
     dma::mux(
         DmaPeriph::Dma1,
         Motor::M1.dma_channel(),
@@ -363,7 +362,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     );
 
     // DSHOT, motors 3 and 4 (not used on H7)
-    #[cfg(not(feature = "h7"))]
+    #[cfg(feature = "g4")]
     dma::mux(
         DmaPeriph::Dma1,
         Motor::M3.dma_channel(),

@@ -70,7 +70,7 @@ const DUTY_LOW: u32 = DSHOT_ARR_600 * 3 / 8;
 // Use this pause duration, in ms, when setting up motor dir.
 pub const PAUSE_BETWEEN_COMMANDS: u32 = 1;
 pub const PAUSE_AFTER_SAVE: u32 = 40; // Must be at least 35ms.
-                                      // BLHeli_32 requires you repeat certain commands, like motor direction, 6 times.
+// BLHeli_32 requires you repeat certain commands, like motor direction, 6 times.
 pub const REPEAT_COMMAND_COUNT: u32 = 10; // todo: Set back to 6 once sorted out.
 
 // DMA buffers for each rotor. 16-bit data. Note that
@@ -358,7 +358,6 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     true,
                 );
             }
-
         } else {
             dma.stop(Motor::M3.dma_channel());
 
@@ -381,7 +380,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     dma,
                     true,
                 );
-                timers.r34_servos.write_dma_burst(
+                timers.r34.write_dma_burst(
                     &PAYLOAD_R3_4,
                     Motor::M3.base_addr_offset(),
                     2,
@@ -447,7 +446,7 @@ pub fn receive_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     dma,
                     true,
                 );
-                timers.r34_servos.read_dma_burst(
+                timers.r34.read_dma_burst(
                     &PAYLOAD_R3_4_REC,
                     Motor::M3.base_addr_offset(),
                     2,
@@ -477,14 +476,14 @@ pub fn enable_bidirectional(timers: &mut MotorTimers) {
         } else {
             timers.r12.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveHigh);
             timers.r12.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveHigh);
-            timers.r34_servos.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveHigh);
-            timers.r34_servos.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveHigh);
+            timers.r34.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveHigh);
+            timers.r34.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveHigh);
 
             timers.r12.cfg.direction = CountDir::Down;
-            timers.r34_servos.cfg.direction = CountDir::Down;
+            timers.r34.cfg.direction = CountDir::Down;
 
             timers.r12.set_dir();
-            timers.r34_servos.set_dir();
+            timers.r34.set_dir();
         }
     }
 }
@@ -496,23 +495,30 @@ pub fn disable_bidirectional(timers: &mut MotorTimers) {
         if #[cfg(feature = "h7")] {
             timers.rotors.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveLow);
             timers.rotors.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveLow);
-            timers.rotors.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveLow);
-            timers.rotors.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveLow);
 
+            // todo: Does setting this direction affect servo use, eg fixed-wing?
             timers.rotors.cfg.direction = CountDir::Up;
-
             timers.rotors.set_dir();
         } else {
             timers.r12.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveLow);
             timers.r12.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveLow);
-            timers.r34_servos.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveLow);
-            timers.r34_servos.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveLow);
 
             timers.r12.cfg.direction = CountDir::Up;
-            timers.r34_servos.cfg.direction = CountDir::Up;
-
             timers.r12.set_dir();
-            timers.r34_servos.set_dir();
+        }
+
+        if #[cfg(all(feature = "h7", feature = "quad"))] {
+            timers.rotors.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveLow);
+            timers.rotors.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveLow);
+
+            timers.rotors.cfg.direction = CountDir::Up;
+            timers.rotors.set_dir();
+        } else if #[cfg(all(feature = "g4", feature = "quad"))] {
+            timers.r34.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveLow);
+            timers.r34.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveLow);
+
+            timers.r34.cfg.direction = CountDir::Up;
+            timers.r34.set_dir();
         }
     }
 }
@@ -526,13 +532,17 @@ pub fn set_to_output(timers: &mut MotorTimers) {
             // Arbitrary duty cycle set, since we'll override it with DMA bursts.
             timers.rotors.enable_pwm_output(Motor::M1.tim_channel(), oc, 0.);
             timers.rotors.enable_pwm_output(Motor::M2.tim_channel(), oc, 0.);
-            timers.rotors.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
-            timers.rotors.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
         } else {
             timers.r12.enable_pwm_output(Motor::M1.tim_channel(), oc, 0.);
             timers.r12.enable_pwm_output(Motor::M2.tim_channel(), oc, 0.);
-            timers.r34_servos.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
-            timers.r34_servos.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
+        }
+
+        if #[cfg(all(feature = "h7", feature = "quad"))] {
+            timers.rotors.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
+            timers.rotors.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
+        } else if #[cfg(all(feature = "g4", feature = "quad"))] {
+            timers.r34.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
+            timers.r34.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
         }
     }
 }
@@ -565,13 +575,18 @@ fn set_to_input(timers: &mut MotorTimers) {
 
             timers.rotors.set_input_capture(Motor::M1.tim_channel(), cc, trigger, ism, pol_p, pol_n);
             timers.rotors.set_input_capture(Motor::M2.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-            timers.rotors.set_input_capture(Motor::M3.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-            timers.rotors.set_input_capture(Motor::M4.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            if #[cfg(feature = "quad")] {
+                timers.rotors.set_input_capture(Motor::M3.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+                timers.rotors.set_input_capture(Motor::M4.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            }
         } else {
             timers.r12.set_input_capture(Motor::M1.tim_channel(), cc, trigger, ism, pol_p, pol_n);
             timers.r12.set_input_capture(Motor::M2.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-            timers.r34_servos.set_input_capture(Motor::M3.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-            timers.r34_servos.set_input_capture(Motor::M4.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            if #[cfg(feature = "quad")] {
+                timers.r34.set_input_capture(Motor::M3.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+                timers.r34.set_input_capture(Motor::M4.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            }
         }
     }
 }
+

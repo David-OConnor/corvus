@@ -208,7 +208,6 @@ pub struct Params {
 /// On G4, 1 and 2 are always motors, and 3 adn 4 are always servos.
 /// todo: On G4, you can use a third servo on fixed-wing by configuring one of PA0/1 (r12)
 /// todo as TIM5, ch 1/2. (instead of TIM2, ch1/2)
-#[cfg(feature = "quad")]
 pub struct MotorTimers {
     #[cfg(feature = "h7")]
     /// Timer for all 4 rotors.

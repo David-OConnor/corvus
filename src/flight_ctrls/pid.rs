@@ -15,8 +15,6 @@ use crate::{
     DT_IMU,
 };
 
-use super::common::Params;
-
 use cfg_if::cfg_if;
 
 cfg_if! {
@@ -89,15 +87,31 @@ impl Default for MotorCoeffs {
     #[cfg(feature = "quad")]
     fn default() -> Self {
         Self {
-            p_front_left: 0.,
-            p_front_right: 0.,
-            p_aft_left: 0.,
-            p_aft_right: 0.,
+            p_front_left: 1.,
+            p_front_right: 1.,
+            p_aft_left: 1.,
+            p_aft_right: 1.,
 
-            i_front_left: 0.,
-            i_front_right: 0.,
-            i_aft_left: 0.,
-            i_aft_right: 0.,
+            i_front_left: 0.4,
+            i_front_right: 0.4,
+            i_aft_left: 0.5,
+            i_aft_right: 0.5,
+
+            rpm_cutoff: LowpassCutoff::H1k,
+        }
+    }
+    #[cfg(feature = "fixed-wing")]
+    fn default() -> Self {
+        Self {
+            p_front_left: 1.,
+            p_front_right: 1.,
+            p_aft_left: 1.,
+            p_aft_right: 1.,
+
+            i_front_left: 0.5,
+            i_front_right: 0.5,
+            i_aft_left: 0.5,
+            i_aft_right: 0.5,
 
             rpm_cutoff: LowpassCutoff::H1k,
         }

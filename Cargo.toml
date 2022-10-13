@@ -49,6 +49,8 @@ g4 = ["stm32-hal2/g4rt", "stm32-hal2/g473", "stm32-hal2/usb", "stm32-usbd"]
 h7 = ["stm32-hal2/h7rt", "stm32-hal2/h735", "stm32-hal2/usbotg_hs", "synopsys-usb-otg"]
 quad = [] # For quadcopter aircraft
 fixed-wing = [] # For fixed-wing aircraft
+# Periodically print the status of various sytems and sensor data to console. For debugging.
+print-status = []
 
 #default = ["mercury-g4"]
 

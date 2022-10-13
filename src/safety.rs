@@ -19,6 +19,9 @@ use stm32_hal2::{
     pac,
 };
 
+#[cfg(feature = "fixed-wing")]
+use cfg_if::cfg_if;
+
 // cfg_if! {
 //     if #[cfg(feature = "fixed-wing")] {
 //     } else {

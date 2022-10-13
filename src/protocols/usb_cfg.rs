@@ -282,6 +282,8 @@ pub fn handle_rx(
     attitude_commanded: AttitudeCommanded,
     altitude_baro: f32,
     altitude_agl: Option<f32>,
+    batt_v: f32,
+    esc_current: f32,
     controls: &ChannelData,
     link_stats: &LinkStats,
     waypoints: &[Option<Location>; MAX_WAYPOINTS],
@@ -330,14 +332,6 @@ pub fn handle_rx(
 
             println!("Req params");
 
-            // todo: Delegate this v/current calc
-            let batt_voltage = adc
-                .reading_to_voltage(unsafe { crate::sensors_shared::V_A_ADC_READ_BUF }[0])
-                * crate::ADC_BATT_DIVISION;
-            let esc_current = adc
-                .reading_to_voltage(unsafe { crate::sensors_shared::V_A_ADC_READ_BUF }[1])
-                * crate::ADC_CURR_DIVISION;
-
             let payload = params_to_bytes(
                 attitude,
                 // todo: Pass more than just the quat, here and in prelfight.
@@ -346,7 +340,7 @@ pub fn handle_rx(
                     .unwrap_or(Quaternion::new_identity()),
                 altitude_baro,
                 altitude_agl,
-                batt_voltage,
+                batt_v,
                 esc_current,
             );
 
