@@ -211,6 +211,8 @@ mod app {
         // todo flight controls code as a derivative.
         params_prev: Params,
         control_channel_data: ChannelData,
+        /// Link statistics, including Received Signal Strength Indicator (RSSI) from the controller's radio.
+        link_stats: LinkStats,
         dma: Dma<DMA1>,
         dma2: Dma<DMA2>,
         spi1: Spi<SPI1>,
@@ -223,14 +225,16 @@ mod app {
         batt_curr_adc: Adc<ADC>,
         rf_limiter_timer: Timer<TIM16>,
         lost_link_timer: Timer<TIM17>,
+        link_lost: bool, // todo: atomic bool? Separate froms StateVolatile due to how it's used.
         motor_timers: MotorTimers,
         usb_dev: UsbDevice<'static, UsbBusType>,
         usb_serial: SerialPort<'static, UsbBusType>,
         /// `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
         power_used: f32,
-        // todo: Put back filters once sorted for new FC system.
         imu_filters: ImuFilters,
         flight_ctrl_filters: FlightCtrlFilters,
+        // Note: We don't currently haveh PID filters, since we're not using a D term for the
+        // RPM PID.
         ahrs: Ahrs,
         imu_calibration: imu_calibration::ImuCalibration,
         ext_sensor_active: ExtSensor,
@@ -406,7 +410,7 @@ mod app {
                 // todo: PAC ommission??
                 let mut servos = Timer::new_tim8(dp.TIM8, 1., Default::default(), &clock_cfg);
 
-                let mut motor_timers = MotorTimers { r1234, servos };
+                let mut motor_timers = MotorTimers { rotors, servos };
 
             } else if #[cfg(feature = "mercury-g4")] {
 
@@ -591,6 +595,7 @@ mod app {
                 current_params: params.clone(),
                 params_prev: params,
                 control_channel_data: Default::default(),
+                link_stats: Default::default(),
                 dma,
                 dma2,
                 spi1,
@@ -603,6 +608,7 @@ mod app {
                 // rtc,
                 rf_limiter_timer,
                 lost_link_timer,
+                link_lost: fales,
                 motor_timers,
                 usb_dev,
                 usb_serial,
@@ -651,7 +657,7 @@ mod app {
     shared = [current_params,
     power_used, autopilot_status, user_cfg,
     ahrs, control_channel_data, motor_timers, rotor_rpms,
-    lost_link_timer, altimeter, i2c1, i2c2, state_volatile, batt_curr_adc, dma, dma2,
+    lost_link_timer, link_lost, altimeter, i2c1, i2c2, state_volatile, batt_curr_adc, dma, dma2,
     ],
     local = [arm_signals_received, disarm_signals_received, update_loop_i, uart_osd,
         time_with_high_throttle, motor_dir_started],
@@ -671,6 +677,7 @@ mod app {
             cx.shared.autopilot_status,
             cx.shared.user_cfg,
             cx.shared.lost_link_timer,
+            cx.shared.link_lost,
             cx.shared.altimeter,
             cx.shared.i2c1,
             cx.shared.i2c2,
@@ -689,6 +696,7 @@ mod app {
                  autopilot_status,
                  cfg,
                  lost_link_timer,
+                 link_lost,
                  altimeter,
                  i2c1,
                  i2c2,
@@ -777,15 +785,7 @@ mod app {
                         //      ahrs.quaternion.z
                         // );
                         //
-                        //
-                        //
-                        // println!(
-                        //     "RSSI1: {}, RSSI2: {}, Uplink qual: {} SNR: {}",
-                        //     state_volatile.link_stats.uplink_rssi_1,
-                        //     state_volatile.link_stats.uplink_rssi_2,
-                        //     state_volatile.link_stats.uplink_link_quality,
-                        //     state_volatile.link_stats.uplink_snr,
-                        // );
+
                     }
 
                     // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
@@ -822,7 +822,7 @@ mod app {
                         );
                     }
 
-                    if state_volatile.link_lost {
+                    if link_lost {
                         safety::link_lost(
                             &state_volatile.system_status,
                             autopilot_status,
@@ -1158,15 +1158,18 @@ mod app {
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data,
-    user_cfg, state_volatile, motor_timers, batt_curr_adc, dma], local = [], priority = 7)]
+    link_stats, user_cfg, state_volatile, motor_timers, batt_curr_adc, dma], local = [], priority = 7)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
+        // todo: Do we want to use an approach where we push stats, or this approach where
+        // todo respond only?
         (
             cx.shared.usb_dev,
             cx.shared.usb_serial,
             cx.shared.current_params,
             cx.shared.control_channel_data,
+            cx.shared.link_stats,
             cx.shared.user_cfg,
             cx.shared.state_volatile,
             cx.shared.motor_timers,
@@ -1178,6 +1181,7 @@ mod app {
                  usb_serial,
                  params,
                  ch_data,
+                 link_stats,
                  user_cfg,
                  state_volatile,
                  motor_timers,
@@ -1198,7 +1202,7 @@ mod app {
                                 params.baro_alt_msl,
                                 params.tof_alt,
                                 ch_data,
-                                &state_volatile.link_stats,
+                                &link_stats,
                                 &user_cfg.waypoints,
                                 &state_volatile.system_status,
                                 &mut state_volatile.arm_status,
@@ -1259,19 +1263,19 @@ mod app {
         // }
     }
 
-    // #[task(binds = DMA1_STR4, shared = [motor_timers], priority = 6)]
-    #[task(binds = DMA1_CH4, shared = [motor_timers], priority = 6)]
+    // #[task(binds = DMA1_STR4,
+    #[task(binds = DMA1_CH4,
+    shared = [motor_timers], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
     /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
         // todo: Feature-gate this out on H7 or something? Not used.
-        #[cfg(feature = "h7")]
+
         unsafe {
-            (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit())
-        }
-        #[cfg(feature = "g4")]
-        unsafe {
-            (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit())
+            #[cfg(feature = "h7")]
+            (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
+            #[cfg(feature = "g4")]
+            (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit());
         }
 
         cx.shared.motor_timers.lock(|timers| {
@@ -1337,43 +1341,50 @@ mod app {
         }
     }
 
-    // #[task(binds = TIM8, shared = [motor_timers], priority = 6)] // H7
-    #[task(binds = TIM3, shared = [motor_timers], priority = 6)] // G4
-    /// We use this for fixed wing, to disable the timer after each pulse. We don't enable this interrupt
-    /// on quadcopters.
-    fn servo_isr(mut cx: servo_isr::Context) {
-        cx.shared.motor_timers.lock(|timers| {
-            #[cfg(feature = "h7")]
-            let timer = &mut timers.servos;
-            #[cfg(feature = "g4")]
-            let timer = &mut timers.r34_servos;
-
-            timer.clear_interrupt(TimerInterrupt::Update);
-            timer.disable();
-        });
-    }
+    // // #[task(binds = TIM8, // H7
+    // // shared = [motor_timers], priority = 6)]
+    // #[task(binds = TIM3,
+    // shared = [motor_timers], priority = 6)] // G4
+    // /// We use this for fixed wing, to disable the timer after each pulse. We don't enable this interrupt
+    // /// on quadcopters.
+    // fn servo_isr(mut cx: servo_isr::Context) {
+    //     // todo: What is this for? Do you need it? Once the test platform is in working state,
+    //     // todo: Remove this, and see if ther'es an ill effect. Where is this event enabled?
+    //     // todo: Commented out for now. Put back if you have trouble.
+    //     cx.shared.motor_timers.lock(|timers| {
+    //         #[cfg(feature = "h7")]
+    //         let timer = &mut timers.servos;
+    //         #[cfg(feature = "g4")]
+    //         let timer = &mut timers.r34_servos;
+    //
+    //         timer.clear_interrupt(TimerInterrupt::Update);
+    //         timer.disable();
+    //     });
+    // }
 
     /// If this triggers, it means we've lost the link. (Note that this is for TIM17)
-    // #[task(binds = TIM17, shared = [lost_link_timer, state_volatile, user_cfg, autopilot_status], priority = 2)]
-    #[task(binds = TIM1_TRG_COM, shared = [lost_link_timer, state_volatile, user_cfg, autopilot_status,
+    // #[task(binds = TIM17,
+    #[task(binds = TIM1_TRG_COM,
+    shared = [lost_link_timer, link_lost, state_volatile, user_cfg, autopilot_status,
     current_params], priority = 2)]
     fn lost_link_isr(cx: lost_link_isr::Context) {
         println!("Lost the link!");
 
         (
             cx.shared.lost_link_timer,
+            cx.shared.link_lost,
             cx.shared.state_volatile,
             cx.shared.user_cfg,
             cx.shared.autopilot_status,
             cx.shared.current_params,
         )
             .lock(
-                |timer, state_volatile, user_cfg, autopilot_status, params| {
+                |timer, link_Lost, state_volatile, user_cfg, autopilot_status, params| {
                     timer.clear_interrupt(TimerInterrupt::Update);
                     timer.reset_count();
                     timer.disable(); // todo: Probably not required in one-pulse mode.
 
-                    state_volatile.link_lost = true;
+                    *link_lost = true;
 
                     // We run this during the main loop, but here the `entering` flag is set to true,
                     // to initialize setup steps.
@@ -1387,9 +1398,10 @@ mod app {
             );
     }
 
-    // #[task(binds = USART7, shared = [uart_elrs, dma, control_channel_data,
-    #[task(binds = USART3, shared = [uart_elrs, dma, control_channel_data,
-    lost_link_timer, rf_limiter_timer, state_volatile], local = [ctrl_coeff_adj_timer], priority = 5)]
+    // #[task(binds = USART7,
+    #[task(binds = USART3,
+    shared = [uart_elrs, dma, control_channel_data, link_stats,
+    lost_link_timer, link_lost, rf_limiter_timer], local = [ctrl_coeff_adj_timer], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
@@ -1398,12 +1410,13 @@ mod app {
             cx.shared.uart_elrs,
             cx.shared.dma,
             cx.shared.control_channel_data,
+            cx.shared.link_stats,
             cx.shared.lost_link_timer,
+            cx.shared.link_lost,
             cx.shared.rf_limiter_timer,
-            cx.shared.state_volatile,
         )
             .lock(
-                |uart, dma, ch_data, lost_link_timer, rf_limiter_timer, state_volatile| {
+                |uart, dma, ch_data, link_stats, lost_link_timer, rf_limiter_timer| {
                     uart.clear_interrupt(UsartInterrupt::Idle);
 
                     if rf_limiter_timer.is_enabled() {
@@ -1467,13 +1480,13 @@ mod app {
                                 lost_link_timer.reset_count();
                                 lost_link_timer.enable();
 
-                                if state_volatile.link_lost {
+                                if link_lost {
                                     println!("Link re-aquired");
                                     // todo: Execute re-acq procedure
                                 }
                             }
                             crsf::PacketData::LinkStats(stats) => {
-                                state_volatile.link_stats = stats;
+                                *link_stats = stats;
                             }
                         }
                     }
@@ -1482,7 +1495,8 @@ mod app {
     }
 
     // binds = DMA2_STR1,
-    #[task(binds = DMA2_CH1, shared = [dma2, i2c2], priority = 1)]
+    #[task(binds = DMA2_CH1,
+    shared = [dma2, i2c2], priority = 1)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(cx: baro_write_tc_isr::Context) {
         (cx.shared.dma2, cx.shared.i2c2).lock(|dma2, i2c2| {
@@ -1502,8 +1516,9 @@ mod app {
 
     // todo: For now, we start new transfers in the main loop.
 
-    // binds = DMA2_STR2,s
-    #[task(binds = DMA2_CH2, shared = [dma2, altimeter, current_params], priority = 1)]
+    // binds = DMA2_STR2,
+    #[task(binds = DMA2_CH2,
+    shared = [dma2, altimeter, current_params], priority = 1)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(cx: baro_read_tc_isr::Context) {
         (
@@ -1526,7 +1541,8 @@ mod app {
     }
 
     // binds = DMA2_STR3,
-    #[task(binds = DMA2_CH3, shared = [dma2, i2c1, ext_sensor_active], priority = 1)]
+    #[task(binds = DMA2_CH3,
+    shared = [dma2, i2c1, ext_sensor_active], priority = 1)]
     /// Baro write complete; start baro read.
     fn ext_sensors_write_tc_isr(cx: ext_sensors_write_tc_isr::Context) {
         (cx.shared.dma2, cx.shared.i2c1, cx.shared.ext_sensor_active).lock(
@@ -1571,7 +1587,8 @@ mod app {
     }
 
     // binds = DMA2_STR4,
-    #[task(binds = DMA2_CH4, shared = [dma2, i2c1, ext_sensor_active], priority = 1)]
+    #[task(binds = DMA2_CH4,
+    shared = [dma2, i2c1, ext_sensor_active], priority = 1)]
     /// Baro write complete; start baro read.
     fn ext_sensors_read_tc_isr(cx: ext_sensors_read_tc_isr::Context) {
         (cx.shared.dma2, cx.shared.i2c1, cx.shared.ext_sensor_active).lock(

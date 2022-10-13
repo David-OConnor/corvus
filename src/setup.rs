@@ -224,22 +224,32 @@ impl ServoWing {
 pub fn setup_pins() {
     // G4: Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
     // H7: Rotors connected to Tim3 CH1-4, or Tim8 ch 1-4
+
+    // todo: For configuring H7 fixed wing with a third servo and 1 motor, you need
+
+    // FOr the breakdown of these timers by MCU and aircraft type, see the `MotorTimers` struct.
+
     cfg_if! {
         if #[cfg(feature = "mercury-h7")] {
-            if #[cfg(feature = "fixed-wing")] {
-                let alt = 3; // TIM8
-            } else {
-                let alt = 2; // TIM3
-            }
-            let mut rotor1 = Pin::new(Port::C, 6, PinMode::Alt(alt)); // Tim3/8 ch1
-            let mut rotor2 = Pin::new(Port::C, 7, PinMode::Alt(alt)); // Tim3/8 ch2
-            let mut rotor3 = Pin::new(Port::C, 8, PinMode::Alt(alt)); // Tim3/8 ch3
-            let mut rotor4 = Pin::new(Port::C, 9, PinMode::Alt(alt)); // Tim3/8 ch4
+            // On H7, we TIM3 and TIM8 have full overlap as ch 1-4 for our timer pins.
+            let alt_motors = 2; // TIM3
+            let alt_servos = 3; // TIM8
+
+            // todo: Let us customize; set rotor2 as `alt_servos` if equipped with a rudder etc.
+
+            let mut rotor1 = Pin::new(Port::C, 6, PinMode::Alt(alt_motors)); // Ch1
+            let mut rotor2 = Pin::new(Port::C, 7, PinMode::Alt(alt_motors)); // Ch2
+            let mut rotor3 = Pin::new(Port::C, 8, PinMode::Alt(alt_servos)); // Ch3
+            let mut rotor4 = Pin::new(Port::C, 9, PinMode::Alt(alt_servos)); // Ch4
         } else {
-            let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(1)); // Tim2 ch1
-            let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(1)); // Tim2 ch2
-            let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(2)); // Tim3 ch3
-            let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(2)); // Tim3 ch4
+            let alt_motors_12 = 1; // TIM2
+            let alt_servos_12 = 2; // TIM5. Currently unused.
+            let alt_motors_34_servos = 2; // TIM3
+
+            let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(alt_motors_12)); // Ch1
+            let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(alt_motors_12)); // Ch2
+            let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(alt_motors_34_servos)); // Ch3
+            let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(alt_motors_34_servos)); // Ch4
         }
     }
 

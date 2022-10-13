@@ -122,7 +122,7 @@ pub fn set_elevon_posit(
 pub fn setup_timers(timers: &mut MotorTimers) {
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            let mut motor_tim = &mut timers.r1234;
+            let mut motor_tim = &mut timers.rotors;
             let mut servo_tim = &mut timers.servos;
         } else {
             let mut motor_tim = &mut timers.r12;

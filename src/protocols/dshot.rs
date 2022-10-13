@@ -348,7 +348,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     w.moder9().bits(0b10)
                 });
 
-                timers.r1234.write_dma_burst(
+                timers.rotors.write_dma_burst(
                     &PAYLOAD,
                     Motor::M1.base_addr_offset(),
                     4, // Burst len of 4, since we're updating 4 channels.
@@ -414,7 +414,7 @@ pub fn receive_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     w.moder9().bits(0b10)
                 });
 
-                timers.r1234.read_dma_burst(
+                timers.rotors.read_dma_burst(
                     &PAYLOAD_REC,
                     Motor::M1.base_addr_offset(),
                     4, // Burst len of 4, since we're updating 4 channels.
@@ -466,14 +466,14 @@ pub fn receive_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
 pub fn enable_bidirectional(timers: &mut MotorTimers) {
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            timers.r1234.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveHigh);
-            timers.r1234.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveHigh);
-            timers.r1234.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveHigh);
-            timers.r1234.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveHigh);
+            timers.rotors.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveHigh);
+            timers.rotors.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveHigh);
+            timers.rotors.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveHigh);
+            timers.rotors.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveHigh);
 
-            timers.r1234.cfg.direction = CountDir::Down;
+            timers.rotors.cfg.direction = CountDir::Down;
 
-            timers.r1234.set_dir();
+            timers.rotors.set_dir();
         } else {
             timers.r12.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveHigh);
             timers.r12.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveHigh);
@@ -494,14 +494,14 @@ pub fn disable_bidirectional(timers: &mut MotorTimers) {
     // todo: DRY with enable
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            timers.r1234.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveLow);
-            timers.r1234.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveLow);
-            timers.r1234.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveLow);
-            timers.r1234.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveLow);
+            timers.rotors.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveLow);
+            timers.rotors.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveLow);
+            timers.rotors.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveLow);
+            timers.rotors.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveLow);
 
-            timers.r1234.cfg.direction = CountDir::Up;
+            timers.rotors.cfg.direction = CountDir::Up;
 
-            timers.r1234.set_dir();
+            timers.rotors.set_dir();
         } else {
             timers.r12.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveLow);
             timers.r12.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveLow);
@@ -524,10 +524,10 @@ pub fn set_to_output(timers: &mut MotorTimers) {
     cfg_if! {
         if #[cfg(feature = "h7")] {
             // Arbitrary duty cycle set, since we'll override it with DMA bursts.
-            timers.r1234.enable_pwm_output(Motor::M1.tim_channel(), oc, 0.);
-            timers.r1234.enable_pwm_output(Motor::M2.tim_channel(), oc, 0.);
-            timers.r1234.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
-            timers.r1234.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
+            timers.rotors.enable_pwm_output(Motor::M1.tim_channel(), oc, 0.);
+            timers.rotors.enable_pwm_output(Motor::M2.tim_channel(), oc, 0.);
+            timers.rotors.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
+            timers.rotors.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
         } else {
             timers.r12.enable_pwm_output(Motor::M1.tim_channel(), oc, 0.);
             timers.r12.enable_pwm_output(Motor::M2.tim_channel(), oc, 0.);
@@ -563,10 +563,10 @@ fn set_to_input(timers: &mut MotorTimers) {
         if #[cfg(feature = "h7")] {
             // Arbitrary duty cycle set, since we'll override it with DMA bursts.
 
-            timers.r1234.set_input_capture(Motor::M1.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-            timers.r1234.set_input_capture(Motor::M2.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-            timers.r1234.set_input_capture(Motor::M3.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-            timers.r1234.set_input_capture(Motor::M4.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            timers.rotors.set_input_capture(Motor::M1.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            timers.rotors.set_input_capture(Motor::M2.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            timers.rotors.set_input_capture(Motor::M3.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            timers.rotors.set_input_capture(Motor::M4.tim_channel(), cc, trigger, ism, pol_p, pol_n);
         } else {
             timers.r12.set_input_capture(Motor::M1.tim_channel(), cc, trigger, ism, pol_p, pol_n);
             timers.r12.set_input_capture(Motor::M2.tim_channel(), cc, trigger, ism, pol_p, pol_n);
