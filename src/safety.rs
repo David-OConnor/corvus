@@ -3,7 +3,6 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{
-    control_interface::ChannelData,
     flight_ctrls::{
         autopilot::AutopilotStatus,
         common::{AltType, Params},

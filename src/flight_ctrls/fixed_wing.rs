@@ -115,7 +115,7 @@ pub fn set_elevon_posit(
         .servos
         .set_duty(elevon.tim_channel(), duty_arr as u16);
     #[cfg(feature = "g4")]
-    timers.r34_servos.set_duty(elevon.tim_channel(), duty_arr);
+    timers.servos.set_duty(elevon.tim_channel(), duty_arr);
 }
 
 /// Similar to `dshot::setup_timers`, but for fixed-wing.
@@ -126,7 +126,7 @@ pub fn setup_timers(timers: &mut MotorTimers) {
             let mut servo_tim = &mut timers.servos;
         } else {
             let mut motor_tim = &mut timers.r12;
-            let mut servo_tim = &mut timers.r34_servos;
+            let mut servo_tim = &mut timers.servos;
         }
     }
 

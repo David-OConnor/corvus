@@ -301,9 +301,12 @@ fn find_ctrl_setting(
 
     // Units: rad x cmd / (s * rad/s) = rad x cmd / rad = cmd
     // `cmd` is the unit we use for ctrl inputs. Not sure what (if any?) units it has.
-    ω_dot_target / ctrl_effectiveness
+    ω_dot_target /= ctrl_effectiveness;
 
-    // todo: Map to RPM diff (or servo posit diff) here!!!
+    #[cfg(feature = "quad")]
+    accel_to_rpm_delta(ω_dot_target)
+    #[cfg(feature = "fixed-wing")]
+    accel_to_servo_cmds(ω_dot_target)
 }
 
 // /// Find the desired control setting on a single axis; loosely corresponds to a
