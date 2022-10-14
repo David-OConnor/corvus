@@ -233,13 +233,6 @@ pub struct MotorPower {
     pub aft_right: f32,
 }
 
-fn estimate_rpm_from_pwr(pwr: f32) -> f32 {
-    // todo: Temp approach. The long-term play may be to estimate the max RPM
-    // todo from extrapolating commanded pwr and measured RPM using a model. (linear?)
-    // todo: Or, perhaps map power to thrust (non-linear!)
-    pwr * 5000.
-}
-
 impl MotorRpm {
     /// Generate power settings for each motor, from RPM commands.
     /// Pitch, roll, and yaw are in RPM difference between the sum of each pair.
@@ -378,6 +371,25 @@ impl MotorRpm {
         };
 
         power.set(mapping, motor_timers, arm_status, dma);
+    }
+
+    /// Motor pair delta. Maps to angular accel. Positive means nose-up pitching.
+    pub fn pitch_delta(&self) -> f32 {
+        self.front_left + self.front_right - self.aft_left - self.aft_right
+    }
+
+    /// Motor pair delta. Maps to angular accel. Positive means left-wing-up.
+    pub fn roll_delta(&self) -> f32 {
+        self.front_left + self.aft_left - self.front_right - self.aft_right
+    }
+
+    /// Motor pair delta. Maps to angular accel. Positive means rotate clockwise when
+    /// looking down from above.
+    pub fn yaw_delta(&self, frontleft_aftright_dir: RotationDir) -> f32 {
+        match frontleft_aftright_dir {
+            RotationDir::Clockwise => self.front_right + self.aft_left - self.front_left - self.aft_right,
+            RotationDir::CounterClockwise => self.front_left + self.aft_right - self.front_right - self.aft_left,
+        }
     }
 }
 

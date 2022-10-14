@@ -107,6 +107,10 @@ impl RpmAccelMap {
         }
     }
 
+    pub fn accel_to_rpm(&self, ω_dot: f32) -> f32 {
+        0. // todo
+    }
+
     /// Log a power, and rpm.
     pub fn log_val(&mut self, rpm: f32, accel: f32) {
         // todo: Allow for spin-up time.

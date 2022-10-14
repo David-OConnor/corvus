@@ -865,17 +865,17 @@ mod app {
                     let drag_coeff_pitch = flight_ctrls::ctrl_logic::calc_drag_coeff(
                         params.v_pitch,
                         params.a_pitch,
-                        a_pitch_commanded // todo: This is probably RPM pair delta converted to accel.
+                        rpm_to_accel_map.rpm_to_accel(rpms.pitch_delta()),
                     );
                     let drag_coeff_roll = flight_ctrls::ctrl_logic::calc_drag_coeff(
                         params.v_roll,
                         params.a_roll,
-                        a_roll_commanded // todo: This is probably RPM pair delta converted to accel.
+                        rpm_to_accel_map.rpm_to_accel(rpms.roll_delta()),
                     );
                     let drag_coeff_yaw = flight_ctrls::ctrl_logic::calc_drag_coeff(
                         params.v_yaw,
                         params.a_yaw,
-                        a_yaw_commanded // todo: This is probably RPM pair delta converted to accel.
+                        rpm_to_accel_map.rpm_to_accel(rpms.yaw_delta()),
                     );
 
                     let (dcp, dcr, dcy) = flight_ctrl_filters.apply(drag_coeff_pitch, drag_coeff_roll, drag_coeff_yaw);
