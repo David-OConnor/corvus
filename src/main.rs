@@ -807,11 +807,6 @@ mod app {
                     // DMA TC isrs are sequenced.
                     sensors_shared::start_transfers(i2c1, i2c2, dma2);
 
-                    if let OperationMode::Preflight = state_volatile.op_mode {
-                        // exit this fn during preflight *after* measuring voltages using ADCs.
-                        return;
-                    }
-
                     // if *cx.local.update_loop_i % LOGGING_UPDATE_RATIO == 0 {
                     // todo: Eg log params to flash etc.
                     // }
@@ -865,6 +860,28 @@ mod app {
 
                     state_volatile.batt_v = batt_v;
                     state_volatile.esc_current = esc_current;
+
+                    // Estimate the angular drag coefficient for the current flight regime.
+                    let drag_coeff_pitch = flight_ctrls::ctrl_logic::calc_drag_coeff(
+                        params.v_pitch,
+                        params.a_pitch,
+                        a_pitch_commanded // todo: This is probably RPM pair delta converted to accel.
+                    );
+                    let drag_coeff_roll = flight_ctrls::ctrl_logic::calc_drag_coeff(
+                        params.v_roll,
+                        params.a_roll,
+                        a_roll_commanded // todo: This is probably RPM pair delta converted to accel.
+                    );
+                    let drag_coeff_yaw = flight_ctrls::ctrl_logic::calc_drag_coeff(
+                        params.v_yaw,
+                        params.a_yaw,
+                        a_yaw_commanded // todo: This is probably RPM pair delta converted to accel.
+                    );
+
+                    let (dcp, dcr, dcy) = flight_ctrl_filters.apply(drag_coeff_pitch, drag_coeff_roll, drag_coeff_yaw);
+                    state_volatile.drag_coeffs.pitch = dcp;
+                    state_volatile.drag_coeffs.roll = dcr;
+                    state_volatile.drag_coeffs.yaw = dcy;
 
                     let osd_data = OsdData {
                         arm_status: state_volatile.arm_status,
@@ -925,6 +942,11 @@ mod app {
                         // issue with teh direct approach.
                         state_volatile.autopilot_commands = ap_cmds;
                     }
+
+                    // if let OperationMode::Preflight = state_volatile.op_mode {
+                    //     // exit this fn during preflight *after* measuring voltages using ADCs.
+                    //     return;
+                    // }
 
                     // todo: This should probably be delegatd to a fn; get it
                     // todo out here
@@ -1070,13 +1092,18 @@ mod app {
                     });
 
                     // Apply filtered gyro and accel readings directly to params.
-                    params.v_roll = imu_data.v_roll;
                     params.v_pitch = imu_data.v_pitch;
+                    params.v_roll = imu_data.v_roll;
                     params.v_yaw = imu_data.v_yaw;
 
                     params.a_x = imu_data.a_x;
                     params.a_y = imu_data.a_y;
                     params.a_z = imu_data.a_z;
+
+                    // Calculate angular acceleration
+                    params.a_pitch = (imu_data.v_pitch - params_prev.v_pitch) / DT_IMU;
+                    params.a_roll = (imu_data.v_roll - params_prev.v_roll) / DT_IMU;
+                    params.a_yaw = (imu_data.v_yaw - params_prev.v_yaw) / DT_IMU;
 
                     // Note: Consider if you want to update the attitude using the primary update loop,
                     // vice each IMU update.
@@ -1111,6 +1138,10 @@ mod app {
                         Some(t) => t,
                         None => control_channel_data.throttle,
                     };
+
+                    if let OperationMode::Preflight = state_volatile.op_mode {
+                        return;
+                    }
 
                     cfg_if! {
                         if #[cfg(feature = "quad")] {

@@ -7,7 +7,7 @@ use crate::{
     flight_ctrls::{
         autopilot::LandingCfg,
         common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap, RatesCommanded},
-        ctrl_logic::{CtrlCoeffs, PowerMaps},
+        ctrl_logic::{CtrlCoeffs, PowerMaps, DragCoeffs},
         ControlMapping,
     },
     ppks::Location,
@@ -228,4 +228,6 @@ pub struct StateVolatile {
     pub angular_drag_coeff: f32,
     pub batt_v: f32,      // volts
     pub esc_current: f32, // amps
+    /// Drag calculated drag coefficients from flight params.
+    pub drag_coeffs: DragCoeffs,
 }

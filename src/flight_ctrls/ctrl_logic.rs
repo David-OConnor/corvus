@@ -44,23 +44,25 @@ const FWD: Vec3 = Vec3 {
 // todo: unimplemented
 const IDLE_RPM: f32 = 100.;
 
+#[derive(Default)]
+pub struct DragCoeffs {
+    pub pitch: f32,
+    pub roll: f32,
+    pub yaw: f32
+}
+
 /// Map RPM to angular acceleration (thrust proxy). Average over time, and over all props.
 /// Note that this relationship may be exponential, or something similar, with RPM increases
 /// at higher ranges providing a bigger change in thrust.
-/// /// For fixed wing, we use servo position instead of RPM.
+/// For fixed wing, we use servo position instead of RPM.
 #[cfg(feature = "quad")]
 #[derive(Default)]
-struct RpmToAccel {
-    // Value are in RPM.
-
-    // todo: Use the same approach as power to RPM, where you log intermediate values.
-
+struct RpmAccelMap {
+    // Value are in (RPM, acceleration (m/s^2))
     // todo: What is the max expected RPM? Adjust this A/R.
     // todo: An internet search implies 4-6k is normal.
 
-    // todo: What does teh tuple do again?
-
-    // Lower power should probably be from idle, not 0. So inclide p_0 here.
+    // Lower power should probably be from idle, not 0. So we include p_0 here.
     r_0: (f32, f32),
     r_1k: (f32, f32),
     r_2k: (f32, f32),
@@ -75,29 +77,34 @@ struct RpmToAccel {
 }
 
 #[cfg(feature = "quad")]
-impl RpmToAccel {
+impl RpmAccelMap {
     // todo: DRY with pwr to rpm MAP
     /// Interpolate, to get power from this LUT.
-    pub fn rpm_to_angular_accel(&self, rpm: f32) -> f32 {
-        0.
-
-        // todo
+    pub fn rpm_to_accel(&self, rpm: f32) -> f32 {
+        // todo: If RPM is out the limits, handle elegantly
+        // Ideally, this slope isn't used, since our map range exceeds motor RPM capability
+        // under normal circumstances.
         // let end_slope = (self.r_10k - self.r_9k) / 1_000.;
         //
-        // match rpm {
-        //     (0.0..=1_000.) => map_linear(rpm, (0.0, 1_000.), (self.r_0, self.r_1k)),
-        //     (1_000.0..=2_000.) => map_linear(rpm, (1_000., 2_000.), (self.r_1k, self.r_2k)),
-        //     (2_000.0..=3_000.) => map_linear(rpm, (2_000., 3_000.), (self.r_2k, self.r_3k)),
-        //     (3_000.0..=4_000.) => map_linear(rpm, (3_000., 4_000.), (self.r_3k, self.r_4k)),
-        //     (4_000.0..=5_000.) => map_linear(rpm, (4_000., 5_000.), (self.r_4k, self.r_5k)),
-        //     (5_000.0..=6_000.) => map_linear(rpm, (5_000., 6_000.), (self.r_5k, self.r_6k)),
-        //     (6_000.0..=7_000.) => map_linear(rpm, (6_000., 7_000.), (self.r_6k, self.r_7k)),
-        //     (7_000.0..=8_000.) => map_linear(rpm, (7_000., 8_000.), (self.r_7k, self.r_8k)),
-        //     (8_000.0..=9_000.) => map_linear(rpm, (8_000., 9_000.), (self.r_8k, self.r_9k)),
-        //     (9_000.0..=10_000.) => map_linear(rpm, (9_000., 10_000.), (self.r_9k, self.r_10k)),
-        //     // If above 10k, extrapolate from the prev range.
-        //     _ => rpm * end_slope,
-        // }
+
+        // todo: You want the opposite!
+
+        // todo: This isn't quite right. You need to take into account that the first tuple
+        // todo value of the fields is the actual RPM!
+        match rpm {
+            (0.0..=1_000.) => map_linear(rpm, (0.0, 1_000.), (self.r_0.1, self.r_1k.1)),
+            (1_000.0..=2_000.) => map_linear(rpm, (1_000., 2_000.), (self.r_1k.1, self.r_2k.1)),
+            (2_000.0..=3_000.) => map_linear(rpm, (2_000., 3_000.), (self.r_2k.1, self.r_3k.1)),
+            (3_000.0..=4_000.) => map_linear(rpm, (3_000., 4_000.), (self.r_3k.1, self.r_4k.1)),
+            (4_000.0..=5_000.) => map_linear(rpm, (4_000., 5_000.), (self.r_4k.1, self.r_5k.1)),
+            (5_000.0..=6_000.) => map_linear(rpm, (5_000., 6_000.), (self.r_5k.1, self.r_6k.1)),
+            (6_000.0..=7_000.) => map_linear(rpm, (6_000., 7_000.), (self.r_6k.1, self.r_7k.1)),
+            (7_000.0..=8_000.) => map_linear(rpm, (7_000., 8_000.), (self.r_7k.1, self.r_8k.1)),
+            (8_000.0..=9_000.) => map_linear(rpm, (8_000., 9_000.), (self.r_8k.1, self.r_9k.1)),
+            (9_000.0..=10_000.) => map_linear(rpm, (9_000., 10_000.), (self.r_9k.1, self.r_10k.1)),
+            // If above 10k, extrapolate from the prev range.
+            _ => rpm * end_slope,
+        }
     }
 
     /// Log a power, and rpm.
@@ -137,12 +144,9 @@ impl RpmToAccel {
 /// For fixed wing, substitude servo position setting for RPM.
 #[derive(Default)]
 pub struct PowerMaps {
-    // pub pwr_to_rpm_pitch: PwrToRpmMap,
-    // pub pwr_to_rpm_roll: PwrToRpmMap,
-    // pub pwr_to_rpm_yaw: PwrToRpmMap,
-    pub rpm_to_accel_pitch: RpmToAccel,
-    pub rpm_to_accel_roll: RpmToAccel,
-    pub rpm_to_accel_yaw: RpmToAccel,
+    pub rpm_to_accel_pitch: RpmAccelMap,
+    pub rpm_to_accel_roll: RpmAccelMap,
+    pub rpm_to_accel_yaw: RpmAccelMap,
 }
 
 /// Control coefficients that affect the toleranaces and restrictions of the flight controls.
@@ -178,23 +182,22 @@ impl Default for CtrlCoeffs {
     }
 }
 
-/// Calculate the commanded acceleration required to meet a desired acceleration
-/// by taking drag into account
-fn calc_drag_coeff(ω_meas: f32, ω_dot_meas: f32, ω_dot_commanded: f32) -> f32 {
+/// Estimate the linear drag coefficient, given a single data point.
+pub fn calc_drag_coeff(ω_meas: f32, ω_dot_meas: f32, ω_dot_commanded: f32) -> f32 {
     // https://physics.stackexchange.com/questions/304742/angular-drag-on-body
     // This coefficient maps angular velocity to drag acceleration directly,
     // and is measured (and filtered).
 
-    // todo: For "low-speeds", drag is proportionanl to ω. For high speeds, it's
-    // todo prop to ω^2. The distinction is the reynolds number.
+    // For "low-speeds", drag is proportionanl to ω. For high speeds, it's
+    // prop to ω^2. The distinction is the reynolds number.
 
     // todo: Low speed for now.
     // drag_accel = -cω
-    // ω_dot = ω_dot_commanded - cω
-    // c = -1/ω * (ω_dot - ω_dot_commanded)
+    // ω_dot = ω_dot_commanded + cω
+    // c = (ω_dot - ω_dot_commanded) / ω
     // ω_dot_commanded = ω_dot + cω
 
-    -1. / ω_meas * (ω_dot_meas - ω_dot_commanded)
+    (ω_dot_meas - ω_dot_commanded) / ω_meas
 }
 
 /// If we're unable to use our current parameters to determine a linear-jerk trajectory,
@@ -213,11 +216,27 @@ fn ω_dot_from_ttc(dθ: f32, ω: f32, ttc_per_dθ: f32) -> f32 {
     // the same control logic is applied repeatedly.
 
     // Calculate the (~constant for a given correction) change in angular acceleration.
+    // (Commented-out, since we don't directly need this)
     // let ω_dot_dot = 6. * (2. * dθ + ttc * ω_0) / ttc.powi(3);
 
     // ω_dot_0, ω_dot_dot
     ω_dot_0
 }
+
+#[cfg(feature = "quad")]
+/// Accel is in m/s^2. Returns an RPM delta between rotor pairs.
+fn accel_to_rpm_delta(ω_dot: f32, mapping: asdf) -> f32 {
+
+}
+
+#[cfg(feature = "fixed-wing")]
+/// Accel is in m/s^2. Returns an RPM delta between rotor pairs.
+fn accel_to_rpm_servo_cmds(ω_dot: f32, mapping: asdf) -> f32 {
+
+#[cfg(feature = "quad")]
+type AccelMap = RpmAccelMap;
+#[cfg(feature = "fixed-wing")]
+type AccelMap = ServoCmdAccelMap;
 
 fn find_ctrl_setting(
     dθ: f32,
@@ -225,7 +244,9 @@ fn find_ctrl_setting(
     ω_dot_meas: f32,
     ctrl_cmd_prev: f32,
     coeffs: &CtrlCoeffs,
-    filters: &mut FlightCtrlFilters,
+    map: AccelMap,
+    drag_coeff: f32,
+    // filters: &mut FlightCtrlFilters,
 ) -> f32 {
     // todo: Take time to spin up/down into account
 
@@ -276,21 +297,20 @@ fn find_ctrl_setting(
         None => ω_dot_from_ttc(dθ, ω_0, coeffs.ttc_per_dθ),
     };
 
-    let drag_accel = 0.; // todo!
-
     // The target acceleration needs to include both the correction, and drag compensation.
-    // todo: QC sign etc on this.
-    ω_dot_target -= drag_accel;
+    let drag_accel = -drag_coeff * ω_0;
+    ω_dot_target += drag_accel;
 
     // Calculate how, most recently, the control command is affecting angular accel.
     // A higher constant means a given command has a higher affect on angular accel.
     // todo: Track and/or lowpass effectiveness over recent history, at diff params.
     // todo: Once you have bidir dshot, use RPM instead of power.
-
-    let ctrl_effectiveness = ω_dot_meas / ctrl_cmd_prev;
+    // todo: DO we sill want this?
+    // todo: You should probably track ctrl eff in the main loop; not here.
+    // let ctrl_effectiveness = ω_dot_meas / ctrl_cmd_prev;
 
     // Apply a lowpass filter to our effectiveness, to reduce noise and fluctuations.
-    let ctrl_effectiveness = filters.apply(ctrl_effectiveness);
+    // let ctrl_effectiveness = filters.apply(ctrl_effectiveness);
 
     // This distills to: (dω / time_to_correction) / (ω_dot / ctrl_cmd_prev) =
     // (dω / time_to_correction) x (ctrl_cmd_prev / ω_dot) =
@@ -301,12 +321,12 @@ fn find_ctrl_setting(
 
     // Units: rad x cmd / (s * rad/s) = rad x cmd / rad = cmd
     // `cmd` is the unit we use for ctrl inputs. Not sure what (if any?) units it has.
-    ω_dot_target /= ctrl_effectiveness;
+    // ω_dot_target /= ctrl_effectiveness;
 
     #[cfg(feature = "quad")]
-    accel_to_rpm_delta(ω_dot_target)
+    map.accel_to_rpm(ω_dot_target)
     #[cfg(feature = "fixed-wing")]
-    accel_to_servo_cmds(ω_dot_target)
+    map.accel_to_servo_cmds(ω_dot_target)
 }
 
 // /// Find the desired control setting on a single axis; loosely corresponds to a
@@ -370,6 +390,7 @@ pub fn rotor_rpms_from_att(
     params_prev: &Params,
     mix_prev: &CtrlMix,
     coeffs: &CtrlCoeffs,
+    drag_coeffs: &DragCoeffs,
     filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
 ) -> (CtrlMix, MotorRpm) {
@@ -391,8 +412,9 @@ pub fn rotor_rpms_from_att(
         ang_accel_pitch,
         mix_prev.pitch,
         // dt,
+        drag_coeffs.pitch,
         coeffs,
-        filters,
+        // filters,
     );
     let roll = find_ctrl_setting(
         rot_roll,
@@ -400,8 +422,9 @@ pub fn rotor_rpms_from_att(
         ang_accel_roll,
         mix_prev.roll,
         // dt,
+        drag_coeffs.roll,
         coeffs,
-        filters,
+        // filters,
     );
     let yaw = find_ctrl_setting(
         rot_yaw,
@@ -409,8 +432,9 @@ pub fn rotor_rpms_from_att(
         ang_accel_yaw,
         mix_prev.yaw,
         // dt,
+        drag_coeffs.yaw,
         coeffs,
-        filters,
+        // filters,
     );
 
     let mix_new = CtrlMix {
