@@ -1,7 +1,5 @@
 //! Present-position keeping system. Fuses GPS, and dead-reckoning.
 
-use stm32_hal2::{i2c::I2c, pac::I2C1};
-
 pub const WAYPOINT_MAX_NAME_LEN: usize = 7; // Characters
 
 #[derive(Clone, Copy)]

@@ -3,18 +3,18 @@
 
 /// User-configurable settings. These get saved to and loaded from internal flash.
 use crate::{
-    control_interface::{InputModeSwitch, LinkStats},
+    control_interface::InputModeSwitch,
     flight_ctrls::{
         autopilot::LandingCfg,
         common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap, RatesCommanded},
-        ctrl_logic::{CtrlCoeffs, PowerMaps, DragCoeffs},
+        ctrl_logic::{CtrlCoeffs, DragCoeffs, PowerMaps, RpmAccelMap},
         ControlMapping,
     },
     ppks::Location,
     safety::ArmStatus,
 };
 
-use lin_alg2::f32::{Quaternion, Vec3};
+use lin_alg2::f32::Quaternion;
 
 use cfg_if::cfg_if;
 
@@ -230,4 +230,6 @@ pub struct StateVolatile {
     pub esc_current: f32, // amps
     /// Drag calculated drag coefficients from flight params.
     pub drag_coeffs: DragCoeffs,
+    /// Relates motor pair delta RPM difference to angular acceleration.
+    pub rpm_accel_map: RpmAccelMap,
 }

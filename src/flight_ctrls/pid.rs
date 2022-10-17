@@ -8,12 +8,7 @@
 
 use cmsis_dsp_api as dsp_api;
 
-use crate::{
-    control_interface::ChannelData,
-    state::{SystemStatus, UserCfg},
-    util::IirInstWrapper,
-    DT_IMU,
-};
+use crate::util::IirInstWrapper;
 
 use cfg_if::cfg_if;
 
@@ -21,11 +16,11 @@ cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use crate::flight_ctrls::{ControlPositions};
     } else {
-        use crate::flight_ctrls::{};
+        // use crate::flight_ctrls::{};
     }
 }
 
-use defmt::println;
+// use defmt::println;
 
 const INTEGRATOR_CLAMP_MAX_QUAD: f32 = 0.4;
 const INTEGRATOR_CLAMP_MIN_QUAD: f32 = -INTEGRATOR_CLAMP_MAX_QUAD;
@@ -77,6 +72,7 @@ pub struct MotorCoeffs {
     pub i_aft_right: f32,
 
     // pub d_front_left: f32,
+
     // pub d_front_right: f32,
     // pub d_aft_left: f32,
     // pub d_aft_right: f32,

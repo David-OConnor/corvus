@@ -387,8 +387,12 @@ impl MotorRpm {
     /// looking down from above.
     pub fn yaw_delta(&self, frontleft_aftright_dir: RotationDir) -> f32 {
         match frontleft_aftright_dir {
-            RotationDir::Clockwise => self.front_right + self.aft_left - self.front_left - self.aft_right,
-            RotationDir::CounterClockwise => self.front_left + self.aft_right - self.front_right - self.aft_left,
+            RotationDir::Clockwise => {
+                self.front_right + self.aft_left - self.front_left - self.aft_right
+            }
+            RotationDir::CounterClockwise => {
+                self.front_left + self.aft_right - self.front_right - self.aft_left
+            }
         }
     }
 }

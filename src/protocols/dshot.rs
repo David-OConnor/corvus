@@ -35,6 +35,7 @@ use defmt::println;
 // todo: Basically, you set up a notch filter at rotor RPM. (I think; QC this)
 
 use cfg_if::cfg_if;
+use stm32_hal2::timer::Polarity;
 
 // Enable bidirectional DSHOT, which returns RPM data
 pub const BIDIR_EN: bool = false;
@@ -70,7 +71,7 @@ const DUTY_LOW: u32 = DSHOT_ARR_600 * 3 / 8;
 // Use this pause duration, in ms, when setting up motor dir.
 pub const PAUSE_BETWEEN_COMMANDS: u32 = 1;
 pub const PAUSE_AFTER_SAVE: u32 = 40; // Must be at least 35ms.
-// BLHeli_32 requires you repeat certain commands, like motor direction, 6 times.
+                                      // BLHeli_32 requires you repeat certain commands, like motor direction, 6 times.
 pub const REPEAT_COMMAND_COUNT: u32 = 10; // todo: Set back to 6 once sorted out.
 
 // DMA buffers for each rotor. 16-bit data. Note that
@@ -465,72 +466,57 @@ pub fn receive_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     }
 }
 
-/// Configure the PWM to be active low, used for bidirectional DSHOT
-pub fn enable_bidirectional(timers: &mut MotorTimers) {
+/// Change timer polarity and count direction, to enable or disable bidirectional DSHOT.
+/// Timer settings default (in HAL and hardware) to disabled.
+pub fn set_bidirectional(enabled: bool, timers: &mut MotorTimers) {
+    // todo: Is this backwards?
+
+    // todo: We need a way to configure channel 2 as a servo, eg for fixed-wing
+    // todo with a rudder.
+
+    let mut polarity = Polarity::ActiveHigh;
+    let mut count_dir = CountDir::Up;
+
+    if enabled {
+        polarity = Polarity::ActiveLow;
+        count_dir = CountDir::Down;
+    }
+
+    // Set up channels 1 and 2: This is for both quadcopters and fixed-wing.
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            timers.rotors.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveHigh);
-            timers.rotors.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveHigh);
+            timers.rotors.set_polarity(Motor::M1.tim_channel(), polarity);
+            timers.rotors.set_polarity(Motor::M2.tim_channel(), polarity);
 
             // todo: Does setting this direction affect servo use, eg fixed-wing?
-            timers.rotors.cfg.direction = CountDir::Down;
+            timers.rotors.cfg.direction = count_dir;
             timers.rotors.set_dir();
         } else {
-            timers.r12.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveHigh);
-            timers.r12.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveHigh);
-            timers.r12.cfg.direction = CountDir::Down;
+            timers.r12.set_polarity(Motor::M1.tim_channel(), polarity);
+            timers.r12.set_polarity(Motor::M2.tim_channel(), polarity);
+
+            timers.r12.cfg.direction = count_dir;
             timers.r12.set_dir();
         }
+    }
 
+    // For quadcopters, set up channels 3 and 4 as well.
+    cfg_if! {
         if #[cfg(all(feature = "h7", feature = "quad"))] {
-            timers.rotors.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveHigh);
-            timers.rotors.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveHigh);
+            timers.rotors.set_polarity(Motor::M3.tim_channel(), polarity);
+            timers.rotors.set_polarity(Motor::M4.tim_channel(), polarity);
         } else if #[cfg(all(feature = "g4", feature = "quad"))] {
-            timers.r34.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveHigh);
-            timers.r34.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveHigh);
+            timers.r34.set_polarity(Motor::M3.tim_channel(), polarity);
+            timers.r34.set_polarity(Motor::M4.tim_channel(), polarity);
 
-            timers.r34.cfg.direction = CountDir::Down;
+            timers.r34.cfg.direction = count_dir;
             timers.r34.set_dir();
         }
     }
 }
 
-/// Configure the PWM to be active high, used for unidirectional DSHOT
-pub fn disable_bidirectional(timers: &mut MotorTimers) {
-    // todo: DRY with enable
-    cfg_if! {
-        if #[cfg(feature = "h7")] {
-            timers.rotors.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveLow);
-            timers.rotors.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveLow);
-
-            // todo: Does setting this direction affect servo use, eg fixed-wing?
-            timers.rotors.cfg.direction = CountDir::Up;
-            timers.rotors.set_dir();
-        } else {
-            timers.r12.set_polarity(Motor::M1.tim_channel(), Polarity::ActiveLow);
-            timers.r12.set_polarity(Motor::M2.tim_channel(), Polarity::ActiveLow);
-
-            timers.r12.cfg.direction = CountDir::Up;
-            timers.r12.set_dir();
-        }
-
-        if #[cfg(all(feature = "h7", feature = "quad"))] {
-            timers.rotors.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveLow);
-            timers.rotors.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveLow);
-
-            timers.rotors.cfg.direction = CountDir::Up;
-            timers.rotors.set_dir();
-        } else if #[cfg(all(feature = "g4", feature = "quad"))] {
-            timers.r34.set_polarity(Motor::M3.tim_channel(), Polarity::ActiveLow);
-            timers.r34.set_polarity(Motor::M4.tim_channel(), Polarity::ActiveLow);
-
-            timers.r34.cfg.direction = CountDir::Up;
-            timers.r34.set_dir();
-        }
-    }
-}
-
-/// Set the timer(s) to output mode. Do this in init, and after a reveive phase of bidirectional DSHOT.
+/// Set the timer(s) to output mode. Do this in init, and after a receive
+/// phase of bidirectional DSHOT.
 pub fn set_to_output(timers: &mut MotorTimers) {
     let oc = OutputCompare::Pwm1;
 
@@ -543,7 +529,9 @@ pub fn set_to_output(timers: &mut MotorTimers) {
             timers.r12.enable_pwm_output(Motor::M1.tim_channel(), oc, 0.);
             timers.r12.enable_pwm_output(Motor::M2.tim_channel(), oc, 0.);
         }
+    }
 
+    cfg_if! {
         if #[cfg(all(feature = "h7", feature = "quad"))] {
             timers.rotors.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
             timers.rotors.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
@@ -586,7 +574,9 @@ fn set_to_input(timers: &mut MotorTimers) {
             timers.r12.set_input_capture(Motor::M1.tim_channel(), cc, trigger, ism, pol_p, pol_n);
             timers.r12.set_input_capture(Motor::M2.tim_channel(), cc, trigger, ism, pol_p, pol_n);
         }
+    }
 
+    cfg_if! {
         if #[cfg(all(feature = "h7", feature = "quad"))] {
             timers.rotors.set_input_capture(Motor::M3.tim_channel(), cc, trigger, ism, pol_p, pol_n);
             timers.rotors.set_input_capture(Motor::M4.tim_channel(), cc, trigger, ism, pol_p, pol_n);
@@ -596,4 +586,3 @@ fn set_to_input(timers: &mut MotorTimers) {
         }
     }
 }
-

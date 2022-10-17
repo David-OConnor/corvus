@@ -18,7 +18,7 @@ use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "quad")] {
-        use super::{MotorPower, RotationDir};
+        use super::RotationDir;
     } else {
         use super::ControlPositions;
     }
@@ -48,7 +48,7 @@ const IDLE_RPM: f32 = 100.;
 pub struct DragCoeffs {
     pub pitch: f32,
     pub roll: f32,
-    pub yaw: f32
+    pub yaw: f32,
 }
 
 /// Map RPM to angular acceleration (thrust proxy). Average over time, and over all props.
@@ -57,7 +57,7 @@ pub struct DragCoeffs {
 /// For fixed wing, we use servo position instead of RPM.
 #[cfg(feature = "quad")]
 #[derive(Default)]
-struct RpmAccelMap {
+pub struct RpmAccelMap {
     // Value are in (RPM, acceleration (m/s^2))
     // todo: What is the max expected RPM? Adjust this A/R.
     // todo: An internet search implies 4-6k is normal.
@@ -81,10 +81,10 @@ impl RpmAccelMap {
     // todo: DRY with pwr to rpm MAP
     /// Interpolate, to get power from this LUT.
     pub fn rpm_to_accel(&self, rpm: f32) -> f32 {
-        // todo: If RPM is out the limits, handle elegantly
         // Ideally, this slope isn't used, since our map range exceeds motor RPM capability
         // under normal circumstances.
-        // let end_slope = (self.r_10k - self.r_9k) / 1_000.;
+        // todo: QC order on this.
+        let end_slope = (self.r_10k.1 - self.r_9k.1) / (self.r_10k.0 - self.r_9k.0);
         //
 
         // todo: You want the opposite!
@@ -227,15 +227,17 @@ fn ω_dot_from_ttc(dθ: f32, ω: f32, ttc_per_dθ: f32) -> f32 {
     ω_dot_0
 }
 
-#[cfg(feature = "quad")]
-/// Accel is in m/s^2. Returns an RPM delta between rotor pairs.
-fn accel_to_rpm_delta(ω_dot: f32, mapping: asdf) -> f32 {
-
-}
-
-#[cfg(feature = "fixed-wing")]
-/// Accel is in m/s^2. Returns an RPM delta between rotor pairs.
-fn accel_to_rpm_servo_cmds(ω_dot: f32, mapping: asdf) -> f32 {
+// #[cfg(feature = "quad")]
+// /// Accel is in m/s^2. Returns an RPM delta between rotor pairs.
+// fn accel_to_rpm_delta(ω_dot: f32, mapping: asdf) -> f32 {
+//
+// }
+//
+// #[cfg(feature = "fixed-wing")]
+// /// Accel is in m/s^2. Returns an RPM delta between rotor pairs.
+// fn accel_to_rpm_servo_cmds(ω_dot: f32, mapping: asdf) -> f32 {
+//
+// }
 
 #[cfg(feature = "quad")]
 type AccelMap = RpmAccelMap;
@@ -246,10 +248,10 @@ fn find_ctrl_setting(
     dθ: f32,
     ω_0: f32,
     ω_dot_meas: f32,
-    ctrl_cmd_prev: f32,
+    // ctrl_cmd_prev: f32,
     coeffs: &CtrlCoeffs,
-    map: AccelMap,
     drag_coeff: f32,
+    accel_map: &AccelMap,
     // filters: &mut FlightCtrlFilters,
 ) -> f32 {
     // todo: Take time to spin up/down into account
@@ -328,60 +330,10 @@ fn find_ctrl_setting(
     // ω_dot_target /= ctrl_effectiveness;
 
     #[cfg(feature = "quad")]
-    map.accel_to_rpm(ω_dot_target)
+    return accel_map.accel_to_rpm(ω_dot_target);
     #[cfg(feature = "fixed-wing")]
-    map.accel_to_servo_cmds(ω_dot_target)
+    return accel_map.accel_to_servo_cmds(ω_dot_target);
 }
-
-// /// Find the desired control setting on a single axis; loosely corresponds to a
-// /// commanded angular acceleration. We assume, physical limits (eg motor power available)
-// /// aside, a constant change in angular acceleration (jerk) for a given correction.
-// fn _find_ctrl_setting(
-//     dθ: f32,
-//     ω_0: f32,
-//     ω_dot: f32,
-//     ctrl_cmd_prev: f32,
-//     coeffs: &CtrlCoeffs,
-//     filters: &mut FlightCtrlFilters,
-// ) -> f32 {
-//     // todo: Take time-to-spin up/down into account.
-//
-//     // todo: More work here.
-//     let ttc = calc_time_to_correction(dθ, ω_0, coeffs.impulse_scale);
-//
-//     // Calculate the "initial" target angular acceleration.
-//     let ω_dot_0 = -(6. * dθ + 4. * ttc * ω_0) / ttc.powi(2);
-//
-//     // Calculate the (~constant for a given correction) change in angular acceleration.
-//     let ω_dot_dot = 6. * (2. * dθ + ttc * ω_0) / ttc.powi(3);
-//
-//     let drag_accel = 0.; // todo!
-//
-//     // The target acceleration needs to include both the correction, and drag compensation.
-//     // todo: QC sign etc on this.
-//     ω_dot_target -= drag_accel;
-//
-//     // Calculate how, most recently, the control command is affecting angular accel.
-//     // A higher constant means a given command has a higher affect on angular accel.
-//     // todo: Track and/or lowpass effectiveness over recent history, at diff params.
-//     // todo: Once you have bidir dshot, use RPM instead of power.
-//
-//     let ctrl_effectiveness = ω_dot / ctrl_cmd_prev;
-//
-//     // Apply a lowpass filter to our effectiveness, to reduce noise and fluctuations.
-//     let ctrl_effectiveness = filters.apply(ctrl_effectiveness);
-//
-//     // This distills to: (dω / time_to_correction) / (ω_dot / ctrl_cmd_prev) =
-//     // (dω / time_to_correction) x (ctrl_cmd_prev / ω_dot) =
-//     // (dω x ctrl_cmd_prev) / (time_to_correction x ω_dot) =
-//     //
-//     // (dθ * coeffs.p_ω - ω x ctrl_cmd_prev) /
-//     // ((coeffs.time_to_correction_p_ω * dω.abs() + coeffs.time_to_correction_p_θ * dθ.abs()) x ω_dot)
-//
-//     // Units: rad x cmd / (s * rad/s) = rad x cmd / rad = cmd
-//     // `cmd` is the unit we use for ctrl inputs. Not sure what (if any?) units it has.
-//     ω_dot_target / ctrl_effectiveness
-// }
 
 #[cfg(feature = "quad")]
 pub fn rotor_rpms_from_att(
@@ -392,9 +344,10 @@ pub fn rotor_rpms_from_att(
     // todo: Params is just for current angular rates. Maybe just pass those?
     params: &Params,
     params_prev: &Params,
-    mix_prev: &CtrlMix,
+    // mix_prev: &CtrlMix,
     coeffs: &CtrlCoeffs,
     drag_coeffs: &DragCoeffs,
+    accel_map: &AccelMap,
     filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
 ) -> (CtrlMix, MotorRpm) {
@@ -414,30 +367,33 @@ pub fn rotor_rpms_from_att(
         rot_pitch,
         params.v_pitch,
         ang_accel_pitch,
-        mix_prev.pitch,
+        // mix_prev.pitch,
         // dt,
-        drag_coeffs.pitch,
         coeffs,
+        drag_coeffs.pitch,
+        accel_map,
         // filters,
     );
     let roll = find_ctrl_setting(
         rot_roll,
         params.v_roll,
         ang_accel_roll,
-        mix_prev.roll,
+        // mix_prev.roll,
         // dt,
-        drag_coeffs.roll,
         coeffs,
+        drag_coeffs.roll,
+        accel_map,
         // filters,
     );
     let yaw = find_ctrl_setting(
         rot_yaw,
         params.v_yaw,
         ang_accel_yaw,
-        mix_prev.yaw,
+        // mix_prev.yaw,
         // dt,
-        drag_coeffs.yaw,
         coeffs,
+        drag_coeffs.yaw,
+        accel_map,
         // filters,
     );
 
@@ -465,8 +421,10 @@ pub fn control_posits_from_att(
     // todo: Params is just for current angular rates. Maybe just pass those?
     params: &Params,
     params_prev: &Params,
-    mix_prev: &CtrlMix,
+    // mix_prev: &CtrlMix,
     coeffs: &CtrlCoeffs,
+    drag_coeffs: &DragCoeffs,
+    accel_map: &AccelMap,
     filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
 ) -> (CtrlMix, ControlPositions) {
@@ -482,18 +440,22 @@ pub fn control_posits_from_att(
         rot_pitch,
         params.v_pitch,
         ang_accel_pitch,
-        mix_prev.pitch,
+        // mix_prev.pitch,
         // dt,
         coeffs,
+        drag_coeffs.pitch,
+        accel_map,
         filters,
     );
     let roll = find_ctrl_setting(
         rot_roll,
         params.v_roll,
         ang_accel_roll,
-        mix_prev.roll,
+        // mix_prev.roll,
         // dt,
         coeffs,
+        drag_coeffs.roll,
+        accel_map,
         filters,
     );
 

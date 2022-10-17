@@ -8,6 +8,8 @@
 // todo: Should we use this module and/or a similar structure for data exchange over RF,
 // todo: beyond the normal control info used by ELRS? (Eg sending a route, autopilot data etc)
 
+// todo: Start char for all messages?
+
 use crate::{
     control_interface::ChannelData,
     dshot,

@@ -7,8 +7,6 @@ use stm32_hal2::{pac, timer::Timer};
 
 use lin_alg2::f32::Quaternion;
 
-use cfg_if::cfg_if;
-
 use defmt::println;
 
 // Our input ranges for the 4 controls

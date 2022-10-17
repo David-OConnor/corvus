@@ -20,11 +20,11 @@
 // todo: Movable camera that moves with head motion.
 // - Ir cam to find or avoid people
 
+extern crate stm32_hal2;
+
 use ahrs_fusion::Ahrs;
 use cfg_if::cfg_if;
-use control_interface::{
-    ChannelData, LinkStats, PidTuneActuation,
-};
+use control_interface::{ChannelData, LinkStats, PidTuneActuation};
 use cortex_m::{self, asm, delay::Delay};
 use defmt::println;
 use defmt_rtt as _;
@@ -116,7 +116,7 @@ cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use flight_ctrls::{autopilot::Orbit, ControlPositions};
     } else {
-        use flight_ctrls::{InputMode, MotorPower, RotationDir, RotorPosition};
+        use flight_ctrls::RotationDir;
     }
 }
 
@@ -659,7 +659,7 @@ mod app {
     #[task(
     binds = TIM1_BRK_TIM15,
     shared = [current_params,
-    power_used, autopilot_status, user_cfg,
+    power_used, autopilot_status, user_cfg, flight_ctrl_filters,
     ahrs, control_channel_data, motor_timers, rotor_rpms,
     lost_link_timer, link_lost, altimeter, i2c1, i2c2, state_volatile, batt_curr_adc, dma, dma2,
     ],
@@ -691,6 +691,7 @@ mod app {
             cx.shared.dma,
             cx.shared.dma2,
             cx.shared.rotor_rpms,
+            cx.shared.flight_ctrl_filters,
         )
             .lock(
                 |params,
@@ -709,7 +710,8 @@ mod app {
                 adc,
                 dma,
                 dma2,
-                rpms| {
+                rpms,
+                flight_ctrl_filters| {
                     // We must do this initializing with the dshot ISRs active, but can't send
                     // motor commands, including the normal idle ones between its use. Hence the
                     // `initializing_motors` flag.
@@ -754,17 +756,26 @@ mod app {
                         );
 
                         #[cfg(feature = "quad")]
-                        let loiter = autopilot_status.loiter.is_some();
-                        #[cfg(feature = "fixed-wing")]
-                        let loiter = autopilot_status.orbit.is_some();
-
                         println!(
                             "Autopilot_status:\nAlt hold: {} Heading hold: {}, Yaw assist: {}, Direct to point: {}, \
+                            sequence: {}, takeoff: {}, land: {}, recover: {}, loiter: {}",
+                            autopilot_status.alt_hold.is_some(), autopilot_status.hdg_hold.is_some(),
+                            autopilot_status.yaw_assist != flight_ctrls::autopilot::YawAssist::Disabled,
+                            autopilot_status.direct_to_point.is_some(),
+                            autopilot_status.sequence, autopilot_status.takeoff, autopilot_status.land.is_some(),
+                            autopilot_status.recover.is_some(),
+                            autopilot_status.loiter.is_some(),
+                        );
+
+                        #[cfg(feature = "fixed-wing")]
+                        println!(
+                            "Autopilot_status:\nAlt hold: {} Heading hold: {}, Direct to point: {}, \
                             sequence: {}, takeoff: {}, land: {}, recover: {}, loiter/orbit: {}",
                             autopilot_status.alt_hold.is_some(), autopilot_status.hdg_hold.is_some(),
                             autopilot_status.direct_to_point.is_some(),
                             autopilot_status.sequence, autopilot_status.takeoff, autopilot_status.land.is_some(),
-                            autopilot_status.recover.is_some(), loiter,
+                            autopilot_status.recover.is_some(),
+                            autopilot_status.orbit.is_some(),
                         );
 
                         println!("Batt V: {} ESC current: {}", state_volatile.batt_v, state_volatile.esc_current);
@@ -865,17 +876,17 @@ mod app {
                     let drag_coeff_pitch = flight_ctrls::ctrl_logic::calc_drag_coeff(
                         params.v_pitch,
                         params.a_pitch,
-                        rpm_to_accel_map.rpm_to_accel(rpms.pitch_delta()),
+                        state_volatile.rpm_accel_map.rpm_to_accel(rpms.pitch_delta()),
                     );
                     let drag_coeff_roll = flight_ctrls::ctrl_logic::calc_drag_coeff(
                         params.v_roll,
                         params.a_roll,
-                        rpm_to_accel_map.rpm_to_accel(rpms.roll_delta()),
+                        state_volatile.rpm_accel_map.rpm_to_accel(rpms.roll_delta()),
                     );
                     let drag_coeff_yaw = flight_ctrls::ctrl_logic::calc_drag_coeff(
                         params.v_yaw,
                         params.a_yaw,
-                        rpm_to_accel_map.rpm_to_accel(rpms.yaw_delta()),
+                        state_volatile.rpm_accel_map.rpm_to_accel(rpms.yaw_delta()),
                     );
 
                     let (dcp, dcr, dcy) = flight_ctrl_filters.apply(drag_coeff_pitch, drag_coeff_roll, drag_coeff_yaw);
@@ -1153,7 +1164,10 @@ mod app {
                                 params,
                                 params_prev,
                                 &state_volatile.ctrl_mix,
+                                // &state_volatile.ctrl_mix_prev,
                                 &cfg.ctrl_coeffs,
+                                &state_volatile.drag_coeffs,
+                                &state_volatile.rpm_accel_map,
                                 flight_ctrl_filters,
                                 DT_IMU,
                             );
@@ -1187,6 +1201,8 @@ mod app {
                                 params_prev,
                                 &state_volatile.ctrl_mix,
                                 &cfg.ctrl_coeffs,
+                                &state_volatile.drag_coeffs,
+                                &state_volatile.rpm_accel_map,
                                 flight_ctrl_filters,
                                 DT_IMU,
                             );

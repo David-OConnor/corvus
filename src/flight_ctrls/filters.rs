@@ -15,13 +15,25 @@ static mut FILTER_STATE_DRAG_COEFF_YAW: [f32; 4] = [0.; 4];
 //     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
 
 #[allow(clippy::excessive_precision)]
-static COEFFS_CTRL_EFFECTIVENESS: [f32; 5] = [0.13672873599731955, 0.13672873599731955, 0.0, 0.726542528005361, -0.0];
+static COEFFS_CTRL_EFFECTIVENESS: [f32; 5] = [
+    0.13672873599731955,
+    0.13672873599731955,
+    0.0,
+    0.726542528005361,
+    -0.0,
+];
 
 // filter_ = signal.iirfilter(1, 80, btype="lowpass", ftype="bessel", output="sos", fs=1_600)
 // todo: Experiment here with diff frequencies.
 // Assumes updated every main loop; not IMU rate.
 #[allow(clippy::excessive_precision)]
-static COEFFS_DRAG_COEFF: [f32; 5] = [0.13672873599731955, 0.13672873599731955, 0.0, 0.726542528005361, -0.0];
+static COEFFS_DRAG_COEFF: [f32; 5] = [
+    0.13672873599731955,
+    0.13672873599731955,
+    0.0,
+    0.726542528005361,
+    -0.0,
+];
 
 /// Store lowpass IIR filter instances, for use with the deriv terms of our PID loop. Note that we don't
 /// need this for our horizontal velocity PIDs.
@@ -43,6 +55,12 @@ impl Default for FlightCtrlFilters {
             //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             // },
             drag_coeff_pitch: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+            drag_coeff_roll: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+            drag_coeff_yaw: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
         };
@@ -80,7 +98,12 @@ impl Default for FlightCtrlFilters {
 impl FlightCtrlFilters {
     /// Apply the filters. Run this each main loop.
     // pub fn apply(&mut self, ctrl_effectiveness_raw: f32, drag_coeff_raw) -> (f32, f32) {
-    pub fn apply(&mut self, drag_coeff_pitch: f32, drag_coeff_roll: f32, drag_coeff_yaw: f32) -> (f32, f32, f32) {
+    pub fn apply(
+        &mut self,
+        drag_coeff_pitch: f32,
+        drag_coeff_roll: f32,
+        drag_coeff_yaw: f32,
+    ) -> (f32, f32, f32) {
         // todo: Larger block size?
         let block_size = 1;
 

@@ -13,7 +13,6 @@ use crate::{
     // pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::{Location, LocationType},
     state::{SensorStatus, SystemStatus},
-    DT_MAIN_LOOP,
 };
 
 // Max distance from curent location, to point, then base a
@@ -160,8 +159,8 @@ pub struct LandingCfg {
 
 #[cfg(feature = "quad")]
 #[repr(u8)] // for USB serialization
-#[derive(Clone, Copy)]
-enum YawAssist {
+#[derive(Clone, Copy, PartialEq)]
+pub enum YawAssist {
     Disabled = 0,
     YawAssist = 1,
     /// Automatically adjust roll (rate? angle?) to zero out slip, ie based on rudder inputs.
