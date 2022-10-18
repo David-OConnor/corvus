@@ -35,7 +35,6 @@ use defmt::println;
 // todo: Basically, you set up a notch filter at rotor RPM. (I think; QC this)
 
 use cfg_if::cfg_if;
-use stm32_hal2::timer::Polarity;
 
 // Enable bidirectional DSHOT, which returns RPM data
 pub const BIDIR_EN: bool = false;

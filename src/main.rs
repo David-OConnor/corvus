@@ -20,8 +20,6 @@
 // todo: Movable camera that moves with head motion.
 // - Ir cam to find or avoid people
 
-extern crate stm32_hal2;
-
 use ahrs_fusion::Ahrs;
 use cfg_if::cfg_if;
 use control_interface::{ChannelData, LinkStats, PidTuneActuation};
@@ -53,6 +51,7 @@ use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
 use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
 use state::{OperationMode, SensorStatus, StateVolatile, UserCfg};
+
 use stm32_hal2::{
     self,
     adc::{self, Adc, AdcConfig, AdcDevice},
@@ -872,21 +871,47 @@ mod app {
                     state_volatile.batt_v = batt_v;
                     state_volatile.esc_current = esc_current;
 
+                    // This difference in approach between quad and fixed-wing for the
+                    // control deltas is due to using an intermediate step between control settings
+                    // and accel for quads (RPM), but doing it directly on fixed-wing,being unable
+                    // to measure servo posit directly (which would be the equiv intermediate step)
+                    cfg_if! {
+                        if #[cfg(feature = "quad")] {
+                            let pitch_delta = rpms.pitch_delta();
+                            let roll_delta = rpms.roll_delta();
+                            let yaw_delta = rpms.yaw_delta(cfg.control_mapping.frontleft_aftright_dir);
+
+                            let pitch_accel = state_volatile.accel_map.pitch_rpm_to_accel(pitch_delta);
+                            let roll_accel = state_volatile.accel_map.roll_rpm_to_accel(roll_delta);
+                            let yaw_accel = state_volatile.accel_map.yaw_rpm_to_accel(yaw_delta);
+                        } else {
+                            let pitch_delta = state_volatile.ctrl_positions.pitch_delta();
+                            let roll_delta = state_volatile.ctrl_positions.roll_delta();
+                            let yaw_delta = state_volatile.ctrl_positions.yaw_delta();
+
+                            let pitch_accel = state_volatile.accel_map.pitch_cmd_to_accel(pitch_delta);
+                            let roll_accel = state_volatile.accel_map.roll_cmd_to_accel(roll_delta);
+                            let yaw_accel = state_volatile.accel_map.yaw_cmd_to_accel(yaw_delta);
+                        }
+                    }
+
                     // Estimate the angular drag coefficient for the current flight regime.
                     let drag_coeff_pitch = flight_ctrls::ctrl_logic::calc_drag_coeff(
                         params.v_pitch,
                         params.a_pitch,
-                        state_volatile.rpm_accel_map.rpm_to_accel(rpms.pitch_delta()),
+                        pitch_accel,
                     );
                     let drag_coeff_roll = flight_ctrls::ctrl_logic::calc_drag_coeff(
                         params.v_roll,
                         params.a_roll,
-                        state_volatile.rpm_accel_map.rpm_to_accel(rpms.roll_delta()),
+                        state_volatile.accel_map.rpm_to_accel(roll_delta),
                     );
+
+                    #[cfg(feature = "quad")]
                     let drag_coeff_yaw = flight_ctrls::ctrl_logic::calc_drag_coeff(
                         params.v_yaw,
                         params.a_yaw,
-                        state_volatile.rpm_accel_map.rpm_to_accel(rpms.yaw_delta()),
+                        state_volatile.accel_map.rpm_to_accel(yaw_delta),
                     );
 
                     let (dcp, dcr, dcy) = flight_ctrl_filters.apply(drag_coeff_pitch, drag_coeff_roll, drag_coeff_yaw);
@@ -971,16 +996,17 @@ mod app {
                                     // todo: Motors. Map Motor num to rotor position here.
                                     // todo: Possibly with helper methods.
                                     0.,
+                                    0.,
                                 );
 
                                 state_volatile.power_maps.rpm_to_accel_roll.log_val(
-                                0.,
+                                    0.,
                                     0.,
                                 );
 
                                 let mut yaw_pwr = 0.;
                                 if cfg.control_mapping.frontleft_aftright_dir == RotationDir::Clockwise {
-                                    yaw_pwr *= 1.;
+                                    yaw_pwr *= -1.;
                                 }
                                 state_volatile.power_maps.rpm_to_accel_yaw.log_val(
                                     yaw_pwr,
@@ -1163,11 +1189,11 @@ mod app {
                                 cfg.control_mapping.frontleft_aftright_dir,
                                 params,
                                 params_prev,
-                                &state_volatile.ctrl_mix,
+                                // &state_volatile.ctrl_mix,
                                 // &state_volatile.ctrl_mix_prev,
                                 &cfg.ctrl_coeffs,
                                 &state_volatile.drag_coeffs,
-                                &state_volatile.rpm_accel_map,
+                                &state_volatile.accel_map,
                                 flight_ctrl_filters,
                                 DT_IMU,
                             );
@@ -1199,10 +1225,10 @@ mod app {
                                 throttle,
                                 params,
                                 params_prev,
-                                &state_volatile.ctrl_mix,
+                                // &state_volatile.ctrl_mix,
                                 &cfg.ctrl_coeffs,
                                 &state_volatile.drag_coeffs,
-                                &state_volatile.rpm_accel_map,
+                                &state_volatile.accel_map,
                                 flight_ctrl_filters,
                                 DT_IMU,
                             );

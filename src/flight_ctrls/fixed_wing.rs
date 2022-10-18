@@ -335,62 +335,84 @@ impl ControlPositions {
             self.rudder = RUDDER_MAX;
         }
     }
+
+    /// Maps to angular accel. Positive means nose-up pitching.
+    /// Note: This is located on a non-equiv struct on Quads (RPMs). This is because
+    /// on fixed-wing, we map control commands directly to accel, while
+    pub fn pitch_delta(&self) -> f32 {
+        self.elevon_left + self.elevon_right // todo: QC this
+    }
+
+    /// Maps to angular accel. Positive means left-wing-up.
+    /// (See note on `pitch_delta)`.
+    pub fn roll_delta(&self) -> f32 {
+        self.elevon_right - self.elevon_left
+    }
+
+    pub fn yaw_delta(&self) -> f32 {
+        self.rudder
+    }
 }
 
 // todo: Move PWM code out of this module if it makes sense, ie separate servo; flight-control module
 
-/// For a target pitch and roll rate, estimate the control positions required. Note that `throttle`
-/// in `ctrl_positions` output is unused. Rates are in rad/s. Airspeed is indicated AS in m/s. Throttle is on a
-/// scale of 0. to 1.
-/// todo: Using power setting as a standin for airspeed for now, if we don't have a GPS or pitot.
-/// todo: In the future use power as a permanent standin if these aren't equipped.
-fn _estimate_ctrl_posits(
-    pitch_rate: f32,
-    roll_rate: f32,
-    airspeed: Option<f32>,
-    throttle: f32,
-) -> ControlPositions {
-    let mut center = 0.;
-    let mut diff = 0.; // positive diff = left wing up.
-    let mut rudder = 0.;
-
-    // todo: Placeholder
-    let pitch_const = 0.1;
-    let roll_const = 0.1;
-    let yaw_const = 0.1;
-
-    // todo: Clean up DRY once the dust settles on this fn.
-
-    // todo: Use this to modify rudder too.
-    match airspeed {
-        Some(speed) => {
-            center = pitch_const * pitch_rate / speed;
-            diff = roll_const * roll_rate / speed;
-        }
-        None => {
-            center = pitch_const * pitch_rate / throttle;
-            diff = roll_const * roll_rate / throttle;
-        }
-    }
-
-    // todo: DRY from apply_ctrls!
-    let mut elevon_left = 0.;
-    let mut elevon_right = 0.;
-
-    elevon_left += center;
-    elevon_right += center;
-
-    elevon_left -= diff * ROLL_COEFF;
-    elevon_right += diff * ROLL_COEFF;
-
-    rudder += diff * YAW_COEFF;
-
-    // todo: Clamp both elevons in both directions.
-
-    ControlPositions {
-        motor: throttle,
-        elevon_left,
-        elevon_right,
-        rudder,
-    }
-}
+// /// For a target pitch and roll rate, estimate the control positions required. Note that `throttle`
+// /// in `ctrl_positions` output is unused. Rates are in rad/s. Airspeed is indicated AS in m/s. Throttle is on a
+// /// scale of 0. to 1.
+// /// todo: Using power setting as a standin for airspeed for now, if we don't have a GPS or pitot.
+// /// todo: In the future use power as a permanent standin if these aren't equipped.
+// fn _estimate_ctrl_posits(
+//     pitch_rate: f32,
+//     roll_rate: f32,
+//     airspeed: Option<f32>,
+//     throttle: f32,
+// ) -> ControlPositions {
+//     let mut center = 0.;
+//     let mut diff = 0.; // positive diff = left wing up.
+//     let mut rudder = 0.;
+//
+//     // todo: Placeholder
+//     let pitch_const = 0.1;
+//     let roll_const = 0.1;
+//     let yaw_const = 0.1;
+//
+//     // todo: Clean up DRY once the dust settles on this fn.
+//
+//     // todo: Use this to modify rudder too.
+//     match airspeed {
+//         Some(speed) => {
+//             center = pitch_const * pitch_rate / speed;
+//             diff = roll_const * roll_rate / speed;
+//         }
+//         None => {
+//             center = pitch_const * pitch_rate / throttle;
+//             diff = roll_const * roll_rate / throttle;
+//         }
+//     }
+//
+//     // todo: DRY from apply_ctrls!
+//     let mut elevon_left = 0.;
+//     let mut elevon_right = 0.;
+//
+//     elevon_left += center;
+//     elevon_right += center;
+//
+//     // elevon_left -= diff * ROLL_COEFF;
+//     // elevon_right += diff * ROLL_COEFF;
+//     //
+//     // rudder += diff * YAW_COEFF;
+//
+//     elevon_left -= diff;
+//     elevon_right += diff;
+//
+//     rudder += diff;
+//
+//     // todo: Clamp both elevons in both directions.
+//
+//     ControlPositions {
+//         motor: throttle,
+//         elevon_left,
+//         elevon_right,
+//         rudder,
+//     }
+// }

@@ -135,13 +135,17 @@ impl FlightCtrlFilters {
         );
 
         dsp_api::biquad_cascade_df1_f32(
-            &mut self.drag_coeff_Yaw.inner,
+            &mut self.drag_coeff_yaw.inner,
             &[drag_coeff_yaw],
             &mut drag_coeff_yaw_out,
             block_size,
         );
 
-        (drag_coeff_pitch[0], drag_coeff_roll[0], drag_coeff_yaw)
+        (
+            drag_coeff_pitch_out[0],
+            drag_coeff_roll_out[0],
+            drag_coeff_yaw_out[0],
+        )
         // data.a_x = a_x[0];
     }
 }

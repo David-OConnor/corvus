@@ -167,6 +167,7 @@ pub enum YawAssist {
     RollAssist = 2,
 }
 
+#[cfg(feature = "quad")]
 impl Default for YawAssist {
     fn default() -> Self {
         Self::Disabled

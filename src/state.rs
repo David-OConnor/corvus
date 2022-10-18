@@ -7,14 +7,14 @@ use crate::{
     flight_ctrls::{
         autopilot::LandingCfg,
         common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap, RatesCommanded},
-        ctrl_logic::{CtrlCoeffs, DragCoeffs, PowerMaps, RpmAccelMap},
+        ctrl_logic::{AccelMap, CtrlCoeffs, DragCoeffs, PowerMaps},
         ControlMapping,
     },
     ppks::Location,
     safety::ArmStatus,
 };
 
-use lin_alg2::f32::Quaternion;
+use lin_alg2::f32::{Quaternion, Vec3};
 
 use cfg_if::cfg_if;
 
@@ -230,6 +230,7 @@ pub struct StateVolatile {
     pub esc_current: f32, // amps
     /// Drag calculated drag coefficients from flight params.
     pub drag_coeffs: DragCoeffs,
-    /// Relates motor pair delta RPM difference to angular acceleration.
-    pub rpm_accel_map: RpmAccelMap,
+    /// Relates motor pair delta RPM difference to angular acceleration for quads, or servo settings
+    /// to angular accel for fixed-wing.
+    pub accel_map: AccelMap,
 }

@@ -218,9 +218,9 @@ pub fn setup_timers(timers: &mut MotorTimers) {
     dshot::set_to_output(timers);
 
     if dshot::BIDIR_EN {
-        dshot::enable_bidirectional(timers);
+        dshot::set_bidirectional(true, timers);
     } else {
-        dshot::disable_bidirectional(timers);
+        dshot::set_bidirectional(false, timers);
     }
 }
 

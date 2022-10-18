@@ -51,12 +51,51 @@ pub struct DragCoeffs {
     pub yaw: f32,
 }
 
+// We use this approach instead of feature-gating an `AccelMap` struct, to make the
+// struct names here more explicit.
+#[cfg(feature = "quad")]
+pub type AccelMap = RpmAccelMap;
+#[cfg(feature = "fixed-wing")]
+pub type AccelMap = ServoCmdAccelMap;
+
+pub struct ServoCmdAccelMap {
+
+}
+
+impl ServoCmdAccelMap {
+    /// See `pitch_delta` etc on `fixed_wing::ControlPositions` for how these deltas
+    /// are calculated.
+    pub fn pitch_cmd_to_accel(&self, cmd: f32) -> f32 {
+        1.
+    }
+
+    pub fn roll_cmd_to_accel(&self, cmd: f32) -> f32 {
+        1.
+    }
+
+    pub fn yaw_cmd_to_accel(&self, cmd: f32) -> f32 {
+        1.
+    }
+
+    pub fn pitch_accel_to_cmd(&self, accel: f32) -> f32 {
+        1.
+    }
+
+    pub fn roll_accel_to_cmd(&self, accel: f32) -> f32 {
+        1.
+    }
+
+    pub fn yaw_accel_to_cmd(&self, accel: f32) -> f32 {
+        1.
+    }
+}
+
+
 /// Map RPM to angular acceleration (thrust proxy). Average over time, and over all props.
 /// Note that this relationship may be exponential, or something similar, with RPM increases
 /// at higher ranges providing a bigger change in thrust.
 /// For fixed wing, we use servo position instead of RPM.
 #[cfg(feature = "quad")]
-#[derive(Default)]
 pub struct RpmAccelMap {
     // Value are in (RPM, acceleration (m/s^2))
     // todo: What is the max expected RPM? Adjust this A/R.
@@ -80,9 +119,13 @@ pub struct RpmAccelMap {
 impl RpmAccelMap {
     // todo: DRY with pwr to rpm MAP
     /// Interpolate, to get power from this LUT.
-    pub fn rpm_to_accel(&self, rpm: f32) -> f32 {
+    pub fn pitch_rpm_to_accel(&self, rpm: f32) -> f32 {
         // Ideally, this slope isn't used, since our map range exceeds motor RPM capability
         // under normal circumstances.
+
+        // todo: This probably isn't the same for all axis! You most likely want
+        // todo to split this by axis long-term. Probalby by more fields on this struct.
+
         // todo: QC order on this.
         let end_slope = (self.r_10k.1 - self.r_9k.1) / (self.r_10k.0 - self.r_9k.0);
         //
@@ -107,7 +150,23 @@ impl RpmAccelMap {
         }
     }
 
-    pub fn accel_to_rpm(&self, ω_dot: f32) -> f32 {
+    pub fn roll_rpm_to_accel(&self, rpm: f32) -> f32 {
+        1. // todo
+    }
+
+    pub fn yaw_rpm_to_accel(&self, rpm: f32) -> f32 {
+        1. // todo   
+    }
+
+    pub fn pitch_accel_to_rpm(&self, ω_dot: f32) -> f32 {
+        0. // todo
+    }
+
+    pub fn roll_accel_to_rpm(&self, ω_dot: f32) -> f32 {
+        0. // todo
+    }
+
+    pub fn yaw_accel_to_rpm(&self, ω_dot: f32) -> f32 {
         0. // todo
     }
 
@@ -144,13 +203,29 @@ impl RpmAccelMap {
     }
 }
 
+// todo: Set up these defaults with something that should be safe during
+// todo initialization?
+#[cfg(feature = "quad")]
+impl Default for RpmAccelMap {
+    fn default() -> Self {
+        Self {}
+    }
+}
+
+#[cfg(feature = "fixed-wing")]
+impl Default for ServoCmdAccelMap {
+    fn default() -> Self {
+        Self {}
+    }
+}
+
 /// This struct contains maps of 0-1 power level to RPM and angular accel.
 /// For fixed wing, substitude servo position setting for RPM.
 #[derive(Default)]
 pub struct PowerMaps {
-    pub rpm_to_accel_pitch: RpmAccelMap,
-    pub rpm_to_accel_roll: RpmAccelMap,
-    pub rpm_to_accel_yaw: RpmAccelMap,
+    pub rpm_to_accel_pitch: AccelMap,
+    pub rpm_to_accel_roll: AccelMap,
+    pub rpm_to_accel_yaw: AccelMap,
 }
 
 /// Control coefficients that affect the toleranaces and restrictions of the flight controls.
@@ -238,11 +313,6 @@ fn ω_dot_from_ttc(dθ: f32, ω: f32, ttc_per_dθ: f32) -> f32 {
 // fn accel_to_rpm_servo_cmds(ω_dot: f32, mapping: asdf) -> f32 {
 //
 // }
-
-#[cfg(feature = "quad")]
-type AccelMap = RpmAccelMap;
-#[cfg(feature = "fixed-wing")]
-type AccelMap = ServoCmdAccelMap;
 
 fn find_ctrl_setting(
     dθ: f32,
