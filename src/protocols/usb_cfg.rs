@@ -229,6 +229,7 @@ impl From<&LinkStats> for [u8; LINK_STATS_SIZE] {
 
 impl From<&SystemStatus> for [u8; SYS_STATUS_SIZE] {
     fn from(p: &SystemStatus) -> Self {
+        // todo: You could achieve more efficient packing.
         [
             p.imu as u8,
             p.baro as u8,
@@ -281,7 +282,7 @@ pub fn handle_rx(
     usb_serial: &mut SerialPort<'static, UsbBusType>,
     rx_buf: &[u8],
     attitude: Quaternion,
-    attitude_commanded: AttitudeCommanded,
+    attitude_commanded: &AttitudeCommanded,
     altitude_baro: f32,
     altitude_agl: Option<f32>,
     batt_v: f32,
@@ -297,6 +298,7 @@ pub fn handle_rx(
     adc: &Adc<ADC>,
     dma: &mut Dma<DMA1>,
 ) {
+    println!("USB comm");
     let rx_msg_type: MsgType = match rx_buf[0].try_into() {
         Ok(d) => d,
         Err(_) => {

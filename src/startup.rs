@@ -129,7 +129,7 @@ pub fn init() -> (Shared, Local, Monotomic) {
 
     #[cfg(feature = "mercury-h7")]
         let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
-    #[cfg(feature = "mercury-g4")]
+    #[cfg(feature = "g4")]
         let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
     cs_imu.set_high();
@@ -276,7 +276,7 @@ pub fn init() -> (Shared, Local, Monotomic) {
                 // todo: PAC ommission??
                 // let mut servo_timer = Timer::new_tim8(dp.TIM8, 1., Default::default(), &clock_cfg);
 
-            } else if #[cfg(feature = "mercury-g4")] {
+            } else if #[cfg(feature = "g4")] {
 
                 let mut rotor_timer_a =
                     Timer::new_tim2(dp.TIM2, 1., rotor_timer_cfg.clone(), &clock_cfg);

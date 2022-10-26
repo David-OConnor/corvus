@@ -79,6 +79,8 @@ const READING_QUAL_THRESH: f32 = 0.7;
 pub fn setup(i2c: &mut I2c<I2C1>) -> Result<(), TofError> {
     // todo
 
+    return Err(TofError::NotConnected); // todo: Until we finish work on it
+
     Ok(())
 }
 

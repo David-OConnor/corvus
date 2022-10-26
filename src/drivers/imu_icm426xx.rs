@@ -20,11 +20,15 @@ use crate::imu_shared::_ImuReadingsRaw;
 
 // todo: Use WHOAMI etc to determine if we have this, or the ST IMU
 
-pub struct ImuNotConnectedError {}
+#[derive(Clone, Copy)]
+pub enum ImuError {
+    NotConnected,
+    SelfTestFail,
+}
 
-impl From<spi::Error> for ImuNotConnectedError {
+impl From<spi::Error> for ImuError {
     fn from(_e: spi::Error) -> Self {
-        Self {}
+        Self::NotConnected
     }
 }
 
@@ -72,6 +76,9 @@ pub enum Reg {
     IntSource3 = 0x68,
     IntSource4 = 0x69,
 
+    SelfTestConfig = 0x70,
+    WhoAmI = 0x75,
+
     IntfConfig4 = 0x7a,
     IntfConfig5 = 0x7b,
     IntfConfig6 = 0x7c,
@@ -90,7 +97,7 @@ pub const READINGS_START_ADDR: u8 = 0x80 | 0x1F; // (AccelDataX1)
 // https://github.com/pms67/Attitude-Estimation
 
 /// Utility function to read a single byte.
-fn read_one(reg: Reg, spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<u8, ImuNotConnectedError> {
+fn read_one(reg: Reg, spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<u8, ImuError> {
     let mut buf = [reg.read_addr(), 0];
 
     cs.set_low();
@@ -106,7 +113,7 @@ fn write_one(
     word: u8,
     spi: &mut Spi<SPI1>,
     cs: &mut Pin,
-) -> Result<(), ImuNotConnectedError> {
+) -> Result<(), ImuError> {
     cs.set_low();
     spi.write(&[reg as u8, word])?;
     cs.set_high();
@@ -119,7 +126,7 @@ pub fn setup(
     spi: &mut Spi<SPI1>,
     cs: &mut Pin,
     delay: &mut Delay,
-) -> Result<(), ImuNotConnectedError> {
+) -> Result<(), ImuError> {
     // Leave default of SPI mode 0 and 3.
 
     // An external cyrstal is connected on othe H7 FC, but not the G4.
@@ -162,13 +169,26 @@ pub fn setup(
 
     // todo: Set filters?
 
+    // Start a self test on all 6 channels, and accel power self test.
+    // write_one(Reg::SelfTestConfig, 0b0111_1111, spi, cs)?;
+
+    // todo: Get self-test working. DS is unclear on how this works. If fail, return SelfTest error.
+
+    // todo: Without self-test, we'll use a WHOAMI read to verify if the IMU is connected. Note that
+    // todo the SPI bus will still not fail if the IMU isn't present. HAL error?
+    // todo: Better sanity check than WHOAMI.
+    let device_id = read_one(Reg::WhoAmI, spi, cs)?;
+    if device_id != 0x47 {
+        return Err(ImuError::NotConnected);
+    }
+
     Ok(())
 }
 
 // todo: Low power fn
 
 /// Read temperature.
-pub fn _read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<f32, ImuNotConnectedError> {
+pub fn _read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<f32, ImuError> {
     let upper_byte = read_one(Reg::TempData1, spi, cs)?;
     let lower_byte = read_one(Reg::TempData0, spi, cs)?;
 
@@ -181,7 +201,7 @@ pub fn _read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<f32, ImuNotConnec
 pub fn _read_all(
     spi: &mut Spi<SPI1>,
     cs: &mut Pin,
-) -> Result<_ImuReadingsRaw, ImuNotConnectedError> {
+) -> Result<_ImuReadingsRaw, ImuError> {
     let accel_x_upper = read_one(Reg::AccelDataX1, spi, cs)?;
     let accel_x_lower = read_one(Reg::AccelDataX0, spi, cs)?;
     let accel_y_upper = read_one(Reg::AccelDataY1, spi, cs)?;

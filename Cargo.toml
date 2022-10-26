@@ -14,9 +14,7 @@ cortex-m-rt = "0.7.0"
 
 cortex-m-rtic = "1.1.3"
 
-#stm32-hal2 = { path = "../../../stm32-hal", optional = true}
-stm32-hal2 = { path = "../stm32-hal", optional = true} # temp deployed
-#stm32-hal2 = "^1.5.1"
+stm32-hal2 = { path = "../../stm32-hal", optional = true} # temp deployed
 
 # CMSIS-DSP, for FFTs, FIR etc. C lib wrapped with FFI.
 # Trouble with LIBCLANG. See this: https://github.com/rust-lang/rust-bindgen/blob/master/book/src/requirements.md
@@ -25,7 +23,7 @@ cmsis-dsp-sys = { git = "https://github.com/jacobrosenthal/cmsis-dsp-sys", branc
 #cmsis-dsp-api = { path = "../../../cmsis-dsp-api"}
 cmsis-dsp-api = { git = "https://github.com/David-OConnor/cmsis-dsp-api" }
 
-lin-alg2 = { path = "../lin_alg", features = ["no_std"]}
+lin-alg2 = { path = "../../lin_alg", features = ["no_std"]}
 
 num-traits = { version = "0.2.15", default_features = false } # Absolute value, powers etc.
 
@@ -52,7 +50,7 @@ fixed-wing = [] # For fixed-wing aircraft
 # Periodically print the status of various sytems and sensor data to console. For debugging.
 print-status = []
 
-#default = ["mercury-g4"]
+#default = ["g4"]
 
 # cargo build/run
 [profile.dev]

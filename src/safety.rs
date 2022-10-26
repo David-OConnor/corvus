@@ -62,12 +62,23 @@ const ALT_EPSILON_BEFORE_LATERAL: f32 = 20.;
 const TAKEOFF_POWER_THRESH: f32 = 0.3;
 const TAKEOFF_POWER_TIME: f32 = 1.;
 
+// Block RX reception of packets coming in at a faster rate then this. This prevents external
+// sources from interfering with other parts of the application by taking too much time.
+// Note that we expect a 500hz packet rate for control channel data.
+pub const MAX_RF_UPDATE_RATE: f32 = 1_000.; // Hz
+
+// For abstracting over fixed-wing 3-position vs quad 2-position arm status.
+#[cfg(feature = "quad")]
+const MOTORS_ARMED: ArmStatus = ArmStatus::Armed;
+#[cfg(feature = "fixed-wing")]
+const MOTORS_ARMED: ArmStatus = ArmStatus::MotorsControlsArmed;
+
 /// Indicates master motor arm status. Used for both pre arm, and arm. If either is
 /// set to `Disarmed`, the motors will not spin (or stop spinning immediately).
 /// Repr u8 is for passing over USB serial.
 #[cfg(feature = "quad")]
 #[repr(u8)]
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ArmStatus {
     /// Motors are disarmed
     Disarmed = 0,
@@ -77,7 +88,7 @@ pub enum ArmStatus {
 
 #[cfg(feature = "fixed-wing")]
 #[repr(u8)]
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ArmStatus {
     /// Motors are and control surfaces aredisarmed
     Disarmed = 0,
@@ -163,26 +174,19 @@ pub fn handle_arm_status(
     arm_status: &mut ArmStatus,
     throttle: f32,
 ) {
-    #[cfg(feature = "quad")]
-    let motor_arm = ArmStatus::Armed;
-    #[cfg(feature = "fixed-wing")]
-    let motor_arm = ArmStatus::MotorsControlsArmed;
-
-    // This intermediate variable avoids ownership/mutable ref issues.
-    // We update the `arm_status` param with it at the end of this fn.
-    let mut arm_status_ = arm_status.clone();
-
-    match arm_status_ {
-        motor_arm => {
-            if controller_arm_status == ArmStatus::Disarmed {
+    match arm_status.clone() {
+        MOTORS_ARMED => {
+            if controller_arm_status != MOTORS_ARMED {
                 *disarm_signals_received += 1;
             } else {
                 *disarm_signals_received = 0;
             }
 
             if *disarm_signals_received >= NUM_ARM_DISARM_SIGNALS_REQUIRED {
-                arm_status_ = ArmStatus::Disarmed;
                 *disarm_signals_received = 0;
+
+                // On fixed, this could be either disarmed, or controls armed.
+                *arm_status = controller_arm_status;
 
                 // Reset integrator on rate PIDs, for example so the value from one flight doesn't
                 // affect the next.
@@ -197,7 +201,7 @@ pub fn handle_arm_status(
             enable_servos();
         }
         ArmStatus::Disarmed => {
-            if controller_arm_status == motor_arm {
+            if controller_arm_status == MOTORS_ARMED {
                 *arm_signals_received += 1;
             } else {
                 RECEIVED_INITIAL_DISARM.store(true, Ordering::Release);
@@ -205,28 +209,29 @@ pub fn handle_arm_status(
                 *arm_signals_received = 0;
             }
 
+
             if *arm_signals_received >= NUM_ARM_DISARM_SIGNALS_REQUIRED {
+                *arm_signals_received = 0;
+
                 if !ARM_COMMANDED_WITHOUT_IDLE.load(Ordering::Acquire) {
                     if throttle < THROTTLE_MAX_TO_ARM {
                         if !RECEIVED_INITIAL_DISARM.load(Ordering::Acquire) {
                             println!(
-                                "Arm/idle commadned without receiving initial throttle idle and \
+                                "Arm/idle commanded without receiving initial throttle idle and \
                             disarm signal."
                             );
                         } else {
-                            arm_status_ = motor_arm;
-                            *arm_signals_received = 0;
-                            println!("Aircraft armed.");
+                            *arm_status = MOTORS_ARMED;
+                            println!("Aircraft motors armed.");
                         }
                     } else {
                         // Throttle not idle; reset the process, and set the flag requiring
                         // arm switch cycle to arm.
                         ARM_COMMANDED_WITHOUT_IDLE.store(true, Ordering::Release);
-                        *arm_signals_received = 0;
                         // println!("Arm attempted without Throttle not idle; set idle and cycle arm switch to arm.");
                     }
                 } else {
-                    // println!("(Cycle arm switch to arm.)");
+                    println!("Arm/idle commanded while throttle is not idle");
                 }
             }
 
@@ -238,7 +243,6 @@ pub fn handle_arm_status(
             enable_servos();
         }
     }
-    *arm_status = arm_status_;
 }
 
 /// If we are lost link haven't received a radio signal in a certain amount of time, execute a lost-link

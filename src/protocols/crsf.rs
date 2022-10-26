@@ -72,7 +72,8 @@ const PAYLOAD_SIZE_RC_CHANNELS: usize = 22;
 const MAX_PAYLOAD_SIZE: usize = PAYLOAD_SIZE_RC_CHANNELS;
 const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 4;
 
-pub static mut RX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
+// pub static mut RX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
+pub static mut RX_BUFFER: [u8; 5] = [0; 5]; // todo TEMP
 
 static mut TX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
 
@@ -148,19 +149,23 @@ pub enum PacketData {
 /// firmware setup.
 pub fn setup(uart: &mut Usart<UART_ELRS>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
     // Idle interrupt, in conjunction with circular DMA, to indicate we're received a message.
-    uart.enable_interrupt(UsartInterrupt::Idle);
+    // uart.enable_interrupt(UsartInterrupt::Idle);
 
-    unsafe {
-        uart.read_dma(
-            &mut RX_BUFFER,
-            channel,
-            ChannelCfg {
-                circular: Circular::Enabled,
-                ..Default::default()
-            },
-            dma,
-        );
-    }
+    // todo: Trying a non-circular approach.
+    // uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
+    // uart.enable_interrupt(UsartInterrupt::ReadNotEmpty);
+
+    // unsafe {
+    //     uart.read_dma(
+    //         &mut RX_BUFFER,
+    //         channel,
+    //         ChannelCfg {
+    //             // circular: Circular::Enabled,
+    //             ..Default::default()
+    //         },
+    //         dma,
+    //     );
+    // }
 }
 
 struct Packet {
@@ -227,9 +232,6 @@ impl Packet {
         }
 
         payload[..payload_len].copy_from_slice(&buf[3..(payload_len + 3)]);
-        // for i in 0..payload_len {
-        //     payload[i] = buf[i + 3];
-        // }
 
         let received_crc = buf[payload_len + 3];
 
@@ -456,32 +458,37 @@ pub fn handle_packet(
     // be anywhere, at time of line going idle. Then pass in a buffer, rearranged start-to-end.
     // todo: Is there a cheaper way to do this than scanning for a matching pattern?
 
-    // unsafe {
-    //     println!("RX BUF: {:?}", RX_BUFFER);
+
+    unsafe {
+        println!("RX BUF: {:?}", RX_BUFFER);
+    }
+
+    // todo: With non-circular, we don't really need a start i, nor do we need buf_shifted.
+    let start_i = 0;
+
+    // let mut start_i = 0;
+    // let mut start_i_found = false;
+    // for i in 0..MAX_PACKET_SIZE {
+    //     unsafe {
+    //         if RX_BUFFER[i] == DestAddr::FlightController as u8
+    //             && (RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_RC_CHANNELS as u8 + 2
+    //                 || RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_LINK_STATS as u8 + 2)
+    //             && (RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::RcChannelsPacked as u8
+    //                 || RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::LinkStatistics as u8)
+    //         {
+    //             start_i = i;
+    //             start_i_found = true;
+    //         }
+    //     }
+    // }
+    // if !start_i_found {
+    //     // todo: BIT flag.
+    //     println!("Can't find starting position in Rx payload");
+    //     println!("RX buf: {:?}", unsafe { RX_BUFFER });
+    //     return None;
     // }
 
-    let mut start_i = 0;
-    let mut start_i_found = false;
-    for i in 0..MAX_PACKET_SIZE {
-        unsafe {
-            if RX_BUFFER[i] == DestAddr::FlightController as u8
-                && (RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_RC_CHANNELS as u8 + 2
-                    || RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_LINK_STATS as u8 + 2)
-                && (RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::RcChannelsPacked as u8
-                    || RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::LinkStatistics as u8)
-            {
-                start_i = i;
-                start_i_found = true;
-            }
-        }
-    }
-    if !start_i_found {
-        // todo: BIT flag.
-        // println!("Can't find starting position in payload; skipping");
-        // println!("RX buf: {:?}", unsafe { RX_BUFFER });
-        return None;
-    }
-
+    // todo: buf shifted not required.
     let mut buf_shifted = [0; MAX_PACKET_SIZE];
     for i in 0..MAX_PACKET_SIZE {
         buf_shifted[i] = unsafe { RX_BUFFER }[(start_i + i) % MAX_PACKET_SIZE];
@@ -501,6 +508,7 @@ pub fn handle_packet(
         DestAddr::FlightController => (),
         _ => {
             // Improper destination address from the sender.
+            println!("Rx data: Improper destination address from the sender.");
             return None;
         }
     }
@@ -552,7 +560,9 @@ pub fn handle_packet(
             let link_stats = packet.to_link_stats();
             result = Some(PacketData::LinkStats(link_stats));
         }
-        _ => (),
+        _ => {
+            println!("Unexpected Rx frame type.")
+        },
     }
 
     result

@@ -237,7 +237,8 @@ impl MotorRpm {
     /// Generate power settings for each motor, from RPM commands.
     /// Pitch, roll, and yaw are in RPM difference between the sum of each pair.
     pub fn from_cmds(mix: &CtrlMix, front_left_dir: RotationDir) -> Self {
-        let baseline_rpm = estimate_rpm_from_pwr(mix.throttle);
+        // let baseline_rpm = estimate_rpm_from_pwr(mix.throttle);
+        let baseline_rpm = 100.; // todo temp to get to compile!
 
         let mut front_left = baseline_rpm;
         let mut front_right = baseline_rpm;

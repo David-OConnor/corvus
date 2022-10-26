@@ -76,7 +76,7 @@ pub fn init_sensors(
 ) -> (SystemStatus, baro::Altimeter) {
     let mut system_status = SystemStatus::default();
 
-    let eps = 0.001;
+    // let eps = 0.001;
 
     match gps::setup(i2c1) {
         Ok(_) => system_status.gps = SensorStatus::Pass,
@@ -230,7 +230,7 @@ pub fn setup_pins() {
     // FOr the breakdown of these timers by MCU and aircraft type, see the `MotorTimers` struct.
 
     cfg_if! {
-        if #[cfg(feature = "mercury-h7")] {
+        if #[cfg(feature = "h7")] {
             // On H7, we TIM3 and TIM8 have full overlap as ch 1-4 for our timer pins.
             let alt_motors = 2; // TIM3
             let alt_servos = 3; // TIM8
@@ -258,7 +258,10 @@ pub fn setup_pins() {
     rotor3.output_speed(OutputSpeed::High);
     rotor4.output_speed(OutputSpeed::High);
 
-    let _buzzer = Pin::new(Port::A, 10, PinMode::Alt(6)); // Tim1 ch3
+    // #[cfg(feature = "g4")]
+    // Not used
+    // let _buzzer = Pin::new(Port::A, 10, PinMode::Alt(6)); // Tim1 ch3
+    // let _buzzer = Pin::new(Port::E, 9, PinMode::Alt(1)); // Tim1 ch1
 
     // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
     let mut sck1 = Pin::new(Port::A, 5, PinMode::Alt(5));
@@ -299,16 +302,15 @@ pub fn setup_pins() {
             let _uart7_tx = Pin::new(Port::B, 3, PinMode::Alt(11));
             let _uart7_rx = Pin::new(Port::B, 4, PinMode::Alt(11));
         } else {
-            // // G4 board uses onboard ELRS, on SPI3
-            // let _sck3 = Pin::new(Port::B, 3, PinMode::Alt(6));
-            // let _miso3 = Pin::new(Port::B, 4, PinMode::Alt(6));
-            // let _mosi3 = Pin::new(Port::B, 5, PinMode::Alt(6));
+            let _uart3_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
+            let _uart3_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
         }
     }
 
     // We use UARTs for misc external devices, including ESC telemetry,
     // and VTX OSD.
 
+    // todo: Are these G4? H7? Both? Probably not going to use either way.
     // let _uart1_tx = Pin::new(Port::B, 6, PinMode::Alt(7));
     // let _uart1_rx = Pin::new(Port::B, 7, PinMode::Alt(7));
     // let _uart2_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
@@ -320,9 +322,9 @@ pub fn setup_pins() {
 
     // Used to trigger a PID update based on new IMU data.
     // We assume here the interrupt config uses default settings active low, push pull, pulsed.
-    #[cfg(feature = "mercury-h7")]
+    #[cfg(feature = "h7")]
     let mut imu_interrupt = Pin::new(Port::B, 12, PinMode::Input);
-    #[cfg(feature = "mercury-g4")]
+    #[cfg(feature = "g4")]
     let mut imu_interrupt = Pin::new(Port::C, 4, PinMode::Input);
 
     imu_interrupt.output_type(OutputType::OpenDrain);
@@ -401,6 +403,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // we trigger the attitude-rates PID loop.
     dma.enable_interrupt(IMU_RX_CH, DmaInterrupt::TransferComplete);
 
+    // todo: Experimenting with non-circular CRSF DMA.
+    dma.enable_interrupt(CRSF_RX_CH, DmaInterrupt::TransferComplete);
+
     // We use Dshot transfer-complete interrupts to disable the timer.
     dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
     #[cfg(not(feature = "h7"))]
@@ -457,9 +462,9 @@ pub fn setup_busses(
 
     let spi1 = Spi::new(spi1_pac, imu_spi_cfg, imu_baud_div);
 
-    #[cfg(feature = "mercury-h7")]
+    #[cfg(feature = "h7")]
     let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
-    #[cfg(feature = "mercury-g4")]
+    #[cfg(feature = "g4")]
     let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
     cs_imu.set_high();

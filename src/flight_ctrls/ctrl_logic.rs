@@ -91,10 +91,16 @@ impl ServoCmdAccelMap {
 }
 
 
+// todo: Leaning towards this: Store a collection of pitch, roll, and yaw angular accels, as well
+// todo as corresponding servo settings (fixed) or motor RPMs (quad). Also store altitude and time-of-measurement.
+// todo: From this, create a model. Store readings and/or model in external flash periodically,
+// todo for init at next takeoff.
+
 /// Map RPM to angular acceleration (thrust proxy). Average over time, and over all props.
 /// Note that this relationship may be exponential, or something similar, with RPM increases
 /// at higher ranges providing a bigger change in thrust.
 /// For fixed wing, we use servo position instead of RPM.
+#[derive(Default)] // todo temp to get it to compille
 #[cfg(feature = "quad")]
 pub struct RpmAccelMap {
     // Value are in (RPM, acceleration (m/s^2))
@@ -202,15 +208,17 @@ impl RpmAccelMap {
         }
     }
 }
-
-// todo: Set up these defaults with something that should be safe during
-// todo initialization?
-#[cfg(feature = "quad")]
-impl Default for RpmAccelMap {
-    fn default() -> Self {
-        Self {}
-    }
-}
+//
+// // todo: Set up these defaults with something that should be safe during
+// // todo initialization?
+// #[cfg(feature = "quad")]
+// impl Default for RpmAccelMap {
+//     fn default() -> Self {
+//         Self {
+//
+//         }
+//     }
+// }
 
 #[cfg(feature = "fixed-wing")]
 impl Default for ServoCmdAccelMap {
@@ -400,7 +408,7 @@ fn find_ctrl_setting(
     // ω_dot_target /= ctrl_effectiveness;
 
     #[cfg(feature = "quad")]
-    return accel_map.accel_to_rpm(ω_dot_target);
+    return accel_map.pitch_accel_to_rpm(ω_dot_target); // todo: Hard-coded to pitch as stopgap
     #[cfg(feature = "fixed-wing")]
     return accel_map.accel_to_servo_cmds(ω_dot_target);
 }

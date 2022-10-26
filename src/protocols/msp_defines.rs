@@ -834,7 +834,7 @@ pub struct OsdConfig {
     pub overlay_radio_mode: u8, //  0
 }
 
-pub const OSD_CONFIG_SIZE: usize = 11;
+pub const OSD_CONFIG_SIZE: usize = 51; // todo?
 
 impl OsdConfig {
     pub fn to_buf(&self) -> [u8; OSD_CONFIG_SIZE] {
@@ -1020,7 +1020,7 @@ impl StatusBf {
         result[15] = self.box_mode_flags;
         result[16] = self.arming_disable_flags_count;
         result[17..21].clone_from_slice(&self.arming_disable_flags.to_le_bytes());
-        result[22] = self.extra_flags;
+        result[21] = self.extra_flags;
 
         result
     }

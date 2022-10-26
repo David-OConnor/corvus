@@ -29,6 +29,8 @@ use stm32_hal2::{
     usart::Usart,
 };
 
+use defmt::println;
+
 // An OSD position of 234 indicates the element is not visible.
 const NOT_VISIBLE: u16 = 234;
 
@@ -40,12 +42,14 @@ const EULER_ANGLE_SCALE_FACTOR: f32 = 10.;
 const ARM_ACRO_BF: u8 = 1;
 
 // This buffer is used to write all OSD items.
-const NUM_MSP_CMDS: usize = 7;
+const NUM_MSP_CMDS: usize = 8;
 const BUF_OSD_SIZE: usize = (METADATA_SIZE_V1 * NUM_MSP_CMDS)
-    + ATTITUDE_SIZE
-    + ALTITUDE_SIZE
+    + NAME_SIZE
     + STATUS_BF_SIZE
     + BATTERY_STATE_SIZE
+    + RAW_GPS_SIZE
+    + ATTITUDE_SIZE
+    + ALTITUDE_SIZE
     + EC_SENSOR_DATA_SIZE
     + OSD_CONFIG_SIZE;
 
@@ -156,6 +160,7 @@ pub fn send_osd_data(
     // 9 	57
 
     // let pid_display: [u8; NAME_SIZE] = "test".to_buf();
+
 
     let mut buf = [0; NAME_SIZE + METADATA_SIZE_V1];
     add_to_buf(

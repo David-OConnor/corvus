@@ -21,6 +21,14 @@ pub static mut WRITE_BUF_TOF: [u8; 2] = [0; 2];
 
 pub static mut V_A_ADC_READ_BUF: [u16; 2] = [0; 2];
 
+// These values correspond to how much the voltage divider on these ADC pins reduces the input
+// voltage. Multiply by these values to get the true readings.
+// V batt / V read
+pub const ADC_BATT_V_DIV: f32 = 11.;
+
+// mA/V
+pub const ADC_CURR_DIV: f32 = 400.; // todo
+
 /// We use this to sequence DMA writes and reads among the extenral sensors.
 #[derive(Clone, Copy)]
 pub enum ExtSensor {
