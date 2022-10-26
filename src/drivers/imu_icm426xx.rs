@@ -108,12 +108,7 @@ fn read_one(reg: Reg, spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<u8, ImuError>
 }
 
 /// Utility function to write a single byte.
-fn write_one(
-    reg: Reg,
-    word: u8,
-    spi: &mut Spi<SPI1>,
-    cs: &mut Pin,
-) -> Result<(), ImuError> {
+fn write_one(reg: Reg, word: u8, spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<(), ImuError> {
     cs.set_low();
     spi.write(&[reg as u8, word])?;
     cs.set_high();
@@ -122,11 +117,7 @@ fn write_one(
 }
 
 /// Configure the device.
-pub fn setup(
-    spi: &mut Spi<SPI1>,
-    cs: &mut Pin,
-    delay: &mut Delay,
-) -> Result<(), ImuError> {
+pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) -> Result<(), ImuError> {
     // Leave default of SPI mode 0 and 3.
 
     // An external cyrstal is connected on othe H7 FC, but not the G4.
@@ -198,10 +189,7 @@ pub fn _read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<f32, ImuError> {
 }
 
 /// Read all data, in blocking fashion. Deprecated in favor of DMA.
-pub fn _read_all(
-    spi: &mut Spi<SPI1>,
-    cs: &mut Pin,
-) -> Result<_ImuReadingsRaw, ImuError> {
+pub fn _read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<_ImuReadingsRaw, ImuError> {
     let accel_x_upper = read_one(Reg::AccelDataX1, spi, cs)?;
     let accel_x_lower = read_one(Reg::AccelDataX0, spi, cs)?;
     let accel_y_upper = read_one(Reg::AccelDataY1, spi, cs)?;

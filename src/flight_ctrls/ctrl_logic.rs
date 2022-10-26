@@ -58,9 +58,7 @@ pub type AccelMap = RpmAccelMap;
 #[cfg(feature = "fixed-wing")]
 pub type AccelMap = ServoCmdAccelMap;
 
-pub struct ServoCmdAccelMap {
-
-}
+pub struct ServoCmdAccelMap {}
 
 impl ServoCmdAccelMap {
     /// See `pitch_delta` etc on `fixed_wing::ControlPositions` for how these deltas
@@ -89,7 +87,6 @@ impl ServoCmdAccelMap {
         1.
     }
 }
-
 
 // todo: Leaning towards this: Store a collection of pitch, roll, and yaw angular accels, as well
 // todo as corresponding servo settings (fixed) or motor RPMs (quad). Also store altitude and time-of-measurement.
@@ -161,7 +158,7 @@ impl RpmAccelMap {
     }
 
     pub fn yaw_rpm_to_accel(&self, rpm: f32) -> f32 {
-        1. // todo   
+        1. // todo
     }
 
     pub fn pitch_accel_to_rpm(&self, ω_dot: f32) -> f32 {

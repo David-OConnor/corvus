@@ -147,22 +147,9 @@ pub enum PacketData {
 /// Configure the Idle interrupt, and start the circular DMA transfer. Run this once, on initial
 /// firmware setup.
 pub fn setup(uart: &mut Usart<UART_ELRS>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
-    // Idle interrupt, in conjunction with circular DMA, to indicate we're received a message.
-
-    // uart.enable_interrupt(UsartInterrupt::Idle);
+    // We alternate between char matching the flight controller destination address, and
+    // line idle, to indicate we're received, or stopped receiving a message respectively.
     uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
-
-    // unsafe {
-    //     uart.read_dma(
-    //         &mut RX_BUFFER,
-    //         channel,
-    //         ChannelCfg {
-    //             circular: Circular::Enabled,
-    //             ..Default::default()
-    //         },
-    //         dma,
-    //     );
-    // }
 }
 
 struct Packet {
@@ -456,7 +443,7 @@ pub fn handle_packet(
     // todo: Is there a cheaper way to do this than scanning for a matching pattern?
 
     // unsafe {
-        // println!("RX BUF: {:?}", RX_BUFFER);
+    // println!("RX BUF: {:?}", RX_BUFFER);
     // }
 
     // todo: 24 seems to be the most common place.
@@ -559,7 +546,7 @@ pub fn handle_packet(
         }
         _ => {
             println!("Unexpected Rx frame type.")
-        },
+        }
     }
 
     result

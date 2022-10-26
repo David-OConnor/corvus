@@ -209,7 +209,6 @@ pub fn handle_arm_status(
                 *arm_signals_received = 0;
             }
 
-
             if *arm_signals_received >= NUM_ARM_DISARM_SIGNALS_REQUIRED {
                 *arm_signals_received = 0;
 

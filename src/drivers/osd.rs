@@ -161,7 +161,6 @@ pub fn send_osd_data(
 
     // let pid_display: [u8; NAME_SIZE] = "test".to_buf();
 
-
     let mut buf = [0; NAME_SIZE + METADATA_SIZE_V1];
     add_to_buf(
         Function::Name,
