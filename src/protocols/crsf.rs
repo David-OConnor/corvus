@@ -148,19 +148,21 @@ pub enum PacketData {
 /// firmware setup.
 pub fn setup(uart: &mut Usart<UART_ELRS>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
     // Idle interrupt, in conjunction with circular DMA, to indicate we're received a message.
-    uart.enable_interrupt(UsartInterrupt::Idle);
 
-    unsafe {
-        uart.read_dma(
-            &mut RX_BUFFER,
-            channel,
-            ChannelCfg {
-                circular: Circular::Enabled,
-                ..Default::default()
-            },
-            dma,
-        );
-    }
+    // uart.enable_interrupt(UsartInterrupt::Idle);
+    uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
+
+    // unsafe {
+    //     uart.read_dma(
+    //         &mut RX_BUFFER,
+    //         channel,
+    //         ChannelCfg {
+    //             circular: Circular::Enabled,
+    //             ..Default::default()
+    //         },
+    //         dma,
+    //     );
+    // }
 }
 
 struct Packet {

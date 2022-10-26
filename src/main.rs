@@ -60,7 +60,7 @@ use stm32_hal2::{
     flash::{Bank, Flash},
     gpio::{self, Pin, Port},
     i2c::I2c,
-    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, TIM1, TIM16, TIM17, USART2},
+    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, TIM1, TIM5, TIM16, TIM17, USART2},
     spi::Spi,
     timer::{Timer, TimerConfig, TimerInterrupt},
     usart::{Usart, UsartInterrupt},
@@ -156,7 +156,7 @@ cfg_if! {
     }
 }
 
-const UPDATE_RATE_MAIN_LOOP: f32 = 1_600.; // IMU rate / 5.
+const UPDATE_RATE_MAIN_LOOP: f32 = 1_000.; // todo: Experiment with this.
 
 // Every x main update loops, log parameters etc to flash.
 const LOGGING_UPDATE_RATIO: usize = 100;
@@ -257,6 +257,7 @@ mod app {
         /// once at startup.
         motor_dir_started: bool,
         uart_elrs: Usart<UART_ELRS>, // for ELRS over CRSF.
+        measurement_timer: Timer<TIM5>,
     }
 
     #[init]
@@ -365,15 +366,13 @@ mod app {
             Default::default(),
             &clock_cfg,
         );
-        update_timer.enable_interrupt(TimerInterrupt::Update);
+        // update_timer.enable_interrupt(TimerInterrupt::Update);
 
         // This timer is used to prevent a stream of continuous RF control signals, should they arrive
         // at any reason, from crashing the FC. Ie, limit damage that can be done from external sources.
         let mut rf_limiter_timer = Timer::new_tim16(
             dp.TIM16,
             safety::MAX_RF_UPDATE_RATE,
-            // todo: Co-opted to measure IMU update rate.
-            // 1_000.,
             TimerConfig {
                 // one_pulse_mode: true, // todo: OPM is not working.
                 ..Default::default()
@@ -382,7 +381,16 @@ mod app {
         );
 
         // todo: shouldn't be req in OPM, but is?
+
         rf_limiter_timer.enable_interrupt(TimerInterrupt::Update);
+
+        // We use this measurement timer to count things, like time between IMU updates.
+        let mut measurement_timer = Timer::new_tim5(
+            dp.TIM5,
+            1_000.,
+            Default::default(),
+            &clock_cfg,
+        );
 
         // We use this PID adjustment timer to indicate the interval for updating PID from a controller
         // while the switch or button is held. (Equivalently, the min allowed time between actuations)
@@ -641,6 +649,7 @@ mod app {
                 time_with_high_throttle: 0.,
                 motor_dir_started: false,
                 uart_elrs,
+                measurement_timer,
             },
             init::Monotonics(),
         )
@@ -751,11 +760,6 @@ mod app {
                     if *cx.local.update_loop_i % PRINT_STATUS_RATIO == 0 {
                         // todo: Flesh this out, and perhaps make it more like Preflight.
 
-                        // todo temp
-                        unsafe {
-                            // println!("Rx buf: {:?}", crsf::RX_BUFFER);
-                        }
-
                         println!(
                             "\n\nControl data:\nPitch: {} Roll: {}, Yaw: {}, Throttle: {}",
                             control_channel_data.pitch, control_channel_data.roll,
@@ -844,6 +848,7 @@ mod app {
                         // );
 
                     }
+                    return; // todo temp!!!
 
                     // if *cx.local.update_loop_i % LOGGING_UPDATE_RATIO == 0 {
                     // todo: Eg log params to flash etc.
@@ -951,33 +956,36 @@ mod app {
                     state_volatile.drag_coeffs.roll = dcr;
                     state_volatile.drag_coeffs.yaw = dcy;
 
-                    let osd_data = OsdData {
-                        arm_status: state_volatile.arm_status,
-                        battery_voltage: batt_v,
-                        current_draw: esc_current,
-                        alt_msl_baro: params.baro_alt_msl,
-                        gps_fix: Location::default(),
-                        pitch: params.s_pitch,
-                        roll: params.s_roll,
-                        yaw: params.s_yaw_heading,
-                        // pid_p: coeffs.roll.k_p_rate,
-                        // pid_i: coeffs.roll.k_i_rate,
-                        // pid_d: coeffs.roll.k_d_rate,
-                        autopilot: AutopilotData {
-                            takeoff: autopilot_status.takeoff,
-                            land: autopilot_status.land.is_some(),
-                            direct_to_point: autopilot_status.direct_to_point.is_some(),
-                            #[cfg(feature = "fixed-wing")]
-                            orbit: autopilot_status.orbit.is_some(),
-                            alt_hold: autopilot_status.alt_hold.is_some(),
-                            #[cfg(feature = "quad")]
-                            loiter: autopilot_status.loiter.is_some(),
-                        },
-                        base_dist_bearing: (
-                            0., 0., // todo: Fill these out
-                        ),
-                    };
-                    osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH, dma, &osd_data);
+                    // todo: Put back
+                    // let osd_data = OsdData {
+                    //     arm_status: state_volatile.arm_status,
+                    //     battery_voltage: batt_v,
+                    //     current_draw: esc_current,
+                    //     alt_msl_baro: params.baro_alt_msl,
+                    //     gps_fix: Location::default(),
+                    //     pitch: params.s_pitch,
+                    //     roll: params.s_roll,
+                    //     yaw: params.s_yaw_heading,
+                    //     // pid_p: coeffs.roll.k_p_rate,
+                    //     // pid_i: coeffs.roll.k_i_rate,
+                    //     // pid_d: coeffs.roll.k_d_rate,
+                    //     autopilot: AutopilotData {
+                    //         takeoff: autopilot_status.takeoff,
+                    //         land: autopilot_status.land.is_some(),
+                    //         direct_to_point: autopilot_status.direct_to_point.is_some(),
+                    //         #[cfg(feature = "fixed-wing")]
+                    //         orbit: autopilot_status.orbit.is_some(),
+                    //         alt_hold: autopilot_status.alt_hold.is_some(),
+                    //         #[cfg(feature = "quad")]
+                    //         loiter: autopilot_status.loiter.is_some(),
+                    //     },
+                    //     base_dist_bearing: (
+                    //         0., 0., // todo: Fill these out
+                    //     ),
+                    // };
+                    //
+                    // // todo: Put back
+                    // osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH, dma, &osd_data);
 
                     autopilot_status.set_modes_from_ctrls(control_channel_data, &params);
 
@@ -1060,10 +1068,9 @@ mod app {
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, params_prev, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, cs_imu, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timers, ahrs, state_volatile, rf_limiter_timer], local = [fixed_wing_rate_loop_i, update_loop_i2], priority = 5)]
+    motor_timers, ahrs, state_volatile], local = [fixed_wing_rate_loop_i, update_loop_i2, measurement_timer], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
-    /// Note: `rf_limiter_timer` is there, co-opted for use measuring this loop.
     /// todo: Currently getting 6.67kHz instead of 8kHz.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         // Clear DMA interrupt this way due to RTIC conflict.
@@ -1092,7 +1099,6 @@ mod app {
             cx.shared.dma,
             cx.shared.user_cfg,
             cx.shared.spi1,
-            cx.shared.rf_limiter_timer,
             cx.shared.state_volatile,
             cx.shared.flight_ctrl_filters,
         )
@@ -1108,7 +1114,6 @@ mod app {
                  dma,
                  cfg,
                  spi1,
-                 rf_limiter_timer,
                  state_volatile,
                  flight_ctrl_filters| {
                     // Note that this step is mandatory, per STM32 RM.
@@ -1127,21 +1132,21 @@ mod app {
                         dshot::stop_all(motor_timers, dma);
                     }
 
-                    return; // todo TS: Odd anomalies
+                    // return; // todo TS: Odd anomalies
 
                     // // todo: TSing geting wrong freq. (6.67khz instead of 8)
                     // if *cx.local.update_loop_i2 % 700 == 0 {
-                    //     let arr = rf_limiter_timer.get_max_duty();
-                    //     let count = rf_limiter_timer.read_count();
+                    //     let arr = cx.local.measurement_timer.get_max_duty();
+                    //     let count = cx.local.measurement_timer.read_count();
                     //     let time = (count as f32 / arr as f32) / 1_000.;
                     //
                     //     defmt::println!("Time elapsed: {:?} Freq: {:?}", time, 1./time);
                     // }
                     // *cx.local.update_loop_i2 += 1;
 
-                    // rf_limiter_timer.disable();
-                    // rf_limiter_timer.reset_count();
-                    // rf_limiter_timer.enable();
+                    // cx.local.measurement_timer.disable();
+                    // cx.local.measurement_timer.reset_count();
+                    // cx.local.measurement_timer.enable();
 
                     // todo: Temp TS code to verify rotordirection.
                     // if state_volatile.arm_status == ArmStatus::Armed {
@@ -1561,7 +1566,62 @@ mod app {
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
     fn crsf_isr(mut cx: crsf_isr::Context) {
-        cx.local.uart_elrs.clear_interrupt(UsartInterrupt::Idle);
+
+        // todo temp attempting non-circular again.
+
+
+        // todo: Feature-gate for H7
+        unsafe { // todo: Scope your unsafe correctly
+            if (*pac::USART3::ptr()).isr.read().cmf().bit_is_set() {
+
+                cx.local.uart_elrs.clear_interrupt(UsartInterrupt::CharDetect(0));
+
+                cx.shared.rf_limiter_timer.lock(|limiter_timer| {
+                    if limiter_timer.is_enabled() {
+                        println!("RF limiter triggered.");
+                        return;
+                    } else {
+                        limiter_timer.disable();
+                        limiter_timer.reset_count();
+                        limiter_timer.enable();
+                    }
+                });
+
+                cx.local.uart_elrs.disable_interrupt(UsartInterrupt::CharDetect(0));
+                cx.local.uart_elrs.enable_interrupt(UsartInterrupt::Idle);
+                println!("Message start");
+
+                cx.shared.dma.lock(|dma| {
+                    unsafe {
+                        cx.local.uart_elrs.read_dma(
+                            &mut crsf::RX_BUFFER,
+                            setup::CRSF_RX_CH,
+                            Default::default(),
+                            dma,
+                        );
+                    }
+                });
+
+            } else {
+                cx.local.uart_elrs.clear_interrupt(UsartInterrupt::Idle);
+                cx.local.uart_elrs.disable_interrupt(UsartInterrupt::Idle);
+                // todo: use PAC directly to avoid the char-setting ops here.
+                cx.local.uart_elrs.enable_interrupt(UsartInterrupt::CharDetect(0xc8));
+
+                cx.shared.dma.lock(|dma| {
+                    dma.stop(setup::CRSF_RX_CH);
+                });
+
+                println!("Line went idle");
+                println!("Rx buf: {:?}", crsf::RX_BUFFER);
+            }
+        }
+
+        return
+
+
+            cx.local.uart_elrs.clear_interrupt(UsartInterrupt::Idle);
+
 
         unsafe {
             // println!("ISR. BUF: {:?}", crsf::RX_BUFFER);
@@ -1662,7 +1722,8 @@ mod app {
 
     #[task(binds = TIM1_UP_TIM16, shared = [rf_limiter_timer], priority = 4)]
     fn rf_limiter_isr(mut cx: rf_limiter_isr::Context) {
-        // todo: Shouldn't be required in one-pulse mode. But is?
+        // todo: Shouldn't be required in one-pulse mode. But is? Experiment more once
+        // todo control reception works again (26 Oct 22)
         cx.shared.rf_limiter_timer.lock(|timer| {
             timer.clear_interrupt(TimerInterrupt::Update);
             timer.disable();

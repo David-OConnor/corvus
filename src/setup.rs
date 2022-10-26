@@ -329,7 +329,7 @@ pub fn setup_pins() {
 
     imu_interrupt.output_type(OutputType::OpenDrain);
     imu_interrupt.pull(Pull::Up);
-    imu_interrupt.enable_interrupt(Edge::Falling);
+    // imu_interrupt.enable_interrupt(Edge::Falling); // todo: Put back; TS!
 
     // I2C1 for external sensors, via pads
     let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));

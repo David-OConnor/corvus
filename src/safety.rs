@@ -65,7 +65,7 @@ const TAKEOFF_POWER_TIME: f32 = 1.;
 // Block RX reception of packets coming in at a faster rate then this. This prevents external
 // sources from interfering with other parts of the application by taking too much time.
 // Note that we expect a 500hz packet rate for control channel data.
-pub const MAX_RF_UPDATE_RATE: f32 = 1_000.; // Hz
+pub const MAX_RF_UPDATE_RATE: f32 = 800.; // Hz
 
 // For abstracting over fixed-wing 3-position vs quad 2-position arm status.
 #[cfg(feature = "quad")]
