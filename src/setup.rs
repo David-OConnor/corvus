@@ -403,20 +403,18 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // we trigger the attitude-rates PID loop.
     dma.enable_interrupt(IMU_RX_CH, DmaInterrupt::TransferComplete);
 
-    // todo: Experimenting with non-circular CRSF DMA.
-    dma.enable_interrupt(CRSF_RX_CH, DmaInterrupt::TransferComplete);
-
     // We use Dshot transfer-complete interrupts to disable the timer.
     dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
     #[cfg(not(feature = "h7"))]
     dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
 
+    // todo: Put these back. Troubleshooting issues post-deployment
     // Enable TC interrupts for all I2C sections; we use this to sequence readings,
     // and store reading data.
-    dma.enable_interrupt(BARO_TX_CH, DmaInterrupt::TransferComplete);
-    dma.enable_interrupt(BARO_RX_CH, DmaInterrupt::TransferComplete);
-    dma.enable_interrupt(EXT_SENSORS_TX_CH, DmaInterrupt::TransferComplete);
-    dma.enable_interrupt(EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);
+    // dma.enable_interrupt(BARO_TX_CH, DmaInterrupt::TransferComplete);
+    // dma.enable_interrupt(BARO_RX_CH, DmaInterrupt::TransferComplete);
+    // dma.enable_interrupt(EXT_SENSORS_TX_CH, DmaInterrupt::TransferComplete);
+    // dma.enable_interrupt(EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);
 }
 
 #[cfg(feature = "h7")]

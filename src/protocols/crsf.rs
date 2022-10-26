@@ -72,8 +72,7 @@ const PAYLOAD_SIZE_RC_CHANNELS: usize = 22;
 const MAX_PAYLOAD_SIZE: usize = PAYLOAD_SIZE_RC_CHANNELS;
 const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 4;
 
-// pub static mut RX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
-pub static mut RX_BUFFER: [u8; 5] = [0; 5]; // todo TEMP
+pub static mut RX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
 
 static mut TX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
 
@@ -149,23 +148,19 @@ pub enum PacketData {
 /// firmware setup.
 pub fn setup(uart: &mut Usart<UART_ELRS>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
     // Idle interrupt, in conjunction with circular DMA, to indicate we're received a message.
-    // uart.enable_interrupt(UsartInterrupt::Idle);
+    uart.enable_interrupt(UsartInterrupt::Idle);
 
-    // todo: Trying a non-circular approach.
-    // uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
-    // uart.enable_interrupt(UsartInterrupt::ReadNotEmpty);
-
-    // unsafe {
-    //     uart.read_dma(
-    //         &mut RX_BUFFER,
-    //         channel,
-    //         ChannelCfg {
-    //             // circular: Circular::Enabled,
-    //             ..Default::default()
-    //         },
-    //         dma,
-    //     );
-    // }
+    unsafe {
+        uart.read_dma(
+            &mut RX_BUFFER,
+            channel,
+            ChannelCfg {
+                circular: Circular::Enabled,
+                ..Default::default()
+            },
+            dma,
+        );
+    }
 }
 
 struct Packet {
@@ -458,35 +453,35 @@ pub fn handle_packet(
     // be anywhere, at time of line going idle. Then pass in a buffer, rearranged start-to-end.
     // todo: Is there a cheaper way to do this than scanning for a matching pattern?
 
+    // unsafe {
+        // println!("RX BUF: {:?}", RX_BUFFER);
+    // }
 
-    unsafe {
-        println!("RX BUF: {:?}", RX_BUFFER);
+    // todo: 24 seems to be the most common place.
+    let mut start_i = 0;
+    let mut start_i_found = false;
+    for i in 0..MAX_PACKET_SIZE {
+        unsafe {
+            if RX_BUFFER[i] == DestAddr::FlightController as u8
+                && (RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_RC_CHANNELS as u8 + 2
+                    || RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_LINK_STATS as u8 + 2)
+                && (RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::RcChannelsPacked as u8
+                    || RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::LinkStatistics as u8)
+            {
+                start_i = i;
+                start_i_found = true;
+            }
+        }
+    }
+    if !start_i_found {
+        // todo: BIT flag.
+        // todo: This is coming up lots and lots and lots! You need to sort this out!!!!
+        println!("Can't find starting position in Rx payload"); // todo: Put this print back.
+        println!("RX buf: {:?}", unsafe { RX_BUFFER });
+        return None;
     }
 
-    // todo: With non-circular, we don't really need a start i, nor do we need buf_shifted.
-    let start_i = 0;
-
-    // let mut start_i = 0;
-    // let mut start_i_found = false;
-    // for i in 0..MAX_PACKET_SIZE {
-    //     unsafe {
-    //         if RX_BUFFER[i] == DestAddr::FlightController as u8
-    //             && (RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_RC_CHANNELS as u8 + 2
-    //                 || RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_LINK_STATS as u8 + 2)
-    //             && (RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::RcChannelsPacked as u8
-    //                 || RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::LinkStatistics as u8)
-    //         {
-    //             start_i = i;
-    //             start_i_found = true;
-    //         }
-    //     }
-    // }
-    // if !start_i_found {
-    //     // todo: BIT flag.
-    //     println!("Can't find starting position in Rx payload");
-    //     println!("RX buf: {:?}", unsafe { RX_BUFFER });
-    //     return None;
-    // }
+    // println!("START I: {:?}", start_i);
 
     // todo: buf shifted not required.
     let mut buf_shifted = [0; MAX_PACKET_SIZE];
@@ -498,7 +493,7 @@ pub fn handle_packet(
         Ok(p) => p,
         Err(_) => {
             println!("Error decoding packet address or frame type; skipping");
-            println!("RX buf: {:?}", unsafe { RX_BUFFER });
+            // println!("RX buf: {:?}", unsafe { RX_BUFFER });
             return None;
         }
     };
