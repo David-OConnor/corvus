@@ -329,7 +329,7 @@ pub fn setup_pins() {
 
     imu_interrupt.output_type(OutputType::OpenDrain);
     imu_interrupt.pull(Pull::Up);
-    imu_interrupt.enable_interrupt(Edge::Falling); // todo: Put back; TS!
+    imu_interrupt.enable_interrupt(Edge::Falling);
 
     // I2C1 for external sensors, via pads
     let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
@@ -470,8 +470,8 @@ pub fn setup_busses(
     // We use I2C1 for the GPS, magnetometer, and TOF sensor. Some details:
     // The U-BLOX GPS' max speed is 400kHz.
     // The LIS3MDL altimeter's max speed is 400kHz.
-    // todo: DO you want 100kHz due to the connection being external? (Lower freqs
-    // todo may have fewer issues)
+    // 100kHz, vice 400k, due to the connection being external. (Lower freqs
+    // may have fewer line-interference issues)
     let i2c_external_sensors_cfg = I2cConfig {
         // Lower speeds may work better on external runs, hence not 400khz here.
         speed: I2cSpeed::Standard100K,

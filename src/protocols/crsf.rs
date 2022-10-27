@@ -149,7 +149,21 @@ pub enum PacketData {
 pub fn setup(uart: &mut Usart<UART_ELRS>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
     // We alternate between char matching the flight controller destination address, and
     // line idle, to indicate we're received, or stopped receiving a message respectively.
-    uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
+    // uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
+    // uart.enable_interrupt(UsartInterrupt::ReadNotEmpty);
+    uart.enable_interrupt(UsartInterrupt::Idle);
+
+    unsafe {
+        uart.read_dma(
+            &mut RX_BUFFER,
+            channel,
+            ChannelCfg {
+                circular: Circular::Enabled,
+                ..Default::default()
+            },
+            dma,
+        );
+    }
 }
 
 struct Packet {
@@ -277,9 +291,9 @@ impl Packet {
         }
 
         #[cfg(feature = "quad")]
-        let motors_armed = ArmStatus::Armed;
+            let motors_armed = ArmStatus::Armed;
         #[cfg(feature = "fixed-wing")]
-        let motors_armed = ArmStatus::MotorsControlsArmed;
+            let motors_armed = ArmStatus::MotorsControlsArmed;
 
         // As you change the number of channels used, increase the `raw_channels` size,
         // and comment or uncomment the unpacking lines below, up to 16.
@@ -369,7 +383,7 @@ impl Packet {
         // todo: Ideally, this would be on the same channel as motor arm in a 3-pos
         // todo switch, but ELRS hard codes is
         #[cfg(feature = "fixed-wing")]
-        let controls_armed = match raw_channels[13] {
+            let controls_armed = match raw_channels[13] {
             0..=1_000 => false,
             _ => true,
         };
@@ -446,16 +460,15 @@ pub fn handle_packet(
     // println!("RX BUF: {:?}", RX_BUFFER);
     // }
 
-    // todo: 24 seems to be the most common place.
     let mut start_i = 0;
     let mut start_i_found = false;
     for i in 0..MAX_PACKET_SIZE {
         unsafe {
             if RX_BUFFER[i] == DestAddr::FlightController as u8
                 && (RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_RC_CHANNELS as u8 + 2
-                    || RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_LINK_STATS as u8 + 2)
+                || RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_LINK_STATS as u8 + 2)
                 && (RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::RcChannelsPacked as u8
-                    || RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::LinkStatistics as u8)
+                || RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::LinkStatistics as u8)
             {
                 start_i = i;
                 start_i_found = true;
