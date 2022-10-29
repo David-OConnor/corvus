@@ -157,49 +157,6 @@ pub struct RatesCommanded {
     pub yaw: Option<f32>,
 }
 
-/// Aircraft flight parameters, at a given instant. Pitch and roll rates are in the aircraft's
-/// frame of reference.
-/// todo: This should be elsewhere.
-#[derive(Default, Clone)]
-pub struct Params {
-    /// Latitude in radians. From GPS alone, or blended with accelerometer data.
-    pub lat: f32,
-    /// Longitude in radians. From GPS alone, or blended with accelerometer data.
-    pub lon: f32,
-    /// MSL altitude in meters QFE (takeoff location is 0), from a barometer.
-    pub baro_alt_msl: f32,
-    /// AGL altitude in meters, from the Time of flight sensor.
-    pub tof_alt: Option<f32>,
-
-    pub s_pitch: f32,
-    pub s_roll: f32,
-    /// Ie heading
-    pub s_yaw_heading: f32,
-
-    /// Quaternion of the attitude.
-    pub attitude_quat: Quaternion,
-
-    // todo: AHRS quaternion field, or leave that as part of the `AHRS` struct?
-
-    // Velocity
-    pub v_x: f32,
-    pub v_y: f32,
-    pub v_z: f32,
-
-    pub v_pitch: f32,
-    pub v_roll: f32,
-    pub v_yaw: f32,
-
-    // Acceleration
-    pub a_x: f32,
-    pub a_y: f32,
-    pub a_z: f32,
-
-    pub a_pitch: f32,
-    pub a_roll: f32,
-    pub a_yaw: f32,
-}
-
 /// Abstraction over timers, that allows us to feature-gate struct fields based on MCU; this is
 /// because we can't use feature gates on function arguments, so we're gating upstream.
 /// Note that for fixed-wing on H7, we can configure the 4 channels as any combination of motor and servo.

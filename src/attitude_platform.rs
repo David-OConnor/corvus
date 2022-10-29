@@ -23,9 +23,10 @@
 
 // use cmsis_dsp_sys::{arm_cos_f32 as cos, arm_sin_f32 as sin};
 
-use crate::{ahrs_fusion::Ahrs, flight_ctrls::common::Params};
+use crate::ahrs_fusion::Ahrs;
 
 use lin_alg2::f32::Vec3;
+use crate::params::Params;
 
 // use defmt::println;
 
@@ -82,9 +83,8 @@ pub fn update_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     // todo: Consider putting this offset bit back later
     // Update gyroscope offset correction algorithm
     // let gyro_data_with_offset = ahrs.offset.update(gyro_data);
-    let gyro_data_with_offset = gyro_data;
+    // let gyro_data_with_offset = gyro_data;
 
-    // todo: Can we use the hard-set 8kHz IMU-spec DT, or do we need to measure?
     ahrs.update_no_magnetometer(gyro_data, accel_data, crate::DT_IMU);
 
     let att_euler = ahrs.quaternion.to_euler();

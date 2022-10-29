@@ -4,7 +4,7 @@
 use crate::{control_interface::ChannelData, util::map_linear};
 
 use super::{
-    common::{CtrlMix, MotorRpm, Params, RatesCommanded},
+    common::{CtrlMix, MotorRpm, RatesCommanded},
     filters::FlightCtrlFilters,
 };
 
@@ -13,6 +13,7 @@ use lin_alg2::f32::{Quaternion, Vec3};
 use num_traits::float::Float; // For sqrt.
 
 use cfg_if::cfg_if;
+use crate::params::Params;
 
 // todo: YOu probably need filters.
 

@@ -8,7 +8,7 @@ use crate::{
     control_interface::{AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData},
     flight_ctrls::{
         self,
-        common::{AltType, CtrlInputs, Params},
+        common::{AltType, CtrlInputs},
     },
     // pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::{Location, LocationType},
@@ -35,6 +35,7 @@ cfg_if! {
 // todo: FOr various autopilot modes, check if variou sensors are connected like GPS, TOF, and MAG!
 
 use cmsis_dsp_sys::{arm_cos_f32, arm_sin_f32};
+use crate::params::Params;
 
 const R: f32 = 6_371_000.; // Earth's radius in meters. (ellipsoid?)
 

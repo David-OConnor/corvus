@@ -34,15 +34,15 @@ use drivers::{
 use filter_imu::ImuFilters;
 use flight_ctrls::{
     autopilot::AutopilotStatus,
-    common::{MotorRpm, MotorTimers, Params, RatesCommanded},
+    common::{MotorRpm, MotorTimers, RatesCommanded},
+    ControlMapping,
     ctrl_logic::{self, PowerMaps},
-    filters::FlightCtrlFilters,
     // pid::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
     //     PID_CONTROL_ADJ_TIMEOUT,
     // },
+    filters::FlightCtrlFilters,
     pid::{MotorCoeffs, MotorPidGroup},
-    ControlMapping,
 };
 use lin_alg2::f32::Quaternion;
 use panic_probe as _;
@@ -67,6 +67,7 @@ use stm32_hal2::{
 };
 use usb_device::{bus::UsbBusAllocator, prelude::*};
 use usbd_serial::{self, SerialPort};
+use params::Params;
 
 mod ahrs_fusion;
 mod atmos_model;
@@ -78,6 +79,7 @@ mod filter_imu;
 mod flight_ctrls;
 mod imu_calibration;
 mod imu_shared;
+mod params;
 mod ppks;
 mod protocols;
 mod safety;
@@ -257,8 +259,8 @@ use stm32_hal2::instant::Instant; // todo temp
         disarm_signals_received: u8,
         /// We use this counter to subdivide the main loop into longer intervals,
         /// for various tasks like logging, and outer loops.
-        update_loop_i: usize,
-        update_loop_i2: usize, // todo d
+        update_isr_loop_i: usize,
+        imu_isr_loop_i: usize, // todo d
         fixed_wing_rate_loop_i: usize,
         ctrl_coeff_adj_timer: Timer<TIM1>,
         uart_osd: Usart<USART2>, // for our DJI OSD, via MSP protocol
@@ -644,8 +646,8 @@ use stm32_hal2::instant::Instant; // todo temp
                 // spi_flash, // todo: Fix flash in HAL, then do this.
                 arm_signals_received: 0,
                 disarm_signals_received: 0,
-                update_loop_i: 0,
-                update_loop_i2: 0, // todo
+                update_isr_loop_i: 0,
+                imu_isr_loop_i: 0,
                 fixed_wing_rate_loop_i: 0,
                 ctrl_coeff_adj_timer,
                 uart_osd,
@@ -687,7 +689,7 @@ use stm32_hal2::instant::Instant; // todo temp
     ahrs, control_channel_data, motor_timers, rotor_rpms,
     lost_link_timer, link_lost, altimeter, i2c1, i2c2, state_volatile, batt_curr_adc, dma, dma2,
     ],
-    local = [arm_signals_received, disarm_signals_received, update_loop_i, uart_osd,
+    local = [arm_signals_received, disarm_signals_received, update_isr_loop_i, uart_osd,
     time_with_high_throttle, motor_dir_started],
 
     priority = 2
@@ -770,7 +772,7 @@ use stm32_hal2::instant::Instant; // todo temp
                     }
 
                     #[cfg(feature = "print-status")]
-                    if *cx.local.update_loop_i % PRINT_STATUS_RATIO == 0 {
+                    if *cx.local.update_isr_loop_i % PRINT_STATUS_RATIO == 0 {
                         // todo: Flesh this out, and perhaps make it more like Preflight.
 
                         println!(
@@ -861,11 +863,12 @@ use stm32_hal2::instant::Instant; // todo temp
                         // );
 
                     }
-                    // if *cx.local.update_loop_i % LOGGING_UPDATE_RATIO == 0 {
+                    // if *cx.local.update_isr_loop_i % LOGGING_UPDATE_RATIO == 0 {
                     // todo: Eg log params to flash etc.
                     // }
 
-                    *cx.local.update_loop_i += 1;
+                    *cx.local.update_isr_loop_i += 1;
+                    *cx.local.update_isr_loop_i += 1;
 
                     return; // todo temp!!!
 
@@ -1033,7 +1036,7 @@ use stm32_hal2::instant::Instant; // todo temp
 
                     // todo: This should probably be delegatd to a fn; get it
                     // todo out here
-                    if *cx.local.update_loop_i % THRUST_LOG_RATIO == 0 {
+                    if *cx.local.update_isr_loop_i % THRUST_LOG_RATIO == 0 {
                         cfg_if! {
                             if #[cfg(feature = "quad")] {
                                 state_volatile.power_maps.rpm_to_accel_pitch.log_val(
@@ -1072,6 +1075,7 @@ use stm32_hal2::instant::Instant; // todo temp
     #[task(binds = EXTI4, shared = [cs_imu, dma, spi1], priority = 4)]
     fn imu_data_isr(cx: imu_data_isr::Context) {
         gpio::clear_exti_interrupt(4);
+        println!("I");
 
         (cx.shared.dma, cx.shared.cs_imu, cx.shared.spi1).lock(|dma, cs_imu, spi| {
             imu_shared::read_imu(imu::READINGS_START_ADDR, spi, cs_imu, dma);
@@ -1081,7 +1085,7 @@ use stm32_hal2::instant::Instant; // todo temp
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, params_prev, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, cs_imu, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timers, ahrs, state_volatile], local = [fixed_wing_rate_loop_i, update_loop_i2], priority = 5)]
+    motor_timers, ahrs, state_volatile], local = [fixed_wing_rate_loop_i, imu_isr_loop_i], priority = 5)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     /// todo: Currently getting 6.67kHz instead of 8kHz.
@@ -1095,6 +1099,8 @@ use stm32_hal2::instant::Instant; // todo temp
             unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit())
         }
+
+        println!("T");
 
         cx.shared.cs_imu.lock(|cs| {
             cs.set_high();
@@ -1138,25 +1144,21 @@ use stm32_hal2::instant::Instant; // todo temp
                         return
                     }
 
-                    let p = 0.03;
-                    if state_volatile.arm_status == ArmStatus::Armed {
-                        dshot::set_power(p, p, p, p, motor_timers, dma);
-                    } else {
-                        dshot::stop_all(motor_timers, dma);
-                    }
+                    {
+                        if *cx.local.imu_isr_loop_i % 700 == 0 {
+                            // let period = cx.local.measurement_timer.time_elapsed().as_secs();
+                            // println!("IMU time: {:?}. Freq: {:?}", period, 1. / period);
 
-                    // {
-                    //     if *cx.local.update_loop_i2 % 700 == 0 {
-                    //         let period = cx.local.measurement_timer.time_elapsed().as_secs();
-                    //         println!("IMU time: {:?}. Freq: {:?}", period, 1. / period);
-                    //     }
-                    //
-                    //     *cx.local.update_loop_i2 += 1;
-                    //
-                    //     cx.local.measurement_timer.disable();
-                    //     cx.local.measurement_timer.reset_count();
-                    //     cx.local.measurement_timer.enable();
-                    // }
+
+                            println!("IMU BUF: {:?}", unsafe { &imu_shared::IMU_READINGS });
+                        }
+
+                        *cx.local.imu_isr_loop_i += 1;
+
+                        // cx.local.measurement_timer.disable();
+                        // cx.local.measurement_timer.reset_count();
+                        // cx.local.measurement_timer.enable();
+                    }
 
                     // todo: Temp TS code to verify rotordirection.
                     // if state_volatile.arm_status == ArmStatus::Armed {
@@ -1167,37 +1169,31 @@ use stm32_hal2::instant::Instant; // todo temp
                     // }
                     // return;
 
-                    // Update `params_prev` with past-update data prior to updating params
-                    *params_prev = params.clone();
-
                     let mut imu_data =
                         imu_shared::ImuReadings::from_buffer(unsafe { &imu_shared::IMU_READINGS });
-
-                    // todo: This is a good place to apply IMU calibration.
 
                     cx.shared.imu_filters.lock(|imu_filters| {
                         imu_filters.apply(&mut imu_data);
                     });
 
-                    // Apply filtered gyro and accel readings directly to params.
-                    params.v_pitch = imu_data.v_pitch;
-                    params.v_roll = imu_data.v_roll;
-                    params.v_yaw = imu_data.v_yaw;
-
-                    params.a_x = imu_data.a_x;
-                    params.a_y = imu_data.a_y;
-                    params.a_z = imu_data.a_z;
-
-                    // Calculate angular acceleration
-                    params.a_pitch = (imu_data.v_pitch - params_prev.v_pitch) / DT_IMU;
-                    params.a_roll = (imu_data.v_roll - params_prev.v_roll) / DT_IMU;
-                    params.a_yaw = (imu_data.v_yaw - params_prev.v_yaw) / DT_IMU;
+                    // Update `params_prev` with past-update data prior to updating params
+                    *params_prev = params.clone();
+                    params.update_from_imu_readings(imu_data);
 
                     // Note: Consider if you want to update the attitude using the primary update loop,
                     // vice each IMU update.
                     attitude_platform::update_attitude(ahrs, params);
 
+
                     let throttle_commanded = state_volatile.autopilot_commands.throttle;
+
+                    // todo: Temp debug code.
+                    let p = 0.03;
+                    if state_volatile.arm_status == ArmStatus::Armed {
+                        dshot::set_power(p, p, p, p, motor_timers, dma);
+                    } else {
+                        dshot::stop_all(motor_timers, dma);
+                    }
 
                     // todo: Impl once you've sorted out your control logic.
                     // todo: Delegate this to another module, eg `attitude_ctrls`.
@@ -1234,10 +1230,10 @@ use stm32_hal2::instant::Instant; // todo temp
                     // todo: Temp testing motors and bidir dshot
 
 
-                    // *cx.local.update_loop_i2 += 1;
+                    // *cx.local.imu_isr_loop_i += 1;
                     // let p = control_channel_data.throttle;
                     let p = 0.03;
-                    // if *cx.local.update_loop_i2 > 30_000 {
+                    // if *cx.local.imu_isr_loop_i > 30_000 {
                     //     // state_volatile.arm_status = ArmStatus::Armed; // todo temp!
                     // }
 

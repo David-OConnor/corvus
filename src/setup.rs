@@ -27,10 +27,11 @@ use crate::{
         baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
         tof_vl53l1 as tof,
     },
-    flight_ctrls::common::{Motor, Params},
+    flight_ctrls::common::Motor,
     ppks::{Location, LocationType},
     state::{SensorStatus, SystemStatus},
 };
+use crate::params::Params;
 
 // Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.
 
