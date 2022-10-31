@@ -189,6 +189,8 @@ pub fn setup_motor_dir(
     // send_payload_b(timer_b, dma);
     // delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
 
+    println!("Setting up motor direction");
+
     // Spin dir commands need to be sent 6 times. (or 10?) We're using the "forced" spin dir commands,
     // ie not with respect to ESC configuration; although that would be acceptable as well.
     for _ in 0..REPEAT_COMMAND_COUNT {
@@ -384,16 +386,16 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     dma,
                     true,
                 );
-                // #[cfg(feature = "quad")]
-                // timers.r34.write_dma_burst(
-                //     &PAYLOAD_R3_4,
-                //     Motor::M3.base_addr_offset(),
-                //     2,
-                //     Motor::M3.dma_channel(),
-                //     Default::default(),
-                //     dma,
-                //     false,
-                // );
+                #[cfg(feature = "quad")]
+                timers.r34.write_dma_burst(
+                    &PAYLOAD_R3_4,
+                    Motor::M3.base_addr_offset(),
+                    2,
+                    Motor::M3.dma_channel(),
+                    Default::default(),
+                    dma,
+                    false,
+                );
             }
 
         }

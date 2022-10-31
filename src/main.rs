@@ -393,7 +393,8 @@ use stm32_hal2::instant::Instant; // todo temp
         // We use this measurement timer to count things, like time between IMU updates.
         // The effective period (1/freq) must be greater than the time we wish to measure.
         let mut measurement_timer =
-            Timer::new_tim5(dp.TIM5, 1_000., Default::default(), &clock_cfg);
+            Timer::new_tim5(dp.TIM5, 1./100., Default::default(), &clock_cfg);
+
 
         // We use this PID adjustment timer to indicate the interval for updating PID from a controller
         // while the switch or button is held. (Equivalently, the min allowed time between actuations)
@@ -601,7 +602,7 @@ use stm32_hal2::instant::Instant; // todo temp
         // Allow ESC to warm up and the radio to connect before starting the main loop.
         delay.delay_ms(WARMUP_TIME);
 
-        // foo::spawn_after(Duration::from_millis(2)).unwrap(); // todo temp
+        // measurement_timer.enable(); // todo temp!
 
         println!("Entering main loop...");
         (
@@ -699,6 +700,8 @@ use stm32_hal2::instant::Instant; // todo temp
     fn update_isr(mut cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
 
+        // foo::spawn_after(Duration::from_micros(2)).unwrap(); // todo temp
+
         *cx.local.update_isr_loop_i += 1;
 
         (
@@ -745,7 +748,7 @@ use stm32_hal2::instant::Instant; // todo temp
                     // `initializing_motors` flag.
                     #[cfg(feature = "quad")]
                     if state_volatile.initializing_motors {
-                        println!("INIT MOT");
+                        println!("Initializing motors.");
                         // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
 
                         let motors_reversed = (
@@ -1380,7 +1383,7 @@ use stm32_hal2::instant::Instant; // todo temp
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
     /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
-        // println!("DSHOT ISR12");
+        println!("12");
         // todo: Why is this gate required when we have feature-gated the fn?
         // todo: Maybe RTIC is messing up the fn-level feature gate?
         #[cfg(feature = "g4")]
@@ -1392,6 +1395,8 @@ use stm32_hal2::instant::Instant; // todo temp
             timers.r12.disable();
         });
 
+        let output_mode = 0b01;
+
         // todo: Before adding dma to shared state here, make sure it wasn't
         // todo deliberately ommitted...
         if dshot::BIDIR_EN {
@@ -1401,8 +1406,8 @@ use stm32_hal2::instant::Instant; // todo temp
             // todo: Temp TS; probalby this would interfere with input cap
             // unsafe {
             //     (*pac::GPIOA::ptr()).moder.modify(|_, w| {
-            //         w.moder0().bits(0b01);
-            //         w.moder1().bits(0b01)
+            //         w.moder0().bits(output_mode);
+            //         w.moder1().bits(output_mode)
             //     });
             // }
             //     gpio::set_high(Port::A, 0);
@@ -1411,8 +1416,8 @@ use stm32_hal2::instant::Instant; // todo temp
             // Set to Output pin, low.
             unsafe {
                 (*pac::GPIOA::ptr()).moder.modify(|_, w| {
-                    w.moder0().bits(0b01);
-                    w.moder1().bits(0b01)
+                    w.moder0().bits(output_mode);
+                    w.moder1().bits(output_mode)
                 });
             }
             // if dshot::BIDIR_EN {
@@ -1432,7 +1437,7 @@ use stm32_hal2::instant::Instant; // todo temp
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
     /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
-        // println!("DSHOT ISR34");
+        println!("34");
         unsafe {
                 #[cfg(feature = "h7")]
             (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
@@ -1449,6 +1454,8 @@ use stm32_hal2::instant::Instant; // todo temp
                 timers.servos.disable();
         });
 
+        let output_mode = 0b01;
+
         if dshot::BIDIR_EN {
             cfg_if! {
                 if #[cfg(feature = "h7")] {
@@ -1464,10 +1471,10 @@ use stm32_hal2::instant::Instant; // todo temp
                 if #[cfg(feature = "h7")] {
                     unsafe {
                          (*pac::GPIOC::ptr()).moder.modify(|_, w| {
-                            w.moder6().bits(0b01);
-                            w.moder7().bits(0b01);
-                            w.moder8().bits(0b01);
-                            w.moder9().bits(0b01)
+                            w.moder6().bits(output_mode);
+                            w.moder7().bits(output_mode);
+                            w.moder8().bits(output_mode);
+                            w.moder9().bits(output_mode)
                         });
                     }
 
@@ -1487,8 +1494,8 @@ use stm32_hal2::instant::Instant; // todo temp
                 } else {
                     unsafe {
                         (*pac::GPIOB::ptr()).moder.modify(|_, w| {
-                            w.moder0().bits(0b01);
-                            w.moder1().bits(0b01)
+                            w.moder0().bits(output_mode);
+                            w.moder1().bits(output_mode)
                         });
                     }
 

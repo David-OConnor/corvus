@@ -217,7 +217,6 @@ pub fn setup_timers(timers: &mut MotorTimers) {
 
     dshot::set_to_output(timers);
 
-    // todo: Put back
     dshot::set_bidirectional(dshot::BIDIR_EN, timers);
 }
 

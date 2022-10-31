@@ -330,13 +330,13 @@ pub fn setup_pins() {
     // Used to trigger a PID update based on new IMU data.
     // We assume here the interrupt config uses default settings active low, push pull, pulsed.
     #[cfg(feature = "h7")]
-        let mut imu_interrupt = Pin::new(Port::B, 12, PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::B, 12, PinMode::Input);
     #[cfg(feature = "g4")]
-        let mut imu_interrupt = Pin::new(Port::C, 4, PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::C, 4, PinMode::Input);
 
-    imu_interrupt.output_type(OutputType::OpenDrain);
-    imu_interrupt.pull(Pull::Up);
-    imu_interrupt.enable_interrupt(Edge::Falling);
+    imu_exti_pin.output_type(OutputType::OpenDrain);
+    imu_exti_pin.pull(Pull::Up);
+    imu_exti_pin.enable_interrupt(Edge::Falling);
 
     // I2C1 for external sensors, via pads
     let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
@@ -410,10 +410,11 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // we trigger the attitude-rates PID loop.
     dma.enable_interrupt(IMU_RX_CH, DmaInterrupt::TransferComplete);
 
+    // todo: Put these back.
     // We use Dshot transfer-complete interrupts to disable the timer.
-    dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
-    #[cfg(not(feature = "h7"))]
-        dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
+    // dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
+    // #[cfg(not(feature = "h7"))]
+    // dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
 
     // todo: Put these back. Troubleshooting issues post-deployment
     // Enable TC interrupts for all I2C sections; we use this to sequence readings,
