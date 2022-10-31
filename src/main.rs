@@ -1191,7 +1191,7 @@ use stm32_hal2::instant::Instant; // todo temp
                     attitude_platform::update_attitude(ahrs, params);
 
                     // todo: Temp debug code.
-                    let p = 0.03;
+                    let p = control_channel_data.throttle;
                     if state_volatile.arm_status == ArmStatus::Armed {
                         dshot::set_power(p, p, p, p, motor_timers, dma);
                     } else {
@@ -1379,11 +1379,11 @@ use stm32_hal2::instant::Instant; // todo temp
     // uses a single timer on H7: `dshot_isr_r34`
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
     #[cfg(feature = "g4")]
-    #[task(binds = DMA1_CH3, shared = [motor_timers], priority = 5)]
+    #[task(binds = DMA1_CH3, shared = [], priority = 5)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
     /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
-        println!("12");
+        // println!("12");
         // todo: Why is this gate required when we have feature-gated the fn?
         // todo: Maybe RTIC is messing up the fn-level feature gate?
         #[cfg(feature = "g4")]
@@ -1391,9 +1391,14 @@ use stm32_hal2::instant::Instant; // todo temp
             (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit())
         }
 
-        cx.shared.motor_timers.lock(|timers| {
-            timers.r12.disable();
-        });
+        // cx.shared.motor_timers.lock(|timers| {
+        //     timers.r12.disable();
+        // });
+        // todo: Temp. Put motor timers etc back A/R. If you still have trouble, may need to
+        // todo split by 1/2, 3/4 instead of sharing motor timers struct.
+        unsafe {
+            (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
+        }
 
         let output_mode = 0b01;
 
@@ -1433,11 +1438,11 @@ use stm32_hal2::instant::Instant; // todo temp
 
     // #[task(binds = DMA1_STR4,
     #[task(binds = DMA1_CH4,
-    shared = [motor_timers], priority = 5)]
+    shared = [], priority = 5)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
     /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
-        println!("34");
+        // println!("34");
         unsafe {
                 #[cfg(feature = "h7")]
             (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
@@ -1445,14 +1450,19 @@ use stm32_hal2::instant::Instant; // todo temp
             (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit());
         }
 
-        cx.shared.motor_timers.lock(|timers| {
-            #[cfg(feature = "h7")]
-                timers.r1234.disable();
-            #[cfg(all(feature = "g4", feature = "quad"))]
-                timers.r34.disable();
-            #[cfg(all(feature = "g4", feature = "fixed-wing"))]
-                timers.servos.disable();
-        });
+        // cx.shared.motor_timers.lock(|timers| {
+        //     #[cfg(feature = "h7")]
+        //         timers.r1234.disable();
+        //     #[cfg(all(feature = "g4", feature = "quad"))]
+        //         timers.r34.disable();
+        //     #[cfg(all(feature = "g4", feature = "fixed-wing"))]
+        //         timers.servos.disable();
+        // });
+        // todo: Temp. Put motor timers etc back A/R. If you still have trouble, may need to
+        // todo split by 1/2, 3/4 instead of sharing motor timers struct.
+        unsafe {
+            (*pac::TIM3::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
+        }
 
         let output_mode = 0b01;
 
