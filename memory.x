@@ -1,8 +1,5 @@
 /* STM32G473 */
 
-/* todo: 112 or 96k of flash on 473? Hard to tell from user man.  */
-/* todo Probably 128k. Check Cube */
-
 MEMORY
 {
   FLASH  : ORIGIN = 0x08000000, LENGTH = 512K
@@ -26,6 +23,6 @@ MEMORY
 MEMORY
 {
   FLASH  : ORIGIN = 0x08000000, LENGTH = 1M
-  RAM    : ORIGIN = 0x24000000, LENGTH = 384K
+  RAM    : ORIGIN = 0x24000000, LENGTH = 320K
 }
 */

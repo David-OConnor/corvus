@@ -44,15 +44,11 @@ pub const MOTOR_CH_A: DmaChannel = DmaChannel::C3;
 pub const MOTOR_CH_B: DmaChannel = DmaChannel::C4;
 
 pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
-pub const CRSF_TX_CH: DmaChannel = DmaChannel::C6;
+// pub const CRSF_TX_CH: DmaChannel = DmaChannel::C6; // Note: Unused
 
 pub const BATT_CURR_DMA_CH: DmaChannel = DmaChannel::C7;
 
 // We still have CH8 (or CH0) avail on DMA1)
-
-// todo: You can possibly share channels here for Tx and Rx for each fo baro, ext,
-// todo since the xfers are not active at once. This would free up channels,
-// but require more logic to determine wheather read or write fired for ext sensors.
 
 // DMA 2
 pub const BARO_TX_CH: DmaChannel = DmaChannel::C1;
@@ -185,7 +181,7 @@ impl Motor {
     /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
     pub fn dma_channel(&self) -> DmaChannel {
         #[cfg(feature = "h7")]
-        return MOTOR_CH_B;
+            return MOTOR_CH_B;
 
         #[cfg(feature = "g4")]
         match self {
@@ -199,7 +195,7 @@ impl Motor {
     /// RM register table, and dividing by 4.
     pub fn base_addr_offset(&self) -> u8 {
         #[cfg(feature = "h7")]
-        return 13;
+            return 13;
 
         #[cfg(feature = "g4")]
         match self.tim_channel() {
@@ -254,10 +250,13 @@ pub fn setup_pins() {
         }
     }
 
-    rotor1.output_speed(OutputSpeed::High);
-    rotor2.output_speed(OutputSpeed::High);
-    rotor3.output_speed(OutputSpeed::High);
-    rotor4.output_speed(OutputSpeed::High);
+    // todo: What should this be?: Low is good up to the Mhz range, which is good enough?
+    let dshot_gpiospeed = OutputSpeed::Low; // Note: Low is the default value.
+
+    rotor1.output_speed(dshot_gpiospeed);
+    rotor2.output_speed(dshot_gpiospeed);
+    rotor3.output_speed(dshot_gpiospeed);
+    rotor4.output_speed(dshot_gpiospeed);
 
     // #[cfg(feature = "g4")]
     // Not used
@@ -269,10 +268,13 @@ pub fn setup_pins() {
     let mut miso1 = Pin::new(Port::A, 6, PinMode::Alt(5));
     let mut mosi1 = Pin::new(Port::A, 7, PinMode::Alt(5));
 
-    // todo: Output speed on SPI pins?
-    sck1.output_speed(OutputSpeed::High);
-    miso1.output_speed(OutputSpeed::High);
-    mosi1.output_speed(OutputSpeed::High);
+    // Depending on capacitance, med or high should be appropriate for SPI speeds.
+    // High means sharper edges, which also may mean more interference.
+    let spi_gpiospeed = OutputSpeed::Medium;
+
+    sck1.output_speed(spi_gpiospeed);
+    miso1.output_speed(spi_gpiospeed);
+    mosi1.output_speed(spi_gpiospeed);
 
     // SPI2 for the LoRa chip on G4; OctoSPI1 (in Quad mode) on H7.
     cfg_if! {
@@ -290,9 +292,13 @@ pub fn setup_pins() {
             let _batt_v_adc = Pin::new(Port::A, 4, PinMode::Analog); // ADC2, channel 17
             let _current_sense_adc = Pin::new(Port::B, 2, PinMode::Analog); // ADC2, channel 12
 
-            let sck2 = Pin::new(Port::B, 13, PinMode::Alt(5));
-            let miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
-            let mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
+            let mut sck2 = Pin::new(Port::B, 13, PinMode::Alt(5));
+            let mut miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
+            let mut mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
+
+            sck2.output_speed(spi_gpiospeed);
+            miso2.output_speed(spi_gpiospeed);
+            mosi2.output_speed(spi_gpiospeed);
         }
     }
 
@@ -324,9 +330,9 @@ pub fn setup_pins() {
     // Used to trigger a PID update based on new IMU data.
     // We assume here the interrupt config uses default settings active low, push pull, pulsed.
     #[cfg(feature = "h7")]
-    let mut imu_interrupt = Pin::new(Port::B, 12, PinMode::Input);
+        let mut imu_interrupt = Pin::new(Port::B, 12, PinMode::Input);
     #[cfg(feature = "g4")]
-    let mut imu_interrupt = Pin::new(Port::C, 4, PinMode::Input);
+        let mut imu_interrupt = Pin::new(Port::C, 4, PinMode::Input);
 
     imu_interrupt.output_type(OutputType::OpenDrain);
     imu_interrupt.pull(Pull::Up);
@@ -366,7 +372,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 
     // DSHOT, motors 3 and 4 (not used on H7)
     #[cfg(feature = "g4")]
-    dma::mux(
+        dma::mux(
         DmaPeriph::Dma1,
         Motor::M3.dma_channel(),
         Motor::M3.dma_input(),
@@ -374,9 +380,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 
     // CRSF (onboard ELRS)
     #[cfg(feature = "h7")]
-    let elrs_dma_ch = DmaInput::Uart7Rx;
+        let elrs_dma_ch = DmaInput::Uart7Rx;
     #[cfg(feature = "g4")]
-    let elrs_dma_ch = DmaInput::Usart3Rx;
+        let elrs_dma_ch = DmaInput::Usart3Rx;
     dma::mux(DmaPeriph::Dma1, CRSF_RX_CH, elrs_dma_ch);
 
     // Note: If we run out of DMA channels, consider removing the CRSF transmit channel;
@@ -384,9 +390,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // dma::mux(DmaChannel::C8, DmaInput::Usart3Tx);
 
     #[cfg(feature = "h7")]
-    dma::mux(DmaPeriph::Dma1, BATT_CURR_DMA_CH, DmaInput::Adc1);
+        dma::mux(DmaPeriph::Dma1, BATT_CURR_DMA_CH, DmaInput::Adc1);
     #[cfg(feature = "g4")]
-    dma::mux(DmaPeriph::Dma1, BATT_CURR_DMA_CH, DmaInput::Adc2);
+        dma::mux(DmaPeriph::Dma1, BATT_CURR_DMA_CH, DmaInput::Adc2);
 
     dma::mux(DmaPeriph::Dma1, OSD_CH, DmaInput::Usart2Tx);
 
@@ -407,7 +413,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // We use Dshot transfer-complete interrupts to disable the timer.
     dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
     #[cfg(not(feature = "h7"))]
-    dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
+        dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
 
     // todo: Put these back. Troubleshooting issues post-deployment
     // Enable TC interrupts for all I2C sections; we use this to sequence readings,
@@ -445,13 +451,13 @@ pub fn setup_busses(
     // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
     // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
     #[cfg(feature = "g4")]
-    // todo: Switch to higher speed.
-    let imu_baud_div = BaudRate::Div8; // for ICM426xx, for 24Mhz limit
-                                       // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
-                                       // let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
+        // todo: Switch to higher speed.
+        let imu_baud_div = BaudRate::Div8; // for ICM426xx, for 24Mhz limit
+    // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
+    // let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
     #[cfg(feature = "h7")]
-    let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
-                                        // let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
+        let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
+    // let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
 
     let imu_spi_cfg = SpiConfig {
         // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
@@ -462,9 +468,9 @@ pub fn setup_busses(
     let spi1 = Spi::new(spi1_pac, imu_spi_cfg, imu_baud_div);
 
     #[cfg(feature = "h7")]
-    let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
+        let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
     #[cfg(feature = "g4")]
-    let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
     cs_imu.set_high();
 
@@ -506,9 +512,9 @@ pub fn setup_busses(
     // }
 
     #[cfg(feature = "h7")]
-    let flash_pin = 10;
+        let flash_pin = 10;
     #[cfg(not(feature = "h7"))]
-    let flash_pin = 6;
+        let flash_pin = 6;
 
     let mut cs_flash = Pin::new(Port::C, flash_pin, PinMode::Output);
     cs_flash.set_high();

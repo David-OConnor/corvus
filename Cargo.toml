@@ -39,10 +39,8 @@ num_enum = { version = "0.5.7", default_features = false }
 
 # Use these features to specify GPIO mapping, and which peripherals to use.
 [features]
-# We use `mercury-xx` features for board-specific things like pin layout. We use
-# `xx` features for STM32-familiy specific things, like PLL config.
-mercury-g4 = ["g4"]
-mercury-h7 = ["h7"]
+#mercury-g4 = ["g4"]
+#mercury-h7 = ["h7"]
 g4 = ["stm32-hal2/g4rt", "stm32-hal2/g473", "stm32-hal2/usb", "stm32-usbd", "stm32-hal2/monotonic"] # todo: monotomic is tmep
 h7 = ["stm32-hal2/h7rt", "stm32-hal2/h735", "stm32-hal2/usbotg_hs", "synopsys-usb-otg"]
 quad = [] # For quadcopter aircraft

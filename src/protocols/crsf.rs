@@ -245,7 +245,6 @@ impl Packet {
                 "CRC failed on recieved packet. Expected: {}. Received: {}",
                 expected_crc, received_crc
             );
-            println!("Shifted buf: {:?}", buf);
             return Err(DecodeError {});
         };
 
@@ -448,9 +447,9 @@ impl Packet {
 /// Handle an incomming packet. Triggered whenever the line goes idle.
 pub fn handle_packet(
     uart: &mut Usart<UART_ELRS>,
-    dma: &mut Dma<DMA1>,
+    // dma: &mut Dma<DMA1>,
     rx_chan: DmaChannel,
-    tx_chan: DmaChannel,
+    // tx_chan: DmaChannel,
 ) -> Option<PacketData> {
     // Find the position in the buffer where our data starts. It's a circular buffer, so this could
     // be anywhere, at time of line going idle. Then pass in a buffer, rearranged start-to-end.
@@ -477,13 +476,10 @@ pub fn handle_packet(
     }
     if !start_i_found {
         // todo: BIT flag.
-        // todo: This is coming up lots and lots and lots! You need to sort this out!!!!
-        println!("Can't find starting position in Rx payload"); // todo: Put this print back.
-        println!("RX buf: {:?}", unsafe { RX_BUFFER });
+        println!("Can't find starting position in Rx payload");
+        // println!("RX buf: {:?}", unsafe { RX_BUFFER });
         return None;
     }
-
-    // println!("START I: {:?}", start_i);
 
     // todo: buf shifted not required.
     let mut buf_shifted = [0; MAX_PACKET_SIZE];
@@ -495,7 +491,6 @@ pub fn handle_packet(
         Ok(p) => p,
         Err(_) => {
             println!("Error decoding packet address or frame type; skipping");
-            // println!("RX buf: {:?}", unsafe { RX_BUFFER });
             return None;
         }
     };
@@ -513,6 +508,8 @@ pub fn handle_packet(
     let mut result = None;
 
     // Processing channel data, and link statistics packets. Respond to ping packets.
+    // Note: We currently have this disabled; we have the write, and `dma` arg to this fn
+    // commented out.
     match packet.frame_type {
         FrameType::DevicePing => {
             // Send a reply.
@@ -543,9 +540,8 @@ pub fn handle_packet(
             };
 
             unsafe {
-                response.to_buf(&mut TX_BUFFER);
-
-                uart.write_dma(&TX_BUFFER, tx_chan, Default::default(), dma);
+                // response.to_buf(&mut TX_BUFFER);
+                // uart.write_dma(&TX_BUFFER, tx_chan, Default::default(), dma);
             }
         }
         FrameType::RcChannelsPacked => {

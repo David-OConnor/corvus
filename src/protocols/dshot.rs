@@ -332,20 +332,23 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
 
     if BIDIR_EN {
         // Was likely in input mode previously; update.
-        set_to_output(timers);
+        // todo: put back A/R
+        // set_to_output(timers);
     }
 
     // Note that timer enabling is handled by `write_dma_burst`.
+
+    let alt_fn_mode = 0b10;
 
     cfg_if! {
         if #[cfg(feature = "h7")] {
              // Set back to alternate function.
             unsafe {
                 (*pac::GPIOC::ptr()).moder.modify(|_, w| {
-                    w.moder6().bits(0b10);
-                    w.moder7().bits(0b10);
-                    w.moder8().bits(0b10);
-                    w.moder9().bits(0b10)
+                    w.moder6().bits(alt_fn_mode);
+                    w.moder7().bits(alt_fn_mode);
+                    w.moder8().bits(alt_fn_mode);
+                    w.moder9().bits(alt_fn_mode)
                 });
 
                 timers.rotors.write_dma_burst(
@@ -363,13 +366,13 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
 
             unsafe {
                 (*pac::GPIOA::ptr()).moder.modify(|_, w| {
-                    w.moder0().bits(0b10);
-                    w.moder1().bits(0b10)
+                    w.moder0().bits(alt_fn_mode);
+                    w.moder1().bits(alt_fn_mode)
                 });
                 #[cfg(feature = "quad")]
                 (*pac::GPIOB::ptr()).moder.modify(|_, w| {
-                    w.moder0().bits(0b10);
-                    w.moder1().bits(0b10)
+                    w.moder0().bits(alt_fn_mode);
+                    w.moder1().bits(alt_fn_mode)
                 });
 
                 timers.r12.write_dma_burst(
@@ -381,16 +384,16 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     dma,
                     true,
                 );
-                #[cfg(feature = "quad")]
-                timers.r34.write_dma_burst(
-                    &PAYLOAD_R3_4,
-                    Motor::M3.base_addr_offset(),
-                    2,
-                    Motor::M3.dma_channel(),
-                    Default::default(),
-                    dma,
-                    false,
-                );
+                // #[cfg(feature = "quad")]
+                // timers.r34.write_dma_burst(
+                //     &PAYLOAD_R3_4,
+                //     Motor::M3.base_addr_offset(),
+                //     2,
+                //     Motor::M3.dma_channel(),
+                //     Default::default(),
+                //     dma,
+                //     false,
+                // );
             }
 
         }

@@ -260,8 +260,8 @@ use stm32_hal2::instant::Instant; // todo temp
         /// We use this counter to subdivide the main loop into longer intervals,
         /// for various tasks like logging, and outer loops.
         update_isr_loop_i: usize,
-        imu_isr_loop_i: usize, // todo d
-        fixed_wing_rate_loop_i: usize,
+        imu_isr_loop_i: usize,
+        temp_loop_i: usize, // todo temp
         ctrl_coeff_adj_timer: Timer<TIM1>,
         uart_osd: Usart<USART2>, // for our DJI OSD, via MSP protocol
         time_with_high_throttle: f32,
@@ -648,7 +648,7 @@ use stm32_hal2::instant::Instant; // todo temp
                 disarm_signals_received: 0,
                 update_isr_loop_i: 0,
                 imu_isr_loop_i: 0,
-                fixed_wing_rate_loop_i: 0,
+                temp_loop_i: 0, // todo t
                 ctrl_coeff_adj_timer,
                 uart_osd,
                 time_with_high_throttle: 0.,
@@ -698,6 +698,8 @@ use stm32_hal2::instant::Instant; // todo temp
     /// sending commands to the attitude and rate PID loop based on things like autopilot, command-mode etc.
     fn update_isr(mut cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
+
+        *cx.local.update_isr_loop_i += 1;
 
         (
             cx.shared.current_params,
@@ -776,9 +778,10 @@ use stm32_hal2::instant::Instant; // todo temp
                         // todo: Flesh this out, and perhaps make it more like Preflight.
 
                         println!(
-                            "\n\nControl data:\nPitch: {} Roll: {}, Yaw: {}, Throttle: {}",
+                            "\n\nControl data:\nPitch: {} Roll: {}, Yaw: {}, Throttle: {}, Arm switch: {}",
                             control_channel_data.pitch, control_channel_data.roll,
                             control_channel_data.yaw, control_channel_data.throttle,
+                            control_channel_data.arm_status == ArmStatus::Armed, // todo fixed-wing
                         );
 
                         #[cfg(feature = "quad")]
@@ -867,11 +870,6 @@ use stm32_hal2::instant::Instant; // todo temp
                     // todo: Eg log params to flash etc.
                     // }
 
-                    *cx.local.update_isr_loop_i += 1;
-                    *cx.local.update_isr_loop_i += 1;
-
-                    return; // todo temp!!!
-
                     // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
                     // DMA TC isrs are sequenced.
                     // todo: Put back; Troubleshooting control and motors issues.
@@ -884,6 +882,8 @@ use stm32_hal2::instant::Instant; // todo temp
                         &mut state_volatile.arm_status,
                         control_channel_data.throttle,
                     );
+
+                    return; // todo temp!!!
 
                     if !state_volatile.has_taken_off {
                         safety::handle_takeoff_attitude_lock(
@@ -1072,10 +1072,15 @@ use stm32_hal2::instant::Instant; // todo temp
     }
 
     /// Runs when new IMU data is ready. Trigger a DMA read.
-    #[task(binds = EXTI4, shared = [cs_imu, dma, spi1], priority = 4)]
+    /// High priority since it's important, and quick-to-execute
+    #[task(binds = EXTI4, shared = [cs_imu, dma, spi1], local = [temp_loop_i], priority = 8)]
     fn imu_data_isr(cx: imu_data_isr::Context) {
         gpio::clear_exti_interrupt(4);
-        println!("I");
+
+        // *cx.local.temp_loop_i += 1;
+        // if *cx.local.temp_loop_i % 700 == 0 {
+        // println!("I");
+        // }
 
         (cx.shared.dma, cx.shared.cs_imu, cx.shared.spi1).lock(|dma, cs_imu, spi| {
             imu_shared::read_imu(imu::READINGS_START_ADDR, spi, cs_imu, dma);
@@ -1085,7 +1090,7 @@ use stm32_hal2::instant::Instant; // todo temp
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, params_prev, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, cs_imu, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timers, ahrs, state_volatile], local = [fixed_wing_rate_loop_i, imu_isr_loop_i], priority = 5)]
+    motor_timers, ahrs, state_volatile], local = [imu_isr_loop_i], priority = 4)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop.
     /// todo: Currently getting 6.67kHz instead of 8kHz.
@@ -1100,7 +1105,7 @@ use stm32_hal2::instant::Instant; // todo temp
             (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit())
         }
 
-        println!("T");
+        *cx.local.imu_isr_loop_i += 1;
 
         cx.shared.cs_imu.lock(|cs| {
             cs.set_high();
@@ -1149,11 +1154,9 @@ use stm32_hal2::instant::Instant; // todo temp
                             // let period = cx.local.measurement_timer.time_elapsed().as_secs();
                             // println!("IMU time: {:?}. Freq: {:?}", period, 1. / period);
 
-
-                            println!("IMU BUF: {:?}", unsafe { &imu_shared::IMU_READINGS });
+                            // println!("T");
+                            // println!("IMU BUF: {:?}", unsafe { &imu_shared::IMU_READINGS });
                         }
-
-                        *cx.local.imu_isr_loop_i += 1;
 
                         // cx.local.measurement_timer.disable();
                         // cx.local.measurement_timer.reset_count();
@@ -1183,9 +1186,6 @@ use stm32_hal2::instant::Instant; // todo temp
                     // Note: Consider if you want to update the attitude using the primary update loop,
                     // vice each IMU update.
                     attitude_platform::update_attitude(ahrs, params);
-
-
-                    let throttle_commanded = state_volatile.autopilot_commands.throttle;
 
                     // todo: Temp debug code.
                     let p = 0.03;
@@ -1218,7 +1218,7 @@ use stm32_hal2::instant::Instant; // todo temp
                         state_volatile.attitude_commanded.quat = Some(cfg.takeoff_attitude);
                     }
 
-                    let throttle = match throttle_commanded {
+                    let throttle = match state_volatile.autopilot_commands.throttle {
                         Some(t) => t,
                         None => control_channel_data.throttle,
                     };
@@ -1230,7 +1230,6 @@ use stm32_hal2::instant::Instant; // todo temp
                     // todo: Temp testing motors and bidir dshot
 
 
-                    // *cx.local.imu_isr_loop_i += 1;
                     // let p = control_channel_data.throttle;
                     let p = 0.03;
                     // if *cx.local.imu_isr_loop_i > 30_000 {
@@ -1308,7 +1307,7 @@ use stm32_hal2::instant::Instant; // todo temp
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data,
-    link_stats, user_cfg, state_volatile, motor_timers, batt_curr_adc, dma], local = [], priority = 7)]
+    link_stats, user_cfg, state_volatile, motor_timers, batt_curr_adc, dma], local = [], priority = 5)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
@@ -1377,10 +1376,11 @@ use stm32_hal2::instant::Instant; // todo temp
     // uses a single timer on H7: `dshot_isr_r34`
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
     #[cfg(feature = "g4")]
-    #[task(binds = DMA1_CH3, shared = [motor_timers], priority = 6)]
+    #[task(binds = DMA1_CH3, shared = [motor_timers], priority = 5)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
     /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
+        // println!("DSHOT ISR12");
         // todo: Why is this gate required when we have feature-gated the fn?
         // todo: Maybe RTIC is messing up the fn-level feature gate?
         #[cfg(feature = "g4")]
@@ -1428,10 +1428,11 @@ use stm32_hal2::instant::Instant; // todo temp
 
     // #[task(binds = DMA1_STR4,
     #[task(binds = DMA1_CH4,
-    shared = [motor_timers], priority = 6)]
+    shared = [motor_timers], priority = 5)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
     /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
+        // println!("DSHOT ISR34");
         unsafe {
                 #[cfg(feature = "h7")]
             (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
@@ -1529,7 +1530,7 @@ use stm32_hal2::instant::Instant; // todo temp
     // #[task(binds = TIM17,
     #[task(binds = TIM1_TRG_COM,
     shared = [lost_link_timer, link_lost, state_volatile, user_cfg, autopilot_status,
-    current_params], priority = 2)]
+    current_params], priority = 1)]
     fn lost_link_isr(cx: lost_link_isr::Context) {
         println!("Lost the link!");
 
@@ -1562,14 +1563,17 @@ use stm32_hal2::instant::Instant; // todo temp
     }
 
     // #[task(binds = USART7,
-    // todo: Temp high priority on this to tS
     #[task(binds = USART3,
-    shared = [dma, control_channel_data, link_stats,
-    lost_link_timer, link_lost, rf_limiter_timer], local = [uart_elrs, ctrl_coeff_adj_timer], priority = 5)]
+    shared = [control_channel_data, link_stats,
+    lost_link_timer, link_lost, rf_limiter_timer], local = [uart_elrs, ctrl_coeff_adj_timer], priority = 10)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
+    ///
+    /// Note: This must be a very high priority in order to capture the packet data immediately,
+    /// due to the circular transfer.
     fn crsf_isr(mut cx: crsf_isr::Context) {
+        // println!("CRSF ISR");
         cx.local.uart_elrs.clear_interrupt(UsartInterrupt::Idle);
 
         cx.shared.rf_limiter_timer.lock(|limiter_timer| {
@@ -1589,16 +1593,16 @@ use stm32_hal2::instant::Instant; // todo temp
         let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
 
         (
-            cx.shared.dma,
+            // cx.shared.dma,
             cx.shared.control_channel_data,
             cx.shared.link_stats,
         )
-            .lock(|dma, ch_data, link_stats| {
+            .lock(| ch_data, link_stats| {
                 if let Some(crsf_data) = crsf::handle_packet(
                     cx.local.uart_elrs,
-                    dma,
+                    // dma,
                     setup::CRSF_RX_CH,
-                    setup::CRSF_TX_CH,
+                    // setup::CRSF_TX_CH,
                 ) {
                     match crsf_data {
                         crsf::PacketData::ChannelData(data) => {
@@ -1670,8 +1674,9 @@ use stm32_hal2::instant::Instant; // todo temp
         }
     }
 
-    #[task(binds = TIM1_UP_TIM16, shared = [rf_limiter_timer], priority = 2)]
+    #[task(binds = TIM1_UP_TIM16, shared = [rf_limiter_timer], priority = 1)]
     fn rf_limiter_isr(mut cx: rf_limiter_isr::Context) {
+        // println!("RF limiter ISR");
         cx.shared.rf_limiter_timer.lock(|timer| {
             timer.clear_interrupt(TimerInterrupt::Update);
             timer.disable();

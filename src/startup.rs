@@ -1,4 +1,6 @@
 //! Handles hardware and software initialization. Run with interrupts disabled. Eg run within `Rtic`'s `init` fn.
+//!
+//! // todo: Not used due to RTIC limitations. Also, outdated/not compatible with current code structure (oct 29, 2022)
 
 use stm32_hal2::{
     self,
