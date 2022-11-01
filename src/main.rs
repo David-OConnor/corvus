@@ -146,8 +146,8 @@ cfg_if! {
         // clock input frequency, these ODR values will scale by a factor of (External clock value in kHz / 32).
         // For example, if an external clock frequency of 32.768kHz is used,
         // instead of ODR value of 500Hz, it will be 500 * (32.768 / 32) = 512Hz.
-        // todo: Measure this on H7 to confirm?
-        const IMU_UPDATE_RATE: f32 = 8_192.;
+        const IMU_UPDATE_RATE: f32 = 4_096.;  // todo: Experimenting
+        // const IMU_UPDATE_RATE: f32 = 8_192.;
     } else {
         // G47x/G48x: 512k flash.
         // Assumes configured as a single bank: 128 pages of 4kb each.
@@ -156,7 +156,8 @@ cfg_if! {
         const FLASH_WAYPOINT_PAGE: usize = 127;
 
         // Todo: Measured: 8.042kHz (2022-10-26)
-        const IMU_UPDATE_RATE: f32 = 8_000.;
+        const IMU_UPDATE_RATE: f32 = 4_000.; // todo experimenting.
+        // const IMU_UPDATE_RATE: f32 = 8_000.;
     }
 }
 
@@ -700,6 +701,8 @@ mod app {
 
         // foo::spawn_after(Duration::from_micros(2)).unwrap(); // todo temp
 
+        return; // todo temp!!
+
         *cx.local.update_isr_loop_i += 1;
 
         (
@@ -1106,11 +1109,11 @@ mod app {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit())
         }
 
-        *cx.local.imu_isr_loop_i += 1;
-
         cx.shared.cs_imu.lock(|cs| {
             cs.set_high();
         });
+
+        *cx.local.imu_isr_loop_i += 1;
 
         (
             cx.shared.current_params,
@@ -1143,6 +1146,13 @@ mod app {
                  flight_ctrl_filters| {
                     // Note that this step is mandatory, per STM32 RM.
                     spi1.stop_dma(setup::IMU_TX_CH, Some(setup::IMU_RX_CH), dma);
+
+                    // todo: Temp testing setting the loop rate to 4k to TS motors/CRSF
+                    // todo: If you use this long term, do something diff like have IMU update less
+                    // todo frequently, or just apply filters each update.
+                    if *cx.local.imu_isr_loop_i % 2 == 0 {
+                        return
+                    }
 
                     #[cfg(feature = "quad")]
                     if state_volatile.initializing_motors {
@@ -1378,11 +1388,11 @@ mod app {
     // uses a single timer on H7: `dshot_isr_r34`
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
     #[cfg(feature = "g4")]
-    #[task(binds = DMA1_CH3, shared = [], priority = 6)]
+    #[task(binds = DMA1_CH8, shared = [], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
     /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
-        // println!("12");
+        println!("12");
         // todo: Why is this gate required when we have feature-gated the fn?
         // todo: Maybe RTIC is messing up the fn-level feature gate?
         #[cfg(feature = "g4")]
@@ -1436,17 +1446,21 @@ mod app {
     }
 
     // #[task(binds = DMA1_STR4,
-    #[task(binds = DMA1_CH4,
+    // todo tmep @ ch6; put back to 4
+    #[task(binds = DMA1_CH6,
     shared = [], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
     /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
-        // println!("34");
+        println!("34");
         unsafe {
             #[cfg(feature = "h7")]
             (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
             #[cfg(feature = "g4")]
             (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit());
+        }
+        unsafe {
+            (*pac::TIM3::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
         }
 
         // cx.shared.motor_timers.lock(|timers| {

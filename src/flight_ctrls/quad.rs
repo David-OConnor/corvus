@@ -211,7 +211,7 @@ pub fn setup_timers(timers: &mut MotorTimers) {
             timers.r34.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
 
             // timers.r12.enable_interrupt(TimerInterrupt::UpdateDma);
-            timers.r34.enable_interrupt(TimerInterrupt::UpdateDma);
+            // timers.r34.enable_interrupt(TimerInterrupt::UpdateDma);
         }
     }
 

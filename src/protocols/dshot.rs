@@ -46,6 +46,8 @@ pub const BIDIR_EN: bool = false;
 
 pub const DSHOT_PSC_600: u16 = 0;
 
+const ESC_TELEM: bool = false;
+
 // Update frequency: 600kHz
 // 170Mhz tim clock on G4.
 // 240Mhz tim clock on H743
@@ -261,8 +263,7 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
         CmdType::Power(pwr) => (pwr * 1_999.) as u16 + 48,
     };
 
-    let telemetry_bit = 1; // todo temp
-    let packet = (data_word << 1) | telemetry_bit;
+    let packet = (data_word << 1) | (if ESC_TELEM { 1 } else { 0 });
 
     // Compute the checksum
     let crc = (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F;
@@ -335,7 +336,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     if BIDIR_EN {
         // Was likely in input mode previously; update.
         // todo: put back A/R
-        // set_to_output(timers);
+        set_to_output(timers);
     }
 
     // Note that timer enabling is handled by `write_dma_burst`.
@@ -377,6 +378,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     w.moder1().bits(alt_fn_mode)
                 });
 
+                // todo: Put back
                 timers.r12.write_dma_burst(
                     &PAYLOAD_R1_2,
                     Motor::M1.base_addr_offset(),
@@ -386,16 +388,16 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     dma,
                     true,
                 );
-                #[cfg(feature = "quad")]
-                timers.r34.write_dma_burst(
-                    &PAYLOAD_R3_4,
-                    Motor::M3.base_addr_offset(),
-                    2,
-                    Motor::M3.dma_channel(),
-                    Default::default(),
-                    dma,
-                    false,
-                );
+                // #[cfg(feature = "quad")]
+                // timers.r34.write_dma_burst(
+                //     &PAYLOAD_R3_4,
+                //     Motor::M3.base_addr_offset(),
+                //     2,
+                //     Motor::M3.dma_channel(),
+                //     Default::default(),
+                //     dma,
+                //     false,
+                // );
             }
 
         }

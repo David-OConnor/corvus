@@ -414,9 +414,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // todo not this?
     // todo: Put these back.
     // We use Dshot transfer-complete interrupts to disable the timer.
-    // dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
-    // #[cfg(not(feature = "h7"))]
-    // dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
+    dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
+    #[cfg(not(feature = "h7"))]
+    dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
 
     // todo: Put these back. Troubleshooting issues post-deployment
     // Enable TC interrupts for all I2C sections; we use this to sequence readings,

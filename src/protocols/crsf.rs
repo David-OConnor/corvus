@@ -472,8 +472,8 @@ pub fn handle_packet(
 
             if (next_byte == PAYLOAD_SIZE_RC_CHANNELS as u8 + 2
                 && two_bytes_ahead == FrameType::RcChannelsPacked as u8)
-                || (next_byte == PAYLOAD_SIZE_RC_CHANNELS as u8 + 2
-                    && two_bytes_ahead == FrameType::RcChannelsPacked as u8)
+                || (next_byte == PAYLOAD_SIZE_LINK_STATS as u8 + 2
+                    && two_bytes_ahead == FrameType::LinkStatistics as u8)
             {
                 start_i = i;
                 start_i_found = true;
@@ -494,7 +494,7 @@ pub fn handle_packet(
         let msg_start_i = (start_i + i) % RX_BUF_SIZE;
         buf_shifted[i] = unsafe { RX_BUFFER }[msg_start_i];
         // todo: do we need to erase messages as we read them from the buf?
-        unsafe { RX_BUFFER[msg_start_i] = 3 }; // todo: Set to 0
+        // unsafe { RX_BUFFER[msg_start_i] = 3 }; // todo: Set to 0
     }
 
     // todo: do we need to erase messages as we read them from the buf?

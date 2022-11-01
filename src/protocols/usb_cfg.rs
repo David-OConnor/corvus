@@ -298,7 +298,6 @@ pub fn handle_rx(
     adc: &Adc<ADC>,
     dma: &mut Dma<DMA1>,
 ) {
-    println!("USB comm");
     let rx_msg_type: MsgType = match rx_buf[0].try_into() {
         Ok(d) => d,
         Err(_) => {
@@ -329,12 +328,9 @@ pub fn handle_rx(
             // todo
         }
         MsgType::ReqParams => {
-            println!("Req params");
             // todo: current behavior is to set preflight at first params request, and never set
             // todo it back. This could potentially be dangerous.
             *op_mode = OperationMode::Preflight;
-
-            println!("Req params");
 
             let payload = params_to_bytes(
                 attitude,
@@ -352,13 +348,11 @@ pub fn handle_rx(
         }
         MsgType::Ack => {}
         MsgType::ReqControls => {
-            println!("Req controls");
             let payload: [u8; CONTROLS_SIZE] = controls.into();
             send_payload::<{ CONTROLS_SIZE + 2 }>(MsgType::Controls, &payload, usb_serial);
         }
         MsgType::Controls => {}
         MsgType::ReqLinkStats => {
-            println!("Req link stats");
             let payload: [u8; LINK_STATS_SIZE] = link_stats.into();
             send_payload::<{ LINK_STATS_SIZE + 2 }>(MsgType::LinkStats, &payload, usb_serial);
         }
@@ -428,7 +422,6 @@ pub fn handle_rx(
             }
         }
         MsgType::ReqWaypoints => {
-            println!("Req waypoints");
             let payload: [u8; WAYPOINTS_SIZE] = waypoints_to_buf(waypoints);
             send_payload::<{ WAYPOINTS_SIZE + 2 }>(MsgType::Waypoints, &payload, usb_serial);
         }
@@ -460,7 +453,6 @@ pub fn handle_rx(
         }
         MsgType::ReqSysApStatus => {
             // todo: Just sys status for now; do AP too.
-            println!("Req Sys status and AP status");
             let payload: [u8; SYS_AP_STATUS_SIZE] = sys_status.into();
             send_payload::<{ SYS_AP_STATUS_SIZE + 2 }>(MsgType::SysApStatus, &payload, usb_serial);
         }
