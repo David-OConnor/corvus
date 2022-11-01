@@ -74,8 +74,7 @@ const MAX_PAYLOAD_SIZE: usize = PAYLOAD_SIZE_RC_CHANNELS;
 const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 4; // Extra 4: dest, size, frametype, CRC.
 
 // A pad allows lags in reading to not overwrite the packet start with a new message.
-// todo: do we need to erase messages as we read them from the buf?
-const RX_BUF_SIZE: usize = MAX_PACKET_SIZE + 20;
+const RX_BUF_SIZE: usize = MAX_PACKET_SIZE + 0;
 
 pub static mut RX_BUFFER: [u8; RX_BUF_SIZE] = [0; RX_BUF_SIZE];
 
@@ -165,8 +164,9 @@ pub fn setup(uart: &mut Usart<UART_ELRS>, channel: DmaChannel, dma: &mut Dma<DMA
             ChannelCfg {
                 // Important: If we leave this priority low, we get strange anomolies. Note that
                 // it initializes to low in hardware. This brings up the question: Which other
-                // DMA process must it be higher than? DSHOT? IMU?
-                priority: dma::Priority::Medium,
+                // DMA process must it be higher than? DSHOT? IMU? At first glance, the conflict
+                // doesn't appear to be DSHOT, but might be the IMU.
+                priority: dma::Priority::High,
                 circular: Circular::Enabled,
                 ..Default::default()
             },
@@ -489,7 +489,7 @@ pub fn handle_packet(
     }
     if !start_i_found {
         *rx_fault = true;
-        println!("Can't find starting position in Rx payload");
+        // println!("Can't find starting position in Rx payload");
         // println!("RX buf: {:?}", unsafe { RX_BUFFER });
         return None;
     }

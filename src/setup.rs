@@ -412,10 +412,12 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 
     // todo: It appears the timer `DmaUpdate`, enabled in DSHOT setup code, is what we need;
     // todo not this? Overall, I'm quite confused here.
+    // It seems that enabling these is not explicitly required; teh TC ISr still fires
+    // once per burst command, even without enabling these!
     // We use Dshot transfer-complete interrupts to disable the timer.
-    dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
-    #[cfg(not(feature = "h7"))]
-    dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
+    // dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
+    // #[cfg(not(feature = "h7"))]
+    // dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
 
     // todo: Put these back. Troubleshooting issues post-deployment
     // Enable TC interrupts for all I2C sections; we use this to sequence readings,

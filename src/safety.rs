@@ -243,8 +243,7 @@ pub fn handle_arm_status(
 }
 
 /// If we are lost link haven't received a radio signal in a certain amount of time, execute a lost-link
-/// procedure. This function behaves differently depending on if we've just entered it, or if
-/// we're in a steady-state.
+/// procedure.
 pub fn link_lost(
     system_status: &mut SystemStatus,
     autopilot_status: &mut AutopilotStatus,

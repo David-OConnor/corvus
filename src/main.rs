@@ -204,8 +204,7 @@ mod app {
     use stm32_hal2::instant::Instant; // todo temp
 
     #[monotonic(binds = TIM5, default = true)]
-    type MyMono = Timer<TIM5>; // todo temp
-
+    // type MyMono = Timer<TIM5>; // todo temp
     #[shared]
     struct Shared {
         user_cfg: UserCfg,
@@ -262,7 +261,7 @@ mod app {
         /// for various tasks like logging, and outer loops.
         update_isr_loop_i: usize,
         imu_isr_loop_i: usize,
-        temp_loop_i: usize, // todo temp
+        aux_loop_i: usize, // todo temp
         ctrl_coeff_adj_timer: Timer<TIM1>,
         uart_osd: Usart<USART2>, // for our DJI OSD, via MSP protocol
         time_with_high_throttle: f32,
@@ -270,7 +269,7 @@ mod app {
         /// once at startup.
         motor_dir_started: bool,
         uart_elrs: Usart<UART_ELRS>, // for ELRS over CRSF.
-                                     // measurement_timer: Timer<TIM5>,
+        measurement_timer: Timer<TIM5>,
     }
 
     #[init]
@@ -394,7 +393,7 @@ mod app {
         // We use this measurement timer to count things, like time between IMU updates.
         // The effective period (1/freq) must be greater than the time we wish to measure.
         let mut measurement_timer =
-            Timer::new_tim5(dp.TIM5, 1. / 100., Default::default(), &clock_cfg);
+            Timer::new_tim5(dp.TIM5, 2_000., Default::default(), &clock_cfg);
 
         // We use this PID adjustment timer to indicate the interval for updating PID from a controller
         // while the switch or button is held. (Equivalently, the min allowed time between actuations)
@@ -602,8 +601,6 @@ mod app {
         // Allow ESC to warm up and the radio to connect before starting the main loop.
         delay.delay_ms(WARMUP_TIME);
 
-        // measurement_timer.enable(); // todo temp!
-
         println!("Entering main loop...");
         (
             // todo: Make these local as able.
@@ -650,16 +647,16 @@ mod app {
                 disarm_signals_received: 0,
                 update_isr_loop_i: 0,
                 imu_isr_loop_i: 0,
-                temp_loop_i: 0, // todo t
+                aux_loop_i: 0, // todo t
                 ctrl_coeff_adj_timer,
                 uart_osd,
                 time_with_high_throttle: 0.,
                 motor_dir_started: false,
                 uart_elrs,
-                // measurement_timer,
+                measurement_timer,
             },
-            // init::Monotonics(),
-            init::Monotonics(measurement_timer), // todo temp
+            init::Monotonics(),
+            // init::Monotonics(measurement_timer)
         )
     }
 
@@ -671,14 +668,14 @@ mod app {
         }
     }
 
-    // todo temp
-    #[task(priority = 10)]
-    fn foo(_: foo::Context) {
-        println!("Mono!");
-
-        // Schedule `bar` to run 2 seconds in the future (1 second after foo runs)
-        // bar::spawn_after(1.secs()).unwrap();
-    }
+    // // todo temp
+    // #[task(priority = 10)]
+    // fn foo(_: foo::Context) {
+    //     println!("Mono!");
+    //
+    //     // Schedule `bar` to run 2 seconds in the future (1 second after foo runs)
+    //     // bar::spawn_after(1.secs()).unwrap();
+    // }
 
     // todo: Go through these tasks, and make sure they're not reserving unneded shared params.
 
@@ -694,10 +691,11 @@ mod app {
     local = [arm_signals_received, disarm_signals_received, update_isr_loop_i, uart_osd,
     time_with_high_throttle, motor_dir_started],
 
-    priority = 2
+    priority = 5
     )]
     /// This runs periodically, on a ~1kHz timer. It's used to trigger the attitude and velocity PID loops, ie for
     /// sending commands to the attitude and rate PID loop based on things like autopilot, command-mode etc.
+    /// We give it a relatively high priority, to ensure it gets run despite faster processes ocurring.
     fn update_isr(mut cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
 
@@ -788,6 +786,10 @@ mod app {
                             control_channel_data.pitch, control_channel_data.roll,
                             control_channel_data.yaw, control_channel_data.throttle,
                             control_channel_data.arm_status == ArmStatus::Armed, // todo fixed-wing
+                        );
+
+                        println!(
+                            "\n\nFaults. Rx: {}", system_status.rf_control_fault
                         );
 
                         #[cfg(feature = "quad")]
@@ -889,7 +891,7 @@ mod app {
                         control_channel_data.throttle,
                     );
 
-                    return; // todo temp!!!
+                    // return; // todo temp!!!
 
                     if !state_volatile.has_taken_off {
                         safety::handle_takeoff_attitude_lock(
@@ -898,16 +900,6 @@ mod app {
                             &mut state_volatile.has_taken_off,
                             DT_MAIN_LOOP,
                         );
-                    }
-
-                    if *link_lost {
-                        safety::link_lost(
-                            system_status,
-                            autopilot_status,
-                            params,
-                            &state_volatile.base_point,
-                        );
-                        return;
                     }
 
                     #[cfg(feature = "quad")]
@@ -929,54 +921,55 @@ mod app {
                     state_volatile.batt_v = batt_v;
                     state_volatile.esc_current = esc_current;
 
+                    // todo: Put back A/R
                     // This difference in approach between quad and fixed-wing for the
                     // control deltas is due to using an intermediate step between control settings
                     // and accel for quads (RPM), but doing it directly on fixed-wing,being unable
                     // to measure servo posit directly (which would be the equiv intermediate step)
-                    cfg_if! {
-                        if #[cfg(feature = "quad")] {
-                            let pitch_delta = rpms.pitch_delta();
-                            let roll_delta = rpms.roll_delta();
-                            let yaw_delta = rpms.yaw_delta(cfg.control_mapping.frontleft_aftright_dir);
-
-                            let pitch_accel = state_volatile.accel_map.pitch_rpm_to_accel(pitch_delta);
-                            let roll_accel = state_volatile.accel_map.roll_rpm_to_accel(roll_delta);
-                            let yaw_accel = state_volatile.accel_map.yaw_rpm_to_accel(yaw_delta);
-                        } else {
-                            let pitch_delta = state_volatile.ctrl_positions.pitch_delta();
-                            let roll_delta = state_volatile.ctrl_positions.roll_delta();
-                            let yaw_delta = state_volatile.ctrl_positions.yaw_delta();
-
-                            let pitch_accel = state_volatile.accel_map.pitch_cmd_to_accel(pitch_delta);
-                            let roll_accel = state_volatile.accel_map.roll_cmd_to_accel(roll_delta);
-                            let yaw_accel = state_volatile.accel_map.yaw_cmd_to_accel(yaw_delta);
-                        }
-                    }
-
-                    // Estimate the angular drag coefficient for the current flight regime.
-                    let drag_coeff_pitch = flight_ctrls::ctrl_logic::calc_drag_coeff(
-                        params.v_pitch,
-                        params.a_pitch,
-                        pitch_accel,
-                    );
-
-                    let drag_coeff_roll = flight_ctrls::ctrl_logic::calc_drag_coeff(
-                        params.v_roll,
-                        params.a_roll,
-                        state_volatile.accel_map.roll_rpm_to_accel(roll_delta),
-                    );
-
-                    #[cfg(feature = "quad")]
-                        let drag_coeff_yaw = flight_ctrls::ctrl_logic::calc_drag_coeff(
-                        params.v_yaw,
-                        params.a_yaw,
-                        state_volatile.accel_map.yaw_rpm_to_accel(yaw_delta),
-                    );
-
-                    let (dcp, dcr, dcy) = flight_ctrl_filters.apply(drag_coeff_pitch, drag_coeff_roll, drag_coeff_yaw);
-                    state_volatile.drag_coeffs.pitch = dcp;
-                    state_volatile.drag_coeffs.roll = dcr;
-                    state_volatile.drag_coeffs.yaw = dcy;
+                    // cfg_if! {
+                    //     if #[cfg(feature = "quad")] {
+                    //         let pitch_delta = rpms.pitch_delta();
+                    //         let roll_delta = rpms.roll_delta();
+                    //         let yaw_delta = rpms.yaw_delta(cfg.control_mapping.frontleft_aftright_dir);
+                    //
+                    //         let pitch_accel = state_volatile.accel_map.pitch_rpm_to_accel(pitch_delta);
+                    //         let roll_accel = state_volatile.accel_map.roll_rpm_to_accel(roll_delta);
+                    //         let yaw_accel = state_volatile.accel_map.yaw_rpm_to_accel(yaw_delta);
+                    //     } else {
+                    //         let pitch_delta = state_volatile.ctrl_positions.pitch_delta();
+                    //         let roll_delta = state_volatile.ctrl_positions.roll_delta();
+                    //         let yaw_delta = state_volatile.ctrl_positions.yaw_delta();
+                    //
+                    //         let pitch_accel = state_volatile.accel_map.pitch_cmd_to_accel(pitch_delta);
+                    //         let roll_accel = state_volatile.accel_map.roll_cmd_to_accel(roll_delta);
+                    //         let yaw_accel = state_volatile.accel_map.yaw_cmd_to_accel(yaw_delta);
+                    //     }
+                    // }
+                    //
+                    // // Estimate the angular drag coefficient for the current flight regime.
+                    // let drag_coeff_pitch = flight_ctrls::ctrl_logic::calc_drag_coeff(
+                    //     params.v_pitch,
+                    //     params.a_pitch,
+                    //     pitch_accel,
+                    // );
+                    //
+                    // let drag_coeff_roll = flight_ctrls::ctrl_logic::calc_drag_coeff(
+                    //     params.v_roll,
+                    //     params.a_roll,
+                    //     state_volatile.accel_map.roll_rpm_to_accel(roll_delta),
+                    // );
+                    //
+                    // #[cfg(feature = "quad")]
+                    //     let drag_coeff_yaw = flight_ctrls::ctrl_logic::calc_drag_coeff(
+                    //     params.v_yaw,
+                    //     params.a_yaw,
+                    //     state_volatile.accel_map.yaw_rpm_to_accel(yaw_delta),
+                    // );
+                    //
+                    // let (dcp, dcr, dcy) = flight_ctrl_filters.apply(drag_coeff_pitch, drag_coeff_roll, drag_coeff_yaw);
+                    // state_volatile.drag_coeffs.pitch = dcp;
+                    // state_volatile.drag_coeffs.roll = dcr;
+                    // state_volatile.drag_coeffs.yaw = dcy;
 
                     // todo: Put back
                     // let osd_data = OsdData {
@@ -1079,12 +1072,12 @@ mod app {
 
     /// Runs when new IMU data is ready. Trigger a DMA read.
     /// High priority since it's important, and quick-to-execute
-    #[task(binds = EXTI4, shared = [cs_imu, dma, spi1], local = [temp_loop_i], priority = 8)]
+    #[task(binds = EXTI4, shared = [cs_imu, dma, spi1], local = [], priority = 8)]
     fn imu_data_isr(cx: imu_data_isr::Context) {
         gpio::clear_exti_interrupt(4);
 
-        // *cx.local.temp_loop_i += 1;
-        // if *cx.local.temp_loop_i % 700 == 0 {
+        // *cx.local.aux_loop_i += 1;
+        // if *cx.local.aux_loop_i % 700 == 0 {
         // println!("I");
         // }
 
@@ -1098,8 +1091,8 @@ mod app {
     autopilot_status, imu_filters, flight_ctrl_filters, cs_imu, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timers, ahrs, state_volatile], local = [imu_isr_loop_i], priority = 4)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
-    /// we receive IMU data; it triggers the inner PID loop.
-    /// todo: Currently getting 6.67kHz instead of 8kHz.
+    /// we receive IMU data; it nominally (and according to our measurements so far) runs at 8kHz.
+    /// Note that on the H7 FC with the dedicated IMU LSE, it may run slightly faster.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         // Clear DMA interrupt this way due to RTIC conflict.
         #[cfg(feature = "h7")]
@@ -1322,7 +1315,7 @@ mod app {
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data,
-    link_stats, user_cfg, state_volatile, system_status, motor_timers, batt_curr_adc, dma], local = [], priority = 5)]
+    link_stats, user_cfg, state_volatile, system_status, motor_timers, batt_curr_adc, dma], local = [], priority = 4)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
@@ -1393,7 +1386,7 @@ mod app {
     // uses a single timer on H7: `dshot_isr_r34`
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
     #[cfg(feature = "g4")]
-    #[task(binds = DMA1_CH3, shared = [], priority = 6)]
+    #[task(binds = DMA1_CH3, shared = [], local = [], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
     /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
@@ -1405,6 +1398,16 @@ mod app {
         unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit());
         }
+
+        // *cx.local.aux_loop_i += 1;
+        // cx.local.measurement_timer.disable();
+        // if *cx.local.aux_loop_i % 1_000 == 0 {
+        //     let f = 1./cx.local.measurement_timer.time_elapsed().as_secs();
+        //
+        //     println!("Freq: {:?}", f);
+        // }
+        // cx.local.measurement_timer.reset_count();
+        // cx.local.measurement_timer.enable();
 
         // cx.shared.motor_timers.lock(|timers| {
         //     timers.r12.disable();
@@ -1607,7 +1610,7 @@ mod app {
     // #[task(binds = USART7,
     #[task(binds = USART3,
     shared = [control_channel_data, link_stats, system_status,
-    lost_link_timer, link_lost, rf_limiter_timer], local = [uart_elrs, ctrl_coeff_adj_timer], priority = 10)]
+    lost_link_timer, link_lost, rf_limiter_timer], local = [uart_elrs, ctrl_coeff_adj_timer], priority = 7)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.

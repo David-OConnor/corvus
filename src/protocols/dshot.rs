@@ -343,6 +343,10 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     // Note that timer enabling is handled by `write_dma_burst`.
 
     let alt_fn_mode = 0b10;
+    let dma_cfg = ChannelCfg {
+        priority: Priority::Medium, // todo ?
+        ..ChannelCfg::default()
+    };
 
     cfg_if! {
         if #[cfg(feature = "h7")] {
@@ -360,10 +364,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     Motor::M1.base_addr_offset(),
                     4, // Burst len of 4, since we're updating 4 channels.
                     Motor::M1.dma_channel(),
-                    ChannelCfg {
-                        priority: Priority::Low, // todo ?
-                        ..ChannelCfg::default()
-                    },
+                    dma_cfg.clone(),
                     dma,
                     true,
                 );
@@ -387,10 +388,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     Motor::M1.base_addr_offset(),
                     2, // Burst len of 2, since we're updating 2 channels.
                     Motor::M1.dma_channel(),
-                    ChannelCfg {
-                        priority: Priority::Low, // todo ?
-                        ..ChannelCfg::default()
-                    },
+                    dma_cfg.clone(),
                     dma,
                     true,
                 );
@@ -400,10 +398,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     Motor::M3.base_addr_offset(),
                     2,
                     Motor::M3.dma_channel(),
-                    ChannelCfg {
-                        priority: Priority::Low, // todo ?
-                        ..ChannelCfg::default()
-                    },
+                    dma_cfg,
                     dma,
                     false,
                 );
