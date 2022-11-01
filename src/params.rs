@@ -3,10 +3,7 @@
 
 // todo: Maybe a more-specific name, like 'flight_params' etc?
 
-use crate::{
-    imu_shared::ImuReadings,
-    DT_IMU,
-};
+use crate::{imu_shared::ImuReadings, DT_IMU};
 
 use lin_alg2::f32::Quaternion;
 

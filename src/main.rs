@@ -35,7 +35,6 @@ use filter_imu::ImuFilters;
 use flight_ctrls::{
     autopilot::AutopilotStatus,
     common::{MotorRpm, MotorTimers, RatesCommanded},
-    ControlMapping,
     ctrl_logic::{self, PowerMaps},
     // pid::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
@@ -43,6 +42,7 @@ use flight_ctrls::{
     // },
     filters::FlightCtrlFilters,
     pid::{MotorCoeffs, MotorPidGroup},
+    ControlMapping,
 };
 use lin_alg2::f32::Quaternion;
 use panic_probe as _;
@@ -52,6 +52,7 @@ use safety::ArmStatus;
 use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
 use state::{OperationMode, SensorStatus, StateVolatile, UserCfg};
 
+use params::Params;
 use stm32_hal2::{
     self,
     adc::{self, Adc, AdcConfig, AdcDevice},
@@ -67,7 +68,6 @@ use stm32_hal2::{
 };
 use usb_device::{bus::UsbBusAllocator, prelude::*};
 use usbd_serial::{self, SerialPort};
-use params::Params;
 
 mod ahrs_fusion;
 mod atmos_model;
@@ -200,11 +200,10 @@ mod app {
     use super::*;
 
     use core::time::Duration; // todo temp
-use stm32_hal2::instant::Instant; // todo temp
+    use stm32_hal2::instant::Instant; // todo temp
 
     #[monotonic(binds = TIM5, default = true)]
     type MyMono = Timer<TIM5>; // todo temp
-
 
     #[shared]
     struct Shared {
@@ -269,7 +268,7 @@ use stm32_hal2::instant::Instant; // todo temp
         /// once at startup.
         motor_dir_started: bool,
         uart_elrs: Usart<UART_ELRS>, // for ELRS over CRSF.
-        // measurement_timer: Timer<TIM5>,
+                                     // measurement_timer: Timer<TIM5>,
     }
 
     #[init]
@@ -315,9 +314,9 @@ use stm32_hal2::instant::Instant; // todo temp
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-            clocks::enable_crs(CrsSyncSrc::OtgHs);
+        clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-            clocks::enable_crs(CrsSyncSrc::Usb);
+        clocks::enable_crs(CrsSyncSrc::Usb);
 
         // Improves performance, at a cost of slightly increased power use.
         cp.SCB.invalidate_icache();
@@ -331,14 +330,14 @@ use stm32_hal2::instant::Instant; // todo temp
         let mut dma = Dma::new(dp.DMA1);
         let mut dma2 = Dma::new(dp.DMA2);
         #[cfg(feature = "g4")]
-            dma::enable_mux1();
+        dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
         #[cfg(feature = "h7")]
-            let UART_ELRS = dp.UART7;
+        let UART_ELRS = dp.UART7;
         #[cfg(feature = "g4")]
-            let UART_ELRS = dp.USART3;
+        let UART_ELRS = dp.USART3;
 
         let (mut spi1, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_elrs) =
             setup::setup_busses(dp.SPI1, dp.I2C1, dp.I2C2, dp.USART2, UART_ELRS, &clock_cfg);
@@ -356,10 +355,10 @@ use stm32_hal2::instant::Instant; // todo temp
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601); // todo put back
@@ -393,8 +392,7 @@ use stm32_hal2::instant::Instant; // todo temp
         // We use this measurement timer to count things, like time between IMU updates.
         // The effective period (1/freq) must be greater than the time we wish to measure.
         let mut measurement_timer =
-            Timer::new_tim5(dp.TIM5, 1./100., Default::default(), &clock_cfg);
-
+            Timer::new_tim5(dp.TIM5, 1. / 100., Default::default(), &clock_cfg);
 
         // We use this PID adjustment timer to indicate the interval for updating PID from a controller
         // while the switch or button is held. (Equivalently, the min allowed time between actuations)
@@ -507,13 +505,13 @@ use stm32_hal2::instant::Instant; // todo temp
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // todo: Note that you may need to either increment the flash page offset, or cycle flash pages, to
         // todo avoid wear on a given sector from erasing each time. Note that you can still probably get 10k
@@ -524,9 +522,9 @@ use stm32_hal2::instant::Instant; // todo temp
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -664,7 +662,7 @@ use stm32_hal2::instant::Instant; // todo temp
 
     #[idle(shared = [user_cfg, motor_timers, dma])]
     /// In this function, we perform setup code that must occur with interrupts enabled.
-    fn idle(cx: idle::Context) -> ! {
+    fn idle(_cx: idle::Context) -> ! {
         loop {
             asm::nop();
         }
@@ -1100,11 +1098,11 @@ use stm32_hal2::instant::Instant; // todo temp
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         // Clear DMA interrupt this way due to RTIC conflict.
         #[cfg(feature = "h7")]
-            unsafe {
+        unsafe {
             (*DMA1::ptr()).lifcr.write(|w| w.ctcif2().set_bit())
         }
         #[cfg(feature = "g4")]
-            unsafe {
+        unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit())
         }
 
@@ -1191,7 +1189,8 @@ use stm32_hal2::instant::Instant; // todo temp
                     attitude_platform::update_attitude(ahrs, params);
 
                     // todo: Temp debug code.
-                    let p = control_channel_data.throttle;
+                    // let p = control_channel_data.throttle;
+                    let p = 0.03;
                     if state_volatile.arm_status == ArmStatus::Armed {
                         dshot::set_power(p, p, p, p, motor_timers, dma);
                     } else {
@@ -1379,7 +1378,7 @@ use stm32_hal2::instant::Instant; // todo temp
     // uses a single timer on H7: `dshot_isr_r34`
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
     #[cfg(feature = "g4")]
-    #[task(binds = DMA1_CH3, shared = [], priority = 5)]
+    #[task(binds = DMA1_CH3, shared = [], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
     /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
@@ -1387,7 +1386,7 @@ use stm32_hal2::instant::Instant; // todo temp
         // todo: Why is this gate required when we have feature-gated the fn?
         // todo: Maybe RTIC is messing up the fn-level feature gate?
         #[cfg(feature = "g4")]
-            unsafe {
+        unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit())
         }
 
@@ -1438,15 +1437,15 @@ use stm32_hal2::instant::Instant; // todo temp
 
     // #[task(binds = DMA1_STR4,
     #[task(binds = DMA1_CH4,
-    shared = [], priority = 5)]
+    shared = [], priority = 6)]
     /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
     /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
         // println!("34");
         unsafe {
-                #[cfg(feature = "h7")]
+            #[cfg(feature = "h7")]
             (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
-                #[cfg(feature = "g4")]
+            #[cfg(feature = "g4")]
             (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit());
         }
 
@@ -1614,7 +1613,7 @@ use stm32_hal2::instant::Instant; // todo temp
             cx.shared.control_channel_data,
             cx.shared.link_stats,
         )
-            .lock(| ch_data, link_stats| {
+            .lock(|ch_data, link_stats| {
                 if let Some(crsf_data) = crsf::handle_packet(
                     cx.local.uart_elrs,
                     // dma,

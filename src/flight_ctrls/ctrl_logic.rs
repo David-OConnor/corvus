@@ -12,8 +12,8 @@ use lin_alg2::f32::{Quaternion, Vec3};
 
 use num_traits::float::Float; // For sqrt.
 
-use cfg_if::cfg_if;
 use crate::params::Params;
+use cfg_if::cfg_if;
 
 // todo: YOu probably need filters.
 

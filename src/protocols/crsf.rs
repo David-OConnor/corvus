@@ -70,9 +70,13 @@ const PAYLOAD_SIZE_RC_CHANNELS: usize = 22;
 // Note: 64 bytes is allowed per the protocol. Lower this to reduce latency and mem use. (Minor concern)
 // - We only expect 26-byte packets for channel data, and 14-byte packets for link stats.
 const MAX_PAYLOAD_SIZE: usize = PAYLOAD_SIZE_RC_CHANNELS;
-const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 4;
+const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 4; // Extra 4: dest, size, frametype, CRC.
 
-pub static mut RX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
+// A pad allows lags in reading to not overwrite the packet start with a new message.
+// todo: do we need to erase messages as we read them from the buf?
+const RX_BUF_SIZE: usize = MAX_PACKET_SIZE + 20;
+
+pub static mut RX_BUFFER: [u8; RX_BUF_SIZE] = [0; RX_BUF_SIZE];
 
 static mut TX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
 
@@ -290,9 +294,9 @@ impl Packet {
         }
 
         #[cfg(feature = "quad")]
-            let motors_armed = ArmStatus::Armed;
+        let motors_armed = ArmStatus::Armed;
         #[cfg(feature = "fixed-wing")]
-            let motors_armed = ArmStatus::MotorsControlsArmed;
+        let motors_armed = ArmStatus::MotorsControlsArmed;
 
         // As you change the number of channels used, increase the `raw_channels` size,
         // and comment or uncomment the unpacking lines below, up to 16.
@@ -382,7 +386,7 @@ impl Packet {
         // todo: Ideally, this would be on the same channel as motor arm in a 3-pos
         // todo switch, but ELRS hard codes is
         #[cfg(feature = "fixed-wing")]
-            let controls_armed = match raw_channels[13] {
+        let controls_armed = match raw_channels[13] {
             0..=1_000 => false,
             _ => true,
         };
@@ -455,37 +459,45 @@ pub fn handle_packet(
     // be anywhere, at time of line going idle. Then pass in a buffer, rearranged start-to-end.
     // todo: Is there a cheaper way to do this than scanning for a matching pattern?
 
-    // unsafe {
-    // println!("RX BUF: {:?}", RX_BUFFER);
-    // }
-
     let mut start_i = 0;
     let mut start_i_found = false;
-    for i in 0..MAX_PACKET_SIZE {
+
+    for i in 0..RX_BUF_SIZE {
         unsafe {
-            if RX_BUFFER[i] == DestAddr::FlightController as u8
-                && (RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_RC_CHANNELS as u8 + 2
-                || RX_BUFFER[(i + 1) % MAX_PACKET_SIZE] == PAYLOAD_SIZE_LINK_STATS as u8 + 2)
-                && (RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::RcChannelsPacked as u8
-                || RX_BUFFER[(i + 2) % MAX_PACKET_SIZE] == FrameType::LinkStatistics as u8)
+            if RX_BUFFER[i] != DestAddr::FlightController as u8 {
+                continue;
+            }
+            let next_byte = RX_BUFFER[(i + 1) % RX_BUF_SIZE];
+            let two_bytes_ahead = RX_BUFFER[(i + 2) % RX_BUF_SIZE];
+
+            if (next_byte == PAYLOAD_SIZE_RC_CHANNELS as u8 + 2
+                && two_bytes_ahead == FrameType::RcChannelsPacked as u8)
+                || (next_byte == PAYLOAD_SIZE_RC_CHANNELS as u8 + 2
+                    && two_bytes_ahead == FrameType::RcChannelsPacked as u8)
             {
                 start_i = i;
                 start_i_found = true;
+                break;
             }
         }
     }
     if !start_i_found {
         // todo: BIT flag.
         println!("Can't find starting position in Rx payload");
-        // println!("RX buf: {:?}", unsafe { RX_BUFFER });
+        println!("RX buf: {:?}", unsafe { RX_BUFFER });
         return None;
     }
 
     // todo: buf shifted not required.
     let mut buf_shifted = [0; MAX_PACKET_SIZE];
     for i in 0..MAX_PACKET_SIZE {
-        buf_shifted[i] = unsafe { RX_BUFFER }[(start_i + i) % MAX_PACKET_SIZE];
+        let msg_start_i = (start_i + i) % RX_BUF_SIZE;
+        buf_shifted[i] = unsafe { RX_BUFFER }[msg_start_i];
+        // todo: do we need to erase messages as we read them from the buf?
+        unsafe { RX_BUFFER[msg_start_i] = 3 }; // todo: Set to 0
     }
+
+    // todo: do we need to erase messages as we read them from the buf?
 
     let packet = match Packet::from_buf(&buf_shifted) {
         Ok(p) => p,

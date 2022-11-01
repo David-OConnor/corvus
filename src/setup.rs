@@ -22,6 +22,7 @@ cfg_if! {
     } else {
     }
 }
+use crate::params::Params;
 use crate::{
     drivers::{
         baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
@@ -31,7 +32,6 @@ use crate::{
     ppks::{Location, LocationType},
     state::{SensorStatus, SystemStatus},
 };
-use crate::params::Params;
 
 // Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.
 
@@ -181,7 +181,7 @@ impl Motor {
     /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
     pub fn dma_channel(&self) -> DmaChannel {
         #[cfg(feature = "h7")]
-            return MOTOR_CH_B;
+        return MOTOR_CH_B;
 
         #[cfg(feature = "g4")]
         match self {
@@ -195,7 +195,7 @@ impl Motor {
     /// RM register table, and dividing by 4.
     pub fn base_addr_offset(&self) -> u8 {
         #[cfg(feature = "h7")]
-            return 13;
+        return 13;
 
         #[cfg(feature = "g4")]
         match self.tim_channel() {
@@ -330,9 +330,9 @@ pub fn setup_pins() {
     // Used to trigger a PID update based on new IMU data.
     // We assume here the interrupt config uses default settings active low, push pull, pulsed.
     #[cfg(feature = "h7")]
-        let mut imu_exti_pin = Pin::new(Port::B, 12, PinMode::Input);
+    let mut imu_exti_pin = Pin::new(Port::B, 12, PinMode::Input);
     #[cfg(feature = "g4")]
-        let mut imu_exti_pin = Pin::new(Port::C, 4, PinMode::Input);
+    let mut imu_exti_pin = Pin::new(Port::C, 4, PinMode::Input);
 
     imu_exti_pin.output_type(OutputType::OpenDrain);
     imu_exti_pin.pull(Pull::Up);
@@ -372,7 +372,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 
     // DSHOT, motors 3 and 4 (not used on H7)
     #[cfg(feature = "g4")]
-        dma::mux(
+    dma::mux(
         DmaPeriph::Dma1,
         Motor::M3.dma_channel(),
         Motor::M3.dma_input(),
@@ -380,9 +380,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 
     // CRSF (onboard ELRS)
     #[cfg(feature = "h7")]
-        let elrs_dma_ch = DmaInput::Uart7Rx;
+    let elrs_dma_ch = DmaInput::Uart7Rx;
     #[cfg(feature = "g4")]
-        let elrs_dma_ch = DmaInput::Usart3Rx;
+    let elrs_dma_ch = DmaInput::Usart3Rx;
     dma::mux(DmaPeriph::Dma1, CRSF_RX_CH, elrs_dma_ch);
 
     // Note: If we run out of DMA channels, consider removing the CRSF transmit channel;
@@ -390,9 +390,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // dma::mux(DmaChannel::C8, DmaInput::Usart3Tx);
 
     #[cfg(feature = "h7")]
-        dma::mux(DmaPeriph::Dma1, BATT_CURR_DMA_CH, DmaInput::Adc1);
+    dma::mux(DmaPeriph::Dma1, BATT_CURR_DMA_CH, DmaInput::Adc1);
     #[cfg(feature = "g4")]
-        dma::mux(DmaPeriph::Dma1, BATT_CURR_DMA_CH, DmaInput::Adc2);
+    dma::mux(DmaPeriph::Dma1, BATT_CURR_DMA_CH, DmaInput::Adc2);
 
     dma::mux(DmaPeriph::Dma1, OSD_CH, DmaInput::Usart2Tx);
 
@@ -410,11 +410,13 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // we trigger the attitude-rates PID loop.
     dma.enable_interrupt(IMU_RX_CH, DmaInterrupt::TransferComplete);
 
+    // todo: It appears the timer `DmaUpdate`, enabled in DSHOT setup code, is what we need;
+    // todo not this?
     // todo: Put these back.
     // We use Dshot transfer-complete interrupts to disable the timer.
-    dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
-    #[cfg(not(feature = "h7"))]
-    dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
+    // dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
+    // #[cfg(not(feature = "h7"))]
+    // dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
 
     // todo: Put these back. Troubleshooting issues post-deployment
     // Enable TC interrupts for all I2C sections; we use this to sequence readings,
@@ -452,13 +454,13 @@ pub fn setup_busses(
     // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
     // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
     #[cfg(feature = "g4")]
-        // todo: Switch to higher speed.
-        let imu_baud_div = BaudRate::Div8; // for ICM426xx, for 24Mhz limit
-    // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
-    // let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
+    // todo: Switch to higher speed.
+    let imu_baud_div = BaudRate::Div8; // for ICM426xx, for 24Mhz limit
+                                       // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
+                                       // let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
     #[cfg(feature = "h7")]
-        let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
-    // let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
+    let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
+                                        // let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
 
     let imu_spi_cfg = SpiConfig {
         // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
@@ -469,9 +471,9 @@ pub fn setup_busses(
     let spi1 = Spi::new(spi1_pac, imu_spi_cfg, imu_baud_div);
 
     #[cfg(feature = "h7")]
-        let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
+    let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
     #[cfg(feature = "g4")]
-        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+    let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
     cs_imu.set_high();
 
@@ -513,9 +515,9 @@ pub fn setup_busses(
     // }
 
     #[cfg(feature = "h7")]
-        let flash_pin = 10;
+    let flash_pin = 10;
     #[cfg(not(feature = "h7"))]
-        let flash_pin = 6;
+    let flash_pin = 6;
 
     let mut cs_flash = Pin::new(Port::C, flash_pin, PinMode::Output);
     cs_flash.set_high();

@@ -25,8 +25,8 @@
 
 use crate::ahrs_fusion::Ahrs;
 
-use lin_alg2::f32::Vec3;
 use crate::params::Params;
+use lin_alg2::f32::Vec3;
 
 // use defmt::println;
 

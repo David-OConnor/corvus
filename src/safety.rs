@@ -3,10 +3,7 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{
-    flight_ctrls::{
-        autopilot::AutopilotStatus,
-        common::AltType,
-    },
+    flight_ctrls::{autopilot::AutopilotStatus, common::AltType},
     // pid::PidGroup,
     ppks::Location,
     state::{SensorStatus, SystemStatus},
@@ -29,8 +26,8 @@ use cfg_if::cfg_if;
 
 use defmt::println;
 
-use num_traits::Float;
-use crate::params::Params; // abs on float.
+use crate::params::Params;
+use num_traits::Float; // abs on float.
 
 // We must receive arm or disarm signals for this many update cycles in a row to perform those actions.
 pub const NUM_ARM_DISARM_SIGNALS_REQUIRED: u8 = 5;
