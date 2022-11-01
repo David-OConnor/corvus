@@ -189,6 +189,9 @@ pub struct SystemStatus {
     pub magnetometer: SensorStatus,
     pub esc_telemetry: SensorStatus,
     pub esc_rpm: SensorStatus,
+    pub rf_control_link: SensorStatus,
+    // todo: Consider a separate faults struct if this grows in complexity
+    pub rf_control_fault: bool,
 }
 
 /// State that doesn't get saved to flash.
@@ -199,7 +202,6 @@ pub struct StateVolatile {
     #[cfg(feature = "quad")]
     pub input_mode: InputMode,
     pub input_mode_switch: InputModeSwitch,
-    pub system_status: SystemStatus,
     // FOr now, we use "link lost" to include never having been connected.
     // connected_to_controller: bool,
     #[cfg(feature = "quad")]

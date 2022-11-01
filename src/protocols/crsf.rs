@@ -482,9 +482,9 @@ pub fn handle_packet(
         }
     }
     if !start_i_found {
-        // todo: BIT flag.
+        // todo: Set the `SystemStatus` RF fault flag.
         println!("Can't find starting position in Rx payload");
-        println!("RX buf: {:?}", unsafe { RX_BUFFER });
+        // println!("RX buf: {:?}", unsafe { RX_BUFFER });
         return None;
     }
 

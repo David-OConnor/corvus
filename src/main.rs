@@ -50,7 +50,7 @@ use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_cfg};
 use safety::ArmStatus;
 use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
-use state::{OperationMode, SensorStatus, StateVolatile, UserCfg};
+use state::{OperationMode, SensorStatus, StateVolatile, SystemStatus, UserCfg};
 
 use params::Params;
 use stm32_hal2::{
@@ -201,7 +201,7 @@ mod app {
     use super::*;
 
     use core::time::Duration; // todo temp
-    use stm32_hal2::instant::Instant; // todo temp
+use stm32_hal2::instant::Instant; // todo temp
 
     #[monotonic(binds = TIM5, default = true)]
     type MyMono = Timer<TIM5>; // todo temp
@@ -210,6 +210,7 @@ mod app {
     struct Shared {
         user_cfg: UserCfg,
         state_volatile: StateVolatile,
+        system_status: SystemStatus,
         autopilot_status: AutopilotStatus,
         current_params: Params,
         // todo: `params_prev` is an experimental var used in our alternative/experimental
@@ -269,7 +270,7 @@ mod app {
         /// once at startup.
         motor_dir_started: bool,
         uart_elrs: Usart<UART_ELRS>, // for ELRS over CRSF.
-                                     // measurement_timer: Timer<TIM5>,
+        // measurement_timer: Timer<TIM5>,
     }
 
     #[init]
@@ -315,9 +316,9 @@ mod app {
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-        clocks::enable_crs(CrsSyncSrc::OtgHs);
+            clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-        clocks::enable_crs(CrsSyncSrc::Usb);
+            clocks::enable_crs(CrsSyncSrc::Usb);
 
         // Improves performance, at a cost of slightly increased power use.
         cp.SCB.invalidate_icache();
@@ -331,14 +332,14 @@ mod app {
         let mut dma = Dma::new(dp.DMA1);
         let mut dma2 = Dma::new(dp.DMA2);
         #[cfg(feature = "g4")]
-        dma::enable_mux1();
+            dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
         #[cfg(feature = "h7")]
-        let UART_ELRS = dp.UART7;
+            let UART_ELRS = dp.UART7;
         #[cfg(feature = "g4")]
-        let UART_ELRS = dp.USART3;
+            let UART_ELRS = dp.USART3;
 
         let (mut spi1, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_elrs) =
             setup::setup_busses(dp.SPI1, dp.I2C1, dp.I2C2, dp.USART2, UART_ELRS, &clock_cfg);
@@ -356,10 +357,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601); // todo put back
@@ -506,13 +507,13 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // todo: Note that you may need to either increment the flash page offset, or cycle flash pages, to
         // todo avoid wear on a given sector from erasing each time. Note that you can still probably get 10k
@@ -523,9 +524,9 @@ mod app {
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -558,8 +559,6 @@ mod app {
             system_status.gps == SensorStatus::Pass,
             system_status.tof == SensorStatus::Pass,
         );
-
-        state_volatile.system_status = system_status;
 
         // loop {
         //     let pressure = altimeter.read_pressure(&mut i2c2);
@@ -609,6 +608,7 @@ mod app {
             Shared {
                 user_cfg,
                 state_volatile,
+                system_status,
                 autopilot_status: Default::default(),
                 current_params: params.clone(),
                 params_prev: params,
@@ -687,7 +687,7 @@ mod app {
     shared = [current_params,
     power_used, autopilot_status, user_cfg, flight_ctrl_filters,
     ahrs, control_channel_data, motor_timers, rotor_rpms,
-    lost_link_timer, link_lost, altimeter, i2c1, i2c2, state_volatile, batt_curr_adc, dma, dma2,
+    lost_link_timer, link_lost, altimeter, i2c1, i2c2, state_volatile, system_status, batt_curr_adc, dma, dma2,
     ],
     local = [arm_signals_received, disarm_signals_received, update_isr_loop_i, uart_osd,
     time_with_high_throttle, motor_dir_started],
@@ -700,8 +700,6 @@ mod app {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
 
         // foo::spawn_after(Duration::from_micros(2)).unwrap(); // todo temp
-
-        return; // todo temp!!
 
         *cx.local.update_isr_loop_i += 1;
 
@@ -718,6 +716,7 @@ mod app {
             cx.shared.i2c1,
             cx.shared.i2c2,
             cx.shared.state_volatile,
+            cx.shared.system_status,
             cx.shared.motor_timers,
             cx.shared.batt_curr_adc,
             cx.shared.dma,
@@ -738,6 +737,7 @@ mod app {
                  i2c1,
                  i2c2,
                  state_volatile,
+                 system_status,
                  motor_timers,
                  adc,
                  dma,
@@ -900,7 +900,7 @@ mod app {
 
                     if *link_lost {
                         safety::link_lost(
-                            &state_volatile.system_status,
+                            system_status,
                             autopilot_status,
                             params,
                             &state_volatile.base_point,
@@ -909,7 +909,7 @@ mod app {
                     }
 
                     #[cfg(feature = "quad")]
-                        flight_ctrls::set_input_mode(control_channel_data.input_mode, state_volatile);
+                        flight_ctrls::set_input_mode(control_channel_data.input_mode, state_volatile, system_status);
 
                     // todo: Support UART telemetry from ESC.
 
@@ -1014,7 +1014,7 @@ mod app {
                         params,
                         // filters,
                         // coeffs,
-                        &state_volatile.system_status,
+                        system_status,
                     );
 
                     #[cfg(feature = "fixed-wing")]
@@ -1023,7 +1023,7 @@ mod app {
                         // pid_attitude,
                         // filters,
                         // coeffs,
-                        &state_volatile.system_status,
+                        system_status,
                     );
 
                     // Don't apply autopilot modes if on the ground.
@@ -1101,11 +1101,11 @@ mod app {
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         // Clear DMA interrupt this way due to RTIC conflict.
         #[cfg(feature = "h7")]
-        unsafe {
+            unsafe {
             (*DMA1::ptr()).lifcr.write(|w| w.ctcif2().set_bit())
         }
         #[cfg(feature = "g4")]
-        unsafe {
+            unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit())
         }
 
@@ -1202,9 +1202,9 @@ mod app {
                     // let p = control_channel_data.throttle;
                     let p = 0.03;
                     if state_volatile.arm_status == ArmStatus::Armed {
-                        dshot::set_power(p, p, p, p, motor_timers, dma);
+                        // dshot::set_power(p, p, p, p, motor_timers, dma);
                     } else {
-                        dshot::stop_all(motor_timers, dma);
+                        // dshot::stop_all(motor_timers, dma);
                     }
 
                     // todo: Impl once you've sorted out your control logic.
@@ -1319,7 +1319,7 @@ mod app {
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data,
-    link_stats, user_cfg, state_volatile, motor_timers, batt_curr_adc, dma], local = [], priority = 5)]
+    link_stats, user_cfg, state_volatile, system_status, motor_timers, batt_curr_adc, dma], local = [], priority = 5)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
@@ -1333,6 +1333,7 @@ mod app {
             cx.shared.link_stats,
             cx.shared.user_cfg,
             cx.shared.state_volatile,
+            cx.shared.system_status,
             cx.shared.motor_timers,
             cx.shared.batt_curr_adc,
             cx.shared.dma,
@@ -1345,6 +1346,7 @@ mod app {
                  link_stats,
                  user_cfg,
                  state_volatile,
+                 system_status,
                  motor_timers,
                  adc,
                  dma| {
@@ -1367,7 +1369,7 @@ mod app {
                                 ch_data,
                                 &link_stats,
                                 &user_cfg.waypoints,
-                                &state_volatile.system_status,
+                                system_status,
                                 &mut state_volatile.arm_status,
                                 &mut user_cfg.control_mapping,
                                 &mut state_volatile.op_mode,
@@ -1393,10 +1395,11 @@ mod app {
     /// or enable input capture if in bidirectional mode.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
         println!("12");
+
         // todo: Why is this gate required when we have feature-gated the fn?
         // todo: Maybe RTIC is messing up the fn-level feature gate?
         #[cfg(feature = "g4")]
-        unsafe {
+            unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit())
         }
 
@@ -1454,9 +1457,9 @@ mod app {
     fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
         println!("34");
         unsafe {
-            #[cfg(feature = "h7")]
+                #[cfg(feature = "h7")]
             (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
-            #[cfg(feature = "g4")]
+                #[cfg(feature = "g4")]
             (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit());
         }
         unsafe {
@@ -1560,7 +1563,7 @@ mod app {
     // #[task(binds = TIM17,
     #[task(binds = TIM1_TRG_COM,
     shared = [lost_link_timer, link_lost, state_volatile, user_cfg, autopilot_status,
-    current_params], priority = 1)]
+    current_params, system_status], priority = 1)]
     fn lost_link_isr(cx: lost_link_isr::Context) {
         println!("Lost the link!");
 
@@ -1571,9 +1574,16 @@ mod app {
             cx.shared.user_cfg,
             cx.shared.autopilot_status,
             cx.shared.current_params,
+            cx.shared.system_status,
         )
             .lock(
-                |timer, link_lost, state_volatile, user_cfg, autopilot_status, params| {
+                |timer,
+                 link_lost,
+                 state_volatile,
+                 user_cfg,
+                 autopilot_status,
+                 params,
+                 system_status| {
                     timer.clear_interrupt(TimerInterrupt::Update);
                     timer.reset_count();
                     timer.disable(); // todo: Probably not required in one-pulse mode.
@@ -1583,7 +1593,7 @@ mod app {
                     // We run this during the main loop, but here the `entering` flag is set to true,
                     // to initialize setup steps.
                     safety::link_lost(
-                        &state_volatile.system_status,
+                        system_status,
                         autopilot_status,
                         params,
                         &state_volatile.base_point,
@@ -1594,7 +1604,7 @@ mod app {
 
     // #[task(binds = USART7,
     #[task(binds = USART3,
-    shared = [control_channel_data, link_stats,
+    shared = [control_channel_data, link_stats, system_status,
     lost_link_timer, link_lost, rf_limiter_timer], local = [uart_elrs, ctrl_coeff_adj_timer], priority = 10)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
@@ -1689,18 +1699,24 @@ mod app {
             });
 
         if recieved_ch_data {
-            (cx.shared.link_lost, cx.shared.lost_link_timer).lock(|link_lost, lost_link_timer| {
-                // We've received a packet successfully - reset the lost-link timer.
-                lost_link_timer.disable();
-                lost_link_timer.reset_count();
-                lost_link_timer.enable();
+            (
+                cx.shared.link_lost,
+                cx.shared.lost_link_timer,
+                cx.shared.system_status,
+            )
+                .lock(|link_lost, lost_link_timer, system_status| {
+                    // We've received a packet successfully - reset the lost-link timer.
+                    lost_link_timer.disable();
+                    lost_link_timer.reset_count();
+                    lost_link_timer.enable();
 
-                if *link_lost {
-                    println!("Link re-aquired");
-                    *link_lost = false;
-                    // todo: Execute re-acq procedure
-                }
-            });
+                    if *link_lost {
+                        println!("Link re-aquired");
+                        *link_lost = false;
+                        // todo: Execute re-acq procedure
+                    }
+                    system_status.rf_control_link = SensorStatus::Pass;
+                });
         }
     }
 

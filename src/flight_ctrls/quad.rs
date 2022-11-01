@@ -13,7 +13,7 @@ use crate::{
     control_interface::InputModeSwitch,
     dshot,
     safety::ArmStatus,
-    state::{SensorStatus, StateVolatile},
+    state::{SensorStatus, StateVolatile, SystemStatus},
     util,
 };
 
@@ -210,7 +210,7 @@ pub fn setup_timers(timers: &mut MotorTimers) {
             timers.r34.set_prescaler(dshot::DSHOT_PSC_600);
             timers.r34.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
 
-            // timers.r12.enable_interrupt(TimerInterrupt::UpdateDma);
+            timers.r12.enable_interrupt(TimerInterrupt::UpdateDma);
             // timers.r34.enable_interrupt(TimerInterrupt::UpdateDma);
         }
     }
@@ -560,13 +560,17 @@ pub struct UnsuitableParams {}
 //     Ok(())
 // }
 
-pub fn set_input_mode(input_mode_control: InputModeSwitch, state_volatile: &mut StateVolatile) {
+pub fn set_input_mode(
+    input_mode_control: InputModeSwitch,
+    state_volatile: &mut StateVolatile,
+    system_status: &SystemStatus,
+) {
     state_volatile.input_mode_switch = input_mode_control; // todo: Do we need or use this field?
 
     state_volatile.input_mode = match input_mode_control {
         InputModeSwitch::Acro => InputMode::Acro,
         InputModeSwitch::AttitudeCommand => {
-            if state_volatile.system_status.gps == SensorStatus::Pass {
+            if system_status.gps == SensorStatus::Pass {
                 InputMode::Command
             } else {
                 InputMode::Attitude

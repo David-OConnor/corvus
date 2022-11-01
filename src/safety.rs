@@ -246,12 +246,13 @@ pub fn handle_arm_status(
 /// procedure. This function behaves differently depending on if we've just entered it, or if
 /// we're in a steady-state.
 pub fn link_lost(
-    system_status: &SystemStatus,
+    system_status: &mut SystemStatus,
     autopilot_status: &mut AutopilotStatus,
     // entering_lost_link: bool,
     params: &Params,
     base_pt: &Location,
 ) {
+    system_status.rf_control_link = SensorStatus::NotConnected;
     // todo: Consider how you want to handle this, with and without GPS.
 
     // todo: To start, command an attitude-mode hover, with baro alt hold.
