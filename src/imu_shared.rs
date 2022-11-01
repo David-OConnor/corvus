@@ -2,7 +2,7 @@
 //! DMA buffer.
 
 use stm32_hal2::{
-    dma::Dma,
+    dma::{ChannelCfg, Dma, Priority},
     gpio::Pin,
     pac::{DMA1, SPI1},
     spi::Spi,
@@ -88,8 +88,14 @@ pub fn read_imu(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut 
             &mut IMU_READINGS,
             IMU_TX_CH,
             IMU_RX_CH,
-            Default::default(),
-            Default::default(),
+            ChannelCfg {
+                priority: Priority::Low,
+                ..Default::default()
+            },
+            ChannelCfg {
+                priority: Priority::Low,
+                ..Default::default()
+            },
             dma,
         );
     }

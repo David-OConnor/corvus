@@ -31,7 +31,7 @@ use num_enum::TryFromPrimitive; // Enum from integer
 use defmt::println;
 
 use stm32_hal2::{
-    dma::{ChannelCfg, Circular, Dma, DmaChannel},
+    dma::{self, ChannelCfg, Circular, Dma, DmaChannel},
     pac::DMA1,
     usart::{Usart, UsartInterrupt},
 };
@@ -42,6 +42,7 @@ use crate::{
         PidTuneActuation, PidTuneMode, SteerpointCycleActuation,
     },
     safety::ArmStatus,
+    state::SystemStatus,
     util, UART_ELRS,
 };
 
@@ -162,6 +163,10 @@ pub fn setup(uart: &mut Usart<UART_ELRS>, channel: DmaChannel, dma: &mut Dma<DMA
             &mut RX_BUFFER,
             channel,
             ChannelCfg {
+                // Important: If we leave this priority low, we get strange anomolies. Note that
+                // it initializes to low in hardware. This brings up the question: Which other
+                // DMA process must it be higher than? DSHOT? IMU?
+                priority: dma::Priority::Medium,
                 circular: Circular::Enabled,
                 ..Default::default()
             },
@@ -454,6 +459,7 @@ pub fn handle_packet(
     // dma: &mut Dma<DMA1>,
     rx_chan: DmaChannel,
     // tx_chan: DmaChannel,
+    rx_fault: &mut bool,
 ) -> Option<PacketData> {
     // Find the position in the buffer where our data starts. It's a circular buffer, so this could
     // be anywhere, at time of line going idle. Then pass in a buffer, rearranged start-to-end.
@@ -482,7 +488,7 @@ pub fn handle_packet(
         }
     }
     if !start_i_found {
-        // todo: Set the `SystemStatus` RF fault flag.
+        *rx_fault = true;
         println!("Can't find starting position in Rx payload");
         // println!("RX buf: {:?}", unsafe { RX_BUFFER });
         return None;
@@ -494,7 +500,8 @@ pub fn handle_packet(
         let msg_start_i = (start_i + i) % RX_BUF_SIZE;
         buf_shifted[i] = unsafe { RX_BUFFER }[msg_start_i];
         // todo: do we need to erase messages as we read them from the buf?
-        // unsafe { RX_BUFFER[msg_start_i] = 3 }; // todo: Set to 0
+        // todo: You have a risk of reading old packets. (?)
+        // unsafe { RX_BUFFER[msg_start_i] = 3 };
     }
 
     // todo: do we need to erase messages as we read them from the buf?
@@ -502,6 +509,7 @@ pub fn handle_packet(
     let packet = match Packet::from_buf(&buf_shifted) {
         Ok(p) => p,
         Err(_) => {
+            *rx_fault = true;
             println!("Error decoding packet address or frame type; skipping");
             return None;
         }
@@ -512,6 +520,7 @@ pub fn handle_packet(
         DestAddr::FlightController => (),
         _ => {
             // Improper destination address from the sender.
+            *rx_fault = true;
             println!("Rx data: Improper destination address from the sender.");
             return None;
         }
@@ -566,6 +575,7 @@ pub fn handle_packet(
             result = Some(PacketData::LinkStats(link_stats));
         }
         _ => {
+            *rx_fault = true;
             println!("Unexpected Rx frame type.")
         }
     }

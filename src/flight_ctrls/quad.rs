@@ -198,11 +198,11 @@ impl ControlMapping {
 /// `fixed_wing::setup_timers`.
 pub fn setup_timers(timers: &mut MotorTimers) {
     cfg_if! {
-        if #[cfg(feature = "h7")] {
+        if #[cfg(f1ature = "h7")] {
             timers.rotors.set_prescaler(dshot::DSHOT_PSC_600);
             timers.rotors.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
 
-            // timers.rotors.enable_interrupt(TimerInterrupt::UpdateDma);
+            timers.rotors.enable_interrupt(TimerInterrupt::UpdateDma);
         } else if #[cfg(feature = "g4")] {
             timers.r12.set_prescaler(dshot::DSHOT_PSC_600);
             timers.r12.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
@@ -210,8 +210,10 @@ pub fn setup_timers(timers: &mut MotorTimers) {
             timers.r34.set_prescaler(dshot::DSHOT_PSC_600);
             timers.r34.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
 
+            // Note that this timer DMA update interrupt is required, or timer burst DMA
+            // won't work.
             timers.r12.enable_interrupt(TimerInterrupt::UpdateDma);
-            // timers.r34.enable_interrupt(TimerInterrupt::UpdateDma);
+            timers.r34.enable_interrupt(TimerInterrupt::UpdateDma);
         }
     }
 

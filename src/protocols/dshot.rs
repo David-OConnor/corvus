@@ -17,7 +17,7 @@
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
-    dma::Dma,
+    dma::{ChannelCfg, Dma, Priority},
     pac,
     pac::DMA1,
     timer::{CaptureCompare, CountDir, InputSlaveMode, InputTrigger, OutputCompare, Polarity},
@@ -35,6 +35,7 @@ use defmt::println;
 // todo: Basically, you set up a notch filter at rotor RPM. (I think; QC this)
 
 use cfg_if::cfg_if;
+use usb_device::device::UsbDeviceState::Default;
 
 // Enable bidirectional DSHOT, which returns RPM data
 pub const BIDIR_EN: bool = false;
@@ -359,7 +360,10 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     Motor::M1.base_addr_offset(),
                     4, // Burst len of 4, since we're updating 4 channels.
                     Motor::M1.dma_channel(),
-                    Default::default(),
+                    ChannelCfg {
+                        priority: Priority::Low, // todo ?
+                        ..ChannelCfg::default()
+                    },
                     dma,
                     true,
                 );
@@ -378,26 +382,31 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     w.moder1().bits(alt_fn_mode)
                 });
 
-                // todo: Put back
                 timers.r12.write_dma_burst(
                     &PAYLOAD_R1_2,
                     Motor::M1.base_addr_offset(),
                     2, // Burst len of 2, since we're updating 2 channels.
                     Motor::M1.dma_channel(),
-                    Default::default(),
+                    ChannelCfg {
+                        priority: Priority::Low, // todo ?
+                        ..ChannelCfg::default()
+                    },
                     dma,
                     true,
                 );
-                // #[cfg(feature = "quad")]
-                // timers.r34.write_dma_burst(
-                //     &PAYLOAD_R3_4,
-                //     Motor::M3.base_addr_offset(),
-                //     2,
-                //     Motor::M3.dma_channel(),
-                //     Default::default(),
-                //     dma,
-                //     false,
-                // );
+                #[cfg(feature = "quad")]
+                timers.r34.write_dma_burst(
+                    &PAYLOAD_R3_4,
+                    Motor::M3.base_addr_offset(),
+                    2,
+                    Motor::M3.dma_channel(),
+                    ChannelCfg {
+                        priority: Priority::Low, // todo ?
+                        ..ChannelCfg::default()
+                    },
+                    dma,
+                    false,
+                );
             }
 
         }
@@ -427,7 +436,7 @@ pub fn receive_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     Motor::M1.base_addr_offset(),
                     4, // Burst len of 4, since we're updating 4 channels.
                     Motor::M1.dma_channel(),
-                    Default::default(),
+                    ChannelCfg::default(),
                     dma,
                     true,
                 );
@@ -452,7 +461,7 @@ pub fn receive_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     Motor::M1.base_addr_offset(),
                     2, // Burst len of 2, since we're updating 2 channels.
                     Motor::M1.dma_channel(),
-                    Default::default(),
+                    ChannelCfg::default(),
                     dma,
                     true,
                 );
@@ -462,7 +471,7 @@ pub fn receive_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     Motor::M3.base_addr_offset(),
                     2,
                     Motor::M3.dma_channel(),
-                    Default::default(),
+                    ChannelCfg::default(),
                     dma,
                     false,
                 );

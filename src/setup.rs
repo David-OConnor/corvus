@@ -411,8 +411,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     dma.enable_interrupt(IMU_RX_CH, DmaInterrupt::TransferComplete);
 
     // todo: It appears the timer `DmaUpdate`, enabled in DSHOT setup code, is what we need;
-    // todo not this?
-    // todo: Put these back.
+    // todo not this? Overall, I'm quite confused here.
     // We use Dshot transfer-complete interrupts to disable the timer.
     dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
     #[cfg(not(feature = "h7"))]
