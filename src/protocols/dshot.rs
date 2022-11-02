@@ -38,7 +38,7 @@ use cfg_if::cfg_if;
 use usb_device::device::UsbDeviceState::Default;
 
 // Enable bidirectional DSHOT, which returns RPM data
-pub const BIDIR_EN: bool = false;
+pub const BIDIR_EN: bool = true;
 
 // Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
 // so we can set duty cycle appropriately for DSHOT.
@@ -334,11 +334,10 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     // The previous transfer should already be complete, but just in case.
     dma.stop(Motor::M1.dma_channel());
 
-    if BIDIR_EN {
-        // Was likely in input mode previously; update.
-        // todo: put back A/R
-        set_to_output(timers);
-    }
+    // if BIDIR_EN {
+    //     // Was likely in input mode previously; update.
+    //     set_to_output(timers);
+    // }
 
     // Note that timer enabling is handled by `write_dma_burst`.
 
@@ -402,6 +401,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     dma,
                     false,
                 );
+
             }
 
         }

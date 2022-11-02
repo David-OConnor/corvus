@@ -219,8 +219,7 @@ pub fn setup_timers(timers: &mut MotorTimers) {
 
     dshot::set_to_output(timers);
 
-    // todo: Put back
-    // dshot::set_bidirectional(dshot::BIDIR_EN, timers);
+    dshot::set_bidirectional(dshot::BIDIR_EN, timers);
 }
 
 /// Represents power levels for the rotors. These map from 0. to 1.; 0% to 100% power.

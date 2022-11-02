@@ -153,25 +153,25 @@ pub enum PacketData {
 pub fn setup(uart: &mut Usart<UART_ELRS>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
     // We alternate between char matching the flight controller destination address, and
     // line idle, to indicate we're received, or stopped receiving a message respectively.
-    // uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
+    uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
     // uart.enable_interrupt(UsartInterrupt::ReadNotEmpty);
-    uart.enable_interrupt(UsartInterrupt::Idle);
+    // uart.enable_interrupt(UsartInterrupt::Idle);
 
     unsafe {
-        uart.read_dma(
-            &mut RX_BUFFER,
-            channel,
-            ChannelCfg {
-                // Important: If we leave this priority low, we get strange anomolies. Note that
-                // it initializes to low in hardware. This brings up the question: Which other
-                // DMA process must it be higher than? DSHOT? IMU? At first glance, the conflict
-                // doesn't appear to be DSHOT, but might be the IMU.
-                priority: dma::Priority::High,
-                circular: Circular::Enabled,
-                ..Default::default()
-            },
-            dma,
-        );
+        // uart.read_dma(
+        //     &mut RX_BUFFER,
+        //     channel,
+        //     ChannelCfg {
+        //         // Important: If we leave this priority low, we get strange anomolies. Note that
+        //         // it initializes to low in hardware. This brings up the question: Which other
+        //         // DMA process must it be higher than? DSHOT? IMU? At first glance, the conflict
+        //         // doesn't appear to be DSHOT, but might be the IMU.
+        //         priority: dma::Priority::High,
+        //         circular: Circular::Enabled,
+        //         ..Default::default()
+        //     },
+        //     dma,
+        // );
     }
 }
 

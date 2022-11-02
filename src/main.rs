@@ -161,7 +161,7 @@ cfg_if! {
     }
 }
 
-const UPDATE_RATE_MAIN_LOOP: f32 = 1_000.; // todo: Experiment with this.
+const UPDATE_RATE_MAIN_LOOP: f32 = 600.; // todo: Experiment with this.
 
 // Every x main update loops, log parameters etc to flash.
 const LOGGING_UPDATE_RATIO: usize = 100;
@@ -698,8 +698,6 @@ mod app {
     /// We give it a relatively high priority, to ensure it gets run despite faster processes ocurring.
     fn update_isr(mut cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
-
-        // foo::spawn_after(Duration::from_micros(2)).unwrap(); // todo temp
 
         *cx.local.update_isr_loop_i += 1;
 
@@ -1415,10 +1413,10 @@ mod app {
         // todo: Temp. Put motor timers etc back A/R. If you still have trouble, may need to
         // todo split by 1/2, 3/4 instead of sharing motor timers struct.
         unsafe {
-            (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
+            // (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
         }
 
-        let output_mode = 0b01;
+        // let output_mode = 0b01;
 
         // todo: Before adding dma to shared state here, make sure it wasn't
         // todo deliberately ommitted...
@@ -1433,23 +1431,25 @@ mod app {
             //         w.moder1().bits(output_mode)
             //     });
             // }
-            //     gpio::set_high(Port::A, 0);
-            //     gpio::set_high(Port::A, 1);
+            // gpio::set_high(Port::A, 0);
+            // gpio::set_high(Port::A, 1);
+
+            // todo: Eval again if you need to force to output and low.
         } else {
             // Set to Output pin, low.
-            unsafe {
-                (*pac::GPIOA::ptr()).moder.modify(|_, w| {
-                    w.moder0().bits(output_mode);
-                    w.moder1().bits(output_mode)
-                });
-            }
+            // unsafe {
+            //     (*pac::GPIOA::ptr()).moder.modify(|_, w| {
+            //         w.moder0().bits(output_mode);
+            //         w.moder1().bits(output_mode)
+            //     });
+            // }
             // if dshot::BIDIR_EN {
             //     // todo: This is unreachable...
             //     // gpio::set_high(Port::A, 0);
             //     // gpio::set_high(Port::A, 1);
             // } else {
-            gpio::set_low(Port::A, 0);
-            gpio::set_low(Port::A, 1);
+            // gpio::set_low(Port::A, 0);
+            // gpio::set_low(Port::A, 1);
         }
         // }
     }
@@ -1467,9 +1467,9 @@ mod app {
             #[cfg(feature = "g4")]
             (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit());
         }
-        unsafe {
-            (*pac::TIM3::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
-        }
+        // unsafe {
+        //     (*pac::TIM3::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
+        // }
 
         // cx.shared.motor_timers.lock(|timers| {
         //     #[cfg(feature = "h7")]
@@ -1481,11 +1481,8 @@ mod app {
         // });
         // todo: Temp. Put motor timers etc back A/R. If you still have trouble, may need to
         // todo split by 1/2, 3/4 instead of sharing motor timers struct.
-        unsafe {
-            (*pac::TIM3::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
-        }
 
-        let output_mode = 0b01;
+        // let output_mode = 0b01;
 
         if dshot::BIDIR_EN {
             cfg_if! {
@@ -1493,6 +1490,16 @@ mod app {
                     // motor_timers.r1234.enable_input_capture();
                 } else {
                     // motor_timers.r34_servos.enable_input_capture();
+
+                // todo: Temp TS; probalby this would interfere with input cap
+                // unsafe {
+                //     (*pac::GPIOB::ptr()).moder.modify(|_, w| {
+                //         w.moder0().bits(output_mode);
+                //         w.moder1().bits(output_mode)
+                //     });
+                // }
+                //     gpio::set_high(Port::B, 0);
+                //     gpio::set_high(Port::B, 1);
                 }
             }
             // dshot::receive_payload(motor_timers, dma);
@@ -1500,14 +1507,14 @@ mod app {
             // Set to Output pin, low.
             cfg_if! {
                 if #[cfg(feature = "h7")] {
-                    unsafe {
-                         (*pac::GPIOC::ptr()).moder.modify(|_, w| {
-                            w.moder6().bits(output_mode);
-                            w.moder7().bits(output_mode);
-                            w.moder8().bits(output_mode);
-                            w.moder9().bits(output_mode)
-                        });
-                    }
+                    // unsafe {
+                    //      (*pac::GPIOC::ptr()).moder.modify(|_, w| {
+                    //         w.moder6().bits(output_mode);
+                    //         w.moder7().bits(output_mode);
+                    //         w.moder8().bits(output_mode);
+                    //         w.moder9().bits(output_mode)
+                    //     });
+                    // }
 
                     // if dshot::BIDIR_EN {
                     //     // todo: This is unreachable...
@@ -1516,28 +1523,22 @@ mod app {
                     //     // gpio::set_high(Port::C, 8);
                     //     // gpio::set_high(Port::C, 9);
                     // } else {
-                    gpio::set_low(Port::C, 6);
-                    gpio::set_low(Port::C, 7);
-                    gpio::set_low(Port::C, 8);
-                    gpio::set_low(Port::C, 9);
+                    // gpio::set_low(Port::C, 6);
+                    // gpio::set_low(Port::C, 7);
+                    // gpio::set_low(Port::C, 8);
+                    // gpio::set_low(Port::C, 9);
                     // }
 
                 } else {
-                    unsafe {
-                        (*pac::GPIOB::ptr()).moder.modify(|_, w| {
-                            w.moder0().bits(output_mode);
-                            w.moder1().bits(output_mode)
-                        });
-                    }
-
-                    // if dshot::BIDIR_EN {
-                    //     // todo: This is unreachable...
-                    //     // gpio::set_high(Port::B, 0);
-                    //     // gpio::set_high(Port::B, 1);
-                    // } else {
-                    gpio::set_low(Port::B, 0);
-                    gpio::set_low(Port::B, 1);
-                    // }
+                //     unsafe {
+                //         (*pac::GPIOB::ptr()).moder.modify(|_, w| {
+                //             w.moder0().bits(output_mode);
+                //             w.moder1().bits(output_mode)
+                //         });
+                //     }
+                //
+                //     gpio::set_low(Port::B, 0);
+                //     gpio::set_low(Port::B, 1);
                 }
             }
         }
@@ -1730,6 +1731,30 @@ mod app {
                 }
             });
     }
+
+    #[task(binds = TIM1_UP_TIM16, shared = [], priority = 2)]
+    fn crsf_tc_isr(mut cx: crsf_tc_isr::Context) {
+        // println!("RF limiter ISR");
+        cx.shared.rf_limiter_timer.lock(|timer| {
+            timer.clear_interrupt(TimerInterrupt::Update);
+            timer.disable();
+            timer.reset_count();
+        });
+    }
+     uart.read_dma(
+            &mut RX_BUFFER,
+            channel,
+            ChannelCfg {
+                // Important: If we leave this priority low, we get strange anomolies. Note that
+                // it initializes to low in hardware. This brings up the question: Which other
+                // DMA process must it be higher than? DSHOT? IMU? At first glance, the conflict
+                // doesn't appear to be DSHOT, but might be the IMU.
+                priority: dma::Priority::High,
+                circular: Circular::Enabled,
+                ..Default::default()
+            },
+            dma,
+        );
 
     #[task(binds = TIM1_UP_TIM16, shared = [rf_limiter_timer], priority = 1)]
     fn rf_limiter_isr(mut cx: rf_limiter_isr::Context) {

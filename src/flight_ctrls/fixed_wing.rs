@@ -145,7 +145,7 @@ pub fn setup_timers(timers: &mut MotorTimers) {
     servo_tim.enable_pwm_output(ServoWing::S2.tim_channel(), OutputCompare::Pwm1, 0.);
 
     // PAC, since our HAL currently only sets this on `new`.
-    servo_tim.regs.cr1.modify(|_, w| w.opm().set_bit());
+    servo_tim.regs.cr1.modify(|_, w| w.opm().set_bit()); // todo: Does this work?
 
     // Set servo pins to pull-up, to make sure they don't shorten a pulse on a MCU reset
     // or similar condition.

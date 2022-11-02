@@ -300,7 +300,6 @@ pub fn handle_rx(
     adc: &Adc<ADC>,
     dma: &mut Dma<DMA1>,
 ) {
-    println!("TEST");
     let rx_msg_type: MsgType = match rx_buf[0].try_into() {
         Ok(d) => d,
         Err(_) => {
@@ -331,7 +330,6 @@ pub fn handle_rx(
             // todo
         }
         MsgType::ReqParams => {
-            println!("Params req");
             // todo: current behavior is to set preflight at first params request, and never set
             // todo it back. This could potentially be dangerous.
             *op_mode = OperationMode::Preflight;
