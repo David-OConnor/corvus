@@ -47,6 +47,7 @@ use crate::{
 };
 
 use cfg_if::cfg_if;
+use stm32_hal2::dma::DmaInterrupt;
 
 const CRC_POLY: u8 = 0xd5;
 const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
@@ -74,7 +75,8 @@ const MAX_PAYLOAD_SIZE: usize = PAYLOAD_SIZE_RC_CHANNELS;
 const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 4; // Extra 4: dest, size, frametype, CRC.
 
 // A pad allows lags in reading to not overwrite the packet start with a new message.
-const RX_BUF_SIZE: usize = MAX_PACKET_SIZE + 0;
+// const RX_BUF_SIZE: usize = MAX_PACKET_SIZE + 0;
+const RX_BUF_SIZE: usize = 8; // todo TS
 
 pub static mut RX_BUFFER: [u8; RX_BUF_SIZE] = [0; RX_BUF_SIZE];
 
@@ -150,11 +152,12 @@ pub enum PacketData {
 
 /// Configure the Idle interrupt, and start the circular DMA transfer. Run this once, on initial
 /// firmware setup.
-pub fn setup(uart: &mut Usart<UART_ELRS>, channel: DmaChannel, dma: &mut Dma<DMA1>) {
+pub fn setup(uart: &mut Usart<UART_ELRS>, dma_ch: DmaChannel, dma: &mut Dma<DMA1>) {
     // We alternate between char matching the flight controller destination address, and
     // line idle, to indicate we're received, or stopped receiving a message respectively.
-    uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
-    // uart.enable_interrupt(UsartInterrupt::ReadNotEmpty);
+    // uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
+    dma.enable_interrupt(dma_ch, DmaInterrupt::TransferComplete);
+    uart.enable_interrupt(UsartInterrupt::ReadNotEmpty);
     // uart.enable_interrupt(UsartInterrupt::Idle);
 
     unsafe {

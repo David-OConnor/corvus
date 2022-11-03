@@ -168,7 +168,7 @@ const LOGGING_UPDATE_RATIO: usize = 100;
 
 // Every x main update loops, print system status and sensor readings to console,
 // if enabled with the `print-status` feature.
-const PRINT_STATUS_RATIO: usize = 2_500;
+const PRINT_STATUS_RATIO: usize = 2_000;
 
 // Every x main loops, log RPM (or servo posit) to angular accel (thrust) data.
 const THRUST_LOG_RATIO: usize = 20;
@@ -249,6 +249,7 @@ mod app {
         motor_pid_state: MotorPidGroup,
         /// PID motor coefficients
         motor_pid_coeffs: MotorCoeffs,
+        uart_elrs: Usart<UART_ELRS>, // for ELRS over CRSF.
     }
 
     #[local]
@@ -268,7 +269,6 @@ mod app {
         /// This lets you know we've started the motor direction change procedure; happens
         /// once at startup.
         motor_dir_started: bool,
-        uart_elrs: Usart<UART_ELRS>, // for ELRS over CRSF.
         measurement_timer: Timer<TIM5>,
     }
 
@@ -639,6 +639,7 @@ mod app {
                 motor_pid_state: Default::default(),
                 motor_pid_coeffs: Default::default(),
                 rotor_rpms: Default::default(),
+                uart_elrs,
             },
             Local {
                 // uart_elrs,
@@ -652,7 +653,6 @@ mod app {
                 uart_osd,
                 time_with_high_throttle: 0.,
                 motor_dir_started: false,
-                uart_elrs,
                 measurement_timer,
             },
             init::Monotonics(),
@@ -663,6 +663,11 @@ mod app {
     #[idle(shared = [user_cfg, motor_timers, dma])]
     /// In this function, we perform setup code that must occur with interrupts enabled.
     fn idle(_cx: idle::Context) -> ! {
+        // todo experimenting
+        unsafe {
+            (*pac::USART3::ptr()).icr.write(|w| w.orecf().set_bit());
+        }
+
         loop {
             asm::nop();
         }
@@ -698,6 +703,11 @@ mod app {
     /// We give it a relatively high priority, to ensure it gets run despite faster processes ocurring.
     fn update_isr(mut cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
+
+        // todo: TS
+        unsafe {
+            // (*pac::USART3::ptr()).icr.write(|w| w.orecf().set_bit());
+        }
 
         *cx.local.update_isr_loop_i += 1;
 
@@ -778,6 +788,12 @@ mod app {
                     #[cfg(feature = "print-status")]
                     if *cx.local.update_isr_loop_i % PRINT_STATUS_RATIO == 0 {
                         // todo: Flesh this out, and perhaps make it more like Preflight.
+
+                        unsafe {
+                            println!("UART SR: {:?}", (*pac::USART3::ptr()).isr.read().bits());
+                        }
+
+                        // println!("CRSF BUF: {:?}", unsafe { crsf::RX_BUFFER });
 
                         println!(
                             "\n\nControl data:\nPitch: {} Roll: {}, Yaw: {}, Throttle: {}, Arm switch: {}",
@@ -1608,10 +1624,10 @@ mod app {
             );
     }
 
+    // todo: temp high prio.
     // #[task(binds = USART7,
     #[task(binds = USART3,
-    shared = [control_channel_data, link_stats, system_status,
-    lost_link_timer, link_lost, rf_limiter_timer], local = [uart_elrs, ctrl_coeff_adj_timer], priority = 7)]
+    shared = [uart_elrs, dma, rf_limiter_timer], local = [], priority = 10)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it triggers the inner PID loop. This is a high priority interrupt, since we need
     /// to start capturing immediately, or we'll miss part of the packet.
@@ -1619,142 +1635,165 @@ mod app {
     /// Note: This must be a very high priority in order to capture the packet data immediately,
     /// due to the circular transfer.
     fn crsf_isr(mut cx: crsf_isr::Context) {
-        // println!("CRSF ISR");
-        cx.local.uart_elrs.clear_interrupt(UsartInterrupt::Idle);
+        println!("CRSF start msg ISR");
+        // cx.local.uart_elrs.clear_interrupt(UsartInterrupt::Idle);
 
-        cx.shared.rf_limiter_timer.lock(|limiter_timer| {
-            if limiter_timer.is_enabled() {
-                // todo: This is triggering off link stats. Find a way to accept that, but still
-                // todo cancel immediately. (?)
-                // println!("Time since last req: {}", limiter_timer.time_elapsed().as_secs());
-                // println!("RF limiter triggered.");
-                // return; // todo
-            } else {
-                limiter_timer.disable();
-                limiter_timer.reset_count();
-                limiter_timer.enable();
+        // cx.shared.rf_limiter_timer.lock(|limiter_timer| {
+        //     if limiter_timer.is_enabled() {
+        //         // todo: This is triggering off link stats. Find a way to accept that, but still
+        //         // todo cancel immediately. (?)
+        //         // println!("Time since last req: {}", limiter_timer.time_elapsed().as_secs());
+        //         println!("RF limiter triggered.");
+        //         // return; // todo
+        //     } else {
+        //         limiter_timer.disable();
+        //         limiter_timer.reset_count();
+        //         limiter_timer.enable();
+        //     }
+        // });
+
+        (cx.shared.uart_elrs, cx.shared.dma).lock(|uart_elrs, dma| {
+            // uart_elrs.clear_interrupt(UsartInterrupt::CharDetect(0));
+            uart_elrs.disable_interrupt(UsartInterrupt::ReadNotEmpty);
+            // uart_elrs.disable_interrupt(UsartInterrupt::CharDetect(0));
+            // dma.enable_interrupt(setup::CRSF_RX_CH, DmaInterrupt::TransferComplete);
+
+            // println!("TEST {:?}", unsafe { crsf::RX_BUFFER });
+
+            unsafe {
+                uart_elrs.read_dma(
+                    &mut crsf::RX_BUFFER,
+                    setup::CRSF_RX_CH,
+                    ChannelCfg {
+                        priority: dma::Priority::VeryHigh, // todo temp
+                        circular: dma::Circular::Disabled, // todo temp!
+                        ..Default::default()
+                    },
+                    dma,
+                );
             }
+            // todo temp
+            unsafe {
+                (*pac::USART3::ptr()).icr.write(|w| w.orecf().set_bit());
+            }
+        });
+    }
+
+    // todo tmep high Pri
+    // DMA1_STR5
+    #[task(binds = DMA1_CH5, shared = [uart_elrs, dma], priority = 11)]
+    fn crsf_tc_isr(mut cx: crsf_tc_isr::Context) {
+        cx.shared.dma.lock(|dma| {
+            dma.clear_interrupt(setup::CRSF_RX_CH, DmaInterrupt::TransferComplete);
         });
 
         let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
         let mut rx_fault = false;
 
-        (
-            // cx.shared.dma,
-            cx.shared.control_channel_data,
-            cx.shared.link_stats,
-        )
-            .lock(|ch_data, link_stats| {
-                if let Some(crsf_data) = crsf::handle_packet(
-                    cx.local.uart_elrs,
-                    // dma,
-                    setup::CRSF_RX_CH,
-                    // setup::CRSF_TX_CH,
-                    &mut rx_fault,
-                ) {
-                    match crsf_data {
-                        crsf::PacketData::ChannelData(data) => {
-                            *ch_data = data;
-                            recieved_ch_data = true;
+        println!("TC");
+        //
+        println!("CRSF BUF: {:?}", unsafe { crsf::RX_BUFFER });
 
-                            // We have this PID adjustment here, since they're one-off actuations.
-                            // We handle other things like autopilot mode entry in the update fn.
-                            // if cx.local.ctrl_coeff_adj_timer.is_enabled() {
-                            //     println!("PID timer is still running.");
-                            // } else {
-                            //     let pid_adjustment = match ch_data.pid_tune_actuation {
-                            //         PidTuneActuation::Increase => CTRL_COEFF_ADJ_AMT,
-                            //         PidTuneActuation::Decrease => -CTRL_COEFF_ADJ_AMT,
-                            //         PidTuneActuation::Neutral => 0.,
-                            //     };
-                            //
-                            //     match ch_data.pid_tune_actuation {
-                            //         PidTuneActuation::Neutral => (),
-                            //         _ => {
-                            //             println!("Adjusting PID");
-                            //             // match ch_data.pid_tune_mode {
-                            //             //     PidTuneMode::Disabled => (),
-                            //             //     PidTuneMode::P => {
-                            //             //         // todo: for now or forever, adjust pitch, roll, yaw
-                            //             //         // todo at once to keep UI simple
-                            //             //         ctrl_coeffs.pitch.k_p_rate += pid_adjustment;
-                            //             //         ctrl_coeffs.roll.k_p_rate += pid_adjustment;
-                            //             //         // todo: Maybe skip yaw here?
-                            //             //         ctrl_coeffs.yaw.k_p_rate += pid_adjustment;
-                            //             //     }
-                            //             //     PidTuneMode::I => {
-                            //             //         ctrl_coeffs.pitch.k_i_rate += pid_adjustment;
-                            //             //         ctrl_coeffs.roll.k_i_rate += pid_adjustment;
-                            //             //         ctrl_coeffs.yaw.k_i_rate += pid_adjustment;
-                            //             //     }
-                            //             //     PidTuneMode::D => {
-                            //             //         ctrl_coeffs.pitch.k_d_rate += pid_adjustment;
-                            //             //         ctrl_coeffs.roll.k_d_rate += pid_adjustment;
-                            //             //         ctrl_coeffs.yaw.k_d_rate += pid_adjustment;
-                            //             //     }
-                            //             // }
-                            //         }
-                            //     }
-                            //     cx.local.ctrl_coeff_adj_timer.reset_count();
-                            //     cx.local.ctrl_coeff_adj_timer.enable();
-                            // }
-                        }
-                        crsf::PacketData::LinkStats(stats) => {
-                            *link_stats = stats;
-                        }
-                    }
-                }
-            });
+        unsafe {
+            // note: When
+            (*pac::USART3::ptr()).cr1.modify(|_, w| w.rxneie().set_bit());
+            (*pac::USART3::ptr()).icr.write(|w| w.orecf().set_bit());
+            // (*pac::USART3::ptr()).cr1.modify(|_, w| w.cmie().set_bit());
+        }
 
-        (
-            cx.shared.link_lost,
-            cx.shared.lost_link_timer,
-            cx.shared.system_status,
-        )
-            .lock(|link_lost, lost_link_timer, system_status| {
-                if recieved_ch_data {
-                    // We've received a packet successfully - reset the lost-link timer.
-                    lost_link_timer.disable();
-                    lost_link_timer.reset_count();
-                    lost_link_timer.enable();
-
-                    if *link_lost {
-                        println!("Link re-aquired");
-                        *link_lost = false;
-                        // todo: Execute re-acq procedure
-                    }
-                    system_status.rf_control_link = SensorStatus::Pass;
-                }
-
-                if rx_fault {
-                    system_status.rf_control_fault = true;
-                }
-            });
+        //
+        // (
+        //     // cx.shared.dma,
+        //     cx.shared.control_channel_data,
+        //     cx.shared.link_stats,
+        // )
+        //     .lock(|ch_data, link_stats| {
+        //         if let Some(crsf_data) = crsf::handle_packet(
+        //             cx.local.uart_elrs,
+        //             // dma,
+        //             setup::CRSF_RX_CH,
+        //             // setup::CRSF_TX_CH,
+        //             &mut rx_fault,
+        //         ) {
+        //             match crsf_data {
+        //                 crsf::PacketData::ChannelData(data) => {
+        //                     *ch_data = data;
+        //                     recieved_ch_data = true;
+        //
+        //                     // We have this PID adjustment here, since they're one-off actuations.
+        //                     // We handle other things like autopilot mode entry in the update fn.
+        //                     // if cx.local.ctrl_coeff_adj_timer.is_enabled() {
+        //                     //     println!("PID timer is still running.");
+        //                     // } else {
+        //                     //     let pid_adjustment = match ch_data.pid_tune_actuation {
+        //                     //         PidTuneActuation::Increase => CTRL_COEFF_ADJ_AMT,
+        //                     //         PidTuneActuation::Decrease => -CTRL_COEFF_ADJ_AMT,
+        //                     //         PidTuneActuation::Neutral => 0.,
+        //                     //     };
+        //                     //
+        //                     //     match ch_data.pid_tune_actuation {
+        //                     //         PidTuneActuation::Neutral => (),
+        //                     //         _ => {
+        //                     //             println!("Adjusting PID");
+        //                     //             // match ch_data.pid_tune_mode {
+        //                     //             //     PidTuneMode::Disabled => (),
+        //                     //             //     PidTuneMode::P => {
+        //                     //             //         // todo: for now or forever, adjust pitch, roll, yaw
+        //                     //             //         // todo at once to keep UI simple
+        //                     //             //         ctrl_coeffs.pitch.k_p_rate += pid_adjustment;
+        //                     //             //         ctrl_coeffs.roll.k_p_rate += pid_adjustment;
+        //                     //             //         // todo: Maybe skip yaw here?
+        //                     //             //         ctrl_coeffs.yaw.k_p_rate += pid_adjustment;
+        //                     //             //     }
+        //                     //             //     PidTuneMode::I => {
+        //                     //             //         ctrl_coeffs.pitch.k_i_rate += pid_adjustment;
+        //                     //             //         ctrl_coeffs.roll.k_i_rate += pid_adjustment;
+        //                     //             //         ctrl_coeffs.yaw.k_i_rate += pid_adjustment;
+        //                     //             //     }
+        //                     //             //     PidTuneMode::D => {
+        //                     //             //         ctrl_coeffs.pitch.k_d_rate += pid_adjustment;
+        //                     //             //         ctrl_coeffs.roll.k_d_rate += pid_adjustment;
+        //                     //             //         ctrl_coeffs.yaw.k_d_rate += pid_adjustment;
+        //                     //             //     }
+        //                     //             // }
+        //                     //         }
+        //                     //     }
+        //                     //     cx.local.ctrl_coeff_adj_timer.reset_count();
+        //                     //     cx.local.ctrl_coeff_adj_timer.enable();
+        //                     // }
+        //                 }
+        //                 crsf::PacketData::LinkStats(stats) => {
+        //                     *link_stats = stats;
+        //                 }
+        //             }
+        //         }
+        //     });
+        //
+        // (
+        //     cx.shared.link_lost,
+        //     cx.shared.lost_link_timer,
+        //     cx.shared.system_status,
+        // )
+        //     .lock(|link_lost, lost_link_timer, system_status| {
+        //         if recieved_ch_data {
+        //             // We've received a packet successfully - reset the lost-link timer.
+        //             lost_link_timer.disable();
+        //             lost_link_timer.reset_count();
+        //             lost_link_timer.enable();
+        //
+        //             if *link_lost {
+        //                 println!("Link re-aquired");
+        //                 *link_lost = false;
+        //                 // todo: Execute re-acq procedure
+        //             }
+        //             system_status.rf_control_link = SensorStatus::Pass;
+        //         }
+        //
+        //         if rx_fault {
+        //             system_status.rf_control_fault = true;
+        //         }
+        //     });
     }
-
-    #[task(binds = TIM1_UP_TIM16, shared = [], priority = 2)]
-    fn crsf_tc_isr(mut cx: crsf_tc_isr::Context) {
-        // println!("RF limiter ISR");
-        cx.shared.rf_limiter_timer.lock(|timer| {
-            timer.clear_interrupt(TimerInterrupt::Update);
-            timer.disable();
-            timer.reset_count();
-        });
-    }
-     uart.read_dma(
-            &mut RX_BUFFER,
-            channel,
-            ChannelCfg {
-                // Important: If we leave this priority low, we get strange anomolies. Note that
-                // it initializes to low in hardware. This brings up the question: Which other
-                // DMA process must it be higher than? DSHOT? IMU? At first glance, the conflict
-                // doesn't appear to be DSHOT, but might be the IMU.
-                priority: dma::Priority::High,
-                circular: Circular::Enabled,
-                ..Default::default()
-            },
-            dma,
-        );
 
     #[task(binds = TIM1_UP_TIM16, shared = [rf_limiter_timer], priority = 1)]
     fn rf_limiter_isr(mut cx: rf_limiter_isr::Context) {

@@ -383,6 +383,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     let elrs_dma_ch = DmaInput::Uart7Rx;
     #[cfg(feature = "g4")]
     let elrs_dma_ch = DmaInput::Usart3Rx;
+
     dma::mux(DmaPeriph::Dma1, CRSF_RX_CH, elrs_dma_ch);
 
     // Note: If we run out of DMA channels, consider removing the CRSF transmit channel;
