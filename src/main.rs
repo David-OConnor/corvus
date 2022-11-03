@@ -201,7 +201,7 @@ mod app {
     use super::*;
 
     use core::time::Duration; // todo temp
-    use stm32_hal2::instant::Instant; // todo temp
+use stm32_hal2::instant::Instant; // todo temp
 
     #[monotonic(binds = TIM5, default = true)]
     // type MyMono = Timer<TIM5>; // todo temp
@@ -249,13 +249,12 @@ mod app {
         motor_pid_state: MotorPidGroup,
         /// PID motor coefficients
         motor_pid_coeffs: MotorCoeffs,
-        uart_elrs: Usart<UART_ELRS>, // for ELRS over CRSF.
     }
 
     #[local]
     struct Local {
         update_timer: Timer<TIM15>,
-        // uart_elrs: Usart<UART_ELRS>, // for ELRS over CRSF.
+        uart_elrs: Usart<UART_ELRS>, // for ELRS over CRSF.
         // spi_flash: SpiFlash,  // todo: Fix flash in HAL, then do this.
         arm_signals_received: u8, // todo: Put sharedin state volatile.
         disarm_signals_received: u8,
@@ -267,9 +266,6 @@ mod app {
         ctrl_coeff_adj_timer: Timer<TIM1>,
         uart_osd: Usart<USART2>, // for our DJI OSD, via MSP protocol
         time_with_high_throttle: f32,
-        /// This lets you know we've started the motor direction change procedure; happens
-        /// once at startup.
-        motor_dir_started: bool,
         measurement_timer: Timer<TIM5>,
     }
 
@@ -316,9 +312,9 @@ mod app {
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-        clocks::enable_crs(CrsSyncSrc::OtgHs);
+            clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-        clocks::enable_crs(CrsSyncSrc::Usb);
+            clocks::enable_crs(CrsSyncSrc::Usb);
 
         // Improves performance, at a cost of slightly increased power use.
         cp.SCB.invalidate_icache();
@@ -332,14 +328,14 @@ mod app {
         let mut dma = Dma::new(dp.DMA1);
         let mut dma2 = Dma::new(dp.DMA2);
         #[cfg(feature = "g4")]
-        dma::enable_mux1();
+            dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
         #[cfg(feature = "h7")]
-        let UART_ELRS = dp.UART7;
+            let UART_ELRS = dp.UART7;
         #[cfg(feature = "g4")]
-        let UART_ELRS = dp.USART3;
+            let UART_ELRS = dp.USART3;
 
         let (mut spi1, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_elrs) =
             setup::setup_busses(dp.SPI1, dp.I2C1, dp.I2C2, dp.USART2, UART_ELRS, &clock_cfg);
@@ -357,10 +353,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601); // todo put back
@@ -506,13 +502,13 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // todo: Note that you may need to either increment the flash page offset, or cycle flash pages, to
         // todo avoid wear on a given sector from erasing each time. Note that you can still probably get 10k
@@ -523,9 +519,9 @@ mod app {
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -592,6 +588,35 @@ mod app {
         // Allow ESC to warm up and the radio to connect before starting the main loop.
         delay.delay_ms(WARMUP_TIME);
 
+        // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
+        // warmpup time.
+
+        // Set up motor direction; do this once the warmup time has elapsed.
+        let motors_reversed = (
+            user_cfg.control_mapping.m1_reversed,
+            user_cfg.control_mapping.m2_reversed,
+            user_cfg.control_mapping.m3_reversed,
+            user_cfg.control_mapping.m4_reversed,
+        );
+
+        dshot::setup_motor_dir(motors_reversed, &mut motor_timers, &mut dma);
+
+        crsf::setup(&mut uart_elrs);
+
+        // Start our main loop
+        update_timer.enable();
+
+        // Start out IMU-driven loop
+        // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
+        // todo opendrain and pullup set, and without enabling interrupt.
+        #[cfg(feature = "h7")]
+            let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
+        #[cfg(feature = "g4")]
+            let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
+        imu_exti_pin.enable_interrupt(Edge::Falling);
+
+        println!("Init complete; starting main loops");
+
         (
             // todo: Make these local as able.
             Shared {
@@ -629,11 +654,10 @@ mod app {
                 motor_pid_state: Default::default(),
                 motor_pid_coeffs: Default::default(),
                 rotor_rpms: Default::default(),
-                uart_elrs,
             },
             Local {
                 update_timer,
-                // uart_elrs,
+                uart_elrs,
                 // spi_flash, // todo: Fix flash in HAL, then do this.
                 arm_signals_received: 0,
                 disarm_signals_received: 0,
@@ -643,7 +667,6 @@ mod app {
                 ctrl_coeff_adj_timer,
                 uart_osd,
                 time_with_high_throttle: 0.,
-                motor_dir_started: false,
                 measurement_timer,
             },
             init::Monotonics(),
@@ -651,67 +674,9 @@ mod app {
         )
     }
 
-    #[idle(shared = [user_cfg, motor_timers, dma, uart_elrs, state_volatile], local = [update_timer, motor_dir_started])]
+    #[idle(shared = [], local = [])]
     /// In this function, we perform setup code that must occur with interrupts enabled.
-    fn idle(mut cx: idle::Context) -> ! {
-        // Make sure the motors are commanded to 0 before setting motor direction.
-
-        #[cfg(feature = "quad")]
-        (
-            cx.shared.state_volatile,
-            cx.shared.dma,
-            cx.shared.motor_timers,
-        )
-            .lock(|sv, dma, motor_timers| {
-                // We must do this initializing with the dshot ISRs active, but can't send
-                // motor commands, including the normal idle ones between its use. Hence the
-                // `initializing_motors` flag.
-                if !sv.initializing_motors {
-                    println!("Initializing motors.");
-                    // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
-
-                    let motors_reversed = (
-                        // todo: TS using hard-set values. Put back these cfg values once sorted.
-                        // cfg.control_mapping.m1_reversed,
-                        // cfg.control_mapping.m2_reversed,
-                        // cfg.control_mapping.m3_reversed,
-                        // cfg.control_mapping.m4_reversed,
-                        false, false, false, false,
-                    );
-
-                    if !*cx.local.motor_dir_started {
-                        dshot::setup_motor_dir(motors_reversed, motor_timers, dma);
-
-                        *cx.local.motor_dir_started = true;
-                    }
-                }
-
-                // dshot::stop_all(motor_timers, dma);
-            });
-
-        cx.shared.uart_elrs.lock(|uart_elrs| {
-            crsf::setup(uart_elrs);
-        });
-
-        // Start our main loop
-        cx.local.update_timer.enable();
-
-        // Start out IMU-driven loop
-        // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
-        // todo opendrain and pullup set, and without enabling interrupt.
-        #[cfg(feature = "h7")]
-        let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
-        #[cfg(feature = "g4")]
-        let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
-        imu_exti_pin.enable_interrupt(Edge::Falling);
-
-        println!("Init complete; starting main loops");
-
-        // // todo experimenting
-        // unsafe {
-        //     (*pac::USART3::ptr()).icr.write(|w| w.orecf().set_bit());
-        // }
-
+    fn idle(_cx: idle::Context) -> ! {
         loop {
             asm::nop();
         }
@@ -747,7 +712,7 @@ mod app {
     /// We give it a relatively high priority, to ensure it gets run despite faster processes ocurring.
     fn update_isr(mut cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
-        println!("Update loop");
+        // println!("Update loop");
         *cx.local.update_isr_loop_i += 1;
 
         (
@@ -1110,11 +1075,11 @@ mod app {
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         // Clear DMA interrupt this way due to RTIC conflict.
         #[cfg(feature = "h7")]
-        unsafe {
+            unsafe {
             (*DMA1::ptr()).lifcr.write(|w| w.ctcif2().set_bit())
         }
         #[cfg(feature = "g4")]
-        unsafe {
+            unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit())
         }
 
@@ -1122,7 +1087,7 @@ mod app {
             cs.set_high();
         });
 
-        println!("IMU LOOP");
+        // println!("IMU LOOP");
 
         *cx.local.imu_isr_loop_i += 1;
 
@@ -1162,12 +1127,6 @@ mod app {
                     // todo: If you use this long term, do something diff like have IMU update less
                     // todo frequently, or just apply filters each update.
                     if *cx.local.imu_isr_loop_i % 2 == 0 {
-                        return
-                    }
-
-                    #[cfg(feature = "quad")]
-                    if state_volatile.initializing_motors {
-                        println!("INIT MOT");
                         return
                     }
 
@@ -1216,9 +1175,18 @@ mod app {
                     };
 
                     if state_volatile.arm_status == ArmStatus::Armed {
-                        // dshot::set_power(p, p, p, p, motor_timers, dma);
+                        dshot::set_power(p, p, p, p, motor_timers, dma);
                     } else {
+
                         // dshot::stop_all(motor_timers, dma);
+                        // todo Temp
+
+                        if *cx.local.imu_isr_loop_i > 35_000 {
+                            let p2 = 0.025;
+                            dshot::set_power(p2, p2, p2, p2, motor_timers, dma);
+                        } else {
+                            dshot::stop_all(motor_timers, dma);
+                        }
                     }
 
                     // todo: Impl once you've sorted out your control logic.
@@ -1403,15 +1371,14 @@ mod app {
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
     #[cfg(feature = "g4")]
     #[task(binds = DMA1_CH3, shared = [], local = [], priority = 6)]
-    /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
-    /// or enable input capture if in bidirectional mode.
+    /// We use this ISR to enable input capture if in bidirectional mode.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
         // println!("12");
 
         // todo: Why is this gate required when we have feature-gated the fn?
         // todo: Maybe RTIC is messing up the fn-level feature gate?
         #[cfg(feature = "g4")]
-        unsafe {
+            unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit());
         }
 
@@ -1475,14 +1442,13 @@ mod app {
     // #[task(binds = DMA1_STR4,
     #[task(binds = DMA1_CH4,
     shared = [], priority = 6)]
-    /// We use this ISR to disable the DSHOT timer upon completion of a packet send,
-    /// or enable input capture if in bidirectional mode.
+    /// We use this ISR to enable input capture if in bidirectional mode.
     fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
         // println!("34");
         unsafe {
-            #[cfg(feature = "h7")]
+                #[cfg(feature = "h7")]
             (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
-            #[cfg(feature = "g4")]
+                #[cfg(feature = "g4")]
             (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit());
         }
         // unsafe {
@@ -1629,8 +1595,8 @@ mod app {
     // todo: Evaluate priority.
     // #[task(binds = USART7,
     #[task(binds = USART3,
-    shared = [uart_elrs, dma, control_channel_data, link_stats, rf_limiter_timer, link_lost,
-    lost_link_timer, system_status], local = [], priority = 10)]
+    shared = [dma, control_channel_data, link_stats, rf_limiter_timer, link_lost,
+    lost_link_timer, system_status], local = [uart_elrs], priority = 10)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
     /// and message ends. For message starts, it begins a DMA transfer. For message ends, it
     /// processes the radio data, passing it into shared resources for control channel data,
@@ -1639,21 +1605,22 @@ mod app {
         let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
         let mut rx_fault = false;
 
+        let uart = &mut cx.local.uart_elrs; // Code shortener
+
         (
-            cx.shared.uart_elrs,
             cx.shared.dma,
             cx.shared.control_channel_data,
             cx.shared.link_stats,
             cx.shared.rf_limiter_timer,
         )
-            .lock(|uart_elrs, dma, ch_data, link_stats, limiter_timer| {
+            .lock(|dma, ch_data, link_stats, limiter_timer| {
                 if unsafe { !(*pac::USART3::ptr()).isr.read().idle().bit_is_set() } {
-                    uart_elrs.clear_interrupt(UsartInterrupt::CharDetect(0));
+                    uart.clear_interrupt(UsartInterrupt::CharDetect(0));
                     // todo: Why/when/how to handle?
-                    uart_elrs.clear_interrupt(UsartInterrupt::Overrun);
+                    uart.clear_interrupt(UsartInterrupt::Overrun);
                     // Don't allow the starting char, as used in the middle of a message,
                     // to trigger an interrupt.
-                    uart_elrs.disable_interrupt(UsartInterrupt::CharDetect(0));
+                    uart.disable_interrupt(UsartInterrupt::CharDetect(0));
 
                     // todo: Deal with this later.
                     // if limiter_timer.is_enabled() {
@@ -1671,7 +1638,7 @@ mod app {
                     dma.stop(setup::CRSF_RX_CH); // todo TS
 
                     unsafe {
-                        uart_elrs.read_dma(
+                        uart.read_dma(
                             &mut crsf::RX_BUFFER,
                             setup::CRSF_RX_CH,
                             ChannelCfg {
@@ -1681,17 +1648,18 @@ mod app {
                             dma,
                         );
                     }
-                    // println!("S");
+                    println!("S");
                     // println!(
                     //     "O S: {}",
-                    //     uart_elrs.regs.isr.read().ore().bit_is_set()
+                    //     uart.regs.isr.read().ore().bit_is_set()
                     // );
                 } else {
+                    println!("I");
                     // Line is idle.
-                    uart_elrs.clear_interrupt(UsartInterrupt::Idle);
+                    uart.clear_interrupt(UsartInterrupt::Idle);
                     // println!("O I: {}", uart_elrs.regs.isr.read().ore().bit_is_set());
 
-                    uart_elrs.clear_interrupt(UsartInterrupt::Overrun); // todo?
+                    uart.clear_interrupt(UsartInterrupt::Overrun); // todo?
 
                     // Stop the DMA read, since it will likely not have filled the buffer, due
                     // to the variable message sizes.
@@ -1700,10 +1668,10 @@ mod app {
                     // Re-enable
                     // Don't use the HAL method to re-enable the char-match interrupt, since it also
                     // sets the address field.
-                    uart_elrs.regs.cr1.modify(|_, w| w.cmie().set_bit());
+                    uart.regs.cr1.modify(|_, w| w.cmie().set_bit());
 
                     if let Some(crsf_data) =
-                        crsf::handle_packet(uart_elrs, setup::CRSF_RX_CH, &mut rx_fault)
+                    crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {

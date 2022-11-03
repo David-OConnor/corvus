@@ -38,7 +38,7 @@ use cfg_if::cfg_if;
 use usb_device::device::UsbDeviceState::Default;
 
 // Enable bidirectional DSHOT, which returns RPM data
-pub const BIDIR_EN: bool = true;
+pub const BIDIR_EN: bool = false;
 
 // Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
 // so we can set duty cycle appropriately for DSHOT.
@@ -47,7 +47,8 @@ pub const BIDIR_EN: bool = true;
 
 pub const DSHOT_PSC_600: u16 = 0;
 
-const ESC_TELEM: bool = false;
+// ESC telemetry is false except when setting motor direction.
+static mut ESC_TELEM: bool = false;
 
 // Update frequency: 600kHz
 // 170Mhz tim clock on G4.
@@ -169,7 +170,7 @@ pub fn stop_all(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     set_power(0., 0., 0., 0., timers, dma);
 }
 
-/// Set up the direction for each motor, in accordance with user config.
+/// Set up the direction for each motor, in accordance with user config. Note: This blocks! (at least for now).
 pub fn setup_motor_dir(
     motors_reversed: (bool, bool, bool, bool),
     timers: &mut MotorTimers,
@@ -179,18 +180,18 @@ pub fn setup_motor_dir(
     let cp = unsafe { cortex_m::Peripherals::steal() };
     let mut delay = Delay::new(cp.SYST, 170_000_000);
 
-    // Throttle must be 0 with telemetry bit set to use commands.
-    stop_all(timers, dma);
+    // Throttle must have been commanded to 0 a certain number of timers,
+    // and the telemetry bit must be bit set to use commands.
+    // Setting the throttle twice doesn't work; 10x works. The required value is evidently between
+    // these 2 bounds.
+    for i in 0.. 10 {
+        stop_all(timers, dma);
+        delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+    }
+    // I've confirmed that setting direction without the telemetry bit set will fail.
+    unsafe { ESC_TELEM = true};
+
     delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
-
-    // setup_payload(Rotor::R1, CmdType::Command(Command::Led0On));
-    // setup_payload(Rotor::R2, CmdType::Command(Command::Led0On));
-    // setup_payload(Rotor::R3, CmdType::Command(Command::Led0On));
-    // setup_payload(Rotor::R4, CmdType::Command(Command::Led0On));
-
-    // send_payload_a(timer_a, dma);
-    // send_payload_b(timer_b, dma);
-    // delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
 
     println!("Setting up motor direction");
 
@@ -249,6 +250,8 @@ pub fn setup_motor_dir(
         delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
     }
     delay.delay_ms(PAUSE_AFTER_SAVE);
+
+    unsafe { ESC_TELEM = false};
 }
 
 /// Update our DSHOT payload for a given rotor, with a given power level.
@@ -264,7 +267,7 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
         CmdType::Power(pwr) => (pwr * 1_999.) as u16 + 48,
     };
 
-    let packet = (data_word << 1) | (if ESC_TELEM { 1 } else { 0 });
+    let packet = (data_word << 1) | (if unsafe { ESC_TELEM } { 1 } else { 0 });
 
     // Compute the checksum
     let crc = (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F;
