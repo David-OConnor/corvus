@@ -75,8 +75,7 @@ const MAX_PAYLOAD_SIZE: usize = PAYLOAD_SIZE_RC_CHANNELS;
 const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 4; // Extra 4: dest, size, frametype, CRC.
 
 // A pad allows lags in reading to not overwrite the packet start with a new message.
-// const RX_BUF_SIZE: usize = MAX_PACKET_SIZE + 0;
-const RX_BUF_SIZE: usize = 8; // todo TS
+const RX_BUF_SIZE: usize = MAX_PACKET_SIZE;
 
 pub static mut RX_BUFFER: [u8; RX_BUF_SIZE] = [0; RX_BUF_SIZE];
 
@@ -156,9 +155,10 @@ pub fn setup(uart: &mut Usart<UART_ELRS>, dma_ch: DmaChannel, dma: &mut Dma<DMA1
     // We alternate between char matching the flight controller destination address, and
     // line idle, to indicate we're received, or stopped receiving a message respectively.
     // uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
-    dma.enable_interrupt(dma_ch, DmaInterrupt::TransferComplete);
+    // uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
+    // dma.enable_interrupt(dma_ch, DmaInterrupt::TransferComplete);
     uart.enable_interrupt(UsartInterrupt::ReadNotEmpty);
-    // uart.enable_interrupt(UsartInterrupt::Idle);
+    uart.enable_interrupt(UsartInterrupt::Idle);
 
     unsafe {
         // uart.read_dma(
