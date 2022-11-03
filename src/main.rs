@@ -59,9 +59,9 @@ use stm32_hal2::{
     clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
     dma::{self, ChannelCfg, Dma, DmaInterrupt},
     flash::{Bank, Flash},
-    gpio::{self, Pin, Port},
+    gpio::{self, Edge, Pin, Port},
     i2c::I2c,
-    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, TIM1, TIM16, TIM17, TIM5, USART2},
+    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, TIM1, TIM15, TIM16, TIM17, TIM5, USART2},
     spi::Spi,
     timer::{Timer, TimerConfig, TimerInterrupt},
     usart::{Usart, UsartInterrupt},
@@ -254,6 +254,7 @@ mod app {
 
     #[local]
     struct Local {
+        update_timer: Timer<TIM15>,
         // uart_elrs: Usart<UART_ELRS>, // for ELRS over CRSF.
         // spi_flash: SpiFlash,  // todo: Fix flash in HAL, then do this.
         arm_signals_received: u8, // todo: Put sharedin state volatile.
@@ -376,7 +377,6 @@ mod app {
             Default::default(),
             &clock_cfg,
         );
-
         update_timer.enable_interrupt(TimerInterrupt::Update);
 
         // This timer is used to prevent a stream of continuous RF control signals, should they arrive
@@ -589,8 +589,6 @@ mod app {
 
         let ahrs = Ahrs::new(&ahrs_settings, crate::IMU_UPDATE_RATE as u32);
 
-        update_timer.enable();
-
         // Allow ESC to warm up and the radio to connect before starting the main loop.
         delay.delay_ms(WARMUP_TIME);
 
@@ -616,7 +614,7 @@ mod app {
                 // rtc,
                 rf_limiter_timer,
                 lost_link_timer,
-                link_lost: false,
+                link_lost: true, // Initialize to not being on the link
                 motor_timers,
                 usb_dev,
                 usb_serial,
@@ -634,6 +632,7 @@ mod app {
                 uart_elrs,
             },
             Local {
+                update_timer,
                 // uart_elrs,
                 // spi_flash, // todo: Fix flash in HAL, then do this.
                 arm_signals_received: 0,
@@ -652,20 +651,61 @@ mod app {
         )
     }
 
-    #[idle(shared = [user_cfg, motor_timers, dma, uart_elrs])]
+    #[idle(shared = [user_cfg, motor_timers, dma, uart_elrs, state_volatile], local = [update_timer, motor_dir_started])]
     /// In this function, we perform setup code that must occur with interrupts enabled.
-    fn idle(cx: idle::Context) -> ! {
+    fn idle(mut cx: idle::Context) -> ! {
         // Make sure the motors are commanded to 0 before setting motor direction.
 
-        (cx.shared.uart_elrs, cx.shared.dma, cx.shared.motor_timers).lock(
-            |uart_elrs, dma, motor_timers| {
+        #[cfg(feature = "quad")]
+        (
+            cx.shared.state_volatile,
+            cx.shared.dma,
+            cx.shared.motor_timers,
+        )
+            .lock(|sv, dma, motor_timers| {
+                // We must do this initializing with the dshot ISRs active, but can't send
+                // motor commands, including the normal idle ones between its use. Hence the
+                // `initializing_motors` flag.
+                if !sv.initializing_motors {
+                    println!("Initializing motors.");
+                    // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
+
+                    let motors_reversed = (
+                        // todo: TS using hard-set values. Put back these cfg values once sorted.
+                        // cfg.control_mapping.m1_reversed,
+                        // cfg.control_mapping.m2_reversed,
+                        // cfg.control_mapping.m3_reversed,
+                        // cfg.control_mapping.m4_reversed,
+                        false, false, false, false,
+                    );
+
+                    if !*cx.local.motor_dir_started {
+                        dshot::setup_motor_dir(motors_reversed, motor_timers, dma);
+
+                        *cx.local.motor_dir_started = true;
+                    }
+                }
+
                 // dshot::stop_all(motor_timers, dma);
+            });
 
-                crsf::setup(uart_elrs, setup::CRSF_RX_CH, dma);
-            },
-        );
+        cx.shared.uart_elrs.lock(|uart_elrs| {
+            crsf::setup(uart_elrs);
+        });
 
-        println!("Init complete");
+        // Start our main loop
+        cx.local.update_timer.enable();
+
+        // Start out IMU-driven loop
+        // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
+        // todo opendrain and pullup set, and without enabling interrupt.
+        #[cfg(feature = "h7")]
+        let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
+        #[cfg(feature = "g4")]
+        let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
+        imu_exti_pin.enable_interrupt(Edge::Falling);
+
+        println!("Init complete; starting main loops");
 
         // // todo experimenting
         // unsafe {
@@ -698,7 +738,7 @@ mod app {
     lost_link_timer, link_lost, altimeter, i2c1, i2c2, state_volatile, system_status, batt_curr_adc, dma, dma2,
     ],
     local = [arm_signals_received, disarm_signals_received, update_isr_loop_i, uart_osd,
-    time_with_high_throttle, motor_dir_started],
+    time_with_high_throttle],
 
     priority = 5
     )]
@@ -707,7 +747,7 @@ mod app {
     /// We give it a relatively high priority, to ensure it gets run despite faster processes ocurring.
     fn update_isr(mut cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
-
+        println!("Update loop");
         *cx.local.update_isr_loop_i += 1;
 
         (
@@ -751,39 +791,6 @@ mod app {
                  dma2,
                  rpms,
                  flight_ctrl_filters| {
-                    // We must do this initializing with the dshot ISRs active, but can't send
-                    // motor commands, including the normal idle ones between its use. Hence the
-                    // `initializing_motors` flag.
-                    #[cfg(feature = "quad")]
-                    if state_volatile.initializing_motors {
-                        println!("Initializing motors.");
-                        // Indicate to the ESC we've started with 0 throttle. Not sure if delay is strictly required.
-
-                        let motors_reversed = (
-                            // todo: TS using hard-set values. Put back these cfg values once sorted.
-                            // cfg.control_mapping.m1_reversed,
-                            // cfg.control_mapping.m2_reversed,
-                            // cfg.control_mapping.m3_reversed,
-                            // cfg.control_mapping.m4_reversed,
-                            false,
-                            false,
-                            false,
-                            false,
-                        );
-
-                        if !*cx.local.motor_dir_started {
-                            dshot::setup_motor_dir(
-                                motors_reversed,
-                                motor_timers,
-                                dma,
-                            );
-
-                            *cx.local.motor_dir_started = true;
-                        }
-
-                        return
-                    }
-
                     #[cfg(feature = "print-status")]
                     if *cx.local.update_isr_loop_i % PRINT_STATUS_RATIO == 0 {
                         // todo: Flesh this out, and perhaps make it more like Preflight.
@@ -1114,6 +1121,8 @@ mod app {
         cx.shared.cs_imu.lock(|cs| {
             cs.set_high();
         });
+
+        println!("IMU LOOP");
 
         *cx.local.imu_isr_loop_i += 1;
 

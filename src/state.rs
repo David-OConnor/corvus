@@ -189,7 +189,7 @@ pub struct SystemStatus {
     pub magnetometer: SensorStatus,
     pub esc_telemetry: SensorStatus,
     pub esc_rpm: SensorStatus,
-    pub rf_control_link: SensorStatus,
+    pub rf_control_link: SensorStatus, // todo: For now, we use `link_lost` instead.
     // todo: Consider a separate faults struct if this grows in complexity
     pub rf_control_fault: bool,
 }
