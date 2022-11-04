@@ -200,8 +200,10 @@ const WARMUP_TIME: u32 = 3_000; // todo: Lower if able.
 mod app {
     use super::*;
 
+    use crate::flight_ctrls::common::Motor;
     use core::time::Duration; // todo temp
-    use stm32_hal2::instant::Instant; // todo temp
+    use stm32_hal2::instant::Instant;
+    use stm32_hal2::timer::TimChannel; // todo temp
 
     #[monotonic(binds = TIM5, default = true)]
     // type MyMono = Timer<TIM5>; // todo temp
@@ -1170,12 +1172,11 @@ mod app {
                     };
 
                     if state_volatile.arm_status == ArmStatus::Armed {
-                        dshot::set_power(p, p, p, p, motor_timers, dma);
+                        // dshot::set_power(p, p, p, p, motor_timers, dma);
+                        dshot::set_power(p, 0., 0., 0., motor_timers, dma);
                     } else {
 
                         dshot::stop_all(motor_timers, dma);
-                        // todo Temp
-
                     }
 
                     // todo: Impl once you've sorted out your control logic.
@@ -1359,8 +1360,9 @@ mod app {
     // uses a single timer on H7: `dshot_isr_r34`
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
     #[cfg(feature = "g4")]
-    #[task(binds = DMA1_CH3, shared = [], local = [], priority = 6)]
-    /// We use this ISR to enable input capture if in bidirectional mode.
+    #[task(binds = DMA1_CH3, shared = [motor_timers], local = [], priority = 6)]
+    /// We use this ISR to enable input capture if in bidirectional mode. Assocaited with Tim2,
+    /// and is only used on G4.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
         // println!("12");
 
@@ -1371,68 +1373,32 @@ mod app {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit());
         }
 
-        // *cx.local.aux_loop_i += 1;
-        // cx.local.measurement_timer.disable();
-        // if *cx.local.aux_loop_i % 1_000 == 0 {
-        //     let f = 1./cx.local.measurement_timer.time_elapsed().as_secs();
-        //
-        //     println!("Freq: {:?}", f);
-        // }
-        // cx.local.measurement_timer.reset_count();
-        // cx.local.measurement_timer.enable();
-
-        // cx.shared.motor_timers.lock(|timers| {
-        //     timers.r12.disable();
-        // });
         // todo: Temp. Put motor timers etc back A/R. If you still have trouble, may need to
         // todo split by 1/2, 3/4 instead of sharing motor timers struct.
         unsafe {
             // (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
         }
 
-        // let output_mode = 0b01;
-
         // todo: Before adding dma to shared state here, make sure it wasn't
         // todo deliberately ommitted...
         if dshot::BIDIR_EN {
-            // motor_timers.r12.enable_input_capture();
-            // dshot::receive_payload(motor_timers, dma);
-
-            // todo: Temp TS; probalby this would interfere with input cap
-            // unsafe {
-            //     (*pac::GPIOA::ptr()).moder.modify(|_, w| {
-            //         w.moder0().bits(output_mode);
-            //         w.moder1().bits(output_mode)
-            //     });
-            // }
-            // gpio::set_high(Port::A, 0);
-            // gpio::set_high(Port::A, 1);
-
-            // todo: Eval again if you need to force to output and low.
-        } else {
-            // Set to Output pin, low.
-            // unsafe {
-            //     (*pac::GPIOA::ptr()).moder.modify(|_, w| {
-            //         w.moder0().bits(output_mode);
-            //         w.moder1().bits(output_mode)
-            //     });
-            // }
-            // if dshot::BIDIR_EN {
-            //     // todo: This is unreachable...
-            //     // gpio::set_high(Port::A, 0);
-            //     // gpio::set_high(Port::A, 1);
-            // } else {
-            // gpio::set_low(Port::A, 0);
-            // gpio::set_low(Port::A, 1);
+            cx.shared.motor_timers.lock(|motor_timers| {
+                dshot::set_to_input(motor_timers, Motor::M1, Motor::M2, false);
+                // dshot::receive_payload(motor_timers, dma);
+            });
         }
-        // }
     }
 
-    // #[task(binds = DMA1_STR4,
-    #[task(binds = DMA1_CH4,
-    shared = [], priority = 6)]
-    /// We use this ISR to enable input capture if in bidirectional mode.
+    // #[task(binds = DMA1_STR4, shared = [motor_timers], priority = 6)]
+    #[task(binds = DMA1_CH4, shared = [motor_timers], priority = 6)]
+    /// We use this ISR to enable input capture if in bidirectional mode. For G4, it's only for motors
+    /// 3 and 4. For h7, it's for all 4. Associated with Tim3.
     fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
+        // todo: Remove everythign in this ISR except for the interrupt-clear flag
+        // todo if `dshot::set_to_input` handles all motors. Or, split
+        // todo that fn based on M12 or M34. This interrupt still needs to fire apparently,
+        // todo per the required timer DMA interrupt.
+
         // println!("34");
         unsafe {
             #[cfg(feature = "h7")]
@@ -1458,62 +1424,17 @@ mod app {
         // let output_mode = 0b01;
 
         if dshot::BIDIR_EN {
-            cfg_if! {
-                if #[cfg(feature = "h7")] {
-                    // motor_timers.r1234.enable_input_capture();
-                } else {
-                    // motor_timers.r34_servos.enable_input_capture();
+            cx.shared.motor_timers.lock(|motor_timers| {
+                dshot::set_to_input(motor_timers, Motor::M3, Motor::M4, true);
 
-                // todo: Temp TS; probalby this would interfere with input cap
-                // unsafe {
-                //     (*pac::GPIOB::ptr()).moder.modify(|_, w| {
-                //         w.moder0().bits(output_mode);
-                //         w.moder1().bits(output_mode)
-                //     });
-                // }
-                //     gpio::set_high(Port::B, 0);
-                //     gpio::set_high(Port::B, 1);
+                cfg_if! {
+                    if #[cfg(feature = "h7")] {
+                        // On H7, we also handle motors 1 and 2 here.
+                        dshot::set_to_input(motor_timers, Motor::M1, Motor::M2, true);
+                    }
                 }
-            }
-            // dshot::receive_payload(motor_timers, dma);
-        } else {
-            // Set to Output pin, low.
-            cfg_if! {
-                if #[cfg(feature = "h7")] {
-                    // unsafe {
-                    //      (*pac::GPIOC::ptr()).moder.modify(|_, w| {
-                    //         w.moder6().bits(output_mode);
-                    //         w.moder7().bits(output_mode);
-                    //         w.moder8().bits(output_mode);
-                    //         w.moder9().bits(output_mode)
-                    //     });
-                    // }
-
-                    // if dshot::BIDIR_EN {
-                    //     // todo: This is unreachable...
-                    //     // gpio::set_high(Port::C, 6);
-                    //     // gpio::set_high(Port::C, 7);
-                    //     // gpio::set_high(Port::C, 8);
-                    //     // gpio::set_high(Port::C, 9);
-                    // } else {
-                    // gpio::set_low(Port::C, 6);
-                    // gpio::set_low(Port::C, 7);
-                    // gpio::set_low(Port::C, 8);
-                    // gpio::set_low(Port::C, 9);
-                    // }
-
-                } else {
-                //     unsafe {
-                //         (*pac::GPIOB::ptr()).moder.modify(|_, w| {
-                //             w.moder0().bits(output_mode);
-                //             w.moder1().bits(output_mode)
-                //         });
-                //     }
-                //
-                //     gpio::set_low(Port::B, 0);
-                //     gpio::set_low(Port::B, 1);
-                }
-            }
+            });
+            // dshot::receive_payload(motor_timers, dma); // todo
         }
     }
 

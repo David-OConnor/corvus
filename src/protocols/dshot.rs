@@ -38,7 +38,7 @@ use cfg_if::cfg_if;
 use usb_device::device::UsbDeviceState::Default;
 
 // Enable bidirectional DSHOT, which returns RPM data
-pub const BIDIR_EN: bool = false;
+pub const BIDIR_EN: bool = true;
 
 // Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
 // so we can set duty cycle appropriately for DSHOT.
@@ -74,7 +74,7 @@ const DUTY_LOW: u32 = DSHOT_ARR_600 * 3 / 8;
 // Use this pause duration, in ms, when setting up motor dir.
 pub const PAUSE_BETWEEN_COMMANDS: u32 = 1;
 pub const PAUSE_AFTER_SAVE: u32 = 40; // Must be at least 35ms.
-                                      // BLHeli_32 requires you repeat certain commands, like motor direction, 6 times.
+// BLHeli_32 requires you repeat certain commands, like motor direction, 6 times.
 pub const REPEAT_COMMAND_COUNT: u32 = 10; // todo: Set back to 6 once sorted out.
 
 // DMA buffers for each rotor. 16-bit data. Note that
@@ -170,7 +170,9 @@ pub fn stop_all(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     set_power(0., 0., 0., 0., timers, dma);
 }
 
-/// Set up the direction for each motor, in accordance with user config. Note: This blocks! (at least for now).
+/// Set up the direction for each motor, in accordance with user config. Note: This blocks!
+/// (at least for now). The intended use case is to run this only at init, and during Preflight,
+/// if adjusting motor mapping.
 pub fn setup_motor_dir(
     motors_reversed: (bool, bool, bool, bool),
     timers: &mut MotorTimers,
@@ -182,9 +184,9 @@ pub fn setup_motor_dir(
 
     // Throttle must have been commanded to 0 a certain number of timers,
     // and the telemetry bit must be bit set to use commands.
-    // Setting the throttle twice doesn't work; 10x works. The required value is evidently between
+    // Setting the throttle twice (with 1ms delay) doesn't work; 10x works. The required value is evidently between
     // these 2 bounds.
-    for i in 0..20 {
+    for i in 0..30 {
         stop_all(timers, dma);
         delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
     }
@@ -227,16 +229,6 @@ pub fn setup_motor_dir(
         send_payload(timers, dma);
 
         delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
-
-        // setup_payload(Rotor::R1, CmdType::Command(Command::SaveSettings));
-        // setup_payload(Rotor::R2, CmdType::Command(Command::SaveSettings));
-        // send_payload_a(timer_a, dma);
-        //
-        // setup_payload(Rotor::R3, CmdType::Command(Command::SaveSettings));
-        // setup_payload(Rotor::R4, CmdType::Command(Command::SaveSettings));
-        // send_payload_b(timer_b, dma);
-        //
-        // delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
     }
 
     for _ in 0..REPEAT_COMMAND_COUNT {
@@ -270,7 +262,11 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
     let packet = (data_word << 1) | (if unsafe { ESC_TELEM } { 1 } else { 0 });
 
     // Compute the checksum
-    let crc = (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F;
+    let crc = if BIDIR_EN {
+        (!(packet ^ (packet >> 4) ^ (packet >> 8))) & 0x0F
+    } else {
+        (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F
+    };
     let packet = (packet << 4) | crc;
 
     cfg_if! {
@@ -336,31 +332,24 @@ pub fn set_power_single(rotor: Motor, power: f32, timers: &mut MotorTimers, dma:
 fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     // The previous transfer should already be complete, but just in case.
     dma.stop(Motor::M1.dma_channel());
+    #[cfg(all(feature = "h7", feature = "quad"))]
+        dma.stop(Motor::M3.dma_channel());
 
-    // if BIDIR_EN {
-    //     // Was likely in input mode previously; update.
-    //     set_to_output(timers);
-    // }
+    if BIDIR_EN {
+        // Was likely in input mode previously; update.
+        set_to_output(timers);
+    }
 
     // Note that timer enabling is handled by `write_dma_burst`.
 
-    let alt_fn_mode = 0b10;
     let dma_cfg = ChannelCfg {
-        priority: Priority::Medium, // todo ?
+        priority: Priority::Low, // todo
         ..ChannelCfg::default()
     };
 
-    cfg_if! {
-        if #[cfg(feature = "h7")] {
-             // Set back to alternate function.
-            unsafe {
-                (*pac::GPIOC::ptr()).moder.modify(|_, w| {
-                    w.moder6().bits(alt_fn_mode);
-                    w.moder7().bits(alt_fn_mode);
-                    w.moder8().bits(alt_fn_mode);
-                    w.moder9().bits(alt_fn_mode)
-                });
-
+    unsafe {
+        cfg_if! {
+            if #[cfg(feature = "h7")] {
                 timers.rotors.write_dma_burst(
                     &PAYLOAD,
                     Motor::M1.base_addr_offset(),
@@ -370,21 +359,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     dma,
                     true,
                 );
-            }
-        } else {
-            dma.stop(Motor::M3.dma_channel());
-
-            unsafe {
-                (*pac::GPIOA::ptr()).moder.modify(|_, w| {
-                    w.moder0().bits(alt_fn_mode);
-                    w.moder1().bits(alt_fn_mode)
-                });
-                #[cfg(feature = "quad")]
-                (*pac::GPIOB::ptr()).moder.modify(|_, w| {
-                    w.moder0().bits(alt_fn_mode);
-                    w.moder1().bits(alt_fn_mode)
-                });
-
+            } else {
                 timers.r12.write_dma_burst(
                     &PAYLOAD_R1_2,
                     Motor::M1.base_addr_offset(),
@@ -395,7 +370,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     true,
                 );
                 #[cfg(feature = "quad")]
-                timers.r34.write_dma_burst(
+                    timers.r34.write_dma_burst(
                     &PAYLOAD_R3_4,
                     Motor::M3.base_addr_offset(),
                     2,
@@ -404,9 +379,7 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     dma,
                     false,
                 );
-
             }
-
         }
     }
 }
@@ -556,8 +529,10 @@ pub fn set_to_output(timers: &mut MotorTimers) {
 }
 
 /// Set the timer(s) to input mode. Used to receive PWM data in bidirectional mode.
-fn set_to_input(timers: &mut MotorTimers) {
-    let cc = CaptureCompare::Output;
+/// We use motor args here, since this will run separately depending on the DSHOT
+/// ISR for G4.
+pub fn set_to_input(timers: &mut MotorTimers, motor_a: Motor, motor_b: Motor, three_four: bool) {
+    let cc = CaptureCompare::InputTi1; // todo?
     let trigger = InputTrigger::Internal0;
 
     // let trigger = InputTrigger::FilteredTimerInput1; // todo?
@@ -579,23 +554,16 @@ fn set_to_input(timers: &mut MotorTimers) {
 
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            // Arbitrary duty cycle set, since we'll override it with DMA bursts.
-
-            timers.rotors.set_input_capture(Motor::M1.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-            timers.rotors.set_input_capture(Motor::M2.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            timers.rotors.set_input_capture(motor_a.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            timers.rotors.set_input_capture(motor_b.tim_channel(), cc, trigger, ism, pol_p, pol_n);
         } else {
-            timers.r12.set_input_capture(Motor::M1.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-            timers.r12.set_input_capture(Motor::M2.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-        }
-    }
-
-    cfg_if! {
-        if #[cfg(all(feature = "h7", feature = "quad"))] {
-            timers.rotors.set_input_capture(Motor::M3.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-            timers.rotors.set_input_capture(Motor::M4.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-        } else if #[cfg(all(feature = "g4", feature = "quad"))] {
-            timers.r34.set_input_capture(Motor::M3.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-            timers.r34.set_input_capture(Motor::M4.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            if three_four {
+                timers.r34.set_input_capture(motor_a.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+                timers.r34.set_input_capture(motor_b.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            } else {
+                timers.r12.set_input_capture(motor_a.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+                timers.r12.set_input_capture(motor_b.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            }
         }
     }
 }
