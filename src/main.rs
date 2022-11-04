@@ -191,7 +191,7 @@ const CTRL_COEFF_ADJ_TIMEOUT: f32 = 0.3; // seconds
 const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 
 // The time, in ms, to wait during initializing to allow the ESC and RX to power up and initialize.
-const WARMUP_TIME: u32 = 2_000; // todo: Lower if able.
+const WARMUP_TIME: u32 = 3_000; // todo: Lower if able.
 
 // todo: Bit flags that display as diff colored LEDs, and OSD items
 
@@ -201,7 +201,7 @@ mod app {
     use super::*;
 
     use core::time::Duration; // todo temp
-use stm32_hal2::instant::Instant; // todo temp
+    use stm32_hal2::instant::Instant; // todo temp
 
     #[monotonic(binds = TIM5, default = true)]
     // type MyMono = Timer<TIM5>; // todo temp
@@ -312,9 +312,9 @@ use stm32_hal2::instant::Instant; // todo temp
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-            clocks::enable_crs(CrsSyncSrc::OtgHs);
+        clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-            clocks::enable_crs(CrsSyncSrc::Usb);
+        clocks::enable_crs(CrsSyncSrc::Usb);
 
         // Improves performance, at a cost of slightly increased power use.
         cp.SCB.invalidate_icache();
@@ -328,14 +328,14 @@ use stm32_hal2::instant::Instant; // todo temp
         let mut dma = Dma::new(dp.DMA1);
         let mut dma2 = Dma::new(dp.DMA2);
         #[cfg(feature = "g4")]
-            dma::enable_mux1();
+        dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
         #[cfg(feature = "h7")]
-            let UART_ELRS = dp.UART7;
+        let UART_ELRS = dp.UART7;
         #[cfg(feature = "g4")]
-            let UART_ELRS = dp.USART3;
+        let UART_ELRS = dp.USART3;
 
         let (mut spi1, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_elrs) =
             setup::setup_busses(dp.SPI1, dp.I2C1, dp.I2C2, dp.USART2, UART_ELRS, &clock_cfg);
@@ -353,10 +353,10 @@ use stm32_hal2::instant::Instant; // todo temp
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601); // todo put back
@@ -498,18 +498,6 @@ use stm32_hal2::instant::Instant; // todo temp
 
         let usb_serial = SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
 
-        let usb_dev = UsbDeviceBuilder::new(
-            unsafe { USB_BUS.as_ref().unwrap() },
-            UsbVidPid(0x16c0, 0x27dd),
-        )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
-
         // todo: Note that you may need to either increment the flash page offset, or cycle flash pages, to
         // todo avoid wear on a given sector from erasing each time. Note that you can still probably get 10k
         // todo erase/write cycles per sector, so this is low priority.
@@ -519,9 +507,9 @@ use stm32_hal2::instant::Instant; // todo temp
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -588,6 +576,21 @@ use stm32_hal2::instant::Instant; // todo temp
         // Allow ESC to warm up and the radio to connect before starting the main loop.
         delay.delay_ms(WARMUP_TIME);
 
+        // We must set up the USB device after the warmup delay, since its long blocking delay
+        // leads teh host (PC) to terminate the connection. The (short, repeated) blocking delays
+        // in the motor dir config appear to be acceptable.
+        let usb_dev = UsbDeviceBuilder::new(
+            unsafe { USB_BUS.as_ref().unwrap() },
+            UsbVidPid(0x16c0, 0x27dd),
+        )
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
+
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
@@ -599,6 +602,7 @@ use stm32_hal2::instant::Instant; // todo temp
             user_cfg.control_mapping.m4_reversed,
         );
 
+        // todo: temp removed to test bidir
         dshot::setup_motor_dir(motors_reversed, &mut motor_timers, &mut dma);
 
         crsf::setup(&mut uart_elrs);
@@ -610,9 +614,9 @@ use stm32_hal2::instant::Instant; // todo temp
         // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
         // todo opendrain and pullup set, and without enabling interrupt.
         #[cfg(feature = "h7")]
-            let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
         #[cfg(feature = "g4")]
-            let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
         imu_exti_pin.enable_interrupt(Edge::Falling);
 
         println!("Init complete; starting main loops");
@@ -1075,11 +1079,11 @@ use stm32_hal2::instant::Instant; // todo temp
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         // Clear DMA interrupt this way due to RTIC conflict.
         #[cfg(feature = "h7")]
-            unsafe {
+        unsafe {
             (*DMA1::ptr()).lifcr.write(|w| w.ctcif2().set_bit())
         }
         #[cfg(feature = "g4")]
-            unsafe {
+        unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit())
         }
 
@@ -1144,15 +1148,6 @@ use stm32_hal2::instant::Instant; // todo temp
                         // cx.local.measurement_timer.enable();
                     }
 
-                    // todo: Temp TS code to verify rotordirection.
-                    // if state_volatile.arm_status == ArmStatus::Armed {
-                    //     // dshot::set_power(Rotor::R1, Rotor::R2, 0.0, 0.00, motor_timers, dma);
-                    //     dshot::set_power(Rotor::R3, Rotor::R4, 0.00, 0.00, motor_timers, dma);
-                    // } else {
-                    //     dshot::set_power(Rotor::R1, Rotor::R2, 0., 0., motor_timers, dma);
-                    // }
-                    // return;
-
                     let mut imu_data =
                         imu_shared::ImuReadings::from_buffer(unsafe { &imu_shared::IMU_READINGS });
 
@@ -1178,15 +1173,9 @@ use stm32_hal2::instant::Instant; // todo temp
                         dshot::set_power(p, p, p, p, motor_timers, dma);
                     } else {
 
-                        // dshot::stop_all(motor_timers, dma);
+                        dshot::stop_all(motor_timers, dma);
                         // todo Temp
 
-                        if *cx.local.imu_isr_loop_i > 35_000 {
-                            let p2 = 0.025;
-                            dshot::set_power(p2, p2, p2, p2, motor_timers, dma);
-                        } else {
-                            dshot::stop_all(motor_timers, dma);
-                        }
                     }
 
                     // todo: Impl once you've sorted out your control logic.
@@ -1378,7 +1367,7 @@ use stm32_hal2::instant::Instant; // todo temp
         // todo: Why is this gate required when we have feature-gated the fn?
         // todo: Maybe RTIC is messing up the fn-level feature gate?
         #[cfg(feature = "g4")]
-            unsafe {
+        unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit());
         }
 
@@ -1446,9 +1435,9 @@ use stm32_hal2::instant::Instant; // todo temp
     fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
         // println!("34");
         unsafe {
-                #[cfg(feature = "h7")]
+            #[cfg(feature = "h7")]
             (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
-                #[cfg(feature = "g4")]
+            #[cfg(feature = "g4")]
             (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit());
         }
         // unsafe {
@@ -1648,13 +1637,13 @@ use stm32_hal2::instant::Instant; // todo temp
                             dma,
                         );
                     }
-                    println!("S");
+                    // println!("S");
                     // println!(
                     //     "O S: {}",
                     //     uart.regs.isr.read().ore().bit_is_set()
                     // );
                 } else {
-                    println!("I");
+                    // println!("I");
                     // Line is idle.
                     uart.clear_interrupt(UsartInterrupt::Idle);
                     // println!("O I: {}", uart_elrs.regs.isr.read().ore().bit_is_set());
@@ -1671,7 +1660,7 @@ use stm32_hal2::instant::Instant; // todo temp
                     uart.regs.cr1.modify(|_, w| w.cmie().set_bit());
 
                     if let Some(crsf_data) =
-                    crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
+                        crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {

@@ -139,9 +139,10 @@ impl Default for InputMode {
 }
 
 #[derive(Clone, Copy, PartialEq)]
+#[repr(u8)] // u8 repr for serializing via USB.
 pub enum RotationDir {
-    Clockwise,
-    CounterClockwise,
+    Clockwise = 0,
+    CounterClockwise = 1,
 }
 
 /// Maps servos to wing position, and related details.

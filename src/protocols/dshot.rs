@@ -184,12 +184,12 @@ pub fn setup_motor_dir(
     // and the telemetry bit must be bit set to use commands.
     // Setting the throttle twice doesn't work; 10x works. The required value is evidently between
     // these 2 bounds.
-    for i in 0.. 10 {
+    for i in 0..20 {
         stop_all(timers, dma);
         delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
     }
     // I've confirmed that setting direction without the telemetry bit set will fail.
-    unsafe { ESC_TELEM = true};
+    unsafe { ESC_TELEM = true };
 
     delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
 
@@ -251,7 +251,7 @@ pub fn setup_motor_dir(
     }
     delay.delay_ms(PAUSE_AFTER_SAVE);
 
-    unsafe { ESC_TELEM = false};
+    unsafe { ESC_TELEM = false };
 }
 
 /// Update our DSHOT payload for a given rotor, with a given power level.

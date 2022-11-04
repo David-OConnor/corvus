@@ -83,14 +83,11 @@ pub const SET_SERVO_POSIT_SIZE: usize = 1 + F32_SIZE; // Servo num, value
 pub const SYS_STATUS_SIZE: usize = 9; // Sensor status (u8) * 9
 pub const AP_STATUS_SIZE: usize = 0; // todo
 pub const SYS_AP_STATUS_SIZE: usize = SYS_STATUS_SIZE + AP_STATUS_SIZE;
-
-// Packet sizes are payload size + 2. Additional data are message type, and CRC.
-// const PARAMS_PACKET_SIZE: usize = PARAMS_SIZE + 2;
-// const CONTROLS_PACKET_SIZE: usize = CONTROLS_SIZE + 2;
-// const LINK_STATS_PACKET_SIZE: usize = LINK_STATS_SIZE + 2;
-// pub const WAYPOINTS_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
-// pub const SET_SERVO_POSIT_PACKET_SIZE: usize = WAYPOINTS_SIZE + 2;
-// pub const SYS_AP_STATUS_PACKET_SIZE: usize = SYS_AP_STATUS_SIZE + 2;
+#[cfg(feature = "quad")]
+pub const CONTROL_MAPPING_SIZE: usize = 2; // Packed tightly!
+                                           // todo: May need to change to add `servo_high` etc.
+#[cfg(feature = "fixed-wing")]
+pub const CONTROL_MAPPING_SIZE: usize = 1; // Packed tightly!
 
 // const START_BYTE: u8 =
 
@@ -133,6 +130,8 @@ pub enum MsgType {
     /// Systems status, and autopilot data combined
     ReqSysApStatus = 16,
     SysApStatus = 17,
+    ReqControlMapping = 18,
+    ControlMapping = 19,
 }
 
 impl MsgType {
@@ -157,6 +156,8 @@ impl MsgType {
             Self::SetServoPosit => SET_SERVO_POSIT_SIZE,
             Self::ReqSysApStatus => 0,
             Self::SysApStatus => SYS_AP_STATUS_SIZE,
+            Self::ReqControlMapping => 0,
+            Self::ControlMapping => CONTROL_MAPPING_SIZE,
         }
     }
 }
@@ -240,6 +241,36 @@ impl From<&SystemStatus> for [u8; SYS_STATUS_SIZE] {
             p.esc_rpm as u8,
             p.rf_control_link as u8,
             if p.rf_control_fault { 1 } else { 0 },
+        ]
+    }
+}
+
+#[cfg(feature = "quad")]
+impl From<&mut ControlMapping> for [u8; CONTROL_MAPPING_SIZE] {
+    fn from(p: &mut ControlMapping) -> Self {
+        [
+            // 2 bits each
+            (p.m1 as u8) | ((p.m2 as u8) << 2) | ((p.m3 as u8) << 4) | ((p.m4 as u8) << 6),
+            // 1 bit each
+            p.m1_reversed as u8
+                | ((p.m2_reversed as u8) << 1)
+                | ((p.m3_reversed as u8) << 2)
+                | ((p.m4_reversed as u8) << 3)
+                | ((p.frontleft_aftright_dir as u8) << 4),
+        ]
+    }
+}
+
+#[cfg(feature = "fixed-wing")]
+impl From<&mut ControlMapping> for [u8; CONTROL_MAPPING_SIZE] {
+    fn from(p: &mut ControlMapping) -> Self {
+        [
+            // 1 bit each
+            (p.s1 as u8)
+                | ((p.s2 as u8) << 2)
+                | ((p.s1_reversed as u8) << 4)
+                | ((p.s2_reversed as u8) << 6),
+            // todo: `servo_high` etc!
         ]
     }
 }
@@ -459,6 +490,15 @@ pub fn handle_rx(
             send_payload::<{ SYS_AP_STATUS_SIZE + 2 }>(MsgType::SysApStatus, &payload, usb_serial);
         }
         MsgType::SysApStatus => {}
+        MsgType::ReqControlMapping => {
+            let payload: [u8; CONTROL_MAPPING_SIZE] = control_mapping.into();
+            send_payload::<{ CONTROL_MAPPING_SIZE + 2 }>(
+                MsgType::ControlMapping,
+                &payload,
+                usb_serial,
+            );
+        }
+        MsgType::ControlMapping => {}
     }
 }
 
