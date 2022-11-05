@@ -191,7 +191,10 @@ pub struct SystemStatus {
     pub esc_rpm: SensorStatus,
     pub rf_control_link: SensorStatus, // todo: For now, we use `link_lost` instead.
     // todo: Consider a separate faults struct if this grows in complexity
+    // todo: You should have more specific faults than this. Eg what went wrong.
     pub rf_control_fault: bool,
+    /// Eg a failed CRC on RPM data received from the ESC.
+    pub rpm_data_fault: bool,
 }
 
 /// State that doesn't get saved to flash.

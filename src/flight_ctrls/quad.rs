@@ -204,6 +204,10 @@ pub fn setup_timers(timers: &mut MotorTimers) {
             timers.rotors.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
 
             timers.rotors.enable_interrupt(TimerInterrupt::UpdateDma);
+
+            dshot::set_to_output(timers, Motor::M1, Motor::M2, false);
+            dshot::set_to_output(timers, Motor::M3, Motor::M4, true);
+
         } else if #[cfg(feature = "g4")] {
             timers.r12.set_prescaler(dshot::DSHOT_PSC_600);
             timers.r12.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
@@ -215,10 +219,11 @@ pub fn setup_timers(timers: &mut MotorTimers) {
             // won't work.
             timers.r12.enable_interrupt(TimerInterrupt::UpdateDma);
             timers.r34.enable_interrupt(TimerInterrupt::UpdateDma);
+
+            dshot::set_to_output(timers, Motor::M1, Motor::M2, false);
+            dshot::set_to_output(timers, Motor::M3, Motor::M4, true);
         }
     }
-
-    dshot::set_to_output(timers);
 
     dshot::set_bidirectional(dshot::BIDIR_EN, timers);
 }
