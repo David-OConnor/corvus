@@ -88,7 +88,7 @@ cfg_if! {
         static mut PAYLOAD_REC: [u16; 72] = [0; 72];
     } else if #[cfg(feature = "g4")] {
         static mut PAYLOAD_R1_2: [u16; 36] = [0; 36];
-        static mut PAYLOAD_R1_2_REC: [u16; 36] = [0; 36];
+        pub static mut PAYLOAD_R1_2_REC: [u16; 36] = [0; 36]; // todo temp pub
         static mut PAYLOAD_R3_4: [u16; 36] = [0; 36];
         static mut PAYLOAD_R3_4_REC: [u16; 36] = [0; 36];
     }
@@ -246,7 +246,9 @@ pub fn setup_motor_dir(
     unsafe { ESC_TELEM = false };
 }
 
-/// Update our DSHOT payload for a given rotor, with a given power level.
+/// Update our DSHOT payload for a given rotor, with a given power level. This created a payload
+/// of tick values to send to the CCMR register; the output pin is set high or low for each
+/// tick duration in succession.
 pub fn setup_payload(rotor: Motor, cmd: CmdType) {
     // First 11 (0:10) bits are the throttle settings. 0 means disarmed. 1-47 are reserved
     // for special commands. 48 - 2_047 are throttle value (2_000 possible values)
@@ -328,17 +330,20 @@ pub fn set_power_single(rotor: Motor, power: f32, timers: &mut MotorTimers, dma:
     send_payload(timers, dma)
 }
 
+use stm32_hal2::gpio::{Port, Pin, PinMode}; // todo temp!
+
 /// Send the stored payload.
 fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     // The previous transfer should already be complete, but just in case.
     dma.stop(Motor::M1.dma_channel());
     #[cfg(all(feature = "h7", feature = "quad"))]
-        dma.stop(Motor::M3.dma_channel());
+    dma.stop(Motor::M3.dma_channel());
 
     if BIDIR_EN {
         // Was likely in input mode previously; update.
         set_to_output(timers);
     }
+    // let _r = Pin::new(Port::A, 0, PinMode::Alt(1)); // Ch1 // todo temp!!
 
     // Note that timer enabling is handled by `write_dma_burst`.
 
@@ -388,45 +393,23 @@ fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
 pub fn receive_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     // The previous transfer should already be complete, but just in case.
     dma.stop(Motor::M1.dma_channel());
+    #[cfg(all(feature = "h7", feature = "quad"))]
+    dma.stop(Motor::M3.dma_channel());
 
-    // Note that timer enabling is handled by `write_dma_burst`.
-
+    // Note that timer enabling is handled by `read_dma_burst`.
     cfg_if! {
         if #[cfg(feature = "h7")] {
-             // Set back to alternate function.
-            unsafe {
-                (*pac::GPIOC::ptr()).moder.modify(|_, w| {
-                    w.moder6().bits(0b10);
-                    w.moder7().bits(0b10);
-                    w.moder8().bits(0b10);
-                    w.moder9().bits(0b10)
-                });
-
-                timers.rotors.read_dma_burst(
-                    &PAYLOAD_REC,
-                    Motor::M1.base_addr_offset(),
-                    4, // Burst len of 4, since we're updating 4 channels.
-                    Motor::M1.dma_channel(),
-                    ChannelCfg::default(),
-                    dma,
-                    true,
-                );
-            }
-
+            timers.rotors.read_dma_burst(
+                &PAYLOAD_REC,
+                Motor::M1.base_addr_offset(),
+                4, // Burst len of 4, since we're updating 4 channels.
+                Motor::M1.dma_channel(),
+                ChannelCfg::default(),
+                dma,
+                true,
+            );
         } else {
-            dma.stop(Motor::M3.dma_channel());
-
             unsafe {
-                (*pac::GPIOA::ptr()).moder.modify(|_, w| {
-                    w.moder0().bits(0b10);
-                    w.moder1().bits(0b10)
-                });
-                #[cfg(feature = "quad")]
-                (*pac::GPIOB::ptr()).moder.modify(|_, w| {
-                    w.moder0().bits(0b10);
-                    w.moder1().bits(0b10)
-                });
-
                 timers.r12.read_dma_burst(
                     &PAYLOAD_R1_2_REC,
                     Motor::M1.base_addr_offset(),
@@ -453,10 +436,9 @@ pub fn receive_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
 }
 
 /// Change timer polarity and count direction, to enable or disable bidirectional DSHOT.
+/// This results in the signal being active low for enabled, and active high for disabled.
 /// Timer settings default (in HAL and hardware) to disabled.
 pub fn set_bidirectional(enabled: bool, timers: &mut MotorTimers) {
-    // todo: Is this backwards?
-
     // todo: We need a way to configure channel 2 as a servo, eg for fixed-wing
     // todo with a rudder.
 
@@ -533,7 +515,10 @@ pub fn set_to_output(timers: &mut MotorTimers) {
 /// ISR for G4.
 pub fn set_to_input(timers: &mut MotorTimers, motor_a: Motor, motor_b: Motor, three_four: bool) {
     let cc = CaptureCompare::InputTi1; // todo?
-    let trigger = InputTrigger::Internal0;
+    // let cc = CaptureCompare::InputTrc; // todo?
+    // let trigger = InputTrigger::Internal0;
+    // let trigger = InputTrigger::Ti1Edge;
+    let trigger = InputTrigger::ExternalTriggerInput;
 
     // let trigger = InputTrigger::FilteredTimerInput1; // todo?
 
@@ -554,15 +539,21 @@ pub fn set_to_input(timers: &mut MotorTimers, motor_a: Motor, motor_b: Motor, th
 
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            timers.rotors.set_input_capture(motor_a.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-            timers.rotors.set_input_capture(motor_b.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            // timers.rotors.set_input_capture(motor_a.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+            // timers.rotors.set_input_capture(motor_b.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+                        timers.rotors.set_input_capture(motor_a.tim_channel(), cc,  pol_p, pol_n);
+            timers.rotors.set_input_capture(motor_b.tim_channel(), cc,  pol_p, pol_n);
         } else {
             if three_four {
-                timers.r34.set_input_capture(motor_a.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-                timers.r34.set_input_capture(motor_b.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+                // timers.r34.set_input_capture(motor_a.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+                // timers.r34.set_input_capture(motor_b.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+                timers.r34.set_input_capture(motor_a.tim_channel(), cc, pol_p, pol_n);
+                timers.r34.set_input_capture(motor_b.tim_channel(), cc, pol_p, pol_n);
             } else {
-                timers.r12.set_input_capture(motor_a.tim_channel(), cc, trigger, ism, pol_p, pol_n);
-                timers.r12.set_input_capture(motor_b.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+                // timers.r12.set_input_capture(motor_a.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+                // timers.r12.set_input_capture(motor_b.tim_channel(), cc, trigger, ism, pol_p, pol_n);
+                timers.r12.set_input_capture(motor_a.tim_channel(), cc, pol_p, pol_n);
+                timers.r12.set_input_capture(motor_b.tim_channel(), cc, pol_p, pol_n);
             }
         }
     }

@@ -202,7 +202,7 @@ mod app {
 
     use crate::flight_ctrls::common::Motor;
     use core::time::Duration; // todo temp
-    use stm32_hal2::instant::Instant;
+use stm32_hal2::instant::Instant;
     use stm32_hal2::timer::TimChannel; // todo temp
 
     #[monotonic(binds = TIM5, default = true)]
@@ -314,9 +314,9 @@ mod app {
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-        clocks::enable_crs(CrsSyncSrc::OtgHs);
+            clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-        clocks::enable_crs(CrsSyncSrc::Usb);
+            clocks::enable_crs(CrsSyncSrc::Usb);
 
         // Improves performance, at a cost of slightly increased power use.
         cp.SCB.invalidate_icache();
@@ -330,14 +330,14 @@ mod app {
         let mut dma = Dma::new(dp.DMA1);
         let mut dma2 = Dma::new(dp.DMA2);
         #[cfg(feature = "g4")]
-        dma::enable_mux1();
+            dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
         #[cfg(feature = "h7")]
-        let UART_ELRS = dp.UART7;
+            let UART_ELRS = dp.UART7;
         #[cfg(feature = "g4")]
-        let UART_ELRS = dp.USART3;
+            let UART_ELRS = dp.USART3;
 
         let (mut spi1, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_elrs) =
             setup::setup_busses(dp.SPI1, dp.I2C1, dp.I2C2, dp.USART2, UART_ELRS, &clock_cfg);
@@ -355,10 +355,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601); // todo put back
@@ -509,9 +509,9 @@ mod app {
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -585,13 +585,13 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
@@ -616,9 +616,9 @@ mod app {
         // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
         // todo opendrain and pullup set, and without enabling interrupt.
         #[cfg(feature = "h7")]
-        let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
+            let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
         #[cfg(feature = "g4")]
-        let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
+            let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
         imu_exti_pin.enable_interrupt(Edge::Falling);
 
         println!("Init complete; starting main loops");
@@ -1081,11 +1081,11 @@ mod app {
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         // Clear DMA interrupt this way due to RTIC conflict.
         #[cfg(feature = "h7")]
-        unsafe {
+            unsafe {
             (*DMA1::ptr()).lifcr.write(|w| w.ctcif2().set_bit())
         }
         #[cfg(feature = "g4")]
-        unsafe {
+            unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit())
         }
 
@@ -1360,18 +1360,21 @@ mod app {
     // uses a single timer on H7: `dshot_isr_r34`
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
     #[cfg(feature = "g4")]
-    #[task(binds = DMA1_CH3, shared = [motor_timers], local = [], priority = 6)]
+    #[task(binds = DMA1_CH3, shared = [motor_timers, dma], local = [], priority = 6)]
     /// We use this ISR to enable input capture if in bidirectional mode. Assocaited with Tim2,
     /// and is only used on G4.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
         // println!("12");
 
+        println!("DSHOT: {:?}", unsafe { dshot::PAYLOAD_R1_2_REC });
+
         // todo: Why is this gate required when we have feature-gated the fn?
         // todo: Maybe RTIC is messing up the fn-level feature gate?
         #[cfg(feature = "g4")]
-        unsafe {
+            unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit());
         }
+        // return; // todo temp
 
         // todo: Temp. Put motor timers etc back A/R. If you still have trouble, may need to
         // todo split by 1/2, 3/4 instead of sharing motor timers struct.
@@ -1382,15 +1385,15 @@ mod app {
         // todo: Before adding dma to shared state here, make sure it wasn't
         // todo deliberately ommitted...
         if dshot::BIDIR_EN {
-            cx.shared.motor_timers.lock(|motor_timers| {
+            (cx.shared.motor_timers, cx.shared.dma).lock(|motor_timers, dma| {
                 dshot::set_to_input(motor_timers, Motor::M1, Motor::M2, false);
-                // dshot::receive_payload(motor_timers, dma);
+                dshot::receive_payload(motor_timers, dma);
             });
         }
     }
 
     // #[task(binds = DMA1_STR4, shared = [motor_timers], priority = 6)]
-    #[task(binds = DMA1_CH4, shared = [motor_timers], priority = 6)]
+    #[task(binds = DMA1_CH4, shared = [motor_timers, dma], priority = 6)]
     /// We use this ISR to enable input capture if in bidirectional mode. For G4, it's only for motors
     /// 3 and 4. For h7, it's for all 4. Associated with Tim3.
     fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
@@ -1401,11 +1404,12 @@ mod app {
 
         // println!("34");
         unsafe {
-            #[cfg(feature = "h7")]
+                #[cfg(feature = "h7")]
             (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
-            #[cfg(feature = "g4")]
+                #[cfg(feature = "g4")]
             (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit());
         }
+        return; // todo temp
         // unsafe {
         //     (*pac::TIM3::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
         // }
@@ -1424,7 +1428,7 @@ mod app {
         // let output_mode = 0b01;
 
         if dshot::BIDIR_EN {
-            cx.shared.motor_timers.lock(|motor_timers| {
+            (cx.shared.motor_timers, cx.shared.dma).lock(|motor_timers, dma| {
                 dshot::set_to_input(motor_timers, Motor::M3, Motor::M4, true);
 
                 cfg_if! {
@@ -1459,48 +1463,6 @@ mod app {
     //     });
     // }
 
-    /// If this triggers, it means we've lost the link. (Note that this is for TIM17)
-    // #[task(binds = TIM17,
-    #[task(binds = TIM1_TRG_COM,
-    shared = [lost_link_timer, link_lost, state_volatile, user_cfg, autopilot_status,
-    current_params, system_status], priority = 1)]
-    fn lost_link_isr(cx: lost_link_isr::Context) {
-        println!("Lost the link!");
-
-        (
-            cx.shared.lost_link_timer,
-            cx.shared.link_lost,
-            cx.shared.state_volatile,
-            cx.shared.user_cfg,
-            cx.shared.autopilot_status,
-            cx.shared.current_params,
-            cx.shared.system_status,
-        )
-            .lock(
-                |timer,
-                 link_lost,
-                 state_volatile,
-                 user_cfg,
-                 autopilot_status,
-                 params,
-                 system_status| {
-                    timer.clear_interrupt(TimerInterrupt::Update);
-                    timer.reset_count();
-                    timer.disable(); // todo: Probably not required in one-pulse mode.
-
-                    *link_lost = true;
-
-                    // We run this during the main loop, but here the `entering` flag is set to true,
-                    // to initialize setup steps.
-                    safety::link_lost(
-                        system_status,
-                        autopilot_status,
-                        params,
-                        &state_volatile.base_point,
-                    );
-                },
-            );
-    }
 
     // todo: Evaluate priority.
     // #[task(binds = USART7,
@@ -1552,7 +1514,7 @@ mod app {
                             &mut crsf::RX_BUFFER,
                             setup::CRSF_RX_CH,
                             ChannelCfg {
-                                // priority: dma::Priority::VeryHigh, // todo temp
+                                priority: dma::Priority::Medium, // todo temp
                                 ..Default::default()
                             },
                             dma,
@@ -1581,7 +1543,7 @@ mod app {
                     uart.regs.cr1.modify(|_, w| w.cmie().set_bit());
 
                     if let Some(crsf_data) =
-                        crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
+                    crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {
@@ -1662,6 +1624,49 @@ mod app {
                     system_status.rf_control_fault = true;
                 }
             });
+    }
+
+    /// If this triggers, it means we've lost the link. (Note that this is for TIM17)
+    // #[task(binds = TIM17,
+    #[task(binds = TIM1_TRG_COM,
+    shared = [lost_link_timer, link_lost, state_volatile, user_cfg, autopilot_status,
+    current_params, system_status], priority = 1)]
+    fn lost_link_isr(cx: lost_link_isr::Context) {
+        println!("Lost the link!");
+
+        (
+            cx.shared.lost_link_timer,
+            cx.shared.link_lost,
+            cx.shared.state_volatile,
+            cx.shared.user_cfg,
+            cx.shared.autopilot_status,
+            cx.shared.current_params,
+            cx.shared.system_status,
+        )
+            .lock(
+                |timer,
+                 link_lost,
+                 state_volatile,
+                 user_cfg,
+                 autopilot_status,
+                 params,
+                 system_status| {
+                    timer.clear_interrupt(TimerInterrupt::Update);
+                    timer.reset_count();
+                    timer.disable(); // todo: Probably not required in one-pulse mode.
+
+                    *link_lost = true;
+
+                    // We run this during the main loop, but here the `entering` flag is set to true,
+                    // to initialize setup steps.
+                    safety::link_lost(
+                        system_status,
+                        autopilot_status,
+                        params,
+                        &state_volatile.base_point,
+                    );
+                },
+            );
     }
 
     #[task(binds = TIM1_UP_TIM16, shared = [rf_limiter_timer], priority = 1)]
