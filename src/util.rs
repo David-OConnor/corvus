@@ -22,6 +22,7 @@ pub fn map_linear(val: f32, range_in: (f32, f32), range_out: (f32, f32)) -> f32 
 }
 
 /// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c
+/// C+P from firmware.
 pub const fn crc_init(poly: u8) -> [u8; 256] {
     let mut lut = [0; 256];
 
@@ -45,6 +46,7 @@ pub const fn crc_init(poly: u8) -> [u8; 256] {
 
 /// CRC8 using a specific poly, includes all bytes from type (buffer[2]) to end of payload.
 /// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c
+/// /// C+P from firmware.
 pub fn calc_crc(lut: &[u8; 256], data: &[u8], mut size: u8) -> u8 {
     let mut crc = 0;
     let mut i = 0;

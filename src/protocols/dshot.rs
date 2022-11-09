@@ -14,7 +14,7 @@
 //! The DSHOT protocol (DSHOT-300, DSHOT-600 etc) is determined by the `DSHOT_ARR_600` and `DSHOT_PSC_600` settings in the
 //! main crate; ie set a 600kHz countdown for DSHOT-600.
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::AtomicBool;
 
 use cortex_m::delay::Delay;
 
@@ -412,7 +412,7 @@ pub fn receive_payload_a(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
             2,
             Motor::M1.dma_channel(),
             ChannelCfg {
-                // priority: Priority::High, // todo
+                priority: Priority::High,
                 ..ChannelCfg::default()
             },
             dma,
@@ -425,6 +425,12 @@ pub fn receive_payload_a(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
 pub fn receive_payload_b(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     dma.stop(Motor::M3.dma_channel());
 
+    // Take precedence over CRSF and ADCs.
+    let ch_cfg = ChannelCfg {
+        priority: Priority::High,
+        ..ChannelCfg::default()
+    };
+
     unsafe {
         cfg_if! {
             if #[cfg(feature = "h7")] {
@@ -433,7 +439,7 @@ pub fn receive_payload_b(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     Motor::M1.base_addr_offset(),
                     4,
                     Motor::M1.dma_channel(),
-                    ChannelCfg::default(),
+                    ch_cfg.clone(),
                     dma,
                     true,
                 );
@@ -443,7 +449,7 @@ pub fn receive_payload_b(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
                     Motor::M3.base_addr_offset(),
                     2,
                     Motor::M3.dma_channel(),
-                    ChannelCfg::default(),
+                    ch_cfg,
                     dma,
                     false,
                 );
@@ -505,7 +511,7 @@ pub fn set_bidirectional(enabled: bool, timers: &mut MotorTimers) {
 pub fn set_to_output(timers: &mut MotorTimers, motor_a: Motor, motor_b: Motor, three_four: bool) {
     let oc = OutputCompare::Pwm1;
 
-    // todo: Filter by Quad etc?
+    // todo: Filter by Quad vice fixed-wing etc?
 
     cfg_if! {
         if #[cfg(feature = "h7")] {
@@ -528,13 +534,11 @@ pub fn set_to_output(timers: &mut MotorTimers, motor_a: Motor, motor_b: Motor, t
 /// We use motor args here, since this will run separately depending on the DSHOT
 /// ISR for G4.
 pub fn set_to_input(timers: &mut MotorTimers, motor_a: Motor, motor_b: Motor, three_four: bool) {
-    let cc = CaptureCompare::InputTi1; // todo?
-                                       // let cc = CaptureCompare::InputTrc; // todo?
-
+    let cc = CaptureCompare::InputTi1;
     let pol_p = Polarity::ActiveLow;
     let pol_n = Polarity::ActiveHigh;
 
-    // todo: Filter by Quad etc?
+    // todo: Filter by Quad vice fixed etc?
 
     cfg_if! {
         if #[cfg(feature = "h7")] {

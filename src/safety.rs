@@ -44,7 +44,7 @@ static ARM_COMMANDED_WITHOUT_IDLE: AtomicBool = AtomicBool::new(false);
 const THROTTLE_MAX_TO_ARM: f32 = 0.005;
 
 // Time in seconds between subsequent data received before we execute lost-link procedures.
-pub const LOST_LINK_TIMEOUT: f32 = 1.;
+pub const LOST_LINK_TIMEOUT: f32 = 0.2;
 
 // Altitude to climb to while executing lost link procedure, in meters AGL. This altitude should keep
 // it clear of trees, while remaining below most legal drone limits. A higher alt may increase chances

@@ -5,6 +5,7 @@ use cfg_if::cfg_if;
 
 use cortex_m::delay::Delay;
 
+use stm32_hal2::usart::{OverSampling, UsartConfig};
 use stm32_hal2::{
     clocks::Clocks,
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
@@ -24,6 +25,7 @@ cfg_if! {
 }
 use crate::params::Params;
 use crate::{
+    crsf,
     drivers::{
         baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
         tof_vl53l1 as tof,
@@ -310,7 +312,9 @@ pub fn setup_pins() {
             let _uart7_rx = Pin::new(Port::B, 4, PinMode::Alt(11));
         } else {
             let _uart3_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
-            let _uart3_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
+            let mut uart3_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
+
+            // uart3_rx.output_speed(OutputSpeed::High); // todo: TS
         }
     }
 
@@ -340,23 +344,45 @@ pub fn setup_pins() {
     // todo: Moved to `idle` for setup.
     // imu_exti_pin.enable_interrupt(Edge::Falling);
 
-    // I2C1 for external sensors, via pads
-    let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
-    scl1.output_type(OutputType::OpenDrain);
-    scl1.pull(Pull::Up);
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            // I2C1 for external sensors, via pads
+            let mut scl1 = Pin::new(Port::B, 8, PinMode::Alt(4));
+            scl1.output_type(OutputType::OpenDrain);
+            scl1.pull(Pull::Up);
 
-    let mut sda1 = Pin::new(Port::B, 7, PinMode::Alt(4));
-    sda1.output_type(OutputType::OpenDrain);
-    sda1.pull(Pull::Up);
+            let mut sda1 = Pin::new(Port::B, 9, PinMode::Alt(4));
+            sda1.output_type(OutputType::OpenDrain);
+            sda1.pull(Pull::Up);
 
-    // I2C2 for the DPS310 barometer, and pads.
-    let mut scl2 = Pin::new(Port::A, 9, PinMode::Alt(4));
-    scl2.output_type(OutputType::OpenDrain);
-    scl2.pull(Pull::Up);
+            // I2C2 for the DPS310 barometer, and pads.
+            let mut scl2 = Pin::new(Port::B, 10, PinMode::Alt(4));
+            scl2.output_type(OutputType::OpenDrain);
+            scl2.pull(Pull::Up);
 
-    let mut sda2 = Pin::new(Port::A, 8, PinMode::Alt(4));
-    sda2.output_type(OutputType::OpenDrain);
-    sda2.pull(Pull::Up);
+            let mut sda2 = Pin::new(Port::B, 11, PinMode::Alt(4));
+            sda2.output_type(OutputType::OpenDrain);
+            sda2.pull(Pull::Up);
+        } else {
+            // I2C1 for external sensors, via pads
+            let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
+            scl1.output_type(OutputType::OpenDrain);
+            scl1.pull(Pull::Up);
+
+            let mut sda1 = Pin::new(Port::B, 9, PinMode::Alt(4));
+            sda1.output_type(OutputType::OpenDrain);
+            sda1.pull(Pull::Up);
+
+            // I2C2 for the DPS310 barometer, and pads.
+            let mut scl2 = Pin::new(Port::A, 9, PinMode::Alt(4));
+            scl2.output_type(OutputType::OpenDrain);
+            scl2.pull(Pull::Up);
+
+            let mut sda2 = Pin::new(Port::A, 10, PinMode::Alt(4));
+            sda2.output_type(OutputType::OpenDrain);
+            sda2.pull(Pull::Up);
+        }
+    }
 }
 
 /// Assign DMA channels to peripherals.
@@ -531,10 +557,8 @@ pub fn setup_busses(
     // todo: QC baud.
     let uart_osd = Usart::new(uart2_pac, 115_200, Default::default(), clock_cfg);
 
-    // We use `uart1` for the radio controller receiver, via CRSF protocol.
-    // CRSF protocol uses a single wire half duplex uart connection.
-    //  * The master sends one frame every 4ms and the slave replies between two frames from the master.
-    //  *
+    // We use UART for the radio controller receiver, via CRSF protocol.
+
     //  * 420000 baud
     //  * not inverted
     //  * 8 Bit
@@ -547,7 +571,25 @@ pub fn setup_busses(
     // The STM32-HAL default UART config includes stop bits = 1, parity disabled, and 8-bit words,
     // which is what we want.
 
-    let uart_elrs = Usart::new(uart_elrs_pac, 420_000, Default::default(), clock_cfg);
+    //
+    // •
+    // When oversampling by 16, the baud rate ranges from usart_ker_ck_pres/65535 and
+    // usart_ker_ck_pres/16.
+    // •
+    // When oversampling by 8, the baud rate ranges from usart_ker_ck_pres/65535 and
+    // usart_ker_ck_pres/8.
+
+    // todo TS
+    // let uart_elrs = Usart::new(uart_elrs_pac, crsf::BAUD, Default::default(), clock_cfg);
+    let uart_elrs = Usart::new(
+        uart_elrs_pac,
+        crsf::BAUD,
+        UsartConfig {
+            oversampling: OverSampling::O8,
+            ..Default::default()
+        },
+        clock_cfg,
+    );
 
     (spi1, cs_imu, cs_flash, i2c1, i2c2, uart_osd, uart_elrs)
 }

@@ -194,7 +194,7 @@ pub struct SystemStatus {
     // todo: You should have more specific faults than this. Eg what went wrong.
     pub rf_control_fault: bool,
     /// Eg a failed CRC on RPM data received from the ESC.
-    pub rpm_data_fault: bool,
+    pub esc_rpm_fault: bool,
 }
 
 /// State that doesn't get saved to flash.

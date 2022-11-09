@@ -351,7 +351,6 @@ mod app {
         // We use the ADC to measure battery voltage and ESC current.
         let adc_cfg = AdcConfig {
             operation_mode: adc::OperationMode::Continuous,
-            // operation_mode: adc::OperationMode::OneShot, // todo temp
             ..Default::default()
         };
 
@@ -362,13 +361,10 @@ mod app {
         let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
-        batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601); // todo put back
+        batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
 
-        // todo Oct 2022: ADCs aren't working here or in BF.
-        // loop {
-        //     delay.delay_ms(1000);
-        //     println!("Adc: {:?}", batt_curr_adc.read(17));
-        // }
+        // todo temp while we sort out HAL. We've fudged this to make the number come out correctly.
+        batt_curr_adc.vdda_calibrated = 3.6;
 
         let mut update_timer = Timer::new_tim15(
             dp.TIM15,
@@ -465,19 +461,18 @@ mod app {
         // but shouldn't have consequences other than higher power use, compared to commanding
         // conversions when needed.
 
-        // todo: Put back!
-        // unsafe {
-        //     batt_curr_adc.read_dma(
-        //         &mut V_A_ADC_READ_BUF,
-        //         &[setup::BATT_ADC_CH, setup::CURR_ADC_CH],
-        //         setup::BATT_CURR_DMA_CH,
-        //         ChannelCfg {
-        //             circular: dma::Circular::Enabled,
-        //             ..Default::default()
-        //         },
-        //         &mut dma,
-        //     );
-        // }
+        unsafe {
+            batt_curr_adc.read_dma(
+                &mut V_A_ADC_READ_BUF,
+                &[setup::BATT_ADC_CH, setup::CURR_ADC_CH],
+                setup::BATT_CURR_DMA_CH,
+                ChannelCfg {
+                    circular: dma::Circular::Enabled,
+                    ..Default::default()
+                },
+                &mut dma,
+            );
+        }
 
         // todo: ID connected sensors etc by checking their device ID etc.
         let mut state_volatile = StateVolatile::default();
@@ -719,7 +714,6 @@ mod app {
     /// We give it a relatively high priority, to ensure it gets run despite faster processes ocurring.
     fn update_isr(mut cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
-        // println!("Update loop");
         *cx.local.update_isr_loop_i += 1;
 
         (
@@ -768,6 +762,7 @@ mod app {
                         // todo: Flesh this out, and perhaps make it more like Preflight.
 
                         println!("DSHOT: {:?}", unsafe { dshot::PAYLOAD_R1_2_REC });
+                        println!("Ctrls: {:?}", unsafe { crsf::RX_BUFFER });
 
                         println!(
                             "\n\nControl data:\nPitch: {} Roll: {}, Yaw: {}, Throttle: {}, Arm switch: {}",
@@ -1436,13 +1431,19 @@ mod app {
         if dshot::BIDIR_EN {
             if dshot::CH_B_REC_MODE.load(Ordering::Relaxed) {
                 (cx.shared.motor_timers, cx.shared.dma).lock(|motor_timers, dma| {
-                    dshot::set_to_output(motor_timers, Motor::M1, Motor::M2, false);
+                    #[cfg(feature = "h7")]
+                    dshot::set_to_output(motor_timers, Motor::M1, Motor::M2, true);
+                    dshot::set_to_output(motor_timers, Motor::M3, Motor::M4, true);
                 });
                 dshot::CH_B_REC_MODE.store(false, Ordering::Relaxed);
             } else {
                 (cx.shared.motor_timers, cx.shared.dma).lock(|motor_timers, dma| {
-                    dshot::set_to_input(motor_timers, Motor::M1, Motor::M2, false);
+                    #[cfg(feature = "h7")]
+                    dshot::set_to_input(motor_timers, Motor::M1, Motor::M2, true);
+                    dshot::set_to_input(motor_timers, Motor::M3, Motor::M4, true);
+                    #[cfg(feature = "h7")]
                     dshot::receive_payload_a(motor_timers, dma);
+                    dshot::receive_payload_b(motor_timers, dma);
                 });
                 dshot::CH_B_REC_MODE.store(true, Ordering::Relaxed);
             }
@@ -1485,6 +1486,9 @@ mod app {
 
         let uart = &mut cx.local.uart_elrs; // Code shortener
 
+        uart.clear_interrupt(UsartInterrupt::CharDetect(0));
+        uart.clear_interrupt(UsartInterrupt::Idle);
+
         (
             cx.shared.dma,
             cx.shared.control_channel_data,
@@ -1492,8 +1496,12 @@ mod app {
             cx.shared.rf_limiter_timer,
         )
             .lock(|dma, ch_data, link_stats, limiter_timer| {
-                if unsafe { !(*pac::USART3::ptr()).isr.read().idle().bit_is_set() } {
-                    uart.clear_interrupt(UsartInterrupt::CharDetect(0));
+                // todo: Attempting a software flag vice using interrupt flags, to TS CRSF
+                // todo anomolies.
+                if !crsf::TRANSFER_IN_PROG.load(Ordering::Relaxed) {
+                    crsf::TRANSFER_IN_PROG.store(true, Ordering::Relaxed);
+                    // if unsafe { !(*pac::USART3::ptr()).isr.read().idle().bit_is_set() } {
+                    //     uart.clear_interrupt(UsartInterrupt::CharDetect(0));
                     // todo: Why/when/how to handle?
                     uart.clear_interrupt(UsartInterrupt::Overrun);
                     // Don't allow the starting char, as used in the middle of a message,
@@ -1513,14 +1521,15 @@ mod app {
                     //     limiter_timer.enable();
                     // }
 
-                    dma.stop(setup::CRSF_RX_CH); // todo TS
+                    dma.stop(setup::CRSF_RX_CH);
 
                     unsafe {
                         uart.read_dma(
                             &mut crsf::RX_BUFFER,
                             setup::CRSF_RX_CH,
                             ChannelCfg {
-                                priority: dma::Priority::Medium, // todo temp
+                                // Take precedence over the ADC, but not motors.
+                                priority: dma::Priority::Medium,
                                 ..Default::default()
                             },
                             dma,
@@ -1532,16 +1541,17 @@ mod app {
                     //     uart.regs.isr.read().ore().bit_is_set()
                     // );
                 } else {
+                    crsf::TRANSFER_IN_PROG.store(false, Ordering::Relaxed);
                     // println!("I");
                     // Line is idle.
-                    uart.clear_interrupt(UsartInterrupt::Idle);
+                    // uart.clear_interrupt(UsartInterrupt::Idle);
                     // println!("O I: {}", uart_elrs.regs.isr.read().ore().bit_is_set());
 
-                    uart.clear_interrupt(UsartInterrupt::Overrun); // todo?
+                    // uart.clear_interrupt(UsartInterrupt::Overrun); // todo?
 
                     // Stop the DMA read, since it will likely not have filled the buffer, due
                     // to the variable message sizes.
-                    dma.stop(setup::CRSF_RX_CH); // todo where? Here sounds good, but does it work?
+                    dma.stop(setup::CRSF_RX_CH);
 
                     // Re-enable
                     // Don't use the HAL method to re-enable the char-match interrupt, since it also
@@ -1632,7 +1642,9 @@ mod app {
             });
     }
 
-    /// If this triggers, it means we've lost the link. (Note that this is for TIM17)
+    /// If this triggers, it means we've received no radio control signals for a significant
+    ///period of time; we treat this as a lost-link situation.
+    /// (Note that this is for TIM17 on both variants)
     // #[task(binds = TIM17,
     #[task(binds = TIM1_TRG_COM,
     shared = [lost_link_timer, link_lost, state_volatile, user_cfg, autopilot_status,

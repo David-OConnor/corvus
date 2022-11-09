@@ -1,11 +1,8 @@
 //! CRSF support, for receiving radio control signals from ELRS receivers. Only handles communication
-//! over serial; the modules handle over-the-air procedures. See also the `elrs` module, for use
-//! with the LoRa chip directly, over SPI.
+//! over serial; the modules handle over-the-air procedures.
 //!
 //! [Detailed protocol info](https://github.com/ExpressLRS/ExpressLRS/wiki/CRSF-Protocol)
 //! [WIP clean driver in C](https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c)
-//! https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.h
-//! https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Serial3.c#L160
 //! https://github.com/chris1seto/PX4-Autopilot/tree/pr-rc_crsf_standalone_driver/src/drivers/rc/crsf_rc
 //! https://github.com/ExpressLRS/ExpressLRS/blob/master/src/lib/CrsfProtocol/crsf_protocol.h
 //!
@@ -25,6 +22,8 @@
 //!
 //! Note that there doesn't appear to be a published spec, so we piece together what we can from
 //! code and wisdom from those who've done this before.
+
+use core::sync::atomic::AtomicBool;
 
 use num_enum::TryFromPrimitive; // Enum from integer
 
@@ -48,6 +47,14 @@ use crate::{
 
 use cfg_if::cfg_if;
 use stm32_hal2::dma::DmaInterrupt;
+
+// https://www.expresslrs.org/3.0/quick-start/transmitters/tx-prep/
+// "Common baud rates include 115200bps and 400000bps."
+// "The 500Hz Packet Rate requires at least 400K Baud Rate setting on the Radio handset.
+//
+// The F1000 Packet Rate requires more than 400K Baud Rate setting on the Radio handset."
+pub const BAUD: u32 = 420_000;
+// pub const BAUD: u32 = 115_200;
 
 const CRC_POLY: u8 = 0xd5;
 const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
@@ -81,6 +88,11 @@ pub static mut RX_BUFFER: [u8; RX_BUF_SIZE] = [0; RX_BUF_SIZE];
 
 static mut TX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
 
+pub static TRANSFER_IN_PROG: AtomicBool = AtomicBool::new(false);
+
+// This buf shift allows us to read messages that we didn't start reading immediately.
+const MAX_BUF_SHIFT: usize = 3;
+
 // "All packets are in the CRSF format [dest] [len] [type] [payload] [crc8]"
 
 /// Invalid packet, etc.
@@ -89,7 +101,7 @@ struct DecodeError {}
 
 #[derive(Clone, Copy, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
-/// Destination address, or "sync" byte
+/// Destination address, or "sync" byte. This is in buffer position 0.
 enum DestAddr {
     Broadcast = 0x00,
     Usb = 0x10,
@@ -113,7 +125,7 @@ enum DestAddr {
 
 #[derive(Clone, Copy, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
-/// Frame type (packet type?)
+/// Frame type. This is in buffer position 2.
 /// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c#L29
 enum FrameType {
     Gps = 0x02,
@@ -226,6 +238,7 @@ impl Packet {
 
         let received_crc = buf[payload_len + 3];
 
+        // Calculate the CRC starting at the frame type buf, and ending at the end of the payload.
         let expected_crc = util::calc_crc(
             &CRC_LUT,
             // len + 2 gets us to the end. -1 to ommit CRC itself, which isn't part of the calculation.
@@ -235,7 +248,7 @@ impl Packet {
 
         if expected_crc != received_crc {
             println!(
-                "CRC failed on recieved packet. Expected: {}. Received: {}",
+                "CRSF CRC failed on recieved packet. Expected: {}. Received: {}",
                 expected_crc, received_crc
             );
             return Err(DecodeError {});
@@ -445,57 +458,95 @@ pub fn handle_packet(
     // tx_chan: DmaChannel,
     rx_fault: &mut bool,
 ) -> Option<PacketData> {
-    // Find the position in the buffer where our data starts. It's a circular buffer, so this could
-    // be anywhere, at time of line going idle. Then pass in a buffer, rearranged start-to-end.
-    // todo: Is there a cheaper way to do this than scanning for a matching pattern?
-
+    // Sometimes the buff starts at index 1; not sure why. Identify and compensate.
     let mut start_i = 0;
     let mut start_i_found = false;
+    let mut buf_shifted = [0; MAX_PACKET_SIZE];
+    let mut workaround = false;
 
-    for i in 0..RX_BUF_SIZE {
-        unsafe {
-            if RX_BUFFER[i] != DestAddr::FlightController as u8 {
-                continue;
-            }
-            let next_byte = RX_BUFFER[(i + 1) % RX_BUF_SIZE];
-            let two_bytes_ahead = RX_BUFFER[(i + 2) % RX_BUF_SIZE];
+    // todo: workaround klodge for when byte 1 is missing. Not sure why this happens.
+    // todo: Eventually, find a more robust solution.
+    let mut buf_shifted = [0; RX_BUF_SIZE];
 
-            if (next_byte == PAYLOAD_SIZE_RC_CHANNELS as u8 + 2
-                && two_bytes_ahead == FrameType::RcChannelsPacked as u8)
-                || (next_byte == PAYLOAD_SIZE_LINK_STATS as u8 + 2
-                    && two_bytes_ahead == FrameType::LinkStatistics as u8)
-            {
-                start_i = i;
-                start_i_found = true;
-                break;
+    // todo: This isn't enough. On some packets, we now drop 2 consecutive bytes after start message...
+    unsafe {
+        if RX_BUFFER[0] == 200 && RX_BUFFER[1] == 22 {
+            buf_shifted[0] = 200;
+            buf_shifted[1] = 24;
+
+            for i in 2..RX_BUF_SIZE {
+                buf_shifted[i] = RX_BUFFER[i - 1];
             }
+
+            workaround = true;
+            *rx_fault = true;
+            // println!("CRSF workaround");
+            return None; // todo: just dodging these for now. Seems to be 1/17 packets.
+        } else if RX_BUFFER[0] == 200 && RX_BUFFER[1] == 20 {
+            buf_shifted[0] = 200;
+            buf_shifted[1] = 20;
+
+            for i in 2..RX_BUF_SIZE {
+                buf_shifted[i] = RX_BUFFER[i - 1];
+            }
+
+            workaround = true;
+            *rx_fault = true;
+            // println!("CRSF workaround");
+            return None; // todo: just dodging these for now. Seems to be 1/17 packets.
         }
     }
-    if !start_i_found {
-        *rx_fault = true;
-        // println!("Can't find starting position in Rx payload");
-        // println!("RX buf: {:?}", unsafe { RX_BUFFER });
-        return None;
-    }
 
-    // todo: buf shifted not required.
-    let mut buf_shifted = [0; MAX_PACKET_SIZE];
-    for i in 0..MAX_PACKET_SIZE {
-        let msg_start_i = (start_i + i) % RX_BUF_SIZE;
-        buf_shifted[i] = unsafe { RX_BUFFER }[msg_start_i];
-        // todo: do we need to erase messages as we read them from the buf?
-        // todo: You have a risk of reading old packets. (?)
-        // unsafe { RX_BUFFER[msg_start_i] = 3 };
+    if !workaround {
+        // This flexible start index allows us to read messages even if the reception was
+        // slightly delayed - this would result in the buffer being shifted right 1 or more bytes.
+        for i in 0..MAX_BUF_SHIFT {
+            unsafe {
+                if RX_BUFFER[i] != DestAddr::FlightController as u8 {
+                    continue;
+                }
+
+                let next_byte = RX_BUFFER[i + 1];
+                let two_bytes_ahead = RX_BUFFER[i + 2];
+
+                if (next_byte == PAYLOAD_SIZE_RC_CHANNELS as u8 + 2
+                    && two_bytes_ahead == FrameType::RcChannelsPacked as u8)
+                    || (next_byte == PAYLOAD_SIZE_LINK_STATS as u8 + 2
+                        && two_bytes_ahead == FrameType::LinkStatistics as u8)
+                {
+                    start_i = i;
+                    start_i_found = true;
+                    break;
+                }
+            }
+        }
+
+        // println!("R: {:?}", unsafe { RX_BUFFER });// todo T
+        // println!("S: {:?}", buf_shifted);// todo T
+
+        if !start_i_found {
+            *rx_fault = true;
+            // println!("Can't find starting position in Rx payload");
+            // println!("RX buf: {:?}", unsafe { RX_BUFFER });
+            return None;
+        }
+
+        for i in 0..MAX_PACKET_SIZE {
+            let msg_start_i = start_i + i;
+            buf_shifted[i] = unsafe { RX_BUFFER }[msg_start_i];
+        }
     }
 
     // todo: do we need to erase messages as we read them from the buf?
 
     let packet = match Packet::from_buf(&buf_shifted) {
+        // let packet = match Packet::from_buf(unsafe { & RX_BUFFER }) {
         Ok(p) => p,
         Err(_) => {
             *rx_fault = true;
             println!("Error decoding packet address or frame type; skipping");
             println!("BUF: {:?}", unsafe { RX_BUFFER });
+            println!("S: {:?}", buf_shifted);
             return None;
         }
     };
@@ -561,7 +612,7 @@ pub fn handle_packet(
         }
         _ => {
             *rx_fault = true;
-            println!("Unexpected Rx frame type.")
+            println!("Unexpected Rx frame type: {}", packet.frame_type as u8);
         }
     }
 

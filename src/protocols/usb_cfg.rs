@@ -80,7 +80,7 @@ const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
 pub const WAYPOINT_SIZE: usize = F32_SIZE * 3 + WAYPOINT_MAX_NAME_LEN + 1;
 pub const WAYPOINTS_SIZE: usize = crate::state::MAX_WAYPOINTS * WAYPOINT_SIZE;
 pub const SET_SERVO_POSIT_SIZE: usize = 1 + F32_SIZE; // Servo num, value
-pub const SYS_STATUS_SIZE: usize = 9; // Sensor status (u8) * 9
+pub const SYS_STATUS_SIZE: usize = 10; // Sensor status (u8) * 10
 pub const AP_STATUS_SIZE: usize = 0; // todo
 pub const SYS_AP_STATUS_SIZE: usize = SYS_STATUS_SIZE + AP_STATUS_SIZE;
 #[cfg(feature = "quad")]
@@ -241,6 +241,7 @@ impl From<&SystemStatus> for [u8; SYS_STATUS_SIZE] {
             p.esc_rpm as u8,
             p.rf_control_link as u8,
             if p.rf_control_fault { 1 } else { 0 },
+            if p.esc_rpm_fault { 1 } else { 0 },
         ]
     }
 }
@@ -339,14 +340,18 @@ pub fn handle_rx(
         }
     };
 
+    let received_crc = rx_buf[rx_msg_type.payload_size() + 1];
+
+    // Calculate the CRC starting at the beginning of the packet, and ending at the end of the payload.
+    // (This is everything except the CRC byte itself.)
     let expected_crc_rx = util::calc_crc(
         &CRC_LUT,
         &rx_buf[..rx_msg_type.payload_size() + 1],
         rx_msg_type.payload_size() as u8 + 1,
     );
 
-    if rx_buf[rx_msg_type.payload_size() + 1] != expected_crc_rx {
-        println!("Incorrect inbound CRC");
+    if received_crc != expected_crc_rx {
+        println!("Incorrect inbound CRC on {} message", rx_buf[0]);
         // todo: return here.
     }
 
@@ -512,7 +517,7 @@ fn send_payload<const N: usize>(
 
     let mut tx_buf = [0; N];
 
-    tx_buf[0] = MsgType::SysApStatus as u8;
+    tx_buf[0] = msg_type as u8;
     tx_buf[1..(payload_size + 1)].copy_from_slice(&payload);
 
     tx_buf[payload_size + 1] = util::calc_crc(
