@@ -3,7 +3,7 @@
 
 // todo: Maybe a more-specific name, like 'flight_params' etc?
 
-use crate::{imu_shared::ImuReadings, DT_IMU};
+use crate::{imu_shared::ImuReadings, DT_FLIGHT_CTRLS};
 
 use lin_alg2::f32::Quaternion;
 
@@ -54,9 +54,9 @@ impl Params {
 
         // Calculate angular acceleration. Do this before updating velocities, since we use
         // the prev ones here.
-        self.a_pitch = (imu_data.v_pitch - self.v_pitch) / DT_IMU;
-        self.a_roll = (imu_data.v_roll - self.v_roll) / DT_IMU;
-        self.a_yaw = (imu_data.v_yaw - self.v_yaw) / DT_IMU;
+        self.a_pitch = (imu_data.v_pitch - self.v_pitch) / DT_FLIGHT_CTRLS;
+        self.a_roll = (imu_data.v_roll - self.v_roll) / DT_FLIGHT_CTRLS;
+        self.a_yaw = (imu_data.v_yaw - self.v_yaw) / DT_FLIGHT_CTRLS;
 
         // Apply filtered gyro and accel readings directly to self.
         self.v_pitch = imu_data.v_pitch;

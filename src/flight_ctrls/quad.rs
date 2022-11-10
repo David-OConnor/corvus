@@ -14,7 +14,7 @@ use crate::{
     dshot,
     safety::ArmStatus,
     state::{SensorStatus, StateVolatile, SystemStatus},
-    util,
+    util, DT_FLIGHT_CTRLS,
 };
 
 use super::{
@@ -332,7 +332,7 @@ impl MotorRpm {
             pid_coeffs.i_front_left,
             0.,
             None,
-            crate::DT_IMU,
+            DT_FLIGHT_CTRLS,
         );
 
         let fr = pid::run(
@@ -343,7 +343,7 @@ impl MotorRpm {
             pid_coeffs.i_front_right,
             0.,
             None,
-            crate::DT_IMU,
+            DT_FLIGHT_CTRLS,
         );
 
         let al = pid::run(
@@ -354,7 +354,7 @@ impl MotorRpm {
             pid_coeffs.i_aft_left,
             0.,
             None,
-            crate::DT_IMU,
+            DT_FLIGHT_CTRLS,
         );
 
         let ar = pid::run(
@@ -365,7 +365,7 @@ impl MotorRpm {
             pid_coeffs.i_aft_right,
             0.,
             None,
-            crate::DT_IMU,
+            DT_FLIGHT_CTRLS,
         );
 
         let power = MotorPower {

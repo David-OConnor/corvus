@@ -131,6 +131,9 @@ static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 // todo: Cycle flash pages for even wear. Can postpone this.
 
+// If IMU updates at 8kHz and ratio is 4, the flight control loop operates at 2kHz.
+const FLIGHT_CTRL_IMU_RATIO: usize = 4; // todo: Consider updating, eg to 2.
+
 cfg_if! {
     if #[cfg(feature = "h7")] {
         // H723: 1Mb of flash, in one bank.
@@ -146,8 +149,7 @@ cfg_if! {
         // clock input frequency, these ODR values will scale by a factor of (External clock value in kHz / 32).
         // For example, if an external clock frequency of 32.768kHz is used,
         // instead of ODR value of 500Hz, it will be 500 * (32.768 / 32) = 512Hz.
-        const IMU_UPDATE_RATE: f32 = 4_096.;  // todo: Experimenting
-        // const IMU_UPDATE_RATE: f32 = 8_192.;
+        const UPDATE_RATE_FLIGHT_CTRLS: f32 = 8_192. / FLIGHT_CTRL_IMU_RATIO as f32;
     } else {
         // G47x/G48x: 512k flash.
         // Assumes configured as a single bank: 128 pages of 4kb each.
@@ -156,12 +158,14 @@ cfg_if! {
         const FLASH_WAYPOINT_PAGE: usize = 127;
 
         // Todo: Measured: 8.042kHz (2022-10-26)
-        const IMU_UPDATE_RATE: f32 = 4_000.; // todo experimenting.
-        // const IMU_UPDATE_RATE: f32 = 8_000.;
+        const UPDATE_RATE_FLIGHT_CTRLS: f32 = 8_000. / FLIGHT_CTRL_IMU_RATIO as f32;
     }
 }
 
 const UPDATE_RATE_MAIN_LOOP: f32 = 600.; // todo: Experiment with this.
+
+const DT_FLIGHT_CTRLS: f32 = 1. / UPDATE_RATE_FLIGHT_CTRLS;
+const DT_MAIN_LOOP: f32 = 1. / UPDATE_RATE_MAIN_LOOP;
 
 // Every x main update loops, log parameters etc to flash.
 const LOGGING_UPDATE_RATIO: usize = 100;
@@ -172,9 +176,6 @@ const PRINT_STATUS_RATIO: usize = 2_000;
 
 // Every x main loops, log RPM (or servo posit) to angular accel (thrust) data.
 const THRUST_LOG_RATIO: usize = 20;
-
-const DT_IMU: f32 = 1. / IMU_UPDATE_RATE;
-const DT_MAIN_LOOP: f32 = 1. / UPDATE_RATE_MAIN_LOOP;
 
 #[cfg(feature = "h7")]
 static mut USB_EP_MEMORY: [u32; 1024] = [0; 1024];
@@ -203,7 +204,7 @@ mod app {
 
     use crate::flight_ctrls::common::Motor;
     use core::time::Duration; // todo temp
-use stm32_hal2::instant::Instant;
+    use stm32_hal2::instant::Instant;
     use stm32_hal2::timer::TimChannel; // todo temp
 
     #[monotonic(binds = TIM5, default = true)]
@@ -284,7 +285,9 @@ use stm32_hal2::instant::Instant;
 
         // Improves performance, at a cost of slightly increased power use.
         // Note that these enable fns should automatically invalidate prior.
+        #[cfg(feature = "h7")]
         cp.SCB.enable_icache();
+        #[cfg(feature = "h7")]
         cp.SCB.enable_dcache(&mut cp.CPUID);
 
         cfg_if! {
@@ -320,14 +323,11 @@ use stm32_hal2::instant::Instant;
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-            clocks::enable_crs(CrsSyncSrc::OtgHs);
+        clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-            clocks::enable_crs(CrsSyncSrc::Usb);
+        clocks::enable_crs(CrsSyncSrc::Usb);
 
-        let flash = unsafe {
-            &(*pac::FLASH::ptr())
-        };
-
+        let flash = unsafe { &(*pac::FLASH::ptr()) };
 
         cp.SCB.enable_icache();
         println!("Icache: {:?}", cortex_m::peripheral::SCB::icache_enabled());
@@ -339,14 +339,14 @@ use stm32_hal2::instant::Instant;
         let mut dma = Dma::new(dp.DMA1);
         let mut dma2 = Dma::new(dp.DMA2);
         #[cfg(feature = "g4")]
-            dma::enable_mux1();
+        dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
         #[cfg(feature = "h7")]
-            let UART_ELRS = dp.UART7;
+        let UART_ELRS = dp.UART7;
         #[cfg(feature = "g4")]
-            let UART_ELRS = dp.USART3;
+        let UART_ELRS = dp.USART3;
 
         let (mut spi1, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_elrs) =
             setup::setup_busses(dp.SPI1, dp.I2C1, dp.I2C2, dp.USART2, UART_ELRS, &clock_cfg);
@@ -363,10 +363,10 @@ use stm32_hal2::instant::Instant;
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -513,9 +513,9 @@ use stm32_hal2::instant::Instant;
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -577,7 +577,7 @@ use stm32_hal2::instant::Instant;
             ..Default::default()
         }; // todo - load from flash
 
-        let ahrs = Ahrs::new(&ahrs_settings, crate::IMU_UPDATE_RATE as u32);
+        let ahrs = Ahrs::new(&ahrs_settings, UPDATE_RATE_FLIGHT_CTRLS as u32);
 
         // Allow ESC to warm up and the radio to connect before starting the main loop.
         delay.delay_ms(WARMUP_TIME);
@@ -589,13 +589,13 @@ use stm32_hal2::instant::Instant;
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
@@ -620,9 +620,9 @@ use stm32_hal2::instant::Instant;
         // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
         // todo opendrain and pullup set, and without enabling interrupt.
         #[cfg(feature = "h7")]
-            let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
         #[cfg(feature = "g4")]
-            let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
         imu_exti_pin.enable_interrupt(Edge::Falling);
 
         println!("Init complete; starting main loops");
@@ -1084,11 +1084,11 @@ use stm32_hal2::instant::Instant;
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         // Clear DMA interrupt this way due to RTIC conflict.
         #[cfg(feature = "h7")]
-            unsafe {
+        unsafe {
             (*DMA1::ptr()).lifcr.write(|w| w.ctcif2().set_bit())
         }
         #[cfg(feature = "g4")]
-            unsafe {
+        unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit())
         }
 
@@ -1132,13 +1132,6 @@ use stm32_hal2::instant::Instant;
                     // Note that this step is mandatory, per STM32 RM.
                     spi1.stop_dma(setup::IMU_TX_CH, Some(setup::IMU_RX_CH), dma);
 
-                    // todo: Temp testing setting the loop rate to 4k to TS motors/CRSF
-                    // todo: If you use this long term, do something diff like have IMU update less
-                    // todo frequently, or just apply filters each update.
-                    if *cx.local.imu_isr_loop_i % 2 == 0 {
-                        return
-                    }
-
                     {
                         if *cx.local.imu_isr_loop_i % 700 == 0 {
                             // let period = cx.local.measurement_timer.time_elapsed().as_secs();
@@ -1163,6 +1156,15 @@ use stm32_hal2::instant::Instant;
                     // Update `params_prev` with past-update data prior to updating params
                     *params_prev = params.clone();
                     params.update_from_imu_readings(imu_data);
+
+                    // Update our flight control logic and motors a fraction of IMU updates, but
+                    // apply filter data to all.
+                    // todo: Consider a different approach; all you need to do each time is
+                    // todo read and filter.
+                    // todo: Be wary of how you use params_prev if it's above this break line
+                    if *cx.local.imu_isr_loop_i % FLIGHT_CTRL_IMU_RATIO != 0 {
+                        return
+                    }
 
                     // Note: Consider if you want to update the attitude using the primary update loop,
                     // vice each IMU update.
@@ -1203,7 +1205,7 @@ use stm32_hal2::instant::Instant;
                         state_volatile.attitude_commanded.quat = Some(ctrl_logic::modify_att_target(
                             state_volatile.attitude_commanded.quat.unwrap_or(Quaternion::new_identity()),
                             &state_volatile.rates_commanded,
-                            DT_IMU,
+                            DT_FLIGHT_CTRLS,
                         ));
                     } else {
                         state_volatile.attitude_commanded.quat = Some(cfg.takeoff_attitude);
@@ -1250,7 +1252,7 @@ use stm32_hal2::instant::Instant;
                                 &state_volatile.drag_coeffs,
                                 &state_volatile.accel_map,
                                 flight_ctrl_filters,
-                                DT_IMU,
+                                DT_FLIGHT_CTRLS,
                             );
 
                             rpms.send_to_motors(
@@ -1279,7 +1281,7 @@ use stm32_hal2::instant::Instant;
                                 &state_volatile.drag_coeffs,
                                 &state_volatile.accel_map,
                                 flight_ctrl_filters,
-                                DT_IMU,
+                                DT_FLIGHT_CTRLS,
                             );
 
                             control_posits.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status,  dma);
@@ -1375,7 +1377,7 @@ use stm32_hal2::instant::Instant;
         // todo: Why is this gate required when we have feature-gated the fn?
         // todo: Maybe RTIC is messing up the fn-level feature gate?
         #[cfg(feature = "g4")]
-            unsafe {
+        unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit());
         }
         unsafe {
@@ -1410,9 +1412,9 @@ use stm32_hal2::instant::Instant;
 
         // println!("34");
         unsafe {
-                #[cfg(feature = "h7")]
+            #[cfg(feature = "h7")]
             (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
-                #[cfg(feature = "g4")]
+            #[cfg(feature = "g4")]
             (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit());
         }
         unsafe {
@@ -1434,17 +1436,17 @@ use stm32_hal2::instant::Instant;
             if dshot::CH_B_REC_MODE.load(Ordering::Relaxed) {
                 (cx.shared.motor_timers, cx.shared.dma).lock(|motor_timers, dma| {
                     #[cfg(feature = "h7")]
-                        dshot::set_to_output(motor_timers, Motor::M1, Motor::M2, true);
+                    dshot::set_to_output(motor_timers, Motor::M1, Motor::M2, true);
                     dshot::set_to_output(motor_timers, Motor::M3, Motor::M4, true);
                 });
                 dshot::CH_B_REC_MODE.store(false, Ordering::Relaxed);
             } else {
                 (cx.shared.motor_timers, cx.shared.dma).lock(|motor_timers, dma| {
                     #[cfg(feature = "h7")]
-                        dshot::set_to_input(motor_timers, Motor::M1, Motor::M2, true);
+                    dshot::set_to_input(motor_timers, Motor::M1, Motor::M2, true);
                     dshot::set_to_input(motor_timers, Motor::M3, Motor::M4, true);
                     #[cfg(feature = "h7")]
-                        dshot::receive_payload_a(motor_timers, dma);
+                    dshot::receive_payload_a(motor_timers, dma);
                     dshot::receive_payload_b(motor_timers, dma);
                 });
                 dshot::CH_B_REC_MODE.store(true, Ordering::Relaxed);
@@ -1561,7 +1563,7 @@ use stm32_hal2::instant::Instant;
                     uart.regs.cr1.modify(|_, w| w.cmie().set_bit());
 
                     if let Some(crsf_data) =
-                    crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
+                        crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {

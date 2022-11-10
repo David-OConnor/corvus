@@ -85,7 +85,7 @@ pub fn update_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     // let gyro_data_with_offset = ahrs.offset.update(gyro_data);
     // let gyro_data_with_offset = gyro_data;
 
-    ahrs.update_no_magnetometer(gyro_data, accel_data, crate::DT_IMU);
+    ahrs.update_no_magnetometer(gyro_data, accel_data, crate::DT_FLIGHT_CTRLS);
 
     let att_euler = ahrs.quaternion.to_euler();
 

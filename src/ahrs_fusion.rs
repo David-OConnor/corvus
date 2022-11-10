@@ -114,7 +114,7 @@ impl Default for Settings {
             gain: 0.5,
             accel_rejection: 0.1745,
             magnetic_rejection: 0.35,
-            rejection_timeout: (5. * crate::IMU_UPDATE_RATE) as u32,
+            rejection_timeout: (5. * crate::UPDATE_RATE_FLIGHT_CTRLS) as u32,
         }
     }
 }
