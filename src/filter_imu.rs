@@ -7,6 +7,8 @@ use cmsis_dsp_api as dsp_api;
 
 use crate::{imu_shared::ImuReadings, util::IirInstWrapper};
 
+const BLOCK_SIZE: usize = crate::FLIGHT_CTRL_IMU_RATIO;
+
 static mut FILTER_STATE_ACCEL_X: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_ACCEL_Y: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_ACCEL_Z: [f32; 4] = [0.; 4];
@@ -14,6 +16,8 @@ static mut FILTER_STATE_ACCEL_Z: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_GYRO_PITCH: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_GYRO_ROLL: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_GYRO_YAW: [f32; 4] = [0.; 4];
+
+
 
 // todo: What cutoffs to use? I think you're in the ballpark, but maybe a little higher.
 // filter_ = signal.iirfilter(1, 300, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
@@ -123,8 +127,6 @@ impl Default for ImuFilters {
 impl ImuFilters {
     /// Apply the filters to IMU readings, modifying in place. Block size = 1.
     pub fn apply(&mut self, data: &mut ImuReadings) {
-        let block_size = 1;
-
         let mut a_x = [0.];
         let mut a_y = [0.];
         let mut a_z = [0.];
@@ -132,26 +134,26 @@ impl ImuFilters {
         let mut v_roll = [0.];
         let mut v_yaw = [0.];
 
-        dsp_api::biquad_cascade_df1_f32(&mut self.accel_x.inner, &[data.a_x], &mut a_x, block_size);
-        dsp_api::biquad_cascade_df1_f32(&mut self.accel_y.inner, &[data.a_y], &mut a_y, block_size);
-        dsp_api::biquad_cascade_df1_f32(&mut self.accel_z.inner, &[data.a_z], &mut a_z, block_size);
+        dsp_api::biquad_cascade_df1_f32(&mut self.accel_x.inner, &[data.a_x], &mut a_x, BLOCK_SIZE);
+        dsp_api::biquad_cascade_df1_f32(&mut self.accel_y.inner, &[data.a_y], &mut a_y, BLOCK_SIZE);
+        dsp_api::biquad_cascade_df1_f32(&mut self.accel_z.inner, &[data.a_z], &mut a_z, BLOCK_SIZE);
         dsp_api::biquad_cascade_df1_f32(
             &mut self.gyro_pitch.inner,
             &[data.v_pitch],
             &mut v_pitch,
-            block_size,
+            BLOCK_SIZE,
         );
         dsp_api::biquad_cascade_df1_f32(
             &mut self.gyro_roll.inner,
             &[data.v_roll],
             &mut v_roll,
-            block_size,
+            BLOCK_SIZE,
         );
         dsp_api::biquad_cascade_df1_f32(
             &mut self.gyro_yaw.inner,
             &[data.v_yaw],
             &mut v_yaw,
-            block_size,
+            BLOCK_SIZE,
         );
 
         data.a_x = a_x[0];

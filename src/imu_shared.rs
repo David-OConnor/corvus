@@ -8,7 +8,10 @@ use stm32_hal2::{
     spi::Spi,
 };
 
-use crate::setup::{IMU_RX_CH, IMU_TX_CH};
+use crate::{
+    setup::{IMU_RX_CH, IMU_TX_CH},
+     FLIGHT_CTRL_IMU_RATIO,
+};
 
 const G: f32 = 9.8; // m/s
 
@@ -22,7 +25,7 @@ static mut WRITE_BUF: [u8; 13] = [0; 13];
 // We use this buffer for DMA transfers of IMU readings. Note that reading order is different
 // between different IMUs, due to their reg layout, and consecutive reg reads. In both cases, 6 readings,
 // each with 2 bytes each.
-pub static mut IMU_READINGS: [u8; 13] = [0; 13];
+pub static mut IMU_READINGS: [u8; 13 * FLIGHT_CTRL_IMU_RATIO] = [0; 13 * FLIGHT_CTRL_IMU_RATIO];
 
 /// Represents sensor readings from a 6-axis accelerometer + gyro.
 /// Accelerometer readings are in m/2^2. Gyroscope readings are in radians/s.
