@@ -343,21 +343,13 @@ pub fn set_power_single(rotor: Motor, power: f32, timers: &mut MotorTimers, dma:
 fn send_payload(timers: &mut MotorTimers, dma: &mut Dma<DMA1>) {
     // Stop the receive transaction.
     dma.stop(Motor::M1.dma_channel());
-    #[cfg(all(feature = "h7", feature = "quad"))]
+    #[cfg(all(feature = "g4", feature = "quad"))]
     dma.stop(Motor::M3.dma_channel());
-
-    // if BIDIR_EN {
-    //     // Was likely in input mode previously; update.
-    //     set_to_output(timers);
-    // }
-
-    // todo: TS
-    // timers.r12.disable();
 
     // Note that timer enabling is handled by `write_dma_burst`.
 
     let dma_cfg = ChannelCfg {
-        priority: Priority::Low, // todo
+        priority: Priority::High, // todo
         ..ChannelCfg::default()
     };
 

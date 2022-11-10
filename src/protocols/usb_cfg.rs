@@ -340,17 +340,18 @@ pub fn handle_rx(
         }
     };
 
-    let received_crc = rx_buf[rx_msg_type.payload_size() + 1];
+    let payload_size_rx = rx_msg_type.payload_size();
+    let crc_read = rx_buf[payload_size_rx + 1];
 
     // Calculate the CRC starting at the beginning of the packet, and ending at the end of the payload.
     // (This is everything except the CRC byte itself.)
-    let expected_crc_rx = util::calc_crc(
+    let crx_expected_rx = util::calc_crc(
         &CRC_LUT,
-        &rx_buf[..rx_msg_type.payload_size() + 1],
-        rx_msg_type.payload_size() as u8 + 1,
+        &rx_buf[..payload_size_rx + 1],
+        payload_size_rx as u8 + 1,
     );
 
-    if received_crc != expected_crc_rx {
+    if crc_read != crx_expected_rx {
         println!("Incorrect inbound CRC on {} message", rx_buf[0]);
         // todo: return here.
     }

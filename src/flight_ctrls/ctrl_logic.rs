@@ -162,15 +162,15 @@ impl RpmAccelMap {
         1. // todo
     }
 
-    pub fn pitch_accel_to_rpm(&self, ω_dot: f32) -> f32 {
+    pub fn pitch_accel_to_rpm(&self, α: f32) -> f32 {
         0. // todo
     }
 
-    pub fn roll_accel_to_rpm(&self, ω_dot: f32) -> f32 {
+    pub fn roll_accel_to_rpm(&self, α: f32) -> f32 {
         0. // todo
     }
 
-    pub fn yaw_accel_to_rpm(&self, ω_dot: f32) -> f32 {
+    pub fn yaw_accel_to_rpm(&self, α: f32) -> f32 {
         0. // todo
     }
 
@@ -268,7 +268,7 @@ impl Default for CtrlCoeffs {
 }
 
 /// Estimate the linear drag coefficient, given a single data point.
-pub fn calc_drag_coeff(ω_meas: f32, ω_dot_meas: f32, ω_dot_commanded: f32) -> f32 {
+pub fn calc_drag_coeff(ω_meas: f32, α_meas: f32, α_commanded: f32) -> f32 {
     // https://physics.stackexchange.com/questions/304742/angular-drag-on-body
     // This coefficient maps angular velocity to drag acceleration directly,
     // and is measured (and filtered).
@@ -278,52 +278,52 @@ pub fn calc_drag_coeff(ω_meas: f32, ω_dot_meas: f32, ω_dot_commanded: f32) ->
 
     // todo: Low speed for now.
     // drag_accel = -cω
-    // ω_dot = ω_dot_commanded + cω
-    // c = (ω_dot - ω_dot_commanded) / ω
-    // ω_dot_commanded = ω_dot + cω
+    // α = α_commanded + cω
+    // c = (α - α_commanded) / ω
+    // α_commanded = α + cω
 
-    (ω_dot_meas - ω_dot_commanded) / ω_meas
+    (α_meas - α_commanded) / ω_meas
 }
 
 /// If we're unable to use our current parameters to determine a linear-jerk trajectory,
 /// we specify a time-to-correction based on the params, then using that time, calculate
-/// an angular accel and jerk. Returned result is ω_dot_0, ω_dot_dot
-fn ω_dot_from_ttc(dθ: f32, ω: f32, ttc_per_dθ: f32) -> f32 {
+/// an angular accel and jerk. Returned result is α_0, j
+fn α_from_ttc(dθ: f32, ω: f32, ttc_per_dθ: f32) -> f32 {
     // Time to correction
     let ttc = ttc_per_dθ * dθ.abs(); // todo: Naive. Take vel and accel into account.
 
     // Calculate the "initial" target angular acceleration.
-    let ω_dot_0 = -(6. * dθ + 4. * ttc * ω) / ttc.powi(2);
+    let α_0 = -(6. * dθ + 4. * ttc * ω) / ttc.powi(2);
 
-    // It appears we don't actually need to calculate ω_dot_dot
+    // It appears we don't actually need to calculate j
     // for our controller; although this value calculated here should be
-    // roughly maintained given how ω_dot evolves over time given
+    // roughly maintained given how α evolves over time given
     // the same control logic is applied repeatedly.
 
     // Calculate the (~constant for a given correction) change in angular acceleration.
     // (Commented-out, since we don't directly need this)
-    // let ω_dot_dot = 6. * (2. * dθ + ttc * ω_0) / ttc.powi(3);
+    // let j = 6. * (2. * dθ + ttc * ω_0) / ttc.powi(3);
 
-    // ω_dot_0, ω_dot_dot
-    ω_dot_0
+    // α_0, j
+    α_0
 }
 
 // #[cfg(feature = "quad")]
 // /// Accel is in m/s^2. Returns an RPM delta between rotor pairs.
-// fn accel_to_rpm_delta(ω_dot: f32, mapping: asdf) -> f32 {
+// fn accel_to_rpm_delta(α: f32, mapping: asdf) -> f32 {
 //
 // }
 //
 // #[cfg(feature = "fixed-wing")]
 // /// Accel is in m/s^2. Returns an RPM delta between rotor pairs.
-// fn accel_to_rpm_servo_cmds(ω_dot: f32, mapping: asdf) -> f32 {
+// fn accel_to_rpm_servo_cmds(α: f32, mapping: asdf) -> f32 {
 //
 // }
 
 fn find_ctrl_setting(
     dθ: f32,
     ω_0: f32,
-    ω_dot_meas: f32,
+    α_meas: f32,
     // ctrl_cmd_prev: f32,
     coeffs: &CtrlCoeffs,
     drag_coeff: f32,
@@ -336,24 +336,24 @@ fn find_ctrl_setting(
 
     // `t` here is the total time to complete this correction, using the analytic
     // formula.
-    let t = if ω_dot_meas.abs() < EPS {
+    let t = if α_meas.abs() < EPS {
         Some((3. * dθ) / (2. * ω_0))
     } else {
-        // If `inner` is negative, there is no solution for the desired ω_dot_0;
+        // If `inner` is negative, there is no solution for the desired α_0;
         // we must change it.
-        // It would be negative if, for example, ω_dot_0 and/or θ_0 is high,
+        // It would be negative if, for example, α_0 and/or θ_0 is high,
         // and/or ω_0 is low.
         // This would manifest in an imaginary time.
         // We resolve this by specifying a time-to-correction based on
         // current parameters, and applying a discontinuity in angular accel;
         // this discontinuity allows us to still find a constant-jerk
         // result.
-        let inner = 4. * ω_0.powi(2) - 6. * ω_dot_meas * dθ;
+        let inner = 4. * ω_0.powi(2) - 6. * α_meas * dθ;
         if inner < 0. {
             None
         } else {
-            let t_a = -(inner.sqrt() + 2. * ω_0) / ω_dot_meas;
-            let t_b = (inner.sqrt() - 2. * ω_0) / ω_dot_meas;
+            let t_a = -(inner.sqrt() + 2. * ω_0) / α_meas;
+            let t_b = (inner.sqrt() - 2. * ω_0) / α_meas;
 
             // todo: QC this.
             if t_a < 0. {
@@ -364,24 +364,24 @@ fn find_ctrl_setting(
         }
     };
 
-    let mut ω_dot_target = match t {
+    let mut α_target = match t {
         Some(ttc) => {
             if ttc > coeffs.max_ttc_per_dθ * dθ {
-                ω_dot_from_ttc(dθ, ω_0, coeffs.ttc_per_dθ)
+                α_from_ttc(dθ, ω_0, coeffs.ttc_per_dθ)
             } else {
                 // Calculate the (~constant for a given correction) change in angular acceleration.
-                let ω_dot_dot = 6. * (2. * dθ + ttc * ω_0) / ttc.powi(3);
+                let j = 6. * (2. * dθ + ttc * ω_0) / ttc.powi(3);
 
                 // This is the actual target acceleration, determined by the questions above:
-                ω_dot_meas + ω_dot_dot
+                α_meas + j
             }
         }
-        None => ω_dot_from_ttc(dθ, ω_0, coeffs.ttc_per_dθ),
+        None => α_from_ttc(dθ, ω_0, coeffs.ttc_per_dθ),
     };
 
     // The target acceleration needs to include both the correction, and drag compensation.
     let drag_accel = -drag_coeff * ω_0;
-    ω_dot_target += drag_accel;
+    α_target += drag_accel;
 
     // Calculate how, most recently, the control command is affecting angular accel.
     // A higher constant means a given command has a higher affect on angular accel.
@@ -389,26 +389,26 @@ fn find_ctrl_setting(
     // todo: Once you have bidir dshot, use RPM instead of power.
     // todo: DO we sill want this?
     // todo: You should probably track ctrl eff in the main loop; not here.
-    // let ctrl_effectiveness = ω_dot_meas / ctrl_cmd_prev;
+    // let ctrl_effectiveness = α_meas / ctrl_cmd_prev;
 
     // Apply a lowpass filter to our effectiveness, to reduce noise and fluctuations.
     // let ctrl_effectiveness = filters.apply(ctrl_effectiveness);
 
-    // This distills to: (dω / time_to_correction) / (ω_dot / ctrl_cmd_prev) =
-    // (dω / time_to_correction) x (ctrl_cmd_prev / ω_dot) =
-    // (dω x ctrl_cmd_prev) / (time_to_correction x ω_dot) =
+    // This distills to: (dω / time_to_correction) / (α / ctrl_cmd_prev) =
+    // (dω / time_to_correction) x (ctrl_cmd_prev / α) =
+    // (dω x ctrl_cmd_prev) / (time_to_correction x α) =
     //
     // (dθ * coeffs.p_ω - ω x ctrl_cmd_prev) /
-    // ((coeffs.time_to_correction_p_ω * dω.abs() + coeffs.time_to_correction_p_θ * dθ.abs()) x ω_dot)
+    // ((coeffs.time_to_correction_p_ω * dω.abs() + coeffs.time_to_correction_p_θ * dθ.abs()) x α)
 
     // Units: rad x cmd / (s * rad/s) = rad x cmd / rad = cmd
     // `cmd` is the unit we use for ctrl inputs. Not sure what (if any?) units it has.
-    // ω_dot_target /= ctrl_effectiveness;
+    // α_target /= ctrl_effectiveness;
 
     #[cfg(feature = "quad")]
-    return accel_map.pitch_accel_to_rpm(ω_dot_target); // todo: Hard-coded to pitch as stopgap
+    return accel_map.pitch_accel_to_rpm(α_target); // todo: Hard-coded to pitch as stopgap
     #[cfg(feature = "fixed-wing")]
-    return accel_map.accel_to_servo_cmds(ω_dot_target);
+    return accel_map.accel_to_servo_cmds(α_target);
 }
 
 #[cfg(feature = "quad")]

@@ -191,7 +191,7 @@ const CTRL_COEFF_ADJ_TIMEOUT: f32 = 0.3; // seconds
 const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 
 // The time, in ms, to wait during initializing to allow the ESC and RX to power up and initialize.
-const WARMUP_TIME: u32 = 3_000; // todo: Lower if able.
+const WARMUP_TIME: u32 = 2_000;
 
 // todo: Bit flags that display as diff colored LEDs, and OSD items
 
@@ -203,7 +203,7 @@ mod app {
 
     use crate::flight_ctrls::common::Motor;
     use core::time::Duration; // todo temp
-    use stm32_hal2::instant::Instant;
+use stm32_hal2::instant::Instant;
     use stm32_hal2::timer::TimChannel; // todo temp
 
     #[monotonic(binds = TIM5, default = true)]
@@ -282,6 +282,11 @@ mod app {
         // Set up microcontroller peripherals
         let mut dp = pac::Peripherals::take().unwrap();
 
+        // Improves performance, at a cost of slightly increased power use.
+        // Note that these enable fns should automatically invalidate prior.
+        cp.SCB.enable_icache();
+        cp.SCB.enable_dcache(&mut cp.CPUID);
+
         cfg_if! {
             if #[cfg(feature = "h7")] {
                 let clock_cfg = Clocks {
@@ -315,15 +320,18 @@ mod app {
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-        clocks::enable_crs(CrsSyncSrc::OtgHs);
+            clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-        clocks::enable_crs(CrsSyncSrc::Usb);
+            clocks::enable_crs(CrsSyncSrc::Usb);
 
-        // Improves performance, at a cost of slightly increased power use.
-        cp.SCB.invalidate_icache();
+        let flash = unsafe {
+            &(*pac::FLASH::ptr())
+        };
+
+
         cp.SCB.enable_icache();
-        // cp.SCB.clean_invalidate_dcache(); // todo?
-        // cp.SCB.enable_dcache(); // todo?
+        println!("Icache: {:?}", cortex_m::peripheral::SCB::icache_enabled());
+        println!("Icache: {:?}", cortex_m::peripheral::SCB::dcache_enabled());
 
         // Set up pins with appropriate modes.
         setup::setup_pins();
@@ -331,14 +339,14 @@ mod app {
         let mut dma = Dma::new(dp.DMA1);
         let mut dma2 = Dma::new(dp.DMA2);
         #[cfg(feature = "g4")]
-        dma::enable_mux1();
+            dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
         #[cfg(feature = "h7")]
-        let UART_ELRS = dp.UART7;
+            let UART_ELRS = dp.UART7;
         #[cfg(feature = "g4")]
-        let UART_ELRS = dp.USART3;
+            let UART_ELRS = dp.USART3;
 
         let (mut spi1, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_elrs) =
             setup::setup_busses(dp.SPI1, dp.I2C1, dp.I2C2, dp.USART2, UART_ELRS, &clock_cfg);
@@ -355,10 +363,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -505,9 +513,9 @@ mod app {
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -581,13 +589,13 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
@@ -612,9 +620,9 @@ mod app {
         // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
         // todo opendrain and pullup set, and without enabling interrupt.
         #[cfg(feature = "h7")]
-        let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
+            let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
         #[cfg(feature = "g4")]
-        let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
+            let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
         imu_exti_pin.enable_interrupt(Edge::Falling);
 
         println!("Init complete; starting main loops");
@@ -761,18 +769,17 @@ mod app {
                     if *cx.local.update_isr_loop_i % PRINT_STATUS_RATIO == 0 {
                         // todo: Flesh this out, and perhaps make it more like Preflight.
 
-                        println!("DSHOT: {:?}", unsafe { dshot::PAYLOAD_R1_2_REC });
-                        println!("Ctrls: {:?}", unsafe { crsf::RX_BUFFER });
+                        // println!("DSHOT: {:?}", unsafe { dshot::PAYLOAD_R1_2_REC });
 
                         println!(
-                            "\n\nControl data:\nPitch: {} Roll: {}, Yaw: {}, Throttle: {}, Arm switch: {}",
-                            control_channel_data.pitch, control_channel_data.roll,
-                            control_channel_data.yaw, control_channel_data.throttle,
-                            control_channel_data.arm_status == ArmStatus::Armed, // todo fixed-wing
+                            "\n\nFaults. Rx: {}. RPM: {}", system_status.rf_control_fault, system_status.esc_rpm_fault,
                         );
 
                         println!(
-                            "\n\nFaults. Rx: {}", system_status.rf_control_fault
+                            "\nControl data:\nPitch: {} Roll: {}, Yaw: {}, Throttle: {}, Arm switch: {}",
+                            control_channel_data.pitch, control_channel_data.roll,
+                            control_channel_data.yaw, control_channel_data.throttle,
+                            control_channel_data.arm_status == ArmStatus::Armed, // todo fixed-wing
                         );
 
                         #[cfg(feature = "quad")]
@@ -788,7 +795,7 @@ mod app {
 
                         #[cfg(feature = "quad")]
                         println!(
-                            "Autopilot_status:\nAlt hold: {} Heading hold: {}, Yaw assist: {}, Direct to point: {}, \
+                            "Autopilot_status: Alt hold: {} Heading hold: {}, Yaw assist: {}, Direct to point: {}, \
                             sequence: {}, takeoff: {}, land: {}, recover: {}, loiter: {}",
                             autopilot_status.alt_hold.is_some(), autopilot_status.hdg_hold.is_some(),
                             autopilot_status.yaw_assist != flight_ctrls::autopilot::YawAssist::Disabled,
@@ -800,7 +807,7 @@ mod app {
 
                         #[cfg(feature = "fixed-wing")]
                         println!(
-                            "Autopilot_status:\nAlt hold: {} Heading hold: {}, Direct to point: {}, \
+                            "Autopilot_status: Alt hold: {} Heading hold: {}, Direct to point: {}, \
                             sequence: {}, takeoff: {}, land: {}, recover: {}, loiter/orbit: {}",
                             autopilot_status.alt_hold.is_some(), autopilot_status.hdg_hold.is_some(),
                             autopilot_status.direct_to_point.is_some(),
@@ -873,8 +880,6 @@ mod app {
                         &mut state_volatile.arm_status,
                         control_channel_data.throttle,
                     );
-
-                    // return; // todo temp!!!
 
                     if !state_volatile.has_taken_off {
                         safety::handle_takeoff_attitude_lock(
@@ -1079,11 +1084,11 @@ mod app {
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         // Clear DMA interrupt this way due to RTIC conflict.
         #[cfg(feature = "h7")]
-        unsafe {
+            unsafe {
             (*DMA1::ptr()).lifcr.write(|w| w.ctcif2().set_bit())
         }
         #[cfg(feature = "g4")]
-        unsafe {
+            unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit())
         }
 
@@ -1169,14 +1174,17 @@ mod app {
                         p = 0.025;
                     };
 
+
                     if state_volatile.arm_status == ArmStatus::Armed {
                         // dshot::set_power(p, p, p, p, motor_timers, dma);
-                        dshot::set_power(p, p, 0., 0., motor_timers, dma);
+                        dshot::set_power(p, p, p, p, motor_timers, dma);
                     } else {
 
                         dshot::stop_all(motor_timers, dma);
                         // dshot::set_power(0.025, 0., 0., 0., motor_timers, dma);
                     }
+
+                     return; // todo temp!
 
                     // todo: Impl once you've sorted out your control logic.
                     // todo: Delegate this to another module, eg `attitude_ctrls`.
@@ -1364,19 +1372,14 @@ mod app {
     /// and is only used on G4.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
         // println!("12");
-
         // todo: Why is this gate required when we have feature-gated the fn?
         // todo: Maybe RTIC is messing up the fn-level feature gate?
         #[cfg(feature = "g4")]
-        unsafe {
+            unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit());
         }
-        // return; // todo temp
-
-        // todo: Temp. Put motor timers etc back A/R. If you still have trouble, may need to
-        // todo split by 1/2, 3/4 instead of sharing motor timers struct.
         unsafe {
-            // (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
+            (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
         }
 
         if dshot::BIDIR_EN {
@@ -1407,15 +1410,14 @@ mod app {
 
         // println!("34");
         unsafe {
-            #[cfg(feature = "h7")]
+                #[cfg(feature = "h7")]
             (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
-            #[cfg(feature = "g4")]
+                #[cfg(feature = "g4")]
             (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit());
         }
-        return; // todo temp
-                // unsafe {
-                //     (*pac::TIM3::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
-                // }
+        unsafe {
+            (*pac::TIM3::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
+        }
 
         // cx.shared.motor_timers.lock(|timers| {
         //     #[cfg(feature = "h7")]
@@ -1432,17 +1434,17 @@ mod app {
             if dshot::CH_B_REC_MODE.load(Ordering::Relaxed) {
                 (cx.shared.motor_timers, cx.shared.dma).lock(|motor_timers, dma| {
                     #[cfg(feature = "h7")]
-                    dshot::set_to_output(motor_timers, Motor::M1, Motor::M2, true);
+                        dshot::set_to_output(motor_timers, Motor::M1, Motor::M2, true);
                     dshot::set_to_output(motor_timers, Motor::M3, Motor::M4, true);
                 });
                 dshot::CH_B_REC_MODE.store(false, Ordering::Relaxed);
             } else {
                 (cx.shared.motor_timers, cx.shared.dma).lock(|motor_timers, dma| {
                     #[cfg(feature = "h7")]
-                    dshot::set_to_input(motor_timers, Motor::M1, Motor::M2, true);
+                        dshot::set_to_input(motor_timers, Motor::M1, Motor::M2, true);
                     dshot::set_to_input(motor_timers, Motor::M3, Motor::M4, true);
                     #[cfg(feature = "h7")]
-                    dshot::receive_payload_a(motor_timers, dma);
+                        dshot::receive_payload_a(motor_timers, dma);
                     dshot::receive_payload_b(motor_timers, dma);
                 });
                 dshot::CH_B_REC_MODE.store(true, Ordering::Relaxed);
@@ -1475,7 +1477,7 @@ mod app {
     // #[task(binds = USART7,
     #[task(binds = USART3,
     shared = [dma, control_channel_data, link_stats, rf_limiter_timer, link_lost,
-    lost_link_timer, system_status], local = [uart_elrs], priority = 10)]
+    lost_link_timer, system_status], local = [uart_elrs], priority = 5)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
     /// and message ends. For message starts, it begins a DMA transfer. For message ends, it
     /// processes the radio data, passing it into shared resources for control channel data,
@@ -1559,7 +1561,7 @@ mod app {
                     uart.regs.cr1.modify(|_, w| w.cmie().set_bit());
 
                     if let Some(crsf_data) =
-                        crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
+                    crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {

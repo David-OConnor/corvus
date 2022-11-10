@@ -213,10 +213,10 @@ pub fn handle_arm_status(
                 if !ARM_COMMANDED_WITHOUT_IDLE.load(Ordering::Acquire) {
                     if throttle < THROTTLE_MAX_TO_ARM {
                         if !RECEIVED_INITIAL_DISARM.load(Ordering::Acquire) {
-                            println!(
-                                "Arm/idle commanded without receiving initial throttle idle and \
-                            disarm signal."
-                            );
+                            // println!(
+                            //     "Arm/idle commanded without receiving initial throttle idle and \
+                            // disarm signal."
+                            // );
                         } else {
                             *arm_status = MOTORS_ARMED;
                             println!("Aircraft motors armed.");
@@ -228,7 +228,7 @@ pub fn handle_arm_status(
                         // println!("Arm attempted without Throttle not idle; set idle and cycle arm switch to arm.");
                     }
                 } else {
-                    println!("Arm/idle commanded while throttle is not idle");
+                    // println!("Arm/idle commanded while throttle is not idle");
                 }
             }
 
