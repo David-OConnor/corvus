@@ -1165,14 +1165,8 @@ mod app {
                     if state_volatile.arm_status == ArmStatus::Armed {
                         dshot::set_power(p, p, p, p, motor_timers);
                     } else {
-                        if *cx.local.imu_isr_loop_i < 20_000 {
-                            dshot::stop_all(motor_timers);
-                        } else {
-                            dshot::set_power(p, p, p, p, motor_timers);
-                        }
+                        dshot::stop_all(motor_timers);
                     }
-
-                    return; // todo temp!
 
                     // todo: Impl once you've sorted out your control logic.
                     // todo: Delegate this to another module, eg `attitude_ctrls`.
