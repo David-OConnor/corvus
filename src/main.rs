@@ -36,7 +36,7 @@ use drivers::{
 use filter_imu::ImuFilters;
 use flight_ctrls::{
     autopilot::AutopilotStatus,
-    common::{MotorRpm, MotorTimers, RatesCommanded},
+    common::{Motor, MotorRpm, MotorTimers, RatesCommanded},
     ctrl_logic::{self, PowerMaps},
     // pid::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
@@ -122,8 +122,6 @@ cfg_if! {
         use flight_ctrls::RotationDir;
     }
 }
-
-use flight_ctrls::common::Motor;
 
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.
@@ -242,7 +240,6 @@ mod app {
         flight_ctrl_filters: FlightCtrlFilters,
         // Note: We don't currently haveh PID filters, since we're not using a D term for the
         // RPM PID.
-        ahrs: Ahrs,
         imu_calibration: imu_calibration::ImuCalibration,
         ext_sensor_active: ExtSensor,
         pwr_maps: PowerMaps,
@@ -270,6 +267,7 @@ mod app {
         uart_osd: Usart<USART2>, // for our DJI OSD, via MSP protocol
         time_with_high_throttle: f32,
         measurement_timer: Timer<TIM5>,
+        ahrs: Ahrs,
     }
 
     #[init]
@@ -622,6 +620,20 @@ mod app {
 
         println!("Init complete; starting main loops");
 
+        unsafe {
+            uart_elrs.read_dma(
+                &mut crsf::RX_BUFFER,
+                setup::CRSF_RX_CH,
+                ChannelCfg {
+                    // Take precedence over the ADC, but not motors.
+                    priority: dma::Priority::Medium,
+                    circular: dma::Circular::Enabled, //todo temp
+                    ..Default::default()
+                },
+                setup::CRSF_DMA_PERIPH,
+            );
+        } //todo temp
+
         (
             // todo: Make these local as able.
             Shared {
@@ -652,7 +664,6 @@ mod app {
                 power_used: 0.,
                 imu_filters: Default::default(),
                 flight_ctrl_filters: Default::default(),
-                ahrs,
                 imu_calibration,
                 ext_sensor_active: ExtSensor::Mag,
                 pwr_maps: Default::default(),
@@ -673,6 +684,7 @@ mod app {
                 uart_osd,
                 time_with_high_throttle: 0.,
                 measurement_timer,
+                ahrs,
             },
             init::Monotonics(),
             // init::Monotonics(measurement_timer)
@@ -704,7 +716,7 @@ mod app {
     binds = TIM1_BRK_TIM15,
     shared = [current_params,
     power_used, autopilot_status, user_cfg, flight_ctrl_filters,
-    ahrs, control_channel_data, rotor_rpms,
+    control_channel_data, rotor_rpms,
     lost_link_timer, link_lost, altimeter, i2c1, i2c2, state_volatile, system_status, batt_curr_adc,
     ],
     local = [arm_signals_received, disarm_signals_received, update_isr_loop_i, uart_osd,
@@ -721,7 +733,6 @@ mod app {
 
         (
             cx.shared.current_params,
-            cx.shared.ahrs,
             cx.shared.control_channel_data,
             cx.shared.power_used,
             cx.shared.autopilot_status,
@@ -734,14 +745,11 @@ mod app {
             cx.shared.state_volatile,
             cx.shared.system_status,
             cx.shared.batt_curr_adc,
-            // cx.shared.dma,
-            // cx.shared.dma2,
             cx.shared.rotor_rpms,
             cx.shared.flight_ctrl_filters,
         )
             .lock(
                 |params,
-                 ahrs,
                  control_channel_data,
                  power_used,
                  autopilot_status,
@@ -754,8 +762,6 @@ mod app {
                  state_volatile,
                  system_status,
                  adc,
-                 // dma,
-                 // dma2,
                  rpms,
                  flight_ctrl_filters| {
                     #[cfg(feature = "print-status")]
@@ -822,10 +828,10 @@ mod app {
                         // );
                         // // //
                         println!("Attitude quat: {} {} {} {}",
-                                 ahrs.quaternion.w,
-                                 ahrs.quaternion.x,
-                                 ahrs.quaternion.y,
-                                 ahrs.quaternion.z
+                                 params.attitude_quat.w,
+                                 params.attitude_quat.x,
+                                 params.attitude_quat.y,
+                                 params.attitude_quat.z
                         );
                         println!(
                             "Attitude: pitch: {}, roll: {}, yaw: {}\n",
@@ -1065,23 +1071,24 @@ mod app {
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [spi1, current_params, params_prev, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, cs_imu, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timers, ahrs, state_volatile], local = [imu_isr_loop_i], priority = 4)]
+    motor_timers, state_volatile], local = [ahrs, imu_isr_loop_i], priority = 4)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it nominally (and according to our measurements so far) runs at 8kHz.
     /// Note that on the H7 FC with the dedicated IMU LSE, it may run slightly faster.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
-        // Clear DMA interrupt this way due to RTIC conflict.
-        #[cfg(feature = "h7")]
-        unsafe {
-            (*DMA1::ptr()).lifcr.write(|w| w.ctcif2().set_bit())
-        }
-        #[cfg(feature = "g4")]
-        unsafe {
-            (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit())
-        }
+        dma::clear_interrupt(
+            setup::IMU_DMA_PERIPH,
+            setup::IMU_RX_CH,
+            DmaInterrupt::TransferComplete,
+        );
 
         cx.shared.cs_imu.lock(|cs| {
             cs.set_high();
+        });
+
+        cx.shared.spi1.lock(|spi1| {
+            // Note that this step is mandatory, per STM32 RM.
+            spi1.stop_dma(setup::IMU_TX_CH, Some(setup::IMU_RX_CH), DmaPeriph::Dma1);
         });
 
         *cx.local.imu_isr_loop_i += 1;
@@ -1094,33 +1101,26 @@ mod app {
         (
             cx.shared.current_params,
             cx.shared.params_prev,
-            cx.shared.ahrs,
             cx.shared.control_channel_data,
             cx.shared.autopilot_status,
             cx.shared.motor_timers,
             cx.shared.motor_pid_state,
             cx.shared.motor_pid_coeffs,
             cx.shared.user_cfg,
-            cx.shared.spi1,
             cx.shared.state_volatile,
             cx.shared.flight_ctrl_filters,
         )
             .lock(
                 |params,
                  params_prev,
-                 ahrs,
                  control_channel_data,
                  autopilot_status,
                  motor_timers,
                  pid_state,
                  pid_coeffs,
                  cfg,
-                 spi1,
                  state_volatile,
                  flight_ctrl_filters| {
-                    // Note that this step is mandatory, per STM32 RM.
-                    spi1.stop_dma(setup::IMU_TX_CH, Some(setup::IMU_RX_CH), DmaPeriph::Dma1);
-
                     {
                         // if *cx.local.imu_isr_loop_i % 700 == 0 {
                         // let period = cx.local.measurement_timer.time_elapsed().as_secs();
@@ -1155,7 +1155,7 @@ mod app {
 
                     // Note: Consider if you want to update the attitude using the primary update loop,
                     // vice each IMU update.
-                    attitude_platform::update_attitude(ahrs, params);
+                    attitude_platform::update_attitude(cx.local.ahrs, params);
 
                     // todo: Temp debug code.
                     let mut p = control_channel_data.throttle;
@@ -1163,14 +1163,14 @@ mod app {
                         p = 0.025;
                     };
 
-
                     if state_volatile.arm_status == ArmStatus::Armed {
-                        // dshot::set_power(p, p, p, p, motor_timers, dma);
                         dshot::set_power(p, p, p, p, motor_timers);
                     } else {
-
-                        dshot::stop_all(motor_timers);
-                        // dshot::set_power(0.025, 0., 0., 0., motor_timers, dma);
+                        if *cx.local.imu_isr_loop_i < 20_000 {
+                            dshot::stop_all(motor_timers);
+                        } else {
+                            dshot::set_power(p, p, p, p, motor_timers);
+                        }
                     }
 
                     return; // todo temp!
@@ -1284,7 +1284,7 @@ mod app {
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data,
-    link_stats, user_cfg, state_volatile, system_status, motor_timers, batt_curr_adc], local = [], priority = 4)]
+    link_stats, user_cfg, state_volatile, system_status, motor_timers, batt_curr_adc], local = [], priority = 3)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
@@ -1356,13 +1356,13 @@ mod app {
     /// We use this ISR to enable input capture if in bidirectional mode. Assocaited with Tim2,
     /// and is only used on G4.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
-        // println!("12");
-        // todo: Why is this gate required when we have feature-gated the fn?
-        // todo: Maybe RTIC is messing up the fn-level feature gate?
-        #[cfg(feature = "g4")]
-        unsafe {
-            (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit());
-        }
+        dma::clear_interrupt(
+            setup::MOTORS_DMA_PERIPH,
+            setup::MOTOR_CH_A,
+            DmaInterrupt::TransferComplete,
+        );
+
+        // todo: Required?
         unsafe {
             (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
         }
@@ -1393,13 +1393,13 @@ mod app {
         // todo that fn based on M12 or M34. This interrupt still needs to fire apparently,
         // todo per the required timer DMA interrupt.
 
-        // println!("34");
-        unsafe {
-            #[cfg(feature = "h7")]
-            (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
-            #[cfg(feature = "g4")]
-            (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit());
-        }
+        dma::clear_interrupt(
+            setup::MOTORS_DMA_PERIPH,
+            setup::MOTOR_CH_B,
+            DmaInterrupt::TransferComplete,
+        );
+
+        // todo: Required?
         unsafe {
             (*pac::TIM3::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
         }
@@ -1462,7 +1462,7 @@ mod app {
     // #[task(binds = USART7,
     #[task(binds = USART3,
     shared = [control_channel_data, link_stats, rf_limiter_timer, link_lost,
-    lost_link_timer, system_status], local = [uart_elrs], priority = 5)]
+    lost_link_timer, system_status], local = [uart_elrs], priority = 8)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
     /// and message ends. For message starts, it begins a DMA transfer. For message ends, it
     /// processes the radio data, passing it into shared resources for control channel data,
@@ -1486,10 +1486,10 @@ mod app {
                 // todo anomolies.
                 if !crsf::TRANSFER_IN_PROG.load(Ordering::Relaxed) {
                     crsf::TRANSFER_IN_PROG.store(true, Ordering::Relaxed);
-                    // if unsafe { !(*pac::USART3::ptr()).isr.read().idle().bit_is_set() } {
-                    //     uart.clear_interrupt(UsartInterrupt::CharDetect(0));
-                    // todo: Why/when/how to handle?
+
+                    // todo: Why/when/how to handle overrun?
                     uart.clear_interrupt(UsartInterrupt::Overrun);
+
                     // Don't allow the starting char, as used in the middle of a message,
                     // to trigger an interrupt.
                     uart.disable_interrupt(UsartInterrupt::CharDetect(0));
@@ -1510,18 +1510,18 @@ mod app {
                     // todo?
                     // dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
 
-                    unsafe {
-                        uart.read_dma(
-                            &mut crsf::RX_BUFFER,
-                            setup::CRSF_RX_CH,
-                            ChannelCfg {
-                                // Take precedence over the ADC, but not motors.
-                                priority: dma::Priority::Medium,
-                                ..Default::default()
-                            },
-                            setup::CRSF_DMA_PERIPH,
-                        );
-                    }
+                    // unsafe {
+                    //     uart.read_dma(
+                    //         &mut crsf::RX_BUFFER,
+                    //         setup::CRSF_RX_CH,
+                    //         ChannelCfg {
+                    //             // Take precedence over the ADC, but not motors.
+                    //             priority: dma::Priority::Medium,
+                    //             ..Default::default()
+                    //         },
+                    //         setup::CRSF_DMA_PERIPH,
+                    //     );
+                    // }
                     // println!("S");
                     // println!(
                     //     "O S: {}",
@@ -1634,44 +1634,37 @@ mod app {
     /// (Note that this is for TIM17 on both variants)
     // #[task(binds = TIM17,
     #[task(binds = TIM1_TRG_COM,
-    shared = [lost_link_timer, link_lost, state_volatile, user_cfg, autopilot_status,
+    shared = [lost_link_timer, link_lost, state_volatile, autopilot_status,
     current_params, system_status], priority = 1)]
-    fn lost_link_isr(cx: lost_link_isr::Context) {
+    fn lost_link_isr(mut cx: lost_link_isr::Context) {
         println!("Lost the link!");
 
+        cx.shared.lost_link_timer.lock(|timer| {
+            timer.clear_interrupt(TimerInterrupt::Update);
+            timer.disable();
+            timer.reset_count();
+        });
+
+        cx.shared.link_lost.lock(|link_lost| {
+            *link_lost = true;
+        });
+
         (
-            cx.shared.lost_link_timer,
-            cx.shared.link_lost,
             cx.shared.state_volatile,
-            cx.shared.user_cfg,
             cx.shared.autopilot_status,
             cx.shared.current_params,
             cx.shared.system_status,
         )
-            .lock(
-                |timer,
-                 link_lost,
-                 state_volatile,
-                 user_cfg,
-                 autopilot_status,
-                 params,
-                 system_status| {
-                    timer.clear_interrupt(TimerInterrupt::Update);
-                    timer.reset_count();
-                    timer.disable(); // todo: Probably not required in one-pulse mode.
-
-                    *link_lost = true;
-
-                    // We run this during the main loop, but here the `entering` flag is set to true,
-                    // to initialize setup steps.
-                    safety::link_lost(
-                        system_status,
-                        autopilot_status,
-                        params,
-                        &state_volatile.base_point,
-                    );
-                },
-            );
+            .lock(|state_volatile, autopilot_status, params, system_status| {
+                // We run this during the main loop, but here the `entering` flag is set to true,
+                // to initialize setup steps.
+                safety::link_lost(
+                    system_status,
+                    autopilot_status,
+                    params,
+                    &state_volatile.base_point,
+                );
+            });
     }
 
     #[task(binds = TIM1_UP_TIM16, shared = [rf_limiter_timer], priority = 1)]
@@ -1689,12 +1682,11 @@ mod app {
     shared = [i2c2], priority = 1)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
-        unsafe {
-            #[cfg(feature = "h7")]
-            (*DMA2::ptr()).hifcr.write(|w| w.ctcif1().set_bit());
-            #[cfg(feature = "g4")]
-            (*DMA2::ptr()).ifcr.write(|w| w.tcif1().set_bit());
-        }
+        dma::clear_interrupt(
+            setup::BARO_DMA_PERIPH,
+            setup::BARO_TX_CH,
+            DmaInterrupt::TransferComplete,
+        );
 
         println!("Ext sensors D");
         cx.shared.i2c2.lock(|i2c2| unsafe {
@@ -1715,12 +1707,11 @@ mod app {
     shared = [altimeter, current_params], priority = 1)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(cx: baro_read_tc_isr::Context) {
-        unsafe {
-            #[cfg(feature = "h7")]
-            (*DMA2::ptr()).hifcr.write(|w| w.ctcif2().set_bit());
-            #[cfg(feature = "g4")]
-            (*DMA2::ptr()).ifcr.write(|w| w.tcif2().set_bit());
-        }
+        dma::clear_interrupt(
+            setup::BARO_DMA_PERIPH,
+            setup::BARO_RX_CH,
+            DmaInterrupt::TransferComplete,
+        );
 
         println!("Ext sensors C");
         (cx.shared.altimeter, cx.shared.current_params).lock(|altimeter, params| {
@@ -1738,14 +1729,13 @@ mod app {
     // binds = DMA2_STR3,
     #[task(binds = DMA2_CH3,
     shared = [i2c1, ext_sensor_active], priority = 1)]
-    /// Baro write complete; start baro read.
+    /// External sensors write complete; start external sensors read.
     fn ext_sensors_write_tc_isr(cx: ext_sensors_write_tc_isr::Context) {
-        unsafe {
-            #[cfg(feature = "h7")]
-            (*DMA2::ptr()).hifcr.write(|w| w.ctcif3().set_bit());
-            #[cfg(feature = "g4")]
-            (*DMA2::ptr()).ifcr.write(|w| w.tcif3().set_bit());
-        }
+        dma::clear_interrupt(
+            setup::EXT_SENSORS_DMA_PERIPH,
+            setup::EXT_SENSORS_TX_CH,
+            DmaInterrupt::TransferComplete,
+        );
 
         println!("Ext sensors B");
         (cx.shared.i2c1, cx.shared.ext_sensor_active).lock(|i2c1, ext_sensor_active| {
@@ -1790,12 +1780,12 @@ mod app {
     shared = [i2c1, ext_sensor_active], priority = 1)]
     /// Baro write complete; start baro read.
     fn ext_sensors_read_tc_isr(cx: ext_sensors_read_tc_isr::Context) {
-        unsafe {
-            #[cfg(feature = "h7")]
-            (*DMA2::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
-            #[cfg(feature = "g4")]
-            (*DMA2::ptr()).ifcr.write(|w| w.tcif4().set_bit());
-        }
+        dma::clear_interrupt(
+            setup::EXT_SENSORS_DMA_PERIPH,
+            setup::EXT_SENSORS_RX_CH,
+            DmaInterrupt::TransferComplete,
+        );
+
         println!("Ext sensors A");
         (cx.shared.i2c1, cx.shared.ext_sensor_active).lock(|i2c1, ext_sensor_active| {
             // todo: Skip sensors if marked as not connected?

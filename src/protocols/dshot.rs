@@ -51,7 +51,7 @@ pub const BIDIR_EN: bool = false;
 pub const DSHOT_PSC_600: u16 = 0;
 
 // ESC telemetry is false except when setting motor direction.
-static mut ESC_TELEM: bool = false;
+static mut ESC_TELEM: bool = true;
 
 // We use these flags to determine how to handle the TC ISRs, ie when
 // a send command is received, set the mode to input and vice versa.

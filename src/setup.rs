@@ -396,12 +396,12 @@ pub fn setup_pins() {
 /// Assign DMA channels to peripherals.
 pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // IMU
-    dma::mux(DmaPeriph::Dma1, IMU_TX_CH, DmaInput::Spi1Tx);
-    dma::mux(DmaPeriph::Dma1, IMU_RX_CH, DmaInput::Spi1Rx);
+    dma::mux(IMU_DMA_PERIPH, IMU_TX_CH, DmaInput::Spi1Tx);
+    dma::mux(IMU_DMA_PERIPH, IMU_RX_CH, DmaInput::Spi1Rx);
 
     // DSHOT, motors 1 and 2 (all 4 for H7)
     dma::mux(
-        DmaPeriph::Dma1,
+        MOTORS_DMA_PERIPH,
         Motor::M1.dma_channel(),
         Motor::M1.dma_input(),
     );
@@ -409,7 +409,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // DSHOT, motors 3 and 4 (not used on H7)
     #[cfg(feature = "g4")]
     dma::mux(
-        DmaPeriph::Dma1,
+        MOTORS_DMA_PERIPH,
         Motor::M3.dma_channel(),
         Motor::M3.dma_input(),
     );
