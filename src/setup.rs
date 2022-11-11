@@ -5,7 +5,6 @@ use cfg_if::cfg_if;
 
 use cortex_m::delay::Delay;
 
-use stm32_hal2::usart::{OverSampling, UsartConfig};
 use stm32_hal2::{
     clocks::Clocks,
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
@@ -14,7 +13,7 @@ use stm32_hal2::{
     pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, USART2},
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::TimChannel,
-    usart::Usart,
+    usart::{OverSampling, Usart, UsartConfig},
 };
 
 cfg_if! {
@@ -36,6 +35,15 @@ use crate::{
 };
 
 // Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.
+
+pub const IMU_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
+pub const MOTORS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
+pub const CRSF_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
+pub const BATT_CURR_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
+
+pub const BARO_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
+pub const EXT_SENSORS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
+pub const OSD_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 
 // DMA 1
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
@@ -59,22 +67,11 @@ pub const EXT_SENSORS_TX_CH: DmaChannel = DmaChannel::C3;
 pub const EXT_SENSORS_RX_CH: DmaChannel = DmaChannel::C4;
 pub const OSD_CH: DmaChannel = DmaChannel::C5;
 
-pub const IMU_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
-pub const MOTORS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
-pub const CRSF_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
-pub const BATT_CURR_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
-
-pub const BARO_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
-pub const EXT_SENSORS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
-pub const OSD_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
-
 cfg_if! {
     if #[cfg(feature = "h7")] {
-        // pub const OSD_CH: DmaChannel = DmaChannel::C0;
         pub const BATT_ADC_CH: u8 = 18;
         pub const CURR_ADC_CH: u8 = 16;
     } else {
-        // pub const OSD_CH: DmaChannel = DmaChannel::C8;
         pub const BATT_ADC_CH: u8 = 17;
         pub const CURR_ADC_CH: u8 = 12;
     }
@@ -416,28 +413,27 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 
     // CRSF (onboard ELRS)
     #[cfg(feature = "h7")]
-    let elrs_dma_ch = DmaInput::Uart7Rx;
+    let crsf_dma_ch = DmaInput::Uart7Rx;
     #[cfg(feature = "g4")]
-    let elrs_dma_ch = DmaInput::Usart3Rx;
+    let crsf_dma_ch = DmaInput::Usart3Rx;
 
-    dma::mux(DmaPeriph::Dma1, CRSF_RX_CH, elrs_dma_ch);
+    dma::mux(CRSF_DMA_PERIPH, CRSF_RX_CH, crsf_dma_ch);
 
-    // Note: If we run out of DMA channels, consider removing the CRSF transmit channel;
-    // we only have it set up to respond to pings, and that's probably unecessary.
-    // dma::mux(DmaChannel::C8, DmaInput::Usart3Tx);
+    // CRSF TX is currently unused.
+    // dma::mux(CRSF_DMA_PERIPH, CRSF_TX_CH, DmaInput::Usart3Tx);
 
     #[cfg(feature = "h7")]
-    dma::mux(DmaPeriph::Dma1, BATT_CURR_DMA_CH, DmaInput::Adc1);
+    dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, DmaInput::Adc1);
     #[cfg(feature = "g4")]
-    dma::mux(DmaPeriph::Dma1, BATT_CURR_DMA_CH, DmaInput::Adc2);
+    dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, DmaInput::Adc2);
 
-    dma::mux(DmaPeriph::Dma1, OSD_CH, DmaInput::Usart2Tx);
+    dma::mux(OSD_DMA_PERIPH, OSD_CH, DmaInput::Usart2Tx);
 
-    dma::mux(DmaPeriph::Dma2, BARO_TX_CH, DmaInput::I2c2Tx);
-    dma::mux(DmaPeriph::Dma2, BARO_RX_CH, DmaInput::I2c2Rx);
+    dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c2Tx);
+    dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c2Rx);
 
-    dma::mux(DmaPeriph::Dma2, EXT_SENSORS_TX_CH, DmaInput::I2c1Tx);
-    dma::mux(DmaPeriph::Dma2, EXT_SENSORS_RX_CH, DmaInput::I2c1Rx);
+    dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_TX_CH, DmaInput::I2c1Tx);
+    dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_RX_CH, DmaInput::I2c1Rx);
 
     // TOF sensor
     // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx);
@@ -467,9 +463,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 }
 
 #[cfg(feature = "h7")]
-type UartElrsRegs = pac::UART7;
+type UartCrsfRegs = pac::UART7;
 #[cfg(feature = "g4")]
-type UartElrsRegs = pac::USART3;
+type UartCrsfRegs = pac::USART3;
 
 /// Configure the SPI and I2C busses.
 pub fn setup_busses(
@@ -477,7 +473,7 @@ pub fn setup_busses(
     i2c1_pac: I2C1,
     i2c2_pac: I2C2,
     uart2_pac: USART2,
-    uart_elrs_pac: UartElrsRegs,
+    uart_crsf_pac: UartCrsfRegs,
     clock_cfg: &Clocks,
 ) -> (
     Spi<SPI1>,
@@ -486,7 +482,7 @@ pub fn setup_busses(
     I2c<I2C1>,
     I2c<I2C2>,
     Usart<USART2>,
-    Usart<crate::UART_ELRS>,
+    Usart<crate::UART_CRSF>,
 ) {
     // We use SPI1 for the IMU
     // SPI input clock is 400MHz for H7, and 170Mhz for G4. 400MHz / 32 = 12.5 MHz. 170Mhz / 8 = 21.25Mhz.
@@ -563,7 +559,7 @@ pub fn setup_busses(
 
     // We use UART2 for the OSD, for DJI, via the MSP protocol.
     // todo: QC baud.
-    let uart_osd = Usart::new(uart2_pac, crsf::BAUD, Default::default(), clock_cfg);
+    let uart_osd = Usart::new(uart2_pac, crate::osd::BAUD, Default::default(), clock_cfg);
 
     // We use UART for the radio controller receiver, via CRSF protocol.
 
@@ -589,8 +585,8 @@ pub fn setup_busses(
 
     // todo TS
     // let uart_elrs = Usart::new(uart_elrs_pac, crsf::BAUD, Default::default(), clock_cfg);
-    let uart_elrs = Usart::new(
-        uart_elrs_pac,
+    let uart_crsf = Usart::new(
+        uart_crsf_pac,
         crsf::BAUD,
         UsartConfig {
             oversampling: OverSampling::O8,
@@ -599,5 +595,5 @@ pub fn setup_busses(
         clock_cfg,
     );
 
-    (spi1, cs_imu, cs_flash, i2c1, i2c2, uart_osd, uart_elrs)
+    (spi1, cs_imu, cs_flash, i2c1, i2c2, uart_osd, uart_crsf)
 }

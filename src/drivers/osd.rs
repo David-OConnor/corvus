@@ -32,6 +32,8 @@ use stm32_hal2::{
 
 use defmt::println;
 
+pub const BAUD: u32 = 115_200;
+
 // An OSD position of 234 indicates the element is not visible.
 const NOT_VISIBLE: u16 = 234;
 

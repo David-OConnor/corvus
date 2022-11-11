@@ -99,7 +99,7 @@ cfg_if! {
             qspi::{Qspi},
         };
         // This USART alias is made pub here, so we don't repeat this line in other modules.
-        pub use stm32_hal2::pac::{UART7 as UART_ELRS, ADC1 as ADC};
+        pub use stm32_hal2::pac::{UART7 as UART_CRSF, ADC1 as ADC};
 
         // type SpiFlash = Qspi<OCTOSPI>;
         type SpiFlash = Qspi;
@@ -109,7 +109,7 @@ cfg_if! {
             pac::SPI3,
         };
 
-        pub use stm32_hal2::pac::{USART3 as UART_ELRS, ADC2 as ADC};
+        pub use stm32_hal2::pac::{USART3 as UART_CRSF, ADC2 as ADC};
 
         type SpiFlash = Spi<SPI3>;
     }
@@ -254,7 +254,7 @@ mod app {
     #[local]
     struct Local {
         update_timer: Timer<TIM15>,
-        uart_elrs: Usart<UART_ELRS>, // for ELRS over CRSF.
+        uart_crsf: Usart<UART_CRSF>, // for ELRS over CRSF.
         // spi_flash: SpiFlash,  // todo: Fix flash in HAL, then do this.
         arm_signals_received: u8, // todo: Put sharedin state volatile.
         disarm_signals_received: u8,
@@ -337,12 +337,12 @@ mod app {
         setup::setup_dma(&mut dma, &mut dma2);
 
         #[cfg(feature = "h7")]
-        let UART_ELRS = dp.UART7;
+        let uart_crsf = dp.UART7;
         #[cfg(feature = "g4")]
-        let UART_ELRS = dp.USART3;
+        let uart_crsf = dp.USART3;
 
-        let (mut spi1, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_elrs) =
-            setup::setup_busses(dp.SPI1, dp.I2C1, dp.I2C2, dp.USART2, UART_ELRS, &clock_cfg);
+        let (mut spi1, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_crsf) =
+            setup::setup_busses(dp.SPI1, dp.I2C1, dp.I2C2, dp.USART2, uart_crsf, &clock_cfg);
 
         let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
 
@@ -604,7 +604,7 @@ mod app {
         // todo: temp removed to test bidir
         dshot::setup_motor_dir(motors_reversed, &mut motor_timers);
 
-        crsf::setup(&mut uart_elrs);
+        crsf::setup(&mut uart_crsf);
 
         // Start our main loop
         update_timer.enable();
@@ -621,7 +621,7 @@ mod app {
         println!("Init complete; starting main loops");
 
         unsafe {
-            uart_elrs.read_dma(
+            uart_crsf.read_dma(
                 &mut crsf::RX_BUFFER,
                 setup::CRSF_RX_CH,
                 ChannelCfg {
@@ -673,7 +673,7 @@ mod app {
             },
             Local {
                 update_timer,
-                uart_elrs,
+                uart_crsf,
                 // spi_flash, // todo: Fix flash in HAL, then do this.
                 arm_signals_received: 0,
                 disarm_signals_received: 0,
@@ -730,7 +730,6 @@ mod app {
     fn update_isr(mut cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
         *cx.local.update_isr_loop_i += 1;
-
         (
             cx.shared.current_params,
             cx.shared.control_channel_data,
@@ -767,6 +766,8 @@ mod app {
                     #[cfg(feature = "print-status")]
                     if *cx.local.update_isr_loop_i % PRINT_STATUS_RATIO == 0 {
                         // todo: Flesh this out, and perhaps make it more like Preflight.
+
+                         // println!("RX buf: {:?}", unsafe { crsf::RX_BUFFER });
 
                         // println!("DSHOT: {:?}", unsafe { dshot::PAYLOAD_R1_2_REC });
 
@@ -986,9 +987,7 @@ mod app {
                     };
 
                     // todo: put back
-                    // cx.shared.dma.lock(|dma| {
-                    osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH,&osd_data);
-                    // });
+                    // osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH,&osd_data);
 
                     autopilot_status.set_modes_from_ctrls(control_channel_data, &params);
 
@@ -1462,18 +1461,24 @@ mod app {
     // #[task(binds = USART7,
     #[task(binds = USART3,
     shared = [control_channel_data, link_stats, rf_limiter_timer, link_lost,
-    lost_link_timer, system_status], local = [uart_elrs], priority = 8)]
+    lost_link_timer, system_status], local = [uart_crsf], priority = 4)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
     /// and message ends. For message starts, it begins a DMA transfer. For message ends, it
     /// processes the radio data, passing it into shared resources for control channel data,
     /// and link stats.
     fn crsf_isr(mut cx: crsf_isr::Context) {
+        let uart = &mut cx.local.uart_crsf; // Code shortener
+
+        if uart.regs.isr.read().ore().bit_is_set() {
+            uart.clear_interrupt(UsartInterrupt::Overrun);
+            return;
+            // todo: Set fault flag?
+        }
+
         let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
         let mut rx_fault = false;
 
-        let uart = &mut cx.local.uart_elrs; // Code shortener
-
-        uart.clear_interrupt(UsartInterrupt::CharDetect(0));
+        uart.clear_interrupt(UsartInterrupt::CharDetect(None));
         uart.clear_interrupt(UsartInterrupt::Idle);
 
         (
@@ -1492,7 +1497,7 @@ mod app {
 
                     // Don't allow the starting char, as used in the middle of a message,
                     // to trigger an interrupt.
-                    uart.disable_interrupt(UsartInterrupt::CharDetect(0));
+                    uart.disable_interrupt(UsartInterrupt::CharDetect(None));
 
                     // todo: Deal with this later.
                     // if limiter_timer.is_enabled() {
@@ -1510,40 +1515,28 @@ mod app {
                     // todo?
                     // dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
 
-                    // unsafe {
-                    //     uart.read_dma(
-                    //         &mut crsf::RX_BUFFER,
-                    //         setup::CRSF_RX_CH,
-                    //         ChannelCfg {
-                    //             // Take precedence over the ADC, but not motors.
-                    //             priority: dma::Priority::Medium,
-                    //             ..Default::default()
-                    //         },
-                    //         setup::CRSF_DMA_PERIPH,
-                    //     );
-                    // }
-                    // println!("S");
-                    // println!(
-                    //     "O S: {}",
-                    //     uart.regs.isr.read().ore().bit_is_set()
-                    // );
+                    unsafe {
+                        uart.read_dma(
+                            &mut crsf::RX_BUFFER,
+                            setup::CRSF_RX_CH,
+                            ChannelCfg {
+                                // Take precedence over the ADC, but not motors.
+                                priority: dma::Priority::Medium,
+                                ..Default::default()
+                            },
+                            setup::CRSF_DMA_PERIPH,
+                        );
+                    }
                 } else {
                     crsf::TRANSFER_IN_PROG.store(false, Ordering::Relaxed);
-                    // println!("I");
                     // Line is idle.
-                    // uart.clear_interrupt(UsartInterrupt::Idle);
-                    // println!("O I: {}", uart_elrs.regs.isr.read().ore().bit_is_set());
-
-                    // uart.clear_interrupt(UsartInterrupt::Overrun); // todo?
 
                     // Stop the DMA read, since it will likely not have filled the buffer, due
                     // to the variable message sizes.
                     dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
 
-                    // Re-enable
-                    // Don't use the HAL method to re-enable the char-match interrupt, since it also
-                    // sets the address field.
-                    uart.regs.cr1.modify(|_, w| w.cmie().set_bit());
+                    // A `None` value here re-enables the interrupt without changing the char to match.
+                    uart.enable_interrupt(UsartInterrupt::CharDetect(None));
 
                     if let Some(crsf_data) =
                         crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)

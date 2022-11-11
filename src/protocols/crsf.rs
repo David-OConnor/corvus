@@ -30,6 +30,7 @@ use num_enum::TryFromPrimitive; // Enum from integer
 use defmt::println;
 
 use stm32_hal2::{
+    dma,
     dma::DmaChannel,
     usart::{Usart, UsartInterrupt},
 };
@@ -41,7 +42,7 @@ use crate::{
     },
     safety::ArmStatus,
     state::SystemStatus,
-    util, UART_ELRS,
+    util, UART_CRSF,
 };
 
 use cfg_if::cfg_if;
@@ -53,7 +54,12 @@ use stm32_hal2::dma::DmaInterrupt;
 //
 // The F1000 Packet Rate requires more than 400K Baud Rate setting on the Radio handset."
 pub const BAUD: u32 = 420_000;
+// pub const BAUD: u32 = 400_000;
 // pub const BAUD: u32 = 115_200;
+
+// This buf shift allows us to read messages that we didn't start reading immediately.
+// Note that the most we generally see is 3, but we use a higher value conservatively.
+const MAX_BUF_SHIFT: usize = 10;
 
 const CRC_POLY: u8 = 0xd5;
 const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
@@ -81,16 +87,13 @@ const MAX_PAYLOAD_SIZE: usize = PAYLOAD_SIZE_RC_CHANNELS;
 const MAX_PACKET_SIZE: usize = MAX_PAYLOAD_SIZE + 4; // Extra 4: dest, size, frametype, CRC.
 
 // A pad allows lags in reading to not overwrite the packet start with a new message.
-const RX_BUF_SIZE: usize = MAX_PACKET_SIZE + 2; // todo: First byte in buf appears to be bogus/from prev msg?
+const RX_BUF_SIZE: usize = MAX_PACKET_SIZE + MAX_BUF_SHIFT;
 
 pub static mut RX_BUFFER: [u8; RX_BUF_SIZE] = [0; RX_BUF_SIZE];
 
 static mut TX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
 
 pub static TRANSFER_IN_PROG: AtomicBool = AtomicBool::new(false);
-
-// This buf shift allows us to read messages that we didn't start reading immediately.
-const MAX_BUF_SHIFT: usize = 3;
 
 // "All packets are in the CRSF format [dest] [len] [type] [payload] [crc8]"
 
@@ -162,12 +165,16 @@ pub enum PacketData {
 
 /// Configure the Idle interrupt, and start the circular DMA transfer. Run this once, on initial
 /// firmware setup.
-pub fn setup(uart: &mut Usart<UART_ELRS>) {
+pub fn setup(uart: &mut Usart<UART_CRSF>) {
     // We alternate between char matching the flight controller destination address, and
     // line idle, to indicate we're received, or stopped receiving a message respectively.
-    uart.enable_interrupt(UsartInterrupt::CharDetect(DestAddr::FlightController as u8));
+    uart.enable_interrupt(UsartInterrupt::CharDetect(Some(
+        DestAddr::FlightController as u8,
+    )));
     uart.enable_interrupt(UsartInterrupt::Idle);
-    uart.clear_interrupt(UsartInterrupt::Overrun); // todo; not sure.
+
+    // todo: Not sure why we're getting overruns, but unless we clear them, they block data.
+    uart.enable_interrupt(UsartInterrupt::Overrun); // todo; not sure.
 }
 
 struct Packet {
@@ -451,7 +458,7 @@ impl Packet {
 
 /// Handle an incomming packet. Triggered whenever the line goes idle.
 pub fn handle_packet(
-    uart: &mut Usart<UART_ELRS>,
+    uart: &mut Usart<UART_CRSF>,
     // dma: &mut Dma<DMA1>,
     rx_chan: DmaChannel,
     // tx_chan: DmaChannel,
@@ -466,35 +473,6 @@ pub fn handle_packet(
     // todo: workaround klodge for when byte 1 is missing. Not sure why this happens.
     // todo: Eventually, find a more robust solution.
     let mut buf_shifted = [0; RX_BUF_SIZE];
-
-    // todo: This isn't enough. On some packets, we now drop 2 consecutive bytes after start message...
-    // unsafe {
-    //     if RX_BUFFER[0] == 200 && RX_BUFFER[1] == 22 {
-    //         buf_shifted[0] = 200;
-    //         buf_shifted[1] = 24;
-    //
-    //         for i in 2..RX_BUF_SIZE {
-    //             buf_shifted[i] = RX_BUFFER[i - 1];
-    //         }
-    //
-    //         workaround = true;
-    //         *rx_fault = true;
-    //         // println!("CRSF workaround");
-    //         return None; // todo: just dodging these for now. Seems to be 1/17 packets.
-    //     } else if RX_BUFFER[0] == 200 && RX_BUFFER[1] == 20 {
-    //         buf_shifted[0] = 200;
-    //         buf_shifted[1] = 20;
-    //
-    //         for i in 2..RX_BUF_SIZE {
-    //             buf_shifted[i] = RX_BUFFER[i - 1];
-    //         }
-    //
-    //         workaround = true;
-    //         *rx_fault = true;
-    //         // println!("CRSF workaround");
-    //         return None; // todo: just dodging these for now. Seems to be 1/17 packets.
-    //     }
-    // }
 
     if !workaround {
         // This flexible start index allows us to read messages even if the reception was
@@ -520,12 +498,9 @@ pub fn handle_packet(
             }
         }
 
-        // println!("R: {:?}", unsafe { RX_BUFFER });// todo T
-        // println!("S: {:?}", buf_shifted);// todo T
-
         if !start_i_found {
             *rx_fault = true;
-            // println!("Can't find starting position in Rx payload");
+            println!("Can't find starting position in Rx payload");
             println!("RX buf: {:?}", unsafe { RX_BUFFER });
             return None;
         }
