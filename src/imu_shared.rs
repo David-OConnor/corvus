@@ -85,11 +85,6 @@ pub fn read_imu(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, periph: Dm
     unsafe {
         WRITE_BUF[0] = starting_addr;
     }
-
-    // Just in case the prev transfer is still in prog; shouldn't happen though.
-    dma::stop(IMU_DMA_PERIPH, IMU_TX_CH);
-    dma::stop(IMU_DMA_PERIPH, IMU_RX_CH);
-
     cs.set_low();
 
     unsafe {
@@ -106,7 +101,7 @@ pub fn read_imu(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, periph: Dm
                 priority: Priority::Low,
                 ..Default::default()
             },
-            IMU_DMA_PERIPH,
+            periph,
         );
     }
 }

@@ -1507,7 +1507,8 @@ mod app {
                     //     limiter_timer.enable();
                     // }
 
-                    dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
+                    // todo?
+                    // dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
 
                     unsafe {
                         uart.read_dma(

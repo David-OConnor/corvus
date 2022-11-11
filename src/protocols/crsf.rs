@@ -468,33 +468,33 @@ pub fn handle_packet(
     let mut buf_shifted = [0; RX_BUF_SIZE];
 
     // todo: This isn't enough. On some packets, we now drop 2 consecutive bytes after start message...
-    unsafe {
-        if RX_BUFFER[0] == 200 && RX_BUFFER[1] == 22 {
-            buf_shifted[0] = 200;
-            buf_shifted[1] = 24;
-
-            for i in 2..RX_BUF_SIZE {
-                buf_shifted[i] = RX_BUFFER[i - 1];
-            }
-
-            workaround = true;
-            *rx_fault = true;
-            // println!("CRSF workaround");
-            return None; // todo: just dodging these for now. Seems to be 1/17 packets.
-        } else if RX_BUFFER[0] == 200 && RX_BUFFER[1] == 20 {
-            buf_shifted[0] = 200;
-            buf_shifted[1] = 20;
-
-            for i in 2..RX_BUF_SIZE {
-                buf_shifted[i] = RX_BUFFER[i - 1];
-            }
-
-            workaround = true;
-            *rx_fault = true;
-            // println!("CRSF workaround");
-            return None; // todo: just dodging these for now. Seems to be 1/17 packets.
-        }
-    }
+    // unsafe {
+    //     if RX_BUFFER[0] == 200 && RX_BUFFER[1] == 22 {
+    //         buf_shifted[0] = 200;
+    //         buf_shifted[1] = 24;
+    //
+    //         for i in 2..RX_BUF_SIZE {
+    //             buf_shifted[i] = RX_BUFFER[i - 1];
+    //         }
+    //
+    //         workaround = true;
+    //         *rx_fault = true;
+    //         // println!("CRSF workaround");
+    //         return None; // todo: just dodging these for now. Seems to be 1/17 packets.
+    //     } else if RX_BUFFER[0] == 200 && RX_BUFFER[1] == 20 {
+    //         buf_shifted[0] = 200;
+    //         buf_shifted[1] = 20;
+    //
+    //         for i in 2..RX_BUF_SIZE {
+    //             buf_shifted[i] = RX_BUFFER[i - 1];
+    //         }
+    //
+    //         workaround = true;
+    //         *rx_fault = true;
+    //         // println!("CRSF workaround");
+    //         return None; // todo: just dodging these for now. Seems to be 1/17 packets.
+    //     }
+    // }
 
     if !workaround {
         // This flexible start index allows us to read messages even if the reception was
@@ -526,7 +526,7 @@ pub fn handle_packet(
         if !start_i_found {
             *rx_fault = true;
             // println!("Can't find starting position in Rx payload");
-            // println!("RX buf: {:?}", unsafe { RX_BUFFER });
+            println!("RX buf: {:?}", unsafe { RX_BUFFER });
             return None;
         }
 
