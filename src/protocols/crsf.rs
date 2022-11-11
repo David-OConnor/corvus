@@ -30,8 +30,7 @@ use num_enum::TryFromPrimitive; // Enum from integer
 use defmt::println;
 
 use stm32_hal2::{
-    dma::{self, ChannelCfg, Circular, Dma, DmaChannel},
-    pac::DMA1,
+    dma::DmaChannel,
     usart::{Usart, UsartInterrupt},
 };
 

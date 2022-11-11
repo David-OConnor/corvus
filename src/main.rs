@@ -20,6 +20,8 @@
 // todo: Movable camera that moves with head motion.
 // - Ir cam to find or avoid people
 
+use core::sync::atomic::Ordering;
+
 use ahrs_fusion::Ahrs;
 use cfg_if::cfg_if;
 use control_interface::{ChannelData, LinkStats, PidTuneActuation};
@@ -47,7 +49,7 @@ use flight_ctrls::{
 use lin_alg2::f32::Quaternion;
 use panic_probe as _;
 use ppks::{Location, LocationType};
-use protocols::{crsf, dshot, usb_cfg};
+use protocols::{crsf, dshot, usb_preflight};
 use safety::ArmStatus;
 use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
 use state::{OperationMode, SensorStatus, StateVolatile, SystemStatus, UserCfg};
@@ -57,7 +59,7 @@ use stm32_hal2::{
     self,
     adc::{self, Adc, AdcConfig, AdcDevice},
     clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
-    dma::{self, ChannelCfg, Dma, DmaInterrupt},
+    dma::{self, ChannelCfg, Dma, DmaInterrupt, DmaPeriph},
     flash::{Bank, Flash},
     gpio::{self, Edge, Pin, Port},
     i2c::I2c,
@@ -121,6 +123,8 @@ cfg_if! {
     }
 }
 
+use flight_ctrls::common::Motor;
+
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.
 static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
@@ -132,7 +136,7 @@ static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 // todo: Cycle flash pages for even wear. Can postpone this.
 
 // If IMU updates at 8kHz and ratio is 4, the flight control loop operates at 2kHz.
-const FLIGHT_CTRL_IMU_RATIO: usize = 4; // todo: Consider updating, eg to 2.
+const FLIGHT_CTRL_IMU_RATIO: usize = 4; // Likely values: 1, 2, 4.
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
@@ -200,12 +204,7 @@ const WARMUP_TIME: u32 = 2_000;
 #[rtic::app(device = pac, peripherals = false, dispatchers= [EXTI9_5])]
 mod app {
     use super::*;
-    use core::sync::atomic::Ordering;
-
-    use crate::flight_ctrls::common::Motor;
-    use core::time::Duration; // todo temp
-use stm32_hal2::instant::Instant;
-    use stm32_hal2::timer::TimChannel; // todo temp
+    // use core::time::Duration; // todo temp
 
     #[monotonic(binds = TIM5, default = true)]
     // type MyMono = Timer<TIM5>; // todo temp
@@ -222,8 +221,8 @@ use stm32_hal2::instant::Instant;
         control_channel_data: ChannelData,
         /// Link statistics, including Received Signal Strength Indicator (RSSI) from the controller's radio.
         link_stats: LinkStats,
-        dma: Dma<DMA1>,
-        dma2: Dma<DMA2>,
+        // dma: Dma<DMA1>,
+        // dma2: Dma<DMA2>,
         spi1: Spi<SPI1>,
         cs_imu: Pin,
         i2c1: I2c<I2C1>,
@@ -286,9 +285,9 @@ use stm32_hal2::instant::Instant;
         // Improves performance, at a cost of slightly increased power use.
         // Note that these enable fns should automatically invalidate prior.
         #[cfg(feature = "h7")]
-            cp.SCB.enable_icache();
+        cp.SCB.enable_icache();
         #[cfg(feature = "h7")]
-            cp.SCB.enable_dcache(&mut cp.CPUID);
+        cp.SCB.enable_dcache(&mut cp.CPUID);
 
         cfg_if! {
             if #[cfg(feature = "h7")] {
@@ -323,15 +322,11 @@ use stm32_hal2::instant::Instant;
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-            clocks::enable_crs(CrsSyncSrc::OtgHs);
+        clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-            clocks::enable_crs(CrsSyncSrc::Usb);
+        clocks::enable_crs(CrsSyncSrc::Usb);
 
         let flash = unsafe { &(*pac::FLASH::ptr()) };
-
-        cp.SCB.enable_icache();
-        println!("Icache: {:?}", cortex_m::peripheral::SCB::icache_enabled());
-        println!("Icache: {:?}", cortex_m::peripheral::SCB::dcache_enabled());
 
         // Set up pins with appropriate modes.
         setup::setup_pins();
@@ -339,14 +334,14 @@ use stm32_hal2::instant::Instant;
         let mut dma = Dma::new(dp.DMA1);
         let mut dma2 = Dma::new(dp.DMA2);
         #[cfg(feature = "g4")]
-            dma::enable_mux1();
+        dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
         #[cfg(feature = "h7")]
-            let UART_ELRS = dp.UART7;
+        let UART_ELRS = dp.UART7;
         #[cfg(feature = "g4")]
-            let UART_ELRS = dp.USART3;
+        let UART_ELRS = dp.USART3;
 
         let (mut spi1, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_elrs) =
             setup::setup_busses(dp.SPI1, dp.I2C1, dp.I2C2, dp.USART2, UART_ELRS, &clock_cfg);
@@ -363,10 +358,10 @@ use stm32_hal2::instant::Instant;
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -478,7 +473,7 @@ use stm32_hal2::instant::Instant;
                     circular: dma::Circular::Enabled,
                     ..Default::default()
                 },
-                &mut dma,
+                setup::BATT_CURR_DMA_PERIPH,
             );
         }
 
@@ -513,9 +508,9 @@ use stm32_hal2::instant::Instant;
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -589,13 +584,13 @@ use stm32_hal2::instant::Instant;
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
@@ -609,7 +604,7 @@ use stm32_hal2::instant::Instant;
         );
 
         // todo: temp removed to test bidir
-        dshot::setup_motor_dir(motors_reversed, &mut motor_timers, &mut dma);
+        dshot::setup_motor_dir(motors_reversed, &mut motor_timers);
 
         crsf::setup(&mut uart_elrs);
 
@@ -620,9 +615,9 @@ use stm32_hal2::instant::Instant;
         // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
         // todo opendrain and pullup set, and without enabling interrupt.
         #[cfg(feature = "h7")]
-            let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
         #[cfg(feature = "g4")]
-            let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
         imu_exti_pin.enable_interrupt(Edge::Falling);
 
         println!("Init complete; starting main loops");
@@ -638,8 +633,8 @@ use stm32_hal2::instant::Instant;
                 params_prev: params,
                 control_channel_data: Default::default(),
                 link_stats: Default::default(),
-                dma,
-                dma2,
+                // dma,
+                // dma2,
                 spi1,
                 cs_imu,
                 i2c1,
@@ -709,8 +704,8 @@ use stm32_hal2::instant::Instant;
     binds = TIM1_BRK_TIM15,
     shared = [current_params,
     power_used, autopilot_status, user_cfg, flight_ctrl_filters,
-    ahrs, control_channel_data, motor_timers, rotor_rpms,
-    lost_link_timer, link_lost, altimeter, i2c1, i2c2, state_volatile, system_status, batt_curr_adc, dma, dma2,
+    ahrs, control_channel_data, rotor_rpms,
+    lost_link_timer, link_lost, altimeter, i2c1, i2c2, state_volatile, system_status, batt_curr_adc,
     ],
     local = [arm_signals_received, disarm_signals_received, update_isr_loop_i, uart_osd,
     time_with_high_throttle],
@@ -738,10 +733,9 @@ use stm32_hal2::instant::Instant;
             cx.shared.i2c2,
             cx.shared.state_volatile,
             cx.shared.system_status,
-            cx.shared.motor_timers,
             cx.shared.batt_curr_adc,
-            cx.shared.dma,
-            cx.shared.dma2,
+            // cx.shared.dma,
+            // cx.shared.dma2,
             cx.shared.rotor_rpms,
             cx.shared.flight_ctrl_filters,
         )
@@ -759,10 +753,9 @@ use stm32_hal2::instant::Instant;
                  i2c2,
                  state_volatile,
                  system_status,
-                 motor_timers,
                  adc,
-                 dma,
-                 dma2,
+                 // dma,
+                 // dma2,
                  rpms,
                  flight_ctrl_filters| {
                     #[cfg(feature = "print-status")]
@@ -959,36 +952,37 @@ use stm32_hal2::instant::Instant;
                     // state_volatile.drag_coeffs.roll = dcr;
                     // state_volatile.drag_coeffs.yaw = dcy;
 
-                    // todo: Put back
-                    // let osd_data = OsdData {
-                    //     arm_status: state_volatile.arm_status,
-                    //     battery_voltage: batt_v,
-                    //     current_draw: esc_current,
-                    //     alt_msl_baro: params.baro_alt_msl,
-                    //     gps_fix: Location::default(),
-                    //     pitch: params.s_pitch,
-                    //     roll: params.s_roll,
-                    //     yaw: params.s_yaw_heading,
-                    //     // pid_p: coeffs.roll.k_p_rate,
-                    //     // pid_i: coeffs.roll.k_i_rate,
-                    //     // pid_d: coeffs.roll.k_d_rate,
-                    //     autopilot: AutopilotData {
-                    //         takeoff: autopilot_status.takeoff,
-                    //         land: autopilot_status.land.is_some(),
-                    //         direct_to_point: autopilot_status.direct_to_point.is_some(),
-                    //         #[cfg(feature = "fixed-wing")]
-                    //         orbit: autopilot_status.orbit.is_some(),
-                    //         alt_hold: autopilot_status.alt_hold.is_some(),
-                    //         #[cfg(feature = "quad")]
-                    //         loiter: autopilot_status.loiter.is_some(),
-                    //     },
-                    //     base_dist_bearing: (
-                    //         0., 0., // todo: Fill these out
-                    //     ),
-                    // };
-                    //
-                    // // todo: Put back
-                    // osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH, dma, &osd_data);
+                    let osd_data = OsdData {
+                        arm_status: state_volatile.arm_status,
+                        battery_voltage: batt_v,
+                        current_draw: esc_current,
+                        alt_msl_baro: params.baro_alt_msl,
+                        gps_fix: Location::default(),
+                        pitch: params.s_pitch,
+                        roll: params.s_roll,
+                        yaw: params.s_yaw_heading,
+                        // pid_p: coeffs.roll.k_p_rate,
+                        // pid_i: coeffs.roll.k_i_rate,
+                        // pid_d: coeffs.roll.k_d_rate,
+                        autopilot: AutopilotData {
+                            takeoff: autopilot_status.takeoff,
+                            land: autopilot_status.land.is_some(),
+                            direct_to_point: autopilot_status.direct_to_point.is_some(),
+                            #[cfg(feature = "fixed-wing")]
+                            orbit: autopilot_status.orbit.is_some(),
+                            alt_hold: autopilot_status.alt_hold.is_some(),
+                            #[cfg(feature = "quad")]
+                            loiter: autopilot_status.loiter.is_some(),
+                        },
+                        base_dist_bearing: (
+                            0., 0., // todo: Fill these out
+                        ),
+                    };
+
+                    // todo: put back
+                    // cx.shared.dma.lock(|dma| {
+                    osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH,&osd_data);
+                    // });
 
                     autopilot_status.set_modes_from_ctrls(control_channel_data, &params);
 
@@ -1054,28 +1048,22 @@ use stm32_hal2::instant::Instant;
                         // Note: We currently don't have a way to measure servo position,
                         // so we leave the default 1:1 mapping here.
                     }
-                }
-            )
+                });
     }
 
     /// Runs when new IMU data is ready. Trigger a DMA read.
     /// High priority since it's important, and quick-to-execute
-    #[task(binds = EXTI4, shared = [cs_imu, dma, spi1], local = [], priority = 8)]
+    #[task(binds = EXTI4, shared = [cs_imu, spi1], local = [], priority = 8)]
     fn imu_data_isr(cx: imu_data_isr::Context) {
         gpio::clear_exti_interrupt(4);
 
-        // *cx.local.aux_loop_i += 1;
-        // if *cx.local.aux_loop_i % 700 == 0 {
-        // println!("I");
-        // }
-
-        (cx.shared.dma, cx.shared.cs_imu, cx.shared.spi1).lock(|dma, cs_imu, spi| {
-            imu_shared::read_imu(imu::READINGS_START_ADDR, spi, cs_imu, dma);
+        (cx.shared.cs_imu, cx.shared.spi1).lock(|cs_imu, spi| {
+            imu_shared::read_imu(imu::READINGS_START_ADDR, spi, cs_imu, setup::IMU_DMA_PERIPH);
         });
     }
 
     // binds = DMA1_STR2,
-    #[task(binds = DMA1_CH2, shared = [dma, spi1, current_params, params_prev, control_channel_data,
+    #[task(binds = DMA1_CH2, shared = [spi1, current_params, params_prev, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, cs_imu, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timers, ahrs, state_volatile], local = [imu_isr_loop_i], priority = 4)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
@@ -1084,11 +1072,11 @@ use stm32_hal2::instant::Instant;
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         // Clear DMA interrupt this way due to RTIC conflict.
         #[cfg(feature = "h7")]
-            unsafe {
+        unsafe {
             (*DMA1::ptr()).lifcr.write(|w| w.ctcif2().set_bit())
         }
         #[cfg(feature = "g4")]
-            unsafe {
+        unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif2().set_bit())
         }
 
@@ -1096,14 +1084,12 @@ use stm32_hal2::instant::Instant;
             cs.set_high();
         });
 
-        // println!("IMU LOOP");
-
         *cx.local.imu_isr_loop_i += 1;
 
-        // Note that our filter block size
-        if *cx.local.imu_isr_loop_i % FLIGHT_CTRL_IMU_RATIO != 0 {
-            return
-        }
+        // // Note that our filter block size
+        // if *cx.local.imu_isr_loop_i % FLIGHT_CTRL_IMU_RATIO != 0 {
+        //     return
+        // }
 
         (
             cx.shared.current_params,
@@ -1114,7 +1100,6 @@ use stm32_hal2::instant::Instant;
             cx.shared.motor_timers,
             cx.shared.motor_pid_state,
             cx.shared.motor_pid_coeffs,
-            cx.shared.dma,
             cx.shared.user_cfg,
             cx.shared.spi1,
             cx.shared.state_volatile,
@@ -1129,22 +1114,18 @@ use stm32_hal2::instant::Instant;
                  motor_timers,
                  pid_state,
                  pid_coeffs,
-                 dma,
                  cfg,
                  spi1,
                  state_volatile,
                  flight_ctrl_filters| {
                     // Note that this step is mandatory, per STM32 RM.
-                    spi1.stop_dma(setup::IMU_TX_CH, Some(setup::IMU_RX_CH), dma);
+                    spi1.stop_dma(setup::IMU_TX_CH, Some(setup::IMU_RX_CH), DmaPeriph::Dma1);
 
                     {
-                        if *cx.local.imu_isr_loop_i % 700 == 0 {
-                            // let period = cx.local.measurement_timer.time_elapsed().as_secs();
-                            // println!("IMU time: {:?}. Freq: {:?}", period, 1. / period);
-
-                            // println!("T");
-                            // println!("IMU BUF: {:?}", unsafe { &imu_shared::IMU_READINGS });
-                        }
+                        // if *cx.local.imu_isr_loop_i % 700 == 0 {
+                        // let period = cx.local.measurement_timer.time_elapsed().as_secs();
+                        // println!("IMU time: {:?}. Freq: {:?}", period, 1. / period);
+                        // }
 
                         // cx.local.measurement_timer.disable();
                         // cx.local.measurement_timer.reset_count();
@@ -1168,6 +1149,10 @@ use stm32_hal2::instant::Instant;
                     // todo read and filter.
                     // todo: Be wary of how you use params_prev if it's above this break line
 
+                    if *cx.local.imu_isr_loop_i % FLIGHT_CTRL_IMU_RATIO != 0 {
+                        return
+                    }
+
                     // Note: Consider if you want to update the attitude using the primary update loop,
                     // vice each IMU update.
                     attitude_platform::update_attitude(ahrs, params);
@@ -1181,10 +1166,10 @@ use stm32_hal2::instant::Instant;
 
                     if state_volatile.arm_status == ArmStatus::Armed {
                         // dshot::set_power(p, p, p, p, motor_timers, dma);
-                        dshot::set_power(p, p, p, p, motor_timers, dma);
+                        dshot::set_power(p, p, p, p, motor_timers);
                     } else {
 
-                        dshot::stop_all(motor_timers, dma);
+                        dshot::stop_all(motor_timers);
                         // dshot::set_power(0.025, 0., 0., 0., motor_timers, dma);
                     }
 
@@ -1264,7 +1249,6 @@ use stm32_hal2::instant::Instant;
                                 &cfg.control_mapping,
                                 motor_timers,
                                 state_volatile.arm_status,
-                                dma
                             );
 
                             state_volatile.ctrl_mix = ctrl_mix;
@@ -1300,7 +1284,7 @@ use stm32_hal2::instant::Instant;
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data,
-    link_stats, user_cfg, state_volatile, system_status, motor_timers, batt_curr_adc, dma], local = [], priority = 4)]
+    link_stats, user_cfg, state_volatile, system_status, motor_timers, batt_curr_adc], local = [], priority = 4)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
@@ -1317,7 +1301,6 @@ use stm32_hal2::instant::Instant;
             cx.shared.system_status,
             cx.shared.motor_timers,
             cx.shared.batt_curr_adc,
-            cx.shared.dma,
         )
             .lock(
                 |usb_dev,
@@ -1329,8 +1312,7 @@ use stm32_hal2::instant::Instant;
                  state_volatile,
                  system_status,
                  motor_timers,
-                 adc,
-                 dma| {
+                 adc| {
                     if !usb_dev.poll(&mut [usb_serial]) {
                         return;
                     }
@@ -1338,7 +1320,7 @@ use stm32_hal2::instant::Instant;
                     let mut buf = [0u8; 8];
                     match usb_serial.read(&mut buf) {
                         Ok(_count) => {
-                            usb_cfg::handle_rx(
+                            usb_preflight::handle_rx(
                                 usb_serial,
                                 &buf,
                                 params.attitude_quat,
@@ -1356,7 +1338,6 @@ use stm32_hal2::instant::Instant;
                                 &mut state_volatile.op_mode,
                                 motor_timers,
                                 adc,
-                                dma,
                             );
                         }
                         Err(_) => {
@@ -1371,7 +1352,7 @@ use stm32_hal2::instant::Instant;
     // uses a single timer on H7: `dshot_isr_r34`
     // These should be high priority, so they can shut off before the next 600kHz etc tick.
     #[cfg(feature = "g4")]
-    #[task(binds = DMA1_CH3, shared = [motor_timers, dma], local = [], priority = 6)]
+    #[task(binds = DMA1_CH3, shared = [motor_timers], local = [], priority = 6)]
     /// We use this ISR to enable input capture if in bidirectional mode. Assocaited with Tim2,
     /// and is only used on G4.
     fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
@@ -1379,7 +1360,7 @@ use stm32_hal2::instant::Instant;
         // todo: Why is this gate required when we have feature-gated the fn?
         // todo: Maybe RTIC is messing up the fn-level feature gate?
         #[cfg(feature = "g4")]
-            unsafe {
+        unsafe {
             (*DMA1::ptr()).ifcr.write(|w| w.tcif3().set_bit());
         }
         unsafe {
@@ -1388,14 +1369,14 @@ use stm32_hal2::instant::Instant;
 
         if dshot::BIDIR_EN {
             if dshot::CH_A_REC_MODE.load(Ordering::Relaxed) {
-                (cx.shared.motor_timers, cx.shared.dma).lock(|motor_timers, dma| {
+                cx.shared.motor_timers.lock(|motor_timers| {
                     dshot::set_to_output(motor_timers, Motor::M1, Motor::M2, false);
                 });
                 dshot::CH_A_REC_MODE.store(false, Ordering::Relaxed);
             } else {
-                (cx.shared.motor_timers, cx.shared.dma).lock(|motor_timers, dma| {
+                cx.shared.motor_timers.lock(|motor_timers| {
                     dshot::set_to_input(motor_timers, Motor::M1, Motor::M2, false);
-                    dshot::receive_payload_a(motor_timers, dma);
+                    dshot::receive_payload_a(motor_timers);
                 });
                 dshot::CH_A_REC_MODE.store(true, Ordering::Relaxed);
             }
@@ -1403,7 +1384,7 @@ use stm32_hal2::instant::Instant;
     }
 
     // #[task(binds = DMA1_STR4, shared = [motor_timers], priority = 6)]
-    #[task(binds = DMA1_CH4, shared = [motor_timers, dma], priority = 6)]
+    #[task(binds = DMA1_CH4, shared = [motor_timers], priority = 6)]
     /// We use this ISR to enable input capture if in bidirectional mode. For G4, it's only for motors
     /// 3 and 4. For h7, it's for all 4. Associated with Tim3.
     fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
@@ -1414,9 +1395,9 @@ use stm32_hal2::instant::Instant;
 
         // println!("34");
         unsafe {
-                #[cfg(feature = "h7")]
+            #[cfg(feature = "h7")]
             (*DMA1::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
-                #[cfg(feature = "g4")]
+            #[cfg(feature = "g4")]
             (*DMA1::ptr()).ifcr.write(|w| w.tcif4().set_bit());
         }
         unsafe {
@@ -1436,20 +1417,20 @@ use stm32_hal2::instant::Instant;
 
         if dshot::BIDIR_EN {
             if dshot::CH_B_REC_MODE.load(Ordering::Relaxed) {
-                (cx.shared.motor_timers, cx.shared.dma).lock(|motor_timers, dma| {
+                cx.shared.motor_timers.lock(|motor_timers| {
                     #[cfg(feature = "h7")]
-                        dshot::set_to_output(motor_timers, Motor::M1, Motor::M2, true);
+                    dshot::set_to_output(motor_timers, Motor::M1, Motor::M2, true);
                     dshot::set_to_output(motor_timers, Motor::M3, Motor::M4, true);
                 });
                 dshot::CH_B_REC_MODE.store(false, Ordering::Relaxed);
             } else {
-                (cx.shared.motor_timers, cx.shared.dma).lock(|motor_timers, dma| {
+                cx.shared.motor_timers.lock(|motor_timers| {
                     #[cfg(feature = "h7")]
-                        dshot::set_to_input(motor_timers, Motor::M1, Motor::M2, true);
+                    dshot::set_to_input(motor_timers, Motor::M1, Motor::M2, true);
                     dshot::set_to_input(motor_timers, Motor::M3, Motor::M4, true);
                     #[cfg(feature = "h7")]
-                        dshot::receive_payload_a(motor_timers, dma);
-                    dshot::receive_payload_b(motor_timers, dma);
+                    dshot::receive_payload_a(motor_timers);
+                    dshot::receive_payload_b(motor_timers);
                 });
                 dshot::CH_B_REC_MODE.store(true, Ordering::Relaxed);
             }
@@ -1480,7 +1461,7 @@ use stm32_hal2::instant::Instant;
     // todo: Evaluate priority.
     // #[task(binds = USART7,
     #[task(binds = USART3,
-    shared = [dma, control_channel_data, link_stats, rf_limiter_timer, link_lost,
+    shared = [control_channel_data, link_stats, rf_limiter_timer, link_lost,
     lost_link_timer, system_status], local = [uart_elrs], priority = 5)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
     /// and message ends. For message starts, it begins a DMA transfer. For message ends, it
@@ -1496,12 +1477,11 @@ use stm32_hal2::instant::Instant;
         uart.clear_interrupt(UsartInterrupt::Idle);
 
         (
-            cx.shared.dma,
             cx.shared.control_channel_data,
             cx.shared.link_stats,
             cx.shared.rf_limiter_timer,
         )
-            .lock(|dma, ch_data, link_stats, limiter_timer| {
+            .lock(|ch_data, link_stats, limiter_timer| {
                 // todo: Attempting a software flag vice using interrupt flags, to TS CRSF
                 // todo anomolies.
                 if !crsf::TRANSFER_IN_PROG.load(Ordering::Relaxed) {
@@ -1527,7 +1507,7 @@ use stm32_hal2::instant::Instant;
                     //     limiter_timer.enable();
                     // }
 
-                    dma.stop(setup::CRSF_RX_CH);
+                    dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
 
                     unsafe {
                         uart.read_dma(
@@ -1538,7 +1518,7 @@ use stm32_hal2::instant::Instant;
                                 priority: dma::Priority::Medium,
                                 ..Default::default()
                             },
-                            dma,
+                            setup::CRSF_DMA_PERIPH,
                         );
                     }
                     // println!("S");
@@ -1557,7 +1537,7 @@ use stm32_hal2::instant::Instant;
 
                     // Stop the DMA read, since it will likely not have filled the buffer, due
                     // to the variable message sizes.
-                    dma.stop(setup::CRSF_RX_CH);
+                    dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
 
                     // Re-enable
                     // Don't use the HAL method to re-enable the char-match interrupt, since it also
@@ -1565,7 +1545,7 @@ use stm32_hal2::instant::Instant;
                     uart.regs.cr1.modify(|_, w| w.cmie().set_bit());
 
                     if let Some(crsf_data) =
-                    crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
+                        crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {
@@ -1705,22 +1685,25 @@ use stm32_hal2::instant::Instant;
 
     // binds = DMA2_STR1,
     #[task(binds = DMA2_CH1,
-    shared = [dma2, i2c2], priority = 1)]
+    shared = [i2c2], priority = 1)]
     /// Baro write complete; start baro read.
-    fn baro_write_tc_isr(cx: baro_write_tc_isr::Context) {
-        println!("Ext sensors D");
-        (cx.shared.dma2, cx.shared.i2c2).lock(|dma2, i2c2| {
-            dma2.clear_interrupt(setup::BARO_TX_CH, DmaInterrupt::TransferComplete);
+    fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
+        unsafe {
+            #[cfg(feature = "h7")]
+            (*DMA2::ptr()).hifcr.write(|w| w.ctcif1().set_bit());
+            #[cfg(feature = "g4")]
+            (*DMA2::ptr()).ifcr.write(|w| w.tcif1().set_bit());
+        }
 
-            unsafe {
-                i2c2.read_dma(
-                    baro::ADDR,
-                    &mut sensors_shared::BARO_READINGS,
-                    setup::BARO_RX_CH,
-                    Default::default(),
-                    dma2,
-                );
-            }
+        println!("Ext sensors D");
+        cx.shared.i2c2.lock(|i2c2| unsafe {
+            i2c2.read_dma(
+                baro::ADDR,
+                &mut sensors_shared::BARO_READINGS,
+                setup::BARO_RX_CH,
+                Default::default(),
+                setup::BARO_DMA_PERIPH,
+            );
         });
     }
 
@@ -1728,122 +1711,127 @@ use stm32_hal2::instant::Instant;
 
     // binds = DMA2_STR2,
     #[task(binds = DMA2_CH2,
-    shared = [dma2, altimeter, current_params], priority = 1)]
+    shared = [altimeter, current_params], priority = 1)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(cx: baro_read_tc_isr::Context) {
+        unsafe {
+            #[cfg(feature = "h7")]
+            (*DMA2::ptr()).hifcr.write(|w| w.ctcif2().set_bit());
+            #[cfg(feature = "g4")]
+            (*DMA2::ptr()).ifcr.write(|w| w.tcif2().set_bit());
+        }
+
         println!("Ext sensors C");
-        (
-            cx.shared.dma2,
-            cx.shared.altimeter,
-            cx.shared.current_params,
-        )
-            .lock(|dma2, altimeter, params| {
-                dma2.clear_interrupt(setup::BARO_RX_CH, DmaInterrupt::TransferComplete);
+        (cx.shared.altimeter, cx.shared.current_params).lock(|altimeter, params| {
+            // code shortener.
+            let buf = unsafe { &sensors_shared::BARO_READINGS };
+            // todo: Process your baro reading here.
+            let pressure =
+                altimeter.pressure_from_readings(buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
 
-                // code shortener.
-                let buf = unsafe { &sensors_shared::BARO_READINGS };
-                // todo: Process your baro reading here.
-                let pressure = altimeter
-                    .pressure_from_readings(buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
-
-                // todo: Altitude from pressure! Maybe in a diff module? (which?)
-                params.baro_alt_msl = pressure;
-            });
+            // todo: Altitude from pressure! Maybe in a diff module? (which?)
+            params.baro_alt_msl = pressure;
+        });
     }
 
     // binds = DMA2_STR3,
     #[task(binds = DMA2_CH3,
-    shared = [dma2, i2c1, ext_sensor_active], priority = 1)]
+    shared = [i2c1, ext_sensor_active], priority = 1)]
     /// Baro write complete; start baro read.
     fn ext_sensors_write_tc_isr(cx: ext_sensors_write_tc_isr::Context) {
+        unsafe {
+            #[cfg(feature = "h7")]
+            (*DMA2::ptr()).hifcr.write(|w| w.ctcif3().set_bit());
+            #[cfg(feature = "g4")]
+            (*DMA2::ptr()).ifcr.write(|w| w.tcif3().set_bit());
+        }
+
         println!("Ext sensors B");
-        (cx.shared.dma2, cx.shared.i2c1, cx.shared.ext_sensor_active).lock(
-            |dma2, i2c1, ext_sensor_active| {
-                dma2.clear_interrupt(setup::EXT_SENSORS_TX_CH, DmaInterrupt::TransferComplete);
+        (cx.shared.i2c1, cx.shared.ext_sensor_active).lock(|i2c1, ext_sensor_active| {
+            // todo: Skip sensors if marked as not connected?
 
-                // todo: Skip sensors if marked as not connected?
-
-                unsafe {
-                    match ext_sensor_active {
-                        ExtSensor::Mag => {
-                            i2c1.read_dma(
-                                mag::ADDR,
-                                &mut sensors_shared::MAG_READINGS,
-                                setup::EXT_SENSORS_RX_CH,
-                                Default::default(),
-                                dma2,
-                            );
-                        }
-                        ExtSensor::Gps => {
-                            i2c1.read_dma(
-                                gps::ADDR,
-                                &mut sensors_shared::GPS_READINGS,
-                                setup::EXT_SENSORS_RX_CH,
-                                Default::default(),
-                                dma2,
-                            );
-                        }
-                        ExtSensor::Tof => {
-                            i2c1.read_dma(
-                                tof::ADDR,
-                                &mut sensors_shared::TOF_READINGS,
-                                setup::EXT_SENSORS_RX_CH,
-                                Default::default(),
-                                dma2,
-                            );
-                        }
+            unsafe {
+                match ext_sensor_active {
+                    ExtSensor::Mag => {
+                        i2c1.read_dma(
+                            mag::ADDR,
+                            &mut sensors_shared::MAG_READINGS,
+                            setup::EXT_SENSORS_RX_CH,
+                            Default::default(),
+                            setup::EXT_SENSORS_DMA_PERIPH,
+                        );
+                    }
+                    ExtSensor::Gps => {
+                        i2c1.read_dma(
+                            gps::ADDR,
+                            &mut sensors_shared::GPS_READINGS,
+                            setup::EXT_SENSORS_RX_CH,
+                            Default::default(),
+                            setup::EXT_SENSORS_DMA_PERIPH,
+                        );
+                    }
+                    ExtSensor::Tof => {
+                        i2c1.read_dma(
+                            tof::ADDR,
+                            &mut sensors_shared::TOF_READINGS,
+                            setup::EXT_SENSORS_RX_CH,
+                            Default::default(),
+                            setup::EXT_SENSORS_DMA_PERIPH,
+                        );
                     }
                 }
-            },
-        );
+            }
+        });
     }
 
     // binds = DMA2_STR4,
     #[task(binds = DMA2_CH4,
-    shared = [dma2, i2c1, ext_sensor_active], priority = 1)]
+    shared = [i2c1, ext_sensor_active], priority = 1)]
     /// Baro write complete; start baro read.
     fn ext_sensors_read_tc_isr(cx: ext_sensors_read_tc_isr::Context) {
+        unsafe {
+            #[cfg(feature = "h7")]
+            (*DMA2::ptr()).hifcr.write(|w| w.ctcif4().set_bit());
+            #[cfg(feature = "g4")]
+            (*DMA2::ptr()).ifcr.write(|w| w.tcif4().set_bit());
+        }
         println!("Ext sensors A");
-        (cx.shared.dma2, cx.shared.i2c1, cx.shared.ext_sensor_active).lock(
-            |dma2, i2c1, ext_sensor_active| {
-                dma2.clear_interrupt(setup::EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);
+        (cx.shared.i2c1, cx.shared.ext_sensor_active).lock(|i2c1, ext_sensor_active| {
+            // todo: Skip sensors if marked as not connected?
 
-                // todo: Skip sensors if marked as not connected?
+            // todo: Interp data, and place data into its apt struct here.
 
-                // todo: Interp data, and place data into its apt struct here.
-
-                unsafe {
-                    match ext_sensor_active {
-                        ExtSensor::Mag => {
-                            i2c1.write_dma(
-                                gps::ADDR,
-                                &mut sensors_shared::WRITE_BUF_GPS,
-                                false,
-                                setup::EXT_SENSORS_RX_CH,
-                                Default::default(),
-                                dma2,
-                            );
-                            *ext_sensor_active = ExtSensor::Gps;
-                        }
-                        ExtSensor::Gps => {
-                            i2c1.write_dma(
-                                tof::ADDR,
-                                &mut sensors_shared::WRITE_BUF_TOF,
-                                false,
-                                setup::EXT_SENSORS_RX_CH,
-                                Default::default(),
-                                dma2,
-                            );
-                            *ext_sensor_active = ExtSensor::Tof;
-                        }
-                        ExtSensor::Tof => {
-                            *ext_sensor_active = ExtSensor::Mag;
-                            // End of sequence; don't start a new transfer.
-                        }
+            unsafe {
+                match ext_sensor_active {
+                    ExtSensor::Mag => {
+                        i2c1.write_dma(
+                            gps::ADDR,
+                            &mut sensors_shared::WRITE_BUF_GPS,
+                            false,
+                            setup::EXT_SENSORS_RX_CH,
+                            Default::default(),
+                            setup::EXT_SENSORS_DMA_PERIPH,
+                        );
+                        *ext_sensor_active = ExtSensor::Gps;
+                    }
+                    ExtSensor::Gps => {
+                        i2c1.write_dma(
+                            tof::ADDR,
+                            &mut sensors_shared::WRITE_BUF_TOF,
+                            false,
+                            setup::EXT_SENSORS_RX_CH,
+                            Default::default(),
+                            setup::EXT_SENSORS_DMA_PERIPH,
+                        );
+                        *ext_sensor_active = ExtSensor::Tof;
+                    }
+                    ExtSensor::Tof => {
+                        *ext_sensor_active = ExtSensor::Mag;
+                        // End of sequence; don't start a new transfer.
                     }
                 }
-            },
-        );
+            }
+        });
     }
 }
 

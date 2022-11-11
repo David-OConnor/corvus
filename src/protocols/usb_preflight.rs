@@ -330,7 +330,6 @@ pub fn handle_rx(
     op_mode: &mut OperationMode,
     motor_timers: &mut MotorTimers,
     adc: &Adc<ADC>,
-    dma: &mut Dma<DMA1>,
 ) {
     let rx_msg_type: MsgType = match rx_buf[0].try_into() {
         Ok(d) => d,
@@ -433,7 +432,6 @@ pub fn handle_rx(
                         control_mapping.motor_from_position(rotor_position),
                         power,
                         motor_timers,
-                        dma,
                     );
                 }
             }
@@ -455,7 +453,6 @@ pub fn handle_rx(
                         control_mapping.motor_from_position(rotor_position),
                         0.,
                         motor_timers,
-                        dma,
                     );
                 }
             }

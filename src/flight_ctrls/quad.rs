@@ -322,7 +322,6 @@ impl MotorRpm {
         mapping: &ControlMapping,
         motor_timers: &mut MotorTimers,
         arm_status: ArmStatus,
-        dma: &mut Dma<DMA1>,
     ) {
         let fl = pid::run(
             self.front_left,
@@ -375,7 +374,7 @@ impl MotorRpm {
             aft_right: ar.out(),
         };
 
-        power.set(mapping, motor_timers, arm_status, dma);
+        power.set(mapping, motor_timers, arm_status);
     }
 
     /// Motor pair delta. Maps to angular accel. Positive means nose-up pitching.
@@ -477,16 +476,15 @@ impl MotorPower {
         mapping: &ControlMapping,
         motor_timers: &mut MotorTimers,
         arm_status: ArmStatus,
-        dma: &mut Dma<DMA1>,
     ) {
         let (p1, p2, p3, p4) = self.by_rotor_num(mapping);
 
         match arm_status {
             ArmStatus::Armed => {
-                dshot::set_power(p1, p2, p3, p4, motor_timers, dma);
+                dshot::set_power(p1, p2, p3, p4, motor_timers);
             }
             ArmStatus::Disarmed => {
-                dshot::stop_all(motor_timers, dma);
+                dshot::stop_all(motor_timers);
             }
         }
     }

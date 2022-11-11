@@ -8,13 +8,9 @@
 
 #![allow(dead_code)] // todo: So we can comment-out the V2 or V1 code as required.
 
-use stm32_hal2::{
-    dma::{Dma, DmaChannel},
-    pac::{DMA1, USART2},
-    usart::Usart,
-};
+use stm32_hal2::{dma::DmaChannel, pac::USART2, usart::Usart};
 
-use crate::{protocols::msp_defines::Function, util};
+use crate::{protocols::msp_defines::Function, setup, util};
 
 // const CRC_POLY: u8 = 0xd;
 const CRC_POLY: u8 = 0x0; // todo: WHich one, this or the above?
@@ -115,25 +111,23 @@ impl Packet {
 pub fn _send_packet(
     uart: &mut Usart<USART2>,
     dma_chan: DmaChannel,
-    dma: &mut Dma<DMA1>,
     packet: &Packet,
     payload: &[u8],
     buf: &mut [u8],
 ) {
     packet.to_buf(payload, buf);
-    unsafe { uart.write_dma(&buf, dma_chan, Default::default(), dma) };
+    unsafe { uart.write_dma(&buf, dma_chan, Default::default(), setup::OSD_DMA_PERIPH) };
 }
 
 /// Send a packet on the UART line. Unusd; see doc comment on `_send_packet`.
 pub fn _send_packet_v1(
     uart: &mut Usart<USART2>,
     dma_chan: DmaChannel,
-    dma: &mut Dma<DMA1>,
     packet: &Packet,
     payload: &[u8],
     buf: &mut [u8],
 ) {
     // todo: DRY with `send_packet`.
     packet.to_buf_v1(payload, buf);
-    unsafe { uart.write_dma(&buf, dma_chan, Default::default(), dma) };
+    unsafe { uart.write_dma(&buf, dma_chan, Default::default(), setup::OSD_DMA_PERIPH) };
 }

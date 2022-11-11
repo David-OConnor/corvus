@@ -7,7 +7,8 @@ use cmsis_dsp_api as dsp_api;
 
 use crate::{imu_shared::ImuReadings, util::IirInstWrapper};
 
-const BLOCK_SIZE: usize = crate::FLIGHT_CTRL_IMU_RATIO;
+// const BLOCK_SIZE: u32 = crate::FLIGHT_CTRL_IMU_RATIO as u32;
+const BLOCK_SIZE: u32 = 1;
 
 static mut FILTER_STATE_ACCEL_X: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_ACCEL_Y: [f32; 4] = [0.; 4];
@@ -16,8 +17,6 @@ static mut FILTER_STATE_ACCEL_Z: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_GYRO_PITCH: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_GYRO_ROLL: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_GYRO_YAW: [f32; 4] = [0.; 4];
-
-
 
 // todo: What cutoffs to use? I think you're in the ballpark, but maybe a little higher.
 // filter_ = signal.iirfilter(1, 300, btype="lowpass", ftype="bessel", output="sos", fs=8_000)

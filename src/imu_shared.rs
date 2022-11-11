@@ -2,30 +2,33 @@
 //! DMA buffer.
 
 use stm32_hal2::{
-    dma::{ChannelCfg, Dma, Priority},
+    dma::{self, ChannelCfg, Dma, DmaPeriph, Priority},
     gpio::Pin,
     pac::{DMA1, SPI1},
     spi::Spi,
 };
 
-use crate::{
-    setup::{IMU_RX_CH, IMU_TX_CH},
-     FLIGHT_CTRL_IMU_RATIO,
-};
+use crate::setup::{IMU_DMA_PERIPH, IMU_RX_CH, IMU_TX_CH};
 
 const G: f32 = 9.8; // m/s
 
 const GYRO_FULLSCALE: f32 = 34.90659; // In radians per second; equals 2,000 degrees/sec
 const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
 
+// static mut WRITE_BUF: [u8; 13] = [0; 13];
+
+// In order to let this fill multiple times per processing, we need to send the register
+// requests once per reading.
 static mut WRITE_BUF: [u8; 13] = [0; 13];
+// static mut WRITE_BUF: [u8; 13 * FLIGHT_CTRL_IMU_RATIO] = [0; 13 * FLIGHT_CTRL_IMU_RATIO];
 
 // IMU readings buffer. 3 accelerometer, and 3 gyro measurements; 2 bytes each. 0-padded on the left,
 // since that's where we pass the register in the write buffer.
 // We use this buffer for DMA transfers of IMU readings. Note that reading order is different
 // between different IMUs, due to their reg layout, and consecutive reg reads. In both cases, 6 readings,
 // each with 2 bytes each.
-pub static mut IMU_READINGS: [u8; 13 * FLIGHT_CTRL_IMU_RATIO] = [0; 13 * FLIGHT_CTRL_IMU_RATIO];
+pub static mut IMU_READINGS: [u8; 13] = [0; 13];
+// pub static mut IMU_READINGS: [u8; 13 * FLIGHT_CTRL_IMU_RATIO] = [0; 13 * FLIGHT_CTRL_IMU_RATIO];
 
 /// Represents sensor readings from a 6-axis accelerometer + gyro.
 /// Accelerometer readings are in m/2^2. Gyroscope readings are in radians/s.
@@ -76,12 +79,16 @@ impl ImuReadings {
 
 /// Read all 3 measurements, by commanding a DMA transfer. The transfer is closed, and readings
 /// are processed in the Transfer Complete ISR.
-pub fn read_imu(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut Dma<DMA1>) {
+pub fn read_imu(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, periph: DmaPeriph) {
     // First byte is the first data reg, per this IMU's. Remaining bytes are empty, while
     // the MISO line transmits readings.
     unsafe {
         WRITE_BUF[0] = starting_addr;
     }
+
+    // Just in case the prev transfer is still in prog; shouldn't happen though.
+    dma::stop(IMU_DMA_PERIPH, IMU_TX_CH);
+    dma::stop(IMU_DMA_PERIPH, IMU_RX_CH);
 
     cs.set_low();
 
@@ -99,7 +106,7 @@ pub fn read_imu(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, dma: &mut 
                 priority: Priority::Low,
                 ..Default::default()
             },
-            dma,
+            IMU_DMA_PERIPH,
         );
     }
 }

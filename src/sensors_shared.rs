@@ -9,7 +9,7 @@ use stm32_hal2::{
 
 use crate::{
     baro, gps, mag,
-    setup::{BARO_TX_CH, EXT_SENSORS_TX_CH},
+    setup::{self, BARO_TX_CH, EXT_SENSORS_TX_CH},
     tof,
 };
 
@@ -108,7 +108,7 @@ pub fn start_transfers(
             false,
             BARO_TX_CH,
             Default::default(),
-            dma2,
+            setup::EXT_SENSORS_DMA_PERIPH,
         );
 
         i2c_ext_sensors.write_dma(
@@ -117,7 +117,7 @@ pub fn start_transfers(
             false,
             EXT_SENSORS_TX_CH,
             Default::default(),
-            dma2,
+            setup::EXT_SENSORS_DMA_PERIPH,
         );
     }
 }

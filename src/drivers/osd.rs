@@ -21,6 +21,7 @@ use crate::{
         msp_defines::*,
     },
     safety::ArmStatus,
+    setup,
 };
 
 use stm32_hal2::{
@@ -129,12 +130,7 @@ pub struct OsdData {
 /// Sends data for all relevant elements to the OSD. Accepts a data struct built from select
 /// elements from the rest of our program, and sends to the display in OSD format, using
 /// only elements supported by DJI's MSP implementation.
-pub fn send_osd_data(
-    uart: &mut Usart<USART2>,
-    dma_chan: DmaChannel,
-    dma: &mut Dma<DMA1>,
-    data: &OsdData,
-) {
+pub fn send_osd_data(uart: &mut Usart<USART2>, dma_chan: DmaChannel, data: &OsdData) {
     // todo: Running list of things to add. May be supported by MSP, or co-opt elements they're not
     // made for.
     // - AGL altitude
@@ -356,7 +352,14 @@ pub fn send_osd_data(
     );
 
     // Send all the data we've compiled into the buffer.
-    unsafe { uart.write_dma(&BUF_OSD, dma_chan, Default::default(), dma) };
+    unsafe {
+        uart.write_dma(
+            &BUF_OSD,
+            dma_chan,
+            Default::default(),
+            setup::OSD_DMA_PERIPH,
+        )
+    };
 }
 
 fn add_to_buf(

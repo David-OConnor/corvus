@@ -50,8 +50,6 @@ pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
 
 pub const BATT_CURR_DMA_CH: DmaChannel = DmaChannel::C7;
 
-// We still have CH8 (or CH0) avail on DMA1)
-
 // DMA 2
 pub const BARO_TX_CH: DmaChannel = DmaChannel::C1;
 pub const BARO_RX_CH: DmaChannel = DmaChannel::C2;
@@ -59,6 +57,28 @@ pub const BARO_RX_CH: DmaChannel = DmaChannel::C2;
 // Channels for GPS, magnetometer, and TOF sensor.
 pub const EXT_SENSORS_TX_CH: DmaChannel = DmaChannel::C3;
 pub const EXT_SENSORS_RX_CH: DmaChannel = DmaChannel::C4;
+pub const OSD_CH: DmaChannel = DmaChannel::C5;
+
+pub const IMU_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
+pub const MOTORS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
+pub const CRSF_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
+pub const BATT_CURR_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
+
+pub const BARO_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
+pub const EXT_SENSORS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
+pub const OSD_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
+
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        // pub const OSD_CH: DmaChannel = DmaChannel::C0;
+        pub const BATT_ADC_CH: u8 = 18;
+        pub const CURR_ADC_CH: u8 = 16;
+    } else {
+        // pub const OSD_CH: DmaChannel = DmaChannel::C8;
+        pub const BATT_ADC_CH: u8 = 17;
+        pub const CURR_ADC_CH: u8 = 12;
+    }
+}
 
 /// Run on startup, or when desired. Run on the ground. Gets an initial GPS fix,
 /// and other initialization functions. We currently use the sensor initialization
@@ -133,18 +153,6 @@ pub fn init_sensors(
     // todo: Use Rel0 location type if unable to get fix.
 
     (system_status, altimeter)
-}
-
-cfg_if! {
-    if #[cfg(feature = "h7")] {
-        pub const OSD_CH: DmaChannel = DmaChannel::C0;
-        pub const BATT_ADC_CH: u8 = 18;
-        pub const CURR_ADC_CH: u8 = 16;
-    } else {
-        pub const OSD_CH: DmaChannel = DmaChannel::C8;
-        pub const BATT_ADC_CH: u8 = 17;
-        pub const CURR_ADC_CH: u8 = 12;
-    }
 }
 
 impl Motor {
@@ -555,7 +563,7 @@ pub fn setup_busses(
 
     // We use UART2 for the OSD, for DJI, via the MSP protocol.
     // todo: QC baud.
-    let uart_osd = Usart::new(uart2_pac, 115_200, Default::default(), clock_cfg);
+    let uart_osd = Usart::new(uart2_pac, crsf::BAUD, Default::default(), clock_cfg);
 
     // We use UART for the radio controller receiver, via CRSF protocol.
 
