@@ -7,18 +7,19 @@
 
 use core::f32::consts::TAU;
 
-use stm32_hal2::{dma::Dma, pac::DMA1, timer::TimerInterrupt};
+use stm32_hal2::timer::TimerInterrupt;
 
 use crate::{
     control_interface::InputModeSwitch,
     dshot,
     safety::ArmStatus,
+    setup::MotorTimer,
     state::{SensorStatus, StateVolatile, SystemStatus},
     util, DT_FLIGHT_CTRLS,
 };
 
 use super::{
-    common::{CtrlMix, InputMap, Motor, MotorRpm, MotorTimers},
+    common::{CtrlMix, InputMap, Motor, MotorRpm},
     pid,
 };
 
@@ -197,35 +198,15 @@ impl ControlMapping {
 
 /// Configures all 4 motor timers for quadcopters. For setting up motors for fixed-wing, see
 /// `fixed_wing::setup_timers`.
-pub fn setup_timers(timers: &mut MotorTimers) {
-    cfg_if! {
-        if #[cfg(f1ature = "h7")] {
-            timers.rotors.set_prescaler(dshot::DSHOT_PSC_600);
-            timers.rotors.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
+pub fn setup_timers(timer: &mut MotorTimer) {
+    timer.set_prescaler(dshot::DSHOT_PSC_600);
+    timer.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
 
-            timers.rotors.enable_interrupt(TimerInterrupt::UpdateDma);
+    timer.enable_interrupt(TimerInterrupt::UpdateDma);
 
-            dshot::set_to_output(timers, Motor::M1, Motor::M2, false);
-            dshot::set_to_output(timers, Motor::M3, Motor::M4, true);
+    dshot::set_to_output(timer);
 
-        } else if #[cfg(feature = "g4")] {
-            timers.r12.set_prescaler(dshot::DSHOT_PSC_600);
-            timers.r12.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
-
-            timers.r34.set_prescaler(dshot::DSHOT_PSC_600);
-            timers.r34.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
-
-            // Note that this timer DMA update interrupt is required, or timer burst DMA
-            // won't work.
-            timers.r12.enable_interrupt(TimerInterrupt::UpdateDma);
-            timers.r34.enable_interrupt(TimerInterrupt::UpdateDma);
-
-            dshot::set_to_output(timers, Motor::M1, Motor::M2, false);
-            dshot::set_to_output(timers, Motor::M3, Motor::M4, true);
-        }
-    }
-
-    dshot::set_bidirectional(dshot::BIDIR_EN, timers);
+    dshot::set_bidirectional(dshot::BIDIR_EN, timer);
 }
 
 /// Represents power levels for the rotors. These map from 0. to 1.; 0% to 100% power.
@@ -320,7 +301,7 @@ impl MotorRpm {
         pids: &pid::MotorPidGroup,
         measured_rpm: &Self,
         mapping: &ControlMapping,
-        motor_timers: &mut MotorTimers,
+        timer: &mut MotorTimer,
         arm_status: ArmStatus,
     ) {
         let fl = pid::run(
@@ -374,7 +355,7 @@ impl MotorRpm {
             aft_right: ar.out(),
         };
 
-        power.set(mapping, motor_timers, arm_status);
+        power.set(mapping, timer, arm_status);
     }
 
     /// Motor pair delta. Maps to angular accel. Positive means nose-up pitching.
@@ -471,20 +452,15 @@ impl MotorPower {
     }
 
     /// Send this power command to the rotors
-    pub fn set(
-        &self,
-        mapping: &ControlMapping,
-        motor_timers: &mut MotorTimers,
-        arm_status: ArmStatus,
-    ) {
+    pub fn set(&self, mapping: &ControlMapping, timer: &mut MotorTimer, arm_status: ArmStatus) {
         let (p1, p2, p3, p4) = self.by_rotor_num(mapping);
 
         match arm_status {
             ArmStatus::Armed => {
-                dshot::set_power(p1, p2, p3, p4, motor_timers);
+                dshot::set_power(p1, p2, p3, p4, timer);
             }
             ArmStatus::Disarmed => {
-                dshot::stop_all(motor_timers);
+                dshot::stop_all(timer);
             }
         }
     }

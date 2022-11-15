@@ -4,7 +4,7 @@
 use crate::{control_interface::ChannelData, util::map_linear};
 
 use super::{
-    common::{CtrlMix, MotorRpm, RatesCommanded},
+    common::{CtrlMix, MotorRpm},
     filters::FlightCtrlFilters,
 };
 
@@ -550,7 +550,13 @@ pub fn control_posits_from_att(
 }
 
 /// Modify our attitude commanded from rate-based user inputs. `ctrl_crates` are in radians/s, and `dt` is in s.
-pub fn modify_att_target(orientation: Quaternion, rates: &RatesCommanded, dt: f32) -> Quaternion {
+pub fn modify_att_target(
+    orientation: Quaternion,
+    pitch: f32,
+    roll: f32,
+    yaw: f32,
+    dt: f32,
+) -> Quaternion {
     // todo: Error handling on this?
 
     // Rotate our basis vecs using the orientation, such that control inputs are relative to the
@@ -559,9 +565,9 @@ pub fn modify_att_target(orientation: Quaternion, rates: &RatesCommanded, dt: f3
     let fwd_ac = orientation.rotate_vec(FWD);
     let up_ac = orientation.rotate_vec(UP);
 
-    let rotation_pitch = Quaternion::from_axis_angle(right_ac, rates.pitch.unwrap() * dt);
-    let rotation_roll = Quaternion::from_axis_angle(fwd_ac, rates.roll.unwrap() * dt);
-    let rotation_yaw = Quaternion::from_axis_angle(up_ac, rates.yaw.unwrap() * dt);
+    let rotation_pitch = Quaternion::from_axis_angle(right_ac, pitch * dt);
+    let rotation_roll = Quaternion::from_axis_angle(fwd_ac, roll * dt);
+    let rotation_yaw = Quaternion::from_axis_angle(up_ac, yaw * dt);
 
     // todo: Order?
     rotation_yaw * rotation_roll * rotation_pitch * orientation

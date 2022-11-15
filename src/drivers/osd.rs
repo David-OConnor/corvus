@@ -24,11 +24,7 @@ use crate::{
     setup,
 };
 
-use stm32_hal2::{
-    dma::{Dma, DmaChannel},
-    pac::{DMA1, USART2},
-    usart::Usart,
-};
+use stm32_hal2::{dma::DmaChannel, pac::USART2, usart::Usart};
 
 use defmt::println;
 

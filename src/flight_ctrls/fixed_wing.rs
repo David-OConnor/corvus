@@ -12,9 +12,14 @@ use stm32_hal2::{
     timer::{OutputCompare, TimerInterrupt},
 };
 
-use crate::{dshot, safety::ArmStatus, util};
+use crate::{
+    dshot,
+    safety::ArmStatus,
+    setup::{MotorTimer, ServoTimer},
+    util,
+};
 
-use super::common::{CtrlMix, InputMap, Motor, MotorTimers};
+use super::common::{CtrlMix, InputMap, Motor};
 
 use cfg_if::cfg_if;
 // use defmt::println;
@@ -88,7 +93,7 @@ pub fn set_elevon_posit(
     elevon: ServoWing,
     position: f32,
     mapping: &ControlMapping,
-    timers: &mut MotorTimers,
+    timer: &mut ServoTimer,
 ) {
     let range_in = match elevon {
         ServoWing::S1 => {
@@ -111,41 +116,30 @@ pub fn set_elevon_posit(
     let duty_arr = util::map_linear(position, range_in, (ARR_MIN as f32, ARR_MAX as f32)) as u32;
 
     #[cfg(feature = "h7")]
-    timers
-        .servos
-        .set_duty(elevon.tim_channel(), duty_arr as u16);
-    #[cfg(feature = "g4")]
-    timers.servos.set_duty(elevon.tim_channel(), duty_arr);
+    let duty_arr = duty_arr as u16;
+
+    timer.set_duty(elevon.tim_channel(), duty_arr);
 }
 
 /// Similar to `dshot::setup_timers`, but for fixed-wing.
-pub fn setup_timers(timers: &mut MotorTimers) {
-    cfg_if! {
-        if #[cfg(feature = "h7")] {
-            let mut motor_tim = &mut timers.rotors;
-            let mut servo_tim = &mut timers.servos;
-        } else {
-            let mut motor_tim = &mut timers.r12;
-            let mut servo_tim = &mut timers.servos;
-        }
-    }
+pub fn setup_timers(motor_timer: &mut MotorTimer, servo_timer: &mut ServoTimer) {
+    motor_timer.set_prescaler(dshot::DSHOT_PSC_600);
+    motor_timer.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
 
-    motor_tim.set_prescaler(dshot::DSHOT_PSC_600);
-    motor_tim.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
-    servo_tim.set_prescaler(PSC_SERVOS);
-    servo_tim.set_auto_reload(ARR_SERVOS);
+    servo_timer.set_prescaler(PSC_SERVOS);
+    servo_timer.set_auto_reload(ARR_SERVOS);
 
-    motor_tim.enable_interrupt(TimerInterrupt::UpdateDma);
+    motor_timer.enable_interrupt(TimerInterrupt::UpdateDma);
     // servo_timer.enable_interrupt(TimerInterrupt::Update);
 
     // Arbitrary duty cycle set, since we'll override it with DMA bursts for the motor, and
     // position settings for the servos.
-    motor_tim.enable_pwm_output(Motor::M1.tim_channel(), OutputCompare::Pwm1, 0.);
-    servo_tim.enable_pwm_output(ServoWing::S1.tim_channel(), OutputCompare::Pwm1, 0.);
-    servo_tim.enable_pwm_output(ServoWing::S2.tim_channel(), OutputCompare::Pwm1, 0.);
+    motor_timer.enable_pwm_output(Motor::M1.tim_channel(), OutputCompare::Pwm1, 0.);
+    servo_timer.enable_pwm_output(ServoWing::S1.tim_channel(), OutputCompare::Pwm1, 0.);
+    servo_timer.enable_pwm_output(ServoWing::S2.tim_channel(), OutputCompare::Pwm1, 0.);
 
     // PAC, since our HAL currently only sets this on `new`.
-    servo_tim.regs.cr1.modify(|_, w| w.opm().set_bit()); // todo: Does this work?
+    servo_timer.regs.cr1.modify(|_, w| w.opm().set_bit()); // todo: Does this work?
 
     // Set servo pins to pull-up, to make sure they don't shorten a pulse on a MCU reset
     // or similar condition.
@@ -166,7 +160,7 @@ pub fn setup_timers(timers: &mut MotorTimers) {
     }
 
     // Motor timer is enabled in Timer burst DMA. We enable the servo timer here.
-    servo_tim.enable();
+    servo_timer.enable();
 }
 
 /// Equivalent of `Motor` for quadcopters.

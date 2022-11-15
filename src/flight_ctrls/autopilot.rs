@@ -238,6 +238,7 @@ pub struct AutopilotStatus {
 
 impl AutopilotStatus {
     #[cfg(feature = "quad")]
+    /// The output `CtrlInputs` are in Euler angle attitudes.
     pub fn apply(
         &self,
         params: &Params,

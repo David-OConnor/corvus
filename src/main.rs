@@ -36,7 +36,7 @@ use drivers::{
 use filter_imu::ImuFilters;
 use flight_ctrls::{
     autopilot::AutopilotStatus,
-    common::{Motor, MotorRpm, MotorTimers, RatesCommanded},
+    common::MotorRpm,
     ctrl_logic::{self, PowerMaps},
     // pid::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
@@ -216,7 +216,8 @@ mod app {
         // todo: `params_prev` is an experimental var used in our alternative/experimental
         // todo flight controls code as a derivative.
         params_prev: Params,
-        control_channel_data: ChannelData,
+        // None if the data is stale. eg lost link, no link established.
+        control_channel_data: Option<ChannelData>,
         /// Link statistics, including Received Signal Strength Indicator (RSSI) from the controller's radio.
         link_stats: LinkStats,
         // dma: Dma<DMA1>,
@@ -231,7 +232,8 @@ mod app {
         rf_limiter_timer: Timer<TIM16>,
         lost_link_timer: Timer<TIM17>,
         link_lost: bool, // todo: atomic bool? Separate froms StateVolatile due to how it's used.
-        motor_timers: MotorTimers,
+        motor_timer: setup::MotorTimer,
+        servo_timer: setup::ServoTimer,
         usb_dev: UsbDevice<'static, UsbBusType>,
         usb_serial: SerialPort<'static, UsbBusType>,
         /// `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
@@ -404,36 +406,17 @@ mod app {
             &clock_cfg,
         );
 
-        let rotor_timer_cfg = TimerConfig {
+        let motor_timer_cfg = TimerConfig {
             // We use ARPE since we change duty with the timer running.
             auto_reload_preload: true,
             ..Default::default()
         };
 
-        // We use multiple timers instead of a single one based on pin availability; a single
-        // timer with 4 channels would be ideal.
         // Frequency here can be arbitrary; we set manually using PSC and ARR below.
-        cfg_if! {
-            if #[cfg(feature = "h7")] {
-                let r1234 = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg.clone(), &clock_cfg);
+        let mut motor_timer = Timer::new_tim3(dp.TIM3, 1., motor_timer_cfg.clone(), &clock_cfg);
 
-                // For fixed wing on H7; need a separate timer from the 4 used for DSHOT.
-                let mut servos = Timer::new_tim8(dp.TIM8, 1., rotor_timer_cfg, &clock_cfg);
-
-                let mut motor_timers = MotorTimers { rotors, servos };
-
-            } else if #[cfg(feature = "g4")] {
-                let mut r12 =
-                    Timer::new_tim2(dp.TIM2, 1., rotor_timer_cfg.clone(), &clock_cfg);
-
-                let mut r34_servos = Timer::new_tim3(dp.TIM3, 1., rotor_timer_cfg, &clock_cfg);
-
-                #[cfg(feature = "quad")]
-                let mut motor_timers = MotorTimers { r12, r34: r34_servos };
-                #[cfg(feature = "fixed-wing")]
-                let mut motor_timers = MotorTimers { r12, servos: r34_servos };
-            }
-        }
+        // For fixed wing on H7; need a separate timer from the 4 used for DSHOT.
+        let mut servo_timer = Timer::new_tim8(dp.TIM8, 1., motor_timer_cfg, &clock_cfg);
 
         let mut lost_link_timer = Timer::new_tim17(
             dp.TIM17,
@@ -456,7 +439,10 @@ mod app {
             alt_msl: 3.,
         });
 
-        flight_ctrls::setup_timers(&mut motor_timers);
+        #[cfg(feature = "quad")]
+        flight_ctrls::setup_timers(&mut motor_timer);
+        #[cfg(feature = "fixed-wing")]
+        flight_ctrls::setup_timers(&mut motor_timer, &servo_timer);
 
         // Note: With this circular DMA approach, we discard many readings,
         // but shouldn't have consequences other than higher power use, compared to commanding
@@ -602,7 +588,7 @@ mod app {
         );
 
         // todo: temp removed to test bidir
-        dshot::setup_motor_dir(motors_reversed, &mut motor_timers);
+        dshot::setup_motor_dir(motors_reversed, &mut motor_timer);
 
         crsf::setup(&mut uart_crsf);
 
@@ -657,7 +643,8 @@ mod app {
                 rf_limiter_timer,
                 lost_link_timer,
                 link_lost: true, // Initialize to not being on the link
-                motor_timers,
+                motor_timer,
+                servo_timer,
                 usb_dev,
                 usb_serial,
                 flash_onboard,
@@ -717,7 +704,8 @@ mod app {
     shared = [current_params,
     power_used, autopilot_status, user_cfg, flight_ctrl_filters,
     control_channel_data, rotor_rpms,
-    lost_link_timer, link_lost, altimeter, i2c1, i2c2, state_volatile, system_status, batt_curr_adc,
+    lost_link_timer, link_lost, altimeter, i2c1, i2c2, state_volatile, system_status,
+    batt_curr_adc,
     ],
     local = [arm_signals_received, disarm_signals_received, update_isr_loop_i, uart_osd,
     time_with_high_throttle],
@@ -730,6 +718,16 @@ mod app {
     fn update_isr(mut cx: update_isr::Context) {
         unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
         *cx.local.update_isr_loop_i += 1;
+
+        let mut batt_v = 0.;
+        let mut curr_v = 0.;
+        cx.shared.batt_curr_adc.lock(|adc| {
+            batt_v = adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[0])
+                * sensors_shared::ADC_BATT_V_DIV;
+            curr_v = adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[1])
+                * sensors_shared::ADC_CURR_DIV;
+        });
+
         (
             cx.shared.current_params,
             cx.shared.control_channel_data,
@@ -739,11 +737,8 @@ mod app {
             cx.shared.lost_link_timer,
             cx.shared.link_lost,
             cx.shared.altimeter,
-            cx.shared.i2c1,
-            cx.shared.i2c2,
             cx.shared.state_volatile,
             cx.shared.system_status,
-            cx.shared.batt_curr_adc,
             cx.shared.rotor_rpms,
             cx.shared.flight_ctrl_filters,
         )
@@ -756,31 +751,35 @@ mod app {
                  lost_link_timer,
                  link_lost,
                  altimeter,
-                 i2c1,
-                 i2c2,
                  state_volatile,
                  system_status,
-                 adc,
                  rpms,
                  flight_ctrl_filters| {
                     #[cfg(feature = "print-status")]
                     if *cx.local.update_isr_loop_i % PRINT_STATUS_RATIO == 0 {
                         // todo: Flesh this out, and perhaps make it more like Preflight.
 
-                         // println!("RX buf: {:?}", unsafe { crsf::RX_BUFFER });
+                        // println!("RX buf: {:?}", unsafe { crsf::RX_BUFFER });
 
-                        // println!("DSHOT: {:?}", unsafe { dshot::PAYLOAD_R1_2_REC });
+                        println!("DSHOT: {:?}", unsafe { dshot::PAYLOAD_REC });
 
                         println!(
                             "\n\nFaults. Rx: {}. RPM: {}", system_status.rf_control_fault, system_status.esc_rpm_fault,
                         );
 
-                        println!(
+                        match control_channel_data {
+                            Some(ch_data) => {
+                                                        println!(
                             "\nControl data:\nPitch: {} Roll: {}, Yaw: {}, Throttle: {}, Arm switch: {}",
-                            control_channel_data.pitch, control_channel_data.roll,
-                            control_channel_data.yaw, control_channel_data.throttle,
-                            control_channel_data.arm_status == ArmStatus::Armed, // todo fixed-wing
+                            ch_data.pitch, ch_data.roll,
+                            ch_data.yaw, ch_data.throttle,
+                            ch_data.arm_status == ArmStatus::Armed, // todo fixed-wing
                         );
+                            }
+                            None => {
+                                println!("(No current control channel data)")
+                            }
+                        }
 
                         #[cfg(feature = "quad")]
                         println!("Motors armed: {:?}", state_volatile.arm_status == ArmStatus::Armed);
@@ -868,22 +867,21 @@ mod app {
                     // todo: Eg log params to flash etc.
                     // }
 
-                    // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
-                    // DMA TC isrs are sequenced.
-                    // todo: Put back; Troubleshooting control and motors issues.
-                    // sensors_shared::start_transfers(i2c1, i2c2, dma2);
-
+                    let (arm_status, throttle) = match control_channel_data {
+                        Some(ch_data) => (ch_data.arm_status, ch_data.throttle),
+                        None => (ArmStatus::Disarmed, 0.),
+                    };
                     safety::handle_arm_status(
                         cx.local.arm_signals_received,
                         cx.local.disarm_signals_received,
-                        control_channel_data.arm_status,
+                        arm_status,
                         &mut state_volatile.arm_status,
-                        control_channel_data.throttle,
+                        throttle,
                     );
 
                     if !state_volatile.has_taken_off {
                         safety::handle_takeoff_attitude_lock(
-                            control_channel_data.throttle,
+                            throttle,
                             &mut cx.local.time_with_high_throttle,
                             &mut state_volatile.has_taken_off,
                             DT_MAIN_LOOP,
@@ -891,17 +889,14 @@ mod app {
                     }
 
                     #[cfg(feature = "quad")]
-                        flight_ctrls::set_input_mode(control_channel_data.input_mode, state_volatile, system_status);
+                    if let Some(ch_data) = control_channel_data {
+                        flight_ctrls::set_input_mode(ch_data.input_mode, state_volatile, system_status);
+                    }
 
                     // todo: Support UART telemetry from ESC.
 
                     // todo: Determine timing for OSD update, and if it should be in this loop,
                     // todo, or slower.
-
-                    let batt_v =
-                        adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[0]) * sensors_shared::ADC_BATT_V_DIV;
-                    let curr_v =
-                        adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[1]) * sensors_shared::ADC_CURR_DIV;
 
                     // todo: Find the current conversion factor. Probably slope + y int
                     let esc_current = curr_v;
@@ -989,7 +984,9 @@ mod app {
                     // todo: put back
                     // osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH,&osd_data);
 
-                    autopilot_status.set_modes_from_ctrls(control_channel_data, &params);
+                    if let Some(ch_data) = control_channel_data {
+                        autopilot_status.set_modes_from_ctrls(ch_data, &params);
+                    }
 
                     #[cfg(feature = "quad")]
                         let ap_cmds = autopilot_status.apply(
@@ -1054,6 +1051,13 @@ mod app {
                         // so we leave the default 1:1 mapping here.
                     }
                 });
+
+        (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
+            // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
+            // DMA TC isrs are sequenced.
+            // todo: Put back; Troubleshooting control and motors issues.
+            sensors_shared::start_transfers(i2c1, i2c2);
+        });
     }
 
     /// Runs when new IMU data is ready. Trigger a DMA read.
@@ -1070,7 +1074,7 @@ mod app {
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [spi1, current_params, params_prev, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, cs_imu, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timers, state_volatile], local = [ahrs, imu_isr_loop_i], priority = 4)]
+    motor_timer, servo_timer, state_volatile], local = [ahrs, imu_isr_loop_i], priority = 4)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it nominally (and according to our measurements so far) runs at 8kHz.
     /// Note that on the H7 FC with the dedicated IMU LSE, it may run slightly faster.
@@ -1102,7 +1106,8 @@ mod app {
             cx.shared.params_prev,
             cx.shared.control_channel_data,
             cx.shared.autopilot_status,
-            cx.shared.motor_timers,
+            cx.shared.motor_timer,
+            cx.shared.servo_timer,
             cx.shared.motor_pid_state,
             cx.shared.motor_pid_coeffs,
             cx.shared.user_cfg,
@@ -1114,7 +1119,8 @@ mod app {
                  params_prev,
                  control_channel_data,
                  autopilot_status,
-                 motor_timers,
+                 motor_timer,
+                 servo_timer,
                  pid_state,
                  pid_coeffs,
                  cfg,
@@ -1157,16 +1163,21 @@ mod app {
                     attitude_platform::update_attitude(cx.local.ahrs, params);
 
                     // todo: Temp debug code.
-                    let mut p = control_channel_data.throttle;
-                    if p < 0.025 {
-                        p = 0.025;
+                    let mut p = match control_channel_data {
+                        Some(ch_data) => {
+                            let p = ch_data.throttle;
+                            if state_volatile.arm_status == ArmStatus::Armed {
+                                dshot::set_power(p, p, p, p, motor_timer);
+                            } else {
+                                dshot::stop_all(motor_timer);
+                            }
+                        }
+                        None => {
+                            dshot::stop_all(motor_timer);
+                        }
                     };
 
-                    if state_volatile.arm_status == ArmStatus::Armed {
-                        dshot::set_power(p, p, p, p, motor_timers);
-                    } else {
-                        dshot::stop_all(motor_timers);
-                    }
+
 
                     // todo: Impl once you've sorted out your control logic.
                     // todo: Delegate this to another module, eg `attitude_ctrls`.
@@ -1174,46 +1185,61 @@ mod app {
                     // todo: Deconflict this with autopilot; probably by checking commanded
                     // todo pitch, roll, yaw etc!
 
-                    state_volatile.rates_commanded = RatesCommanded {
-                        pitch: Some(cfg.input_map.calc_pitch_rate(control_channel_data.pitch)),
-                        roll: Some(cfg.input_map.calc_roll_rate(control_channel_data.roll)),
-                        yaw: Some(cfg.input_map.calc_yaw_rate(control_channel_data.yaw)),
+                    // todo: You probably need to examine your types `RatesCommanded` and `CtrlInputs`.
+                    // todo: When are `RatesCommadned` values None?
+
+                    // todo: This whole section between here and the `ctrl_logic` calls is janky!
+                    // todo you need to properly blend manual controls and autopilot, and handle
+                    // lost-link procedures properly (Which may have been encoded in autopilot elsewhere)
+
+                    // Update our commanded attitude
+                    match control_channel_data {
+                        Some(ch_data) => {
+                            // let rates_commanded = RatesCommanded {
+                            //     pitch: Some(cfg.input_map.calc_pitch_rate(ch_data.pitch)),
+                            //     roll: Some(cfg.input_map.calc_roll_rate(ch_data.roll)),
+                            //     yaw: Some(cfg.input_map.calc_yaw_rate(ch_data.yaw)),
+                            // };
+
+                                let pitch=cfg.input_map.calc_pitch_rate(ch_data.pitch);
+                                let roll=cfg.input_map.calc_roll_rate(ch_data.roll);
+                                let yaw=cfg.input_map.calc_yaw_rate(ch_data.yaw);
+
+
+                            // If we haven't taken off, apply the attitude lock.
+                            if state_volatile.has_taken_off {
+                                state_volatile.attitude_commanded.quat = Some(ctrl_logic::modify_att_target(
+                                    state_volatile.attitude_commanded.quat.unwrap_or(Quaternion::new_identity()),
+                                    pitch, roll, yaw,
+                                    DT_FLIGHT_CTRLS,
+                                ));
+                            } else {
+                                state_volatile.attitude_commanded.quat = Some(cfg.takeoff_attitude);
+                            }
+                        }
+                        None => {
+
+                        }
                     };
 
-                    // If we haven't taken off, apply the attitude lock.
-                    if state_volatile.has_taken_off {
-                        state_volatile.attitude_commanded.quat = Some(ctrl_logic::modify_att_target(
-                            state_volatile.attitude_commanded.quat.unwrap_or(Quaternion::new_identity()),
-                            &state_volatile.rates_commanded,
-                            DT_FLIGHT_CTRLS,
-                        ));
-                    } else {
-                        state_volatile.attitude_commanded.quat = Some(cfg.takeoff_attitude);
-                    }
+                    // todo: Are the attitude_commanded fields other than quat used? Should we remove them?
+
+                    // todo: Here, or in a subfunction, blend in autopiot commands! Currently not applied,
+                    // todo other than throttle.
 
                     let throttle = match state_volatile.autopilot_commands.throttle {
                         Some(t) => t,
-                        None => control_channel_data.throttle,
+                        None => {
+                            match control_channel_data {
+                                Some(ch_data) => ch_data.throttle,
+                                None => 0.,
+                            }
+                        },
                     };
 
                     if let OperationMode::Preflight = state_volatile.op_mode {
                         return;
                     }
-
-                    // todo: Temp testing motors and bidir dshot
-
-
-                    // let p = control_channel_data.throttle;
-                    let p = 0.03;
-                    // if *cx.local.imu_isr_loop_i > 30_000 {
-                    //     // state_volatile.arm_status = ArmStatus::Armed; // todo temp!
-                    // }
-
-                    // if state_volatile.arm_status == ArmStatus::Armed {
-                    //     dshot::set_power(p, p, p, p, motor_timers, dma);
-                    // } else {
-                    //     dshot::stop_all(motor_timers, dma);
-                    // }
 
                     return; // todo TS: Odd anomalies
 
@@ -1240,7 +1266,7 @@ mod app {
                                 pid_state,
                                 &rpms,
                                 &cfg.control_mapping,
-                                motor_timers,
+                                motor_timer,
                                 state_volatile.arm_status,
                             );
 
@@ -1277,7 +1303,7 @@ mod app {
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data,
-    link_stats, user_cfg, state_volatile, system_status, motor_timers, batt_curr_adc], local = [], priority = 3)]
+    link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer, batt_curr_adc], local = [], priority = 3)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(mut cx: usb_isr::Context) {
@@ -1292,7 +1318,8 @@ mod app {
             cx.shared.user_cfg,
             cx.shared.state_volatile,
             cx.shared.system_status,
-            cx.shared.motor_timers,
+            cx.shared.motor_timer,
+            cx.shared.servo_timer,
             cx.shared.batt_curr_adc,
         )
             .lock(
@@ -1304,7 +1331,8 @@ mod app {
                  user_cfg,
                  state_volatile,
                  system_status,
-                 motor_timers,
+                 motor_timer,
+                 servo_timer,
                  adc| {
                     if !usb_dev.poll(&mut [usb_serial]) {
                         return;
@@ -1329,7 +1357,8 @@ mod app {
                                 &mut state_volatile.arm_status,
                                 &mut user_cfg.control_mapping,
                                 &mut state_volatile.op_mode,
-                                motor_timers,
+                                motor_timer,
+                                servo_timer,
                                 adc,
                             );
                         }
@@ -1341,46 +1370,11 @@ mod app {
             )
     }
 
-    // Note: We don't use `dshot_isr_r12` on H7; this is associated with timer 2. DSHOT
-    // uses a single timer on H7: `dshot_isr_r34`
-    // These should be high priority, so they can shut off before the next 600kHz etc tick.
-    #[cfg(feature = "g4")]
-    #[task(binds = DMA1_CH3, shared = [motor_timers], local = [], priority = 6)]
-    /// We use this ISR to enable input capture if in bidirectional mode. Assocaited with Tim2,
-    /// and is only used on G4.
-    fn dshot_isr_r12(mut cx: dshot_isr_r12::Context) {
-        dma::clear_interrupt(
-            setup::MOTORS_DMA_PERIPH,
-            setup::MOTOR_CH_A,
-            DmaInterrupt::TransferComplete,
-        );
-
-        // todo: Required?
-        unsafe {
-            (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
-        }
-
-        if dshot::BIDIR_EN {
-            if dshot::CH_A_REC_MODE.load(Ordering::Relaxed) {
-                cx.shared.motor_timers.lock(|motor_timers| {
-                    dshot::set_to_output(motor_timers, Motor::M1, Motor::M2, false);
-                });
-                dshot::CH_A_REC_MODE.store(false, Ordering::Relaxed);
-            } else {
-                cx.shared.motor_timers.lock(|motor_timers| {
-                    dshot::set_to_input(motor_timers, Motor::M1, Motor::M2, false);
-                    dshot::receive_payload_a(motor_timers);
-                });
-                dshot::CH_A_REC_MODE.store(true, Ordering::Relaxed);
-            }
-        }
-    }
-
-    // #[task(binds = DMA1_STR4, shared = [motor_timers], priority = 6)]
-    #[task(binds = DMA1_CH4, shared = [motor_timers], priority = 6)]
+    // #[task(binds = DMA1_STR3, shared = [motor_timers], priority = 6)]
+    #[task(binds = DMA1_CH3, shared = [motor_timer], priority = 6)]
     /// We use this ISR to enable input capture if in bidirectional mode. For G4, it's only for motors
     /// 3 and 4. For h7, it's for all 4. Associated with Tim3.
-    fn dshot_isr_r34(mut cx: dshot_isr_r34::Context) {
+    fn dshot_isr(mut cx: dshot_isr::Context) {
         // todo: Remove everythign in this ISR except for the interrupt-clear flag
         // todo if `dshot::set_to_input` handles all motors. Or, split
         // todo that fn based on M12 or M34. This interrupt still needs to fire apparently,
@@ -1388,11 +1382,10 @@ mod app {
 
         dma::clear_interrupt(
             setup::MOTORS_DMA_PERIPH,
-            setup::MOTOR_CH_B,
+            setup::MOTOR_CH,
             DmaInterrupt::TransferComplete,
         );
 
-        // todo: Required?
         unsafe {
             (*pac::TIM3::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
         }
@@ -1409,24 +1402,18 @@ mod app {
         // todo split by 1/2, 3/4 instead of sharing motor timers struct.
 
         if dshot::BIDIR_EN {
-            if dshot::CH_B_REC_MODE.load(Ordering::Relaxed) {
-                cx.shared.motor_timers.lock(|motor_timers| {
-                    #[cfg(feature = "h7")]
-                    dshot::set_to_output(motor_timers, Motor::M1, Motor::M2, true);
-                    dshot::set_to_output(motor_timers, Motor::M3, Motor::M4, true);
-                });
-                dshot::CH_B_REC_MODE.store(false, Ordering::Relaxed);
-            } else {
-                cx.shared.motor_timers.lock(|motor_timers| {
-                    #[cfg(feature = "h7")]
-                    dshot::set_to_input(motor_timers, Motor::M1, Motor::M2, true);
-                    dshot::set_to_input(motor_timers, Motor::M3, Motor::M4, true);
-                    #[cfg(feature = "h7")]
-                    dshot::receive_payload_a(motor_timers);
-                    dshot::receive_payload_b(motor_timers);
-                });
-                dshot::CH_B_REC_MODE.store(true, Ordering::Relaxed);
-            }
+            cx.shared.motor_timer.lock(|motor_timer| {
+                if dshot::DSHOT_REC_MODE.load(Ordering::Relaxed) {
+                    dshot::set_to_output(motor_timer);
+
+                    dshot::DSHOT_REC_MODE.store(false, Ordering::Relaxed);
+                } else {
+                    dshot::set_to_input(motor_timer);
+                    dshot::receive_payload(motor_timer);
+
+                    dshot::DSHOT_REC_MODE.store(true, Ordering::Relaxed);
+                }
+            });
         }
     }
 
@@ -1463,12 +1450,6 @@ mod app {
     fn crsf_isr(mut cx: crsf_isr::Context) {
         let uart = &mut cx.local.uart_crsf; // Code shortener
 
-        if uart.regs.isr.read().ore().bit_is_set() {
-            uart.clear_interrupt(UsartInterrupt::Overrun);
-            return;
-            // todo: Set fault flag?
-        }
-
         let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
         let mut rx_fault = false;
 
@@ -1486,12 +1467,10 @@ mod app {
                 if !crsf::TRANSFER_IN_PROG.load(Ordering::Relaxed) {
                     crsf::TRANSFER_IN_PROG.store(true, Ordering::Relaxed);
 
-                    // todo: Why/when/how to handle overrun?
-                    uart.clear_interrupt(UsartInterrupt::Overrun);
-
                     // Don't allow the starting char, as used in the middle of a message,
                     // to trigger an interrupt.
                     uart.disable_interrupt(UsartInterrupt::CharDetect(None));
+                    uart.enable_interrupt(UsartInterrupt::Idle);
 
                     // todo: Deal with this later.
                     // if limiter_timer.is_enabled() {
@@ -1531,13 +1510,14 @@ mod app {
 
                     // A `None` value here re-enables the interrupt without changing the char to match.
                     uart.enable_interrupt(UsartInterrupt::CharDetect(None));
+                    // uart.disable_interrupt(UsartInterrupt::Idle);
 
                     if let Some(crsf_data) =
                         crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {
-                                *ch_data = data;
+                                *ch_data = Some(data);
                                 recieved_ch_data = true;
 
                                 // We have this PID adjustment here, since they're one-off actuations.
@@ -1622,7 +1602,7 @@ mod app {
     // #[task(binds = TIM17,
     #[task(binds = TIM1_TRG_COM,
     shared = [lost_link_timer, link_lost, state_volatile, autopilot_status,
-    current_params, system_status], priority = 1)]
+    current_params, system_status, control_channel_data], priority = 1)]
     fn lost_link_isr(mut cx: lost_link_isr::Context) {
         println!("Lost the link!");
 
@@ -1634,6 +1614,10 @@ mod app {
 
         cx.shared.link_lost.lock(|link_lost| {
             *link_lost = true;
+        });
+
+        cx.shared.control_channel_data.lock(|ch_data| {
+            *ch_data = None;
         });
 
         (

@@ -12,7 +12,7 @@ use stm32_hal2::{
     i2c::{I2c, I2cConfig, I2cSpeed},
     pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, USART2},
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
-    timer::TimChannel,
+    timer::{TimChannel, Timer},
     usart::{OverSampling, Usart, UsartConfig},
 };
 
@@ -49,9 +49,8 @@ pub const OSD_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
 pub const IMU_RX_CH: DmaChannel = DmaChannel::C2;
 
-#[cfg(feature = "g4")]
-pub const MOTOR_CH_A: DmaChannel = DmaChannel::C3;
-pub const MOTOR_CH_B: DmaChannel = DmaChannel::C4;
+// Note: C4 is also unused.
+pub const MOTOR_CH: DmaChannel = DmaChannel::C3;
 
 pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
 // pub const CRSF_TX_CH: DmaChannel = DmaChannel::C6; // Note: Unused
@@ -67,12 +66,22 @@ pub const EXT_SENSORS_TX_CH: DmaChannel = DmaChannel::C3;
 pub const EXT_SENSORS_RX_CH: DmaChannel = DmaChannel::C4;
 pub const OSD_CH: DmaChannel = DmaChannel::C5;
 
+pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
+
+/// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
+/// Calculate by taking the Adddress Offset for the associated CCR channel in the
+/// RM register table, and dividing by 4.
+pub const DSHOT_BASE_DIR_OFFSET: u8 = 13;
+
+pub type MotorTimer = Timer<pac::TIM3>;
+pub type ServoTimer = Timer<pac::TIM8>;
+
 cfg_if! {
     if #[cfg(feature = "h7")] {
         pub const BATT_ADC_CH: u8 = 18;
         pub const CURR_ADC_CH: u8 = 16;
     } else {
-        pub const BATT_ADC_CH: u8 = 17;
+        pub const BATT_ADC_CH: u8 = 1;
         pub const CURR_ADC_CH: u8 = 12;
     }
 }
@@ -162,56 +171,6 @@ impl Motor {
             Self::M4 => TimChannel::C4,
         }
     }
-
-    /// Dma input channel. This should be in line with `tim_channel`. For DSHOT.
-    pub fn dma_input(&self) -> DmaInput {
-        cfg_if! {
-            if #[cfg(feature = "h7")] {
-                match self {
-                    Self::M1 => DmaInput::Tim3Up,
-                    Self::M2 => DmaInput::Tim3Up,
-                    Self::M3 => DmaInput::Tim3Up,
-                    Self::M4 => DmaInput::Tim3Up,
-                }
-            } else {
-                match self {
-                    // The DMA write isn't associated with a channel; using the Update even seems to work.
-                    Self::M1 => DmaInput::Tim2Up,
-                    Self::M2 => DmaInput::Tim2Up,
-                    Self::M3 => DmaInput::Tim3Up,
-                    Self::M4 => DmaInput::Tim3Up,
-                }
-            }
-        }
-    }
-
-    /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
-    pub fn dma_channel(&self) -> DmaChannel {
-        #[cfg(feature = "h7")]
-        return MOTOR_CH_B;
-
-        #[cfg(feature = "g4")]
-        match self {
-            Self::M1 | Self::M2 => MOTOR_CH_A,
-            Self::M3 | Self::M4 => MOTOR_CH_B,
-        }
-    }
-
-    /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
-    /// Calculate by taking the Adddress Offset for the associated CCR channel in the
-    /// RM register table, and dividing by 4.
-    pub fn base_addr_offset(&self) -> u8 {
-        #[cfg(feature = "h7")]
-        return 13;
-
-        #[cfg(feature = "g4")]
-        match self.tim_channel() {
-            TimChannel::C1 => 13, // CCR1
-            TimChannel::C2 => 13, // CCR2 (starting with CCR1, burst len 2)
-            TimChannel::C3 => 15, // CCR3
-            TimChannel::C4 => 15, // CCR4 (starting with CCR3, burst len 2)
-        }
-    }
 }
 
 #[cfg(feature = "fixed-wing")]
@@ -226,44 +185,42 @@ impl ServoWing {
 
 /// Set up the pins that have structs that don't need to be accessed after.
 pub fn setup_pins() {
-    // G4: Rotors connected to Tim2 CH3, 4; Tim3 ch3, 4
-    // H7: Rotors connected to Tim3 CH1-4, or Tim8 ch 1-4
+    // Rotors connected to Tim3 CH1-4, or Tim8 (ch 1-4 on H7)
 
     // todo: For configuring H7 fixed wing with a third servo and 1 motor, you need
 
     // FOr the breakdown of these timers by MCU and aircraft type, see the `MotorTimers` struct.
 
+    let alt_motors = 2; // TIM3
+
+    let mut motor1 = Pin::new(Port::C, 6, PinMode::Alt(alt_motors)); // Ch1
+
     cfg_if! {
         if #[cfg(feature = "h7")] {
             // On H7, we TIM3 and TIM8 have full overlap as ch 1-4 for our timer pins.
-            let alt_motors = 2; // TIM3
-            let alt_servos = 3; // TIM8
+            let alt_servos = 3; // TIM8 (Avail on all channels)
 
-            // todo: Let us customize; set rotor2 as `alt_servos` if equipped with a rudder etc.
-
-            let mut rotor1 = Pin::new(Port::C, 6, PinMode::Alt(alt_motors)); // Ch1
-            let mut rotor2 = Pin::new(Port::C, 7, PinMode::Alt(alt_motors)); // Ch2
-            let mut rotor3 = Pin::new(Port::C, 8, PinMode::Alt(alt_servos)); // Ch3
-            let mut rotor4 = Pin::new(Port::C, 9, PinMode::Alt(alt_servos)); // Ch4
+            // todo: Let us customize; set motor2 as `alt_servos` if equipped with a rudder etc.
+            let mut motor2 = Pin::new(Port::C, 7, PinMode::Alt(alt_motors)); // Ch2
+            let mut motor3 = Pin::new(Port::C, 8, PinMode::Alt(alt_servos)); // Ch3
+            let mut motor4 = Pin::new(Port::C, 9, PinMode::Alt(alt_servos)); // Ch4
         } else {
-            let alt_motors_12 = 1; // TIM2
-            let alt_servos_12 = 2; // TIM5. Currently unused.
-            let alt_motors_34_servos = 2; // TIM3
+            // Servos: CH1 for Motor 1 pin, and CH2N/3N for Motor 3 and 4 pin.
+            let alt_servos = 4; //  TIM8 (Avail on channels 1, 3, and 4.(TIM1 also avail on channels 3 and 4: AF6)
 
-            let mut rotor1 = Pin::new(Port::A, 0, PinMode::Alt(alt_motors_12)); // Ch1
-            let mut rotor2 = Pin::new(Port::A, 1, PinMode::Alt(alt_motors_12)); // Ch2
-            let mut rotor3 = Pin::new(Port::B, 0, PinMode::Alt(alt_motors_34_servos)); // Ch3
-            let mut rotor4 = Pin::new(Port::B, 1, PinMode::Alt(alt_motors_34_servos)); // Ch4
+            let mut motor2 = Pin::new(Port::A, 4, PinMode::Alt(alt_motors)); // Ch2
+            let mut motor3 = Pin::new(Port::B, 0, PinMode::Alt(alt_motors)); // Ch3
+            let mut motor4 = Pin::new(Port::B, 1, PinMode::Alt(alt_motors)); // Ch4
         }
     }
 
     // todo: What should this be?: Low is good up to the Mhz range, which is good enough?
     let dshot_gpiospeed = OutputSpeed::Low; // Note: Low is the default value.
 
-    rotor1.output_speed(dshot_gpiospeed);
-    rotor2.output_speed(dshot_gpiospeed);
-    rotor3.output_speed(dshot_gpiospeed);
-    rotor4.output_speed(dshot_gpiospeed);
+    motor1.output_speed(dshot_gpiospeed);
+    motor2.output_speed(dshot_gpiospeed);
+    motor3.output_speed(dshot_gpiospeed);
+    motor4.output_speed(dshot_gpiospeed);
 
     // #[cfg(feature = "g4")]
     // Not used
@@ -296,7 +253,7 @@ pub fn setup_pins() {
             let io2 = Pin::new(Port::B, 13, PinMode::Alt(4));
             let io3 = Pin::new(Port::D, 13, PinMode::Alt(9));
         } else {
-            let _batt_v_adc = Pin::new(Port::A, 4, PinMode::Analog); // ADC2, channel 17
+            let _batt_v_adc = Pin::new(Port::A, 1, PinMode::Analog); // ADC12, channel 1
             let _current_sense_adc = Pin::new(Port::B, 2, PinMode::Analog); // ADC2, channel 12
 
             let mut sck2 = Pin::new(Port::B, 13, PinMode::Alt(5));
@@ -397,19 +354,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     dma::mux(IMU_DMA_PERIPH, IMU_RX_CH, DmaInput::Spi1Rx);
 
     // DSHOT, motors 1 and 2 (all 4 for H7)
-    dma::mux(
-        MOTORS_DMA_PERIPH,
-        Motor::M1.dma_channel(),
-        Motor::M1.dma_input(),
-    );
-
-    // DSHOT, motors 3 and 4 (not used on H7)
-    #[cfg(feature = "g4")]
-    dma::mux(
-        MOTORS_DMA_PERIPH,
-        Motor::M3.dma_channel(),
-        Motor::M3.dma_input(),
-    );
+    dma::mux(MOTORS_DMA_PERIPH, MOTOR_CH, MOTORS_DMA_INPUT);
 
     // CRSF (onboard ELRS)
     #[cfg(feature = "h7")]
@@ -550,11 +495,9 @@ pub fn setup_busses(
     // }
 
     #[cfg(feature = "h7")]
-    let flash_pin = 10;
-    #[cfg(not(feature = "h7"))]
-    let flash_pin = 6;
-
-    let mut cs_flash = Pin::new(Port::C, flash_pin, PinMode::Output);
+    let mut cs_flash = Pin::new(Port::C, 10, PinMode::Output);
+    #[cfg(feature = "g4")]
+    let mut cs_flash = Pin::new(Port::A, 0, PinMode::Output);
     cs_flash.set_high();
 
     // We use UART2 for the OSD, for DJI, via the MSP protocol.
@@ -585,11 +528,14 @@ pub fn setup_busses(
 
     // todo TS
     // let uart_elrs = Usart::new(uart_elrs_pac, crsf::BAUD, Default::default(), clock_cfg);
-    let uart_crsf = Usart::new(
+    let mut uart_crsf = Usart::new(
         uart_crsf_pac,
         crsf::BAUD,
         UsartConfig {
-            oversampling: OverSampling::O8,
+            // oversampling: OverSampling::O8,
+            // fifo_enabled: true, // todo: Experimenting
+            // todo: We're having a struggle with overruns.
+            overrun_disabled: true,
             ..Default::default()
         },
         clock_cfg,

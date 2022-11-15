@@ -2,9 +2,8 @@
 //! regarding DMA operations on the barometer and external sensors I2C lines.
 
 use stm32_hal2::{
-    dma::Dma,
     i2c::I2c,
-    pac::{DMA2, I2C1, I2C2},
+    pac::{I2C1, I2C2},
 };
 
 use crate::{
@@ -51,12 +50,8 @@ pub static mut TOF_READINGS: [u8; 2] = [0; 2];
 // pub static mut EXT_SENSORS_READINGS: [u8; 3 * 2] = [0; 3 * 2];
 
 /// Start continous transfers for all sensors controlled by this module.
-pub fn start_transfers(
-    i2c_ext_sensors: &mut I2c<I2C1>,
-    i2c_baro: &mut I2c<I2C2>,
-    dma2: &mut Dma<DMA2>,
-) {
-    println!("Starting transfers");
+pub fn start_transfers(i2c_ext_sensors: &mut I2c<I2C1>, i2c_baro: &mut I2c<I2C2>) {
+    // println!("Starting transfers");
     // let write_buf_ext_sensors = [starting_addr, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let write_buf_mag = [0, 0];
     let write_buf_baro = [baro::Reg::PsrB2 as u8];

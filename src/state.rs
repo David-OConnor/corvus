@@ -6,7 +6,7 @@ use crate::{
     control_interface::InputModeSwitch,
     flight_ctrls::{
         autopilot::LandingCfg,
-        common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap, RatesCommanded},
+        common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap},
         ctrl_logic::{AccelMap, CtrlCoeffs, DragCoeffs, PowerMaps},
         ControlMapping,
     },
@@ -40,6 +40,45 @@ pub enum OperationMode {
 impl Default for OperationMode {
     fn default() -> Self {
         Self::Normal
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+pub enum BattCellCount {
+    S2 = 2,
+    S3 = 3,
+    S4 = 4,
+    S6 = 6,
+    S8 = 8,
+}
+
+impl Default for BattCellCount {
+    fn default() -> Self {
+        Self::S4
+    }
+}
+
+impl BattCellCount {
+    pub fn num_cells(&self) -> f32 {
+        // float since it interacts with floats.
+        match self {
+            Self::S2 => 2.,
+            Self::S3 => 3.,
+            Self::S4 => 4.,
+            Self::S6 => 6.,
+            Self::S8 => 8.,
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::S2 => "2S",
+            Self::S3 => "3S",
+            Self::S4 => "4S",
+            Self::S6 => "6S",
+            Self::S8 => "8S",
+        }
     }
 }
 
@@ -102,6 +141,7 @@ pub struct UserCfg {
     pub input_map: InputMap,
     pub ctrl_coeffs: CtrlCoeffs,
     pub takeoff_attitude: Quaternion,
+    pub batt_cell_count: BattCellCount,
 }
 
 impl Default for UserCfg {
@@ -158,6 +198,7 @@ impl Default for UserCfg {
             takeoff_attitude: Quaternion::new_identity(),
             #[cfg(feature = "fixed-wing")]
             takeoff_attitude: Quaternion::from_axis_angle(Vec3::new(1., 0., 0.), 0.35),
+            batt_cell_count: Default::default(),
         }
     }
 }
@@ -217,7 +258,7 @@ pub struct StateVolatile {
     /// The commanded attitude. Used in attitude mode, and a variant of rate mode.
     /// For attitude mode, and modified rate mode.
     pub attitude_commanded: AttitudeCommanded,
-    pub rates_commanded: RatesCommanded,
+    // pub rates_commanded: RatesCommanded,
     // /// On a scale of 0 to 1.
     pub autopilot_commands: CtrlInputs,
     /// We us this to analyze how the current controls are impacting

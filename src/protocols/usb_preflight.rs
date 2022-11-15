@@ -13,13 +13,10 @@
 use crate::{
     control_interface::ChannelData,
     dshot,
-    flight_ctrls::{
-        self,
-        common::{AttitudeCommanded, MotorTimers},
-        ControlMapping,
-    },
+    flight_ctrls::{self, common::AttitudeCommanded, ControlMapping},
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},
     safety::ArmStatus,
+    setup,
     state::{OperationMode, SystemStatus, MAX_WAYPOINTS},
     util, LinkStats,
 };
@@ -36,11 +33,7 @@ cfg_if! {
     }
 }
 
-use stm32_hal2::{
-    adc::Adc,
-    dma::Dma,
-    pac::{self, DMA1},
-};
+use stm32_hal2::{adc::Adc, pac};
 
 // use cfg_if::cfg_if;
 
@@ -72,8 +65,8 @@ const QUATERNION_SIZE: usize = F32_SIZE * 4;
 // + option byte for altimeter + voltage reading + current reading.
 
 const PARAMS_SIZE: usize = 2 * QUATERNION_SIZE + 4 * F32_SIZE + 1; //
-const CONTROLS_SIZE: usize = 18;
-// const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
+const CONTROLS_SIZE: usize = 19; // Includes first byte as an Option byte.
+                                 // const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
 const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
 
 // 3 coords + option to indicate if used. (Some/None)
@@ -199,21 +192,25 @@ fn params_to_bytes(
     result
 }
 
-impl From<&ChannelData> for [u8; CONTROLS_SIZE] {
-    /// 4 f32s x 4 = 16, plus 2 u8s for arm and input mode.
-    fn from(p: &ChannelData) -> Self {
-        let mut result = [0; CONTROLS_SIZE];
+/// 4 f32s x 4 = 16, plus 2 u8s for arm and input mode.
+fn channel_data_to_bytes(p: &Option<ChannelData>) -> [u8; CONTROLS_SIZE] {
+    let mut result = [0; CONTROLS_SIZE];
 
-        // todo: DRY
-        result[0..4].clone_from_slice(&p.pitch.to_be_bytes());
-        result[4..8].clone_from_slice(&p.roll.to_be_bytes());
-        result[8..12].clone_from_slice(&p.yaw.to_be_bytes());
-        result[12..16].clone_from_slice(&p.throttle.to_be_bytes());
-        result[16] = p.arm_status as u8;
-        result[17] = p.input_mode as u8;
-
-        result
+    // todo: DRY
+    match p {
+        Some(c) => {
+            result[0] = 1; // `Some`.
+            result[1..6].clone_from_slice(&c.pitch.to_be_bytes());
+            result[5..9].clone_from_slice(&c.roll.to_be_bytes());
+            result[9..13].clone_from_slice(&c.yaw.to_be_bytes());
+            result[123..17].clone_from_slice(&c.throttle.to_be_bytes());
+            result[17] = c.arm_status as u8;
+            result[18] = c.input_mode as u8;
+        }
+        None => (), // Leave first bit as 0, and rest empty. (also 0)
     }
+
+    result
 }
 
 impl From<&LinkStats> for [u8; LINK_STATS_SIZE] {
@@ -321,14 +318,15 @@ pub fn handle_rx(
     altitude_agl: Option<f32>,
     batt_v: f32,
     esc_current: f32,
-    controls: &ChannelData,
+    controls: &Option<ChannelData>,
     link_stats: &LinkStats,
     waypoints: &[Option<Location>; MAX_WAYPOINTS],
     sys_status: &SystemStatus,
     arm_status: &mut ArmStatus,
     control_mapping: &mut ControlMapping,
     op_mode: &mut OperationMode,
-    motor_timers: &mut MotorTimers,
+    motor_timer: &mut setup::MotorTimer,
+    servo_timer: &mut setup::ServoTimer,
     adc: &Adc<ADC>,
 ) {
     let rx_msg_type: MsgType = match rx_buf[0].try_into() {
@@ -386,7 +384,7 @@ pub fn handle_rx(
         }
         MsgType::Ack => {}
         MsgType::ReqControls => {
-            let payload: [u8; CONTROLS_SIZE] = controls.into();
+            let payload: [u8; CONTROLS_SIZE] = channel_data_to_bytes(controls);
             send_payload::<{ CONTROLS_SIZE + 2 }>(MsgType::Controls, &payload, usb_serial);
         }
         MsgType::Controls => {}
@@ -409,7 +407,7 @@ pub fn handle_rx(
         MsgType::StartMotor => {
             cfg_if! {
                 if #[cfg(feature = "fixed-wing")]{
-                    dshot::set_power(0.05, 0., 0., 0., motor_timers, dma);
+                    dshot::set_power(0.05, 0., 0., 0., motor_timer);
                 } else {
 
                     let rotor_position = match rx_buf[1] {
@@ -431,7 +429,7 @@ pub fn handle_rx(
                     dshot::set_power_single(
                         control_mapping.motor_from_position(rotor_position),
                         power,
-                        motor_timers,
+                        motor_timer,
                     );
                 }
             }
@@ -439,7 +437,7 @@ pub fn handle_rx(
         MsgType::StopMotor => {
             cfg_if! {
                 if #[cfg(feature = "fixed-wing")]{
-                    dshot::set_power(0., 0., 0., 0., motor_timers, dma);
+                    dshot::set_power(0., 0., 0., 0., motor_timer);
                 } else {
                     let rotor_position = match rx_buf[1] {
                         0 => RotorPosition::FrontLeft,
@@ -452,7 +450,7 @@ pub fn handle_rx(
                     dshot::set_power_single(
                         control_mapping.motor_from_position(rotor_position),
                         0.,
-                        motor_timers,
+                        motor_timer,
                     );
                 }
             }
@@ -484,7 +482,7 @@ pub fn handle_rx(
                 control_mapping.servo_from_position(servo_wing),
                 value,
                 control_mapping,
-                motor_timers,
+                servo_timer,
             );
         }
         MsgType::ReqSysApStatus => {

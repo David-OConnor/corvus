@@ -46,16 +46,9 @@ use crate::{
 };
 
 use cfg_if::cfg_if;
-use stm32_hal2::dma::DmaInterrupt;
 
-// https://www.expresslrs.org/3.0/quick-start/transmitters/tx-prep/
-// "Common baud rates include 115200bps and 400000bps."
-// "The 500Hz Packet Rate requires at least 400K Baud Rate setting on the Radio handset.
-//
-// The F1000 Packet Rate requires more than 400K Baud Rate setting on the Radio handset."
+// For the receiver, 420k baud is hard set.
 pub const BAUD: u32 = 420_000;
-// pub const BAUD: u32 = 400_000;
-// pub const BAUD: u32 = 115_200;
 
 // This buf shift allows us to read messages that we didn't start reading immediately.
 // Note that the most we generally see is 3, but we use a higher value conservatively.
@@ -171,10 +164,14 @@ pub fn setup(uart: &mut Usart<UART_CRSF>) {
     uart.enable_interrupt(UsartInterrupt::CharDetect(Some(
         DestAddr::FlightController as u8,
     )));
-    uart.enable_interrupt(UsartInterrupt::Idle);
 
-    // todo: Not sure why we're getting overruns, but unless we clear them, they block data.
-    uart.enable_interrupt(UsartInterrupt::Overrun); // todo; not sure.
+    // (2022-11-13) If we start the FC without the Rx being connected and this interrupt
+    // is enabled
+    // uart.enable_interrupt(UsartInterrupt::Idle);
+
+    // todo: Not sure why we're getting overruns, but unless we clear them, they prevent data
+    // todo from being read.
+    // uart.enable_interrupt(UsartInterrupt::Overrun);
 }
 
 struct Packet {

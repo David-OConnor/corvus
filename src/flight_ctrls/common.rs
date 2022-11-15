@@ -3,7 +3,7 @@
 
 use crate::util::map_linear;
 
-use stm32_hal2::{pac, timer::Timer};
+// use stm32_hal2::{pac, timer::Timer};
 
 use lin_alg2::f32::Quaternion;
 
@@ -149,35 +149,10 @@ pub struct AttitudeCommanded {
     pub yaw: Option<f32>,
 }
 
-/// Command one or more angular rates.
-#[derive(Default)]
-pub struct RatesCommanded {
-    pub pitch: Option<f32>,
-    pub roll: Option<f32>,
-    pub yaw: Option<f32>,
-}
-
-/// Abstraction over timers, that allows us to feature-gate struct fields based on MCU; this is
-/// because we can't use feature gates on function arguments, so we're gating upstream.
-/// Note that for fixed-wing on H7, we can configure the 4 channels as any combination of motor and servo.
-/// On G4, 1 and 2 are always motors, and 3 adn 4 are always servos.
-/// todo: On G4, you can use a third servo on fixed-wing by configuring one of PA0/1 (r12)
-/// todo as TIM5, ch 1/2. (instead of TIM2, ch1/2)
-pub struct MotorTimers {
-    #[cfg(feature = "h7")]
-    /// Timer for all 4 rotors.
-    pub rotors: Timer<pac::TIM3>,
-    #[cfg(feature = "h7")]
-    /// Servo timer. Note that we don't always use this, but the cost to store it here is minimal.
-    pub servos: Timer<pac::TIM8>,
-    #[cfg(feature = "g4")]
-    /// Timer for rotors 1 and 2.
-    pub r12: Timer<pac::TIM2>,
-    #[cfg(all(feature = "g4", feature = "quad"))]
-    /// Timer for rotors 3 and 4.
-    pub r34: Timer<pac::TIM3>,
-    #[cfg(all(feature = "g4", feature = "fixed-wing"))]
-    /// Timer for servos. Note that this is the same field value as for G4 `quad` above, but with a
-    /// name describing how we use it.
-    pub servos: Timer<pac::TIM3>,
-}
+// /// Command one or more angular rates.
+// #[derive(Default)]
+// pub struct RatesCommanded {
+//     pub pitch: Option<f32>,
+//     pub roll: Option<f32>,
+//     pub yaw: Option<f32>,
+// }

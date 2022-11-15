@@ -19,13 +19,12 @@ use core::sync::atomic::AtomicBool;
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
-    dma::{self, ChannelCfg, Dma, Priority},
-    pac,
-    pac::DMA1,
-    timer::{CaptureCompare, CountDir, InputSlaveMode, InputTrigger, OutputCompare, Polarity},
+    dma::{self, ChannelCfg, Priority},
+    pac::{self, TIM3},
+    timer::{CaptureCompare, CountDir, OutputCompare, Polarity},
 };
 
-use crate::flight_ctrls::common::{Motor, MotorTimers};
+use crate::{flight_ctrls::common::Motor, setup::MotorTimer};
 
 use defmt::println;
 
@@ -41,7 +40,7 @@ use cfg_if::cfg_if;
 use usb_device::device::UsbDeviceState::Default;
 
 // Enable bidirectional DSHOT, which returns RPM data
-pub const BIDIR_EN: bool = false;
+pub const BIDIR_EN: bool = true;
 
 // Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
 // so we can set duty cycle appropriately for DSHOT.
@@ -51,13 +50,12 @@ pub const BIDIR_EN: bool = false;
 pub const DSHOT_PSC_600: u16 = 0;
 
 // ESC telemetry is false except when setting motor direction.
-static mut ESC_TELEM: bool = true;
+static mut ESC_TELEM: bool = false;
 
 // We use these flags to determine how to handle the TC ISRs, ie when
 // a send command is received, set the mode to input and vice versa.
 #[cfg(feature = "g4")]
-pub static CH_A_REC_MODE: AtomicBool = AtomicBool::new(false);
-pub static CH_B_REC_MODE: AtomicBool = AtomicBool::new(false);
+pub static DSHOT_REC_MODE: AtomicBool = AtomicBool::new(false);
 
 // Update frequency: 600kHz
 // 170Mhz tim clock on G4.
@@ -69,7 +67,8 @@ cfg_if! {
         pub const DSHOT_ARR_600: u32 = 432;  // 260Mhz tim clock
         // pub const DSHOT_ARR_600: u32 = 457; // 275Mhz tim clock
     } else if #[cfg(feature = "g4")] {
-        pub const DSHOT_ARR_600: u32 = 282; // 170Mhz tim clock
+        // pub const DSHOT_ARR_600: u32 = 282; // 170Mhz tim clock
+        pub const DSHOT_ARR_600: u32 = 567; // 170Mhz tim clock // todo: This is for DSHOT 300.
     }
 }
 
@@ -91,18 +90,9 @@ pub const REPEAT_COMMAND_COUNT: u32 = 10; // todo: Set back to 6 once sorted out
 // channels are interleaved.
 // Len 36, since last 2 entries will be 0 per channel. Required to prevent extra pulses. (Not sure exactly why)
 
-cfg_if! {
-    if #[cfg(feature = "h7")] {
-        static mut PAYLOAD: [u16; 72] = [0; 72];
-        // todo: The receive payload may be shorter due to how it's encoded; come back to this.
-        static mut PAYLOAD_REC: [u16; 72] = [0; 72];
-    } else if #[cfg(feature = "g4")] {
-        static mut PAYLOAD_R1_2: [u16; 36] = [0; 36];
-        pub static mut PAYLOAD_R1_2_REC: [u16; 36] = [0; 36]; // todo temp pub
-        static mut PAYLOAD_R3_4: [u16; 36] = [0; 36];
-        static mut PAYLOAD_R3_4_REC: [u16; 36] = [0; 36];
-    }
-}
+static mut PAYLOAD: [u16; 72] = [0; 72];
+// todo: The receive payload may be shorter due to how it's encoded; come back to this.
+pub static mut PAYLOAD_REC: [u16; 72] = [0; 72];
 
 /// Possible DSHOT commands (ie, DSHOT values 0 - 47). Does not include power settings.
 /// [Special commands section](https://brushlesswhoop.com/dshot-and-bidirectional-dshot/)
@@ -175,15 +165,15 @@ pub enum CmdType {
 /// be implemented, and this approach gets the job done. Run this at program init, so the ESC
 /// get its required zero-throttle setting, generally required by ESC firmware to complete
 /// initialization.
-pub fn stop_all(timers: &mut MotorTimers) {
+pub fn stop_all(timer: &mut MotorTimer) {
     // Note that the stop command (Command 0) is currently not implemented, so set throttles to 0.
-    set_power(0., 0., 0., 0., timers);
+    set_power(0., 0., 0., 0., timer);
 }
 
 /// Set up the direction for each motor, in accordance with user config. Note: This blocks!
 /// (at least for now). The intended use case is to run this only at init, and during Preflight,
 /// if adjusting motor mapping.
-pub fn setup_motor_dir(motors_reversed: (bool, bool, bool, bool), timers: &mut MotorTimers) {
+pub fn setup_motor_dir(motors_reversed: (bool, bool, bool, bool), timer: &mut MotorTimer) {
     // A blocking delay.
     let cp = unsafe { cortex_m::Peripherals::steal() };
     let mut delay = Delay::new(cp.SYST, 170_000_000);
@@ -193,7 +183,7 @@ pub fn setup_motor_dir(motors_reversed: (bool, bool, bool, bool), timers: &mut M
     // Setting the throttle twice (with 1ms delay) doesn't work; 10x works. The required value is evidently between
     // these 2 bounds.
     for i in 0..30 {
-        stop_all(timers);
+        stop_all(timer);
         delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
     }
     // I've confirmed that setting direction without the telemetry bit set will fail.
@@ -232,7 +222,7 @@ pub fn setup_motor_dir(motors_reversed: (bool, bool, bool, bool), timers: &mut M
         setup_payload(Motor::M3, CmdType::Command(cmd_3));
         setup_payload(Motor::M4, CmdType::Command(cmd_4));
 
-        send_payload(timers);
+        send_payload(timer);
 
         delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
     }
@@ -243,7 +233,7 @@ pub fn setup_motor_dir(motors_reversed: (bool, bool, bool, bool), timers: &mut M
         setup_payload(Motor::M3, CmdType::Command(Command::SaveSettings));
         setup_payload(Motor::M4, CmdType::Command(Command::SaveSettings));
 
-        send_payload(timers);
+        send_payload(timer);
 
         delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
     }
@@ -277,27 +267,14 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
     };
     let packet = (packet << 4) | crc;
 
-    cfg_if! {
-        if #[cfg(feature = "h7")] {
-            let (payload, offset) = unsafe {
-                match rotor {
-                    Motor::M1 => (&mut PAYLOAD, 0),
-                    Motor::M2 => (&mut PAYLOAD, 1),
-                    Motor::M3 => (&mut PAYLOAD, 2),
-                    Motor::M4 => (&mut PAYLOAD, 3),
-                }
-            };
-        } else {
-            let (payload, offset) = unsafe {
-                match rotor {
-                    Motor::M1 => (&mut PAYLOAD_R1_2, 0),
-                    Motor::M2 => (&mut PAYLOAD_R1_2, 1),
-                    Motor::M3 => (&mut PAYLOAD_R3_4, 0),
-                    Motor::M4 => (&mut PAYLOAD_R3_4, 1),
-                }
-            };
+    let (payload, offset) = unsafe {
+        match rotor {
+            Motor::M1 => (&mut PAYLOAD, 0),
+            Motor::M2 => (&mut PAYLOAD, 1),
+            Motor::M3 => (&mut PAYLOAD, 2),
+            Motor::M4 => (&mut PAYLOAD, 3),
         }
-    }
+    };
 
     // Create a DMA payload of 16 timer CCR (duty) settings, each for one bit of our data word.
     for i in 0..16 {
@@ -314,86 +291,36 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
 
 /// Set a rotor pair's power, using a 16-bit DHOT word, transmitted over DMA via timer CCR (duty)
 /// settings. `power` ranges from 0. to 1.
-pub fn set_power(power1: f32, power2: f32, power3: f32, power4: f32, timers: &mut MotorTimers) {
+pub fn set_power(power1: f32, power2: f32, power3: f32, power4: f32, timer: &mut MotorTimer) {
     setup_payload(Motor::M1, CmdType::Power(power1));
     setup_payload(Motor::M2, CmdType::Power(power2));
     setup_payload(Motor::M3, CmdType::Power(power3));
     setup_payload(Motor::M4, CmdType::Power(power4));
 
-    send_payload(timers)
+    send_payload(timer);
 }
 
 /// Set a single rotor's power. Used by preflight; not normal operations.
-pub fn set_power_single(rotor: Motor, power: f32, timers: &mut MotorTimers) {
+pub fn set_power_single(rotor: Motor, power: f32, timer: &mut MotorTimer) {
     setup_payload(rotor, CmdType::Power(power));
-    send_payload(timers)
+    send_payload(timer)
 }
 
 /// Send the stored payload.
-fn send_payload(timers: &mut MotorTimers) {
+fn send_payload(timer: &mut MotorTimer) {
     // Stop the receive transaction.
-    dma::stop(setup::MOTORS_DMA_PERIPH, Motor::M1.dma_channel());
-    #[cfg(all(feature = "g4", feature = "quad"))]
-    dma::stop(setup::MOTORS_DMA_PERIPH, Motor::M3.dma_channel());
+    dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
 
     // Note that timer enabling is handled by `write_dma_burst`.
 
-    let dma_cfg = ChannelCfg {
-        priority: Priority::High, // todo
-        ..ChannelCfg::default()
-    };
-
     unsafe {
-        cfg_if! {
-            if #[cfg(feature = "h7")] {
-                timers.rotors.write_dma_burst(
-                    &PAYLOAD,
-                    Motor::M1.base_addr_offset(),
-                    4, // Burst len of 4, since we're updating 4 channels.
-                    Motor::M1.dma_channel(),
-                    dma_cfg.clone(),
-                    true,
-                    setup::MOTORS_DMA_PERIPH,
-                );
-            } else {
-                timers.r12.write_dma_burst(
-                    &PAYLOAD_R1_2,
-                    Motor::M1.base_addr_offset(),
-                    2, // Burst len of 2, since we're updating 2 channels.
-                    Motor::M1.dma_channel(),
-                    dma_cfg.clone(),
-                    true,
-                    setup::MOTORS_DMA_PERIPH,
-                );
-                #[cfg(feature = "quad")]
-                    timers.r34.write_dma_burst(
-                    &PAYLOAD_R3_4,
-                    Motor::M3.base_addr_offset(),
-                    2,
-                    Motor::M3.dma_channel(),
-                    dma_cfg,
-                    false,
-                    setup::MOTORS_DMA_PERIPH,
-                );
-            }
-        }
-    }
-}
-
-#[cfg(feature = "g4")]
-/// Receive an RPM payload; for bidirectional mode.
-pub fn receive_payload_a(timers: &mut MotorTimers) {
-    // The previous transfer should already be complete, but just in case.
-    dma::stop(setup::MOTORS_DMA_PERIPH, Motor::M1.dma_channel());
-
-    // Note that timer enabling is handled by `read_dma_burst`.
-    unsafe {
-        timers.r12.read_dma_burst(
-            &PAYLOAD_R1_2_REC,
-            Motor::M1.base_addr_offset(),
-            2,
-            Motor::M1.dma_channel(),
+        timer.write_dma_burst(
+            &PAYLOAD,
+            setup::DSHOT_BASE_DIR_OFFSET,
+            4, // Burst len of 4, since we're updating 4 channels.
+            setup::MOTOR_CH,
             ChannelCfg {
+                // Take precedence over CRSF and ADCs.
                 priority: Priority::High,
                 ..ChannelCfg::default()
             },
@@ -404,46 +331,35 @@ pub fn receive_payload_a(timers: &mut MotorTimers) {
 }
 
 /// Receive an RPM payload for channel B on G4, or all channels on H7; for bidirectional mode.
-pub fn receive_payload_b(timers: &mut MotorTimers) {
-    dma::stop(setup::MOTORS_DMA_PERIPH, Motor::M3.dma_channel());
+pub fn receive_payload(timer: &mut MotorTimer) {
+    dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
 
-    // Take precedence over CRSF and ADCs.
-    let ch_cfg = ChannelCfg {
-        priority: Priority::High,
-        ..ChannelCfg::default()
-    };
+    #[cfg(feature = "h7")]
+    let high_prec_timer = true;
+    #[cfg(feature = "g4")]
+    let high_prec_timer = false;
 
     unsafe {
-        cfg_if! {
-            if #[cfg(feature = "h7")] {
-                timers.rotors.read_dma_burst(
-                    &PAYLOAD_REC,
-                    Motor::M1.base_addr_offset(),
-                    4,
-                    Motor::M1.dma_channel(),
-                    ch_cfg.clone(),
-                    true,
-                    setup::MOTORS_DMA_PERIPH,
-                );
-            } else {
-                timers.r34.read_dma_burst(
-                    &PAYLOAD_R3_4_REC,
-                    Motor::M3.base_addr_offset(),
-                    2,
-                    Motor::M3.dma_channel(),
-                    ch_cfg,
-                    false,
-                    setup::MOTORS_DMA_PERIPH,
-                );
-            }
-        }
+        timer.read_dma_burst(
+            &PAYLOAD_REC,
+            setup::DSHOT_BASE_DIR_OFFSET,
+            4,
+            setup::MOTOR_CH,
+            ChannelCfg {
+                // Take precedence over CRSF and ADCs.
+                priority: Priority::High,
+                ..ChannelCfg::default()
+            },
+            high_prec_timer,
+            setup::MOTORS_DMA_PERIPH,
+        );
     }
 }
 
 /// Change timer polarity and count direction, to enable or disable bidirectional DSHOT.
 /// This results in the signal being active low for enabled, and active high for disabled.
 /// Timer settings default (in HAL and hardware) to disabled.
-pub fn set_bidirectional(enabled: bool, timers: &mut MotorTimers) {
+pub fn set_bidirectional(enabled: bool, timer: &mut MotorTimer) {
     // todo: We need a way to configure channel 2 as a servo, eg for fixed-wing
     // todo with a rudder.
 
@@ -456,84 +372,47 @@ pub fn set_bidirectional(enabled: bool, timers: &mut MotorTimers) {
     }
 
     // Set up channels 1 and 2: This is for both quadcopters and fixed-wing.
-    cfg_if! {
-        if #[cfg(feature = "h7")] {
-            timers.rotors.set_polarity(Motor::M1.tim_channel(), polarity);
-            timers.rotors.set_polarity(Motor::M2.tim_channel(), polarity);
+    timer.set_polarity(Motor::M1.tim_channel(), polarity);
+    timer.set_polarity(Motor::M2.tim_channel(), polarity);
 
-            // todo: Does setting this direction affect servo use, eg fixed-wing?
-            timers.rotors.cfg.direction = count_dir;
-            timers.rotors.set_dir();
-        } else {
-            timers.r12.set_polarity(Motor::M1.tim_channel(), polarity);
-            timers.r12.set_polarity(Motor::M2.tim_channel(), polarity);
+    #[cfg(feature = "quad")]
+    timer.set_polarity(Motor::M3.tim_channel(), polarity);
+    #[cfg(feature = "quad")]
+    timer.set_polarity(Motor::M4.tim_channel(), polarity);
 
-            timers.r12.cfg.direction = count_dir;
-            timers.r12.set_dir();
-        }
-    }
-
-    // For quadcopters, set up channels 3 and 4 as well.
-    cfg_if! {
-        if #[cfg(all(feature = "h7", feature = "quad"))] {
-            timers.rotors.set_polarity(Motor::M3.tim_channel(), polarity);
-            timers.rotors.set_polarity(Motor::M4.tim_channel(), polarity);
-        } else if #[cfg(all(feature = "g4", feature = "quad"))] {
-            timers.r34.set_polarity(Motor::M3.tim_channel(), polarity);
-            timers.r34.set_polarity(Motor::M4.tim_channel(), polarity);
-
-            timers.r34.cfg.direction = count_dir;
-            timers.r34.set_dir();
-        }
-    }
+    timer.cfg.direction = count_dir;
+    timer.set_dir();
 }
 
 /// Set the timer(s) to output mode. Do this in init, and after a receive
 /// phase of bidirectional DSHOT.
-pub fn set_to_output(timers: &mut MotorTimers, motor_a: Motor, motor_b: Motor, three_four: bool) {
+pub fn set_to_output(timer: &mut MotorTimer) {
     let oc = OutputCompare::Pwm1;
 
-    // todo: Filter by Quad vice fixed-wing etc?
+    // todo: Here and elsewhere in this module, if you allocate timers/motors differently than 2/2
+    // todo for fixed-wing, you'll need to change this logic.
 
-    cfg_if! {
-        if #[cfg(feature = "h7")] {
-            // Arbitrary duty cycle set, since we'll override it with DMA bursts.
-            timers.rotors.enable_pwm_output(motor_a.tim_channel(), oc, 0.);
-            timers.rotors.enable_pwm_output(motor_b.tim_channel(), oc, 0.);
-        } else {
-            if three_four {
-                timers.r34.enable_pwm_output(motor_a.tim_channel(), oc, 0.);
-                timers.r34.enable_pwm_output(motor_b.tim_channel(), oc, 0.);
-            } else {
-                timers.r12.enable_pwm_output(motor_a.tim_channel(), oc, 0.);
-                timers.r12.enable_pwm_output(motor_b.tim_channel(), oc, 0.);
-            }
-        }
-    }
+    timer.enable_pwm_output(Motor::M1.tim_channel(), oc, 0.);
+    timer.enable_pwm_output(Motor::M2.tim_channel(), oc, 0.);
+
+    #[cfg(feature = "quad")]
+    timer.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
+    #[cfg(feature = "quad")]
+    timer.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
 }
 
 /// Set the timer(s) to input mode. Used to receive PWM data in bidirectional mode.
 /// We use motor args here, since this will run separately depending on the DSHOT
 /// ISR for G4.
-pub fn set_to_input(timers: &mut MotorTimers, motor_a: Motor, motor_b: Motor, three_four: bool) {
+pub fn set_to_input(timer: &mut MotorTimer) {
     let cc = CaptureCompare::InputTi1;
     let pol_p = Polarity::ActiveLow;
     let pol_n = Polarity::ActiveHigh;
 
-    // todo: Filter by Quad vice fixed etc?
-
-    cfg_if! {
-        if #[cfg(feature = "h7")] {
-            timers.rotors.set_input_capture(motor_a.tim_channel(), cc,  pol_p, pol_n);
-            timers.rotors.set_input_capture(motor_b.tim_channel(), cc,  pol_p, pol_n);
-        } else {
-            if three_four {
-                timers.r34.set_input_capture(motor_a.tim_channel(), cc, pol_p, pol_n);
-                timers.r34.set_input_capture(motor_b.tim_channel(), cc, pol_p, pol_n);
-            } else {
-                timers.r12.set_input_capture(motor_a.tim_channel(), cc, pol_p, pol_n);
-                timers.r12.set_input_capture(motor_b.tim_channel(), cc, pol_p, pol_n);
-            }
-        }
-    }
+    timer.set_input_capture(Motor::M1.tim_channel(), cc, pol_p, pol_n);
+    timer.set_input_capture(Motor::M2.tim_channel(), cc, pol_p, pol_n);
+    #[cfg(feature = "quad")]
+    timer.set_input_capture(Motor::M3.tim_channel(), cc, pol_p, pol_n);
+    #[cfg(feature = "quad")]
+    timer.set_input_capture(Motor::M4.tim_channel(), cc, pol_p, pol_n);
 }
