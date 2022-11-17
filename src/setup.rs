@@ -49,7 +49,7 @@ pub const OSD_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
 pub const IMU_RX_CH: DmaChannel = DmaChannel::C2;
 
-// Note: C4 is also unused.
+// Note: C4 is unused.
 pub const MOTOR_CH: DmaChannel = DmaChannel::C3;
 
 pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
@@ -68,10 +68,11 @@ pub const OSD_CH: DmaChannel = DmaChannel::C5;
 
 pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
 
-/// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, 2, 3, or 4.
+/// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, and is incremented
+/// automatically when we set burst len = 4 in the DMA write and read.
 /// Calculate by taking the Adddress Offset for the associated CCR channel in the
 /// RM register table, and dividing by 4.
-pub const DSHOT_BASE_DIR_OFFSET: u8 = 13;
+pub const DSHOT_BASE_DIR_OFFSET: u8 = 0x34 / 4;
 
 pub type MotorTimer = Timer<pac::TIM3>;
 pub type ServoTimer = Timer<pac::TIM8>;
@@ -193,7 +194,7 @@ pub fn setup_pins() {
 
     let alt_motors = 2; // TIM3
 
-    let mut motor1 = Pin::new(Port::C, 6, PinMode::Alt(alt_motors)); // Ch1
+    // let mut motor1 = Pin::new(Port::C, 6, PinMode::Alt(alt_motors)); // Ch1 // todo: Put back once new board is in
 
     cfg_if! {
         if #[cfg(feature = "h7")] {
@@ -201,7 +202,7 @@ pub fn setup_pins() {
             let alt_servos = 3; // TIM8 (Avail on all channels)
 
             // todo: Let us customize; set motor2 as `alt_servos` if equipped with a rudder etc.
-            let mut motor2 = Pin::new(Port::C, 7, PinMode::Alt(alt_motors)); // Ch2
+            // let mut motor2 = Pin::new(Port::C, 7, PinMode::Alt(alt_motors)); // Ch2 // todo: Put back once new board is in
             let mut motor3 = Pin::new(Port::C, 8, PinMode::Alt(alt_servos)); // Ch3
             let mut motor4 = Pin::new(Port::C, 9, PinMode::Alt(alt_servos)); // Ch4
         } else {
@@ -217,8 +218,9 @@ pub fn setup_pins() {
     // todo: What should this be?: Low is good up to the Mhz range, which is good enough?
     let dshot_gpiospeed = OutputSpeed::Low; // Note: Low is the default value.
 
-    motor1.output_speed(dshot_gpiospeed);
-    motor2.output_speed(dshot_gpiospeed);
+    // todo: Put these back once on new board
+    // motor1.output_speed(dshot_gpiospeed);
+    // motor2.output_speed(dshot_gpiospeed);
     motor3.output_speed(dshot_gpiospeed);
     motor4.output_speed(dshot_gpiospeed);
 
@@ -266,32 +268,30 @@ pub fn setup_pins() {
         }
     }
 
-    // SPI3 for flash
     cfg_if! {
         if #[cfg(feature = "h7")] {
             // Use use Uart 7 for the onboard ELRS MCU.
-            let _uart7_tx = Pin::new(Port::B, 3, PinMode::Alt(11));
-            let _uart7_rx = Pin::new(Port::B, 4, PinMode::Alt(11));
+            let _uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(11));
+            let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(11));
         } else {
-            let _uart3_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
-            let mut uart3_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
-
-            // uart3_rx.output_speed(OutputSpeed::High); // todo: TS
+            let _uart_crsf_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
+            let mut uart_crsf_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
         }
     }
 
+    // Pull up the CRSF RX line. Without this, our idle interrupt fires spuratically in
+    // some conditions, like when touching the (even outside) of the wires if an Rx
+    // module isn't connected.
+    uart_crsf_rx.pull(Pull::Up);
+
+    let _uart_osd_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
+    let mut uart_osd_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
+
+    uart_osd_rx.pull(Pull::Up);
+
+
     // We use UARTs for misc external devices, including ESC telemetry,
     // and VTX OSD.
-
-    // todo: Are these G4? H7? Both? Probably not going to use either way.
-    // let _uart1_tx = Pin::new(Port::B, 6, PinMode::Alt(7));
-    // let _uart1_rx = Pin::new(Port::B, 7, PinMode::Alt(7));
-    // let _uart2_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
-    // let _uart2_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
-    // let _uart3_tx = Pin::new(Port::D, 8, PinMode::Alt(7));
-    // let _uart3_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
-    // let _uart4_tx = Pin::new(Port::C, 10, PinMode::Alt(7));
-    // let _uart4_rx = Pin::new(Port::C, 11, PinMode::Alt(7));
 
     // Used to trigger a PID update based on new IMU data.
     // We assume here the interrupt config uses default settings active low, push pull, pulsed.

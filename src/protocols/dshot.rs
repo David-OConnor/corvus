@@ -40,7 +40,7 @@ use cfg_if::cfg_if;
 use usb_device::device::UsbDeviceState::Default;
 
 // Enable bidirectional DSHOT, which returns RPM data
-pub const BIDIR_EN: bool = true;
+pub const BIDIR_EN: bool = false;
 
 // Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
 // so we can set duty cycle appropriately for DSHOT.
@@ -85,11 +85,9 @@ pub const PAUSE_AFTER_SAVE: u32 = 40; // Must be at least 35ms.
                                       // BLHeli_32 requires you repeat certain commands, like motor direction, 6 times.
 pub const REPEAT_COMMAND_COUNT: u32 = 10; // todo: Set back to 6 once sorted out.
 
-// DMA buffers for each rotor. 16-bit data. Note that
-// rotors 1/2 and 3/4 share a timer, so we can use the same DMA stream with them. Data for the 2
-// channels are interleaved.
+// DMA buffers for each rotor. 16-bit data.
+// todo: Come back to this and examine why. And examine in bidir.
 // Len 36, since last 2 entries will be 0 per channel. Required to prevent extra pulses. (Not sure exactly why)
-
 static mut PAYLOAD: [u16; 72] = [0; 72];
 // todo: The receive payload may be shorter due to how it's encoded; come back to this.
 pub static mut PAYLOAD_REC: [u16; 72] = [0; 72];
@@ -257,7 +255,7 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
         CmdType::Power(pwr) => (pwr * 1_999.) as u16 + 48,
     };
 
-    let packet = (data_word << 1) | (if unsafe { ESC_TELEM } { 1 } else { 0 });
+    let packet = (data_word << 1) | (unsafe { ESC_TELEM } as u16);
 
     // Compute the checksum
     let crc = if BIDIR_EN {
@@ -267,13 +265,11 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
     };
     let packet = (packet << 4) | crc;
 
-    let (payload, offset) = unsafe {
-        match rotor {
-            Motor::M1 => (&mut PAYLOAD, 0),
-            Motor::M2 => (&mut PAYLOAD, 1),
-            Motor::M3 => (&mut PAYLOAD, 2),
-            Motor::M4 => (&mut PAYLOAD, 3),
-        }
+    let offset = match rotor {
+        Motor::M1 => 0,
+        Motor::M2 => 1,
+        Motor::M3 => 2,
+        Motor::M4 => 3,
     };
 
     // Create a DMA payload of 16 timer CCR (duty) settings, each for one bit of our data word.
@@ -281,9 +277,10 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
         let bit = (packet >> i) & 1;
         let val = if bit == 1 { DUTY_HIGH } else { DUTY_LOW };
         // DSHOT uses MSB first alignment.
-        // Values alternate in the buffer between the 2 registers we're editing, so
+        // Values alternate in the buffer between the 4 registers we're editing, so
         // we interleave values here. (Each timer and DMA stream is associated with 2 channels).
-        payload[(15 - i) * 2 + offset] = val as u16;
+        // unsafe { PAYLOAD[(15 - i) * 2 + offset] = val as u16 };
+        unsafe { PAYLOAD[(15 - i) * 4 + offset] = val as u16 };
     }
 
     // Note that the end stays 0-padded, since we init with 0s, and never change those values.
@@ -312,6 +309,10 @@ fn send_payload(timer: &mut MotorTimer) {
     dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
 
     // Note that timer enabling is handled by `write_dma_burst`.
+
+    // unsafe {
+        // println!("PAYLOAD: {:?}", PAYLOAD);
+    // }
 
     unsafe {
         timer.write_dma_burst(

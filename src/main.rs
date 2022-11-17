@@ -285,9 +285,9 @@ mod app {
         // Improves performance, at a cost of slightly increased power use.
         // Note that these enable fns should automatically invalidate prior.
         #[cfg(feature = "h7")]
-        cp.SCB.enable_icache();
+            cp.SCB.enable_icache();
         #[cfg(feature = "h7")]
-        cp.SCB.enable_dcache(&mut cp.CPUID);
+            cp.SCB.enable_dcache(&mut cp.CPUID);
 
         cfg_if! {
             if #[cfg(feature = "h7")] {
@@ -322,9 +322,9 @@ mod app {
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-        clocks::enable_crs(CrsSyncSrc::OtgHs);
+            clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-        clocks::enable_crs(CrsSyncSrc::Usb);
+            clocks::enable_crs(CrsSyncSrc::Usb);
 
         let flash = unsafe { &(*pac::FLASH::ptr()) };
 
@@ -334,14 +334,14 @@ mod app {
         let mut dma = Dma::new(dp.DMA1);
         let mut dma2 = Dma::new(dp.DMA2);
         #[cfg(feature = "g4")]
-        dma::enable_mux1();
+            dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
         #[cfg(feature = "h7")]
-        let uart_crsf = dp.UART7;
+            let uart_crsf = dp.UART7;
         #[cfg(feature = "g4")]
-        let uart_crsf = dp.USART3;
+            let uart_crsf = dp.USART3;
 
         let (mut spi1, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_crsf) =
             setup::setup_busses(dp.SPI1, dp.I2C1, dp.I2C2, dp.USART2, uart_crsf, &clock_cfg);
@@ -358,10 +358,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -440,9 +440,9 @@ mod app {
         });
 
         #[cfg(feature = "quad")]
-        flight_ctrls::setup_timers(&mut motor_timer);
+            flight_ctrls::setup_timers(&mut motor_timer);
         #[cfg(feature = "fixed-wing")]
-        flight_ctrls::setup_timers(&mut motor_timer, &servo_timer);
+            flight_ctrls::setup_timers(&mut motor_timer, &servo_timer);
 
         // Note: With this circular DMA approach, we discard many readings,
         // but shouldn't have consequences other than higher power use, compared to commanding
@@ -492,9 +492,9 @@ mod app {
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -568,13 +568,13 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
@@ -599,9 +599,9 @@ mod app {
         // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
         // todo opendrain and pullup set, and without enabling interrupt.
         #[cfg(feature = "h7")]
-        let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
+            let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
         #[cfg(feature = "g4")]
-        let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
+            let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
         imu_exti_pin.enable_interrupt(Edge::Falling);
 
         println!("Init complete; starting main loops");
@@ -769,12 +769,12 @@ mod app {
 
                         match control_channel_data {
                             Some(ch_data) => {
-                                                        println!(
-                            "\nControl data:\nPitch: {} Roll: {}, Yaw: {}, Throttle: {}, Arm switch: {}",
-                            ch_data.pitch, ch_data.roll,
-                            ch_data.yaw, ch_data.throttle,
-                            ch_data.arm_status == ArmStatus::Armed, // todo fixed-wing
-                        );
+                                println!(
+                                    "\nControl data:\nPitch: {} Roll: {}, Yaw: {}, Throttle: {}, Arm switch: {}",
+                                    ch_data.pitch, ch_data.roll,
+                                    ch_data.yaw, ch_data.throttle,
+                                    ch_data.arm_status == ArmStatus::Armed, // todo fixed-wing
+                                );
                             }
                             None => {
                                 println!("(No current control channel data)")
@@ -1163,7 +1163,7 @@ mod app {
                     attitude_platform::update_attitude(cx.local.ahrs, params);
 
                     // todo: Temp debug code.
-                    let mut p = match control_channel_data {
+                    match control_channel_data {
                         Some(ch_data) => {
                             let p = ch_data.throttle;
                             if state_volatile.arm_status == ArmStatus::Armed {
@@ -1176,8 +1176,6 @@ mod app {
                             dshot::stop_all(motor_timer);
                         }
                     };
-
-
 
                     // todo: Impl once you've sorted out your control logic.
                     // todo: Delegate this to another module, eg `attitude_ctrls`.
@@ -1201,9 +1199,9 @@ mod app {
                             //     yaw: Some(cfg.input_map.calc_yaw_rate(ch_data.yaw)),
                             // };
 
-                                let pitch=cfg.input_map.calc_pitch_rate(ch_data.pitch);
-                                let roll=cfg.input_map.calc_roll_rate(ch_data.roll);
-                                let yaw=cfg.input_map.calc_yaw_rate(ch_data.yaw);
+                            let pitch=cfg.input_map.calc_pitch_rate(ch_data.pitch);
+                            let roll=cfg.input_map.calc_roll_rate(ch_data.roll);
+                            let yaw=cfg.input_map.calc_yaw_rate(ch_data.yaw);
 
 
                             // If we haven't taken off, apply the attitude lock.
@@ -1372,37 +1370,21 @@ mod app {
 
     // #[task(binds = DMA1_STR3, shared = [motor_timers], priority = 6)]
     #[task(binds = DMA1_CH3, shared = [motor_timer], priority = 6)]
-    /// We use this ISR to enable input capture if in bidirectional mode. For G4, it's only for motors
-    /// 3 and 4. For h7, it's for all 4. Associated with Tim3.
+    /// We use this ISR to enable input capture if in bidirectional mode.
     fn dshot_isr(mut cx: dshot_isr::Context) {
-        // todo: Remove everythign in this ISR except for the interrupt-clear flag
-        // todo if `dshot::set_to_input` handles all motors. Or, split
-        // todo that fn based on M12 or M34. This interrupt still needs to fire apparently,
-        // todo per the required timer DMA interrupt.
-
         dma::clear_interrupt(
             setup::MOTORS_DMA_PERIPH,
             setup::MOTOR_CH,
             DmaInterrupt::TransferComplete,
         );
 
-        unsafe {
-            (*pac::TIM3::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
-        }
-
-        // cx.shared.motor_timers.lock(|timers| {
-        //     #[cfg(feature = "h7")]
-        //         timers.r1234.disable();
-        //     #[cfg(all(feature = "g4", feature = "quad"))]
-        //         timers.r34.disable();
-        //     #[cfg(all(feature = "g4", feature = "fixed-wing"))]
-        //         timers.servos.disable();
-        // });
         // todo: Temp. Put motor timers etc back A/R. If you still have trouble, may need to
         // todo split by 1/2, 3/4 instead of sharing motor timers struct.
 
-        if dshot::BIDIR_EN {
-            cx.shared.motor_timer.lock(|motor_timer| {
+        cx.shared.motor_timer.lock(|motor_timer| {
+            motor_timer.disable();
+
+            if dshot::BIDIR_EN {
                 if dshot::DSHOT_REC_MODE.load(Ordering::Relaxed) {
                     dshot::set_to_output(motor_timer);
 
@@ -1413,8 +1395,9 @@ mod app {
 
                     dshot::DSHOT_REC_MODE.store(true, Ordering::Relaxed);
                 }
-            });
-        }
+
+            }
+        });
     }
 
     // // #[task(binds = TIM8, // H7
@@ -1470,7 +1453,6 @@ mod app {
                     // Don't allow the starting char, as used in the middle of a message,
                     // to trigger an interrupt.
                     uart.disable_interrupt(UsartInterrupt::CharDetect(None));
-                    uart.enable_interrupt(UsartInterrupt::Idle);
 
                     // todo: Deal with this later.
                     // if limiter_timer.is_enabled() {
@@ -1510,10 +1492,9 @@ mod app {
 
                     // A `None` value here re-enables the interrupt without changing the char to match.
                     uart.enable_interrupt(UsartInterrupt::CharDetect(None));
-                    // uart.disable_interrupt(UsartInterrupt::Idle);
 
                     if let Some(crsf_data) =
-                        crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
+                    crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {

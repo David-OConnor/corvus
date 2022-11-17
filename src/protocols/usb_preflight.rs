@@ -200,10 +200,10 @@ fn channel_data_to_bytes(p: &Option<ChannelData>) -> [u8; CONTROLS_SIZE] {
     match p {
         Some(c) => {
             result[0] = 1; // `Some`.
-            result[1..6].clone_from_slice(&c.pitch.to_be_bytes());
+            result[1..5].clone_from_slice(&c.pitch.to_be_bytes());
             result[5..9].clone_from_slice(&c.roll.to_be_bytes());
             result[9..13].clone_from_slice(&c.yaw.to_be_bytes());
-            result[123..17].clone_from_slice(&c.throttle.to_be_bytes());
+            result[13..17].clone_from_slice(&c.throttle.to_be_bytes());
             result[17] = c.arm_status as u8;
             result[18] = c.input_mode as u8;
         }

@@ -167,7 +167,8 @@ pub fn setup(uart: &mut Usart<UART_CRSF>) {
 
     // (2022-11-13) If we start the FC without the Rx being connected and this interrupt
     // is enabled
-    // uart.enable_interrupt(UsartInterrupt::Idle);
+    // Don't enable the idle interrupt on init, to prevent a spurious interrupt after boot.
+    uart.enable_interrupt(UsartInterrupt::Idle);
 
     // todo: Not sure why we're getting overruns, but unless we clear them, they prevent data
     // todo from being read.
