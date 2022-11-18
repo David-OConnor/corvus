@@ -20,7 +20,7 @@ use cortex_m::delay::Delay;
 
 use stm32_hal2::{
     dma::{self, ChannelCfg, Priority},
-    gpio, pac,
+    gpio,
     pac::{self, TIM3},
     timer::{CaptureCompare, CountDir, OutputCompare, Polarity},
 };
@@ -55,8 +55,8 @@ static mut ESC_TELEM: bool = false;
 
 // We use these flags to determine how to handle the TC ISRs, ie when
 // a send command is received, set the mode to input and vice versa.
-#[cfg(feature = "g4")]
-pub static DSHOT_REC_MODE: AtomicBool = AtomicBool::new(false);
+// #[cfg(feature = "g4")]
+// pub static DSHOT_REC_MODE: AtomicBool = AtomicBool::new(false);
 
 // The number of motors here affects our payload interleave logic, and DMA burst length written.
 const NUM_MOTORS: usize = 4;
@@ -74,6 +74,11 @@ cfg_if! {
         // pub const DSHOT_ARR_600: u32 = 282; // 170Mhz tim clock
         pub const DSHOT_ARR_600: u32 = 567; // 170Mhz tim clock // todo: This is for DSHOT 300.
         pub const DSHOT_ARR_300: u32 = 567; // 170Mhz tim clock // todo: This is for DSHOT 300.
+
+        // This runs immediately after completion of transmission, prior to the
+        // start of reception
+        pub const READ_TIMER_ARR_INIT: u32 = 4_200; // A 24.7us delay. Note that in practice we measure 35; 25 is conservative.
+        pub const READ_TIMER_ARR_READING: u32 = 452; // This results in a frequency of 375kHz; for DSHOT 300.
     }
 }
 
@@ -82,12 +87,11 @@ const DUTY_HIGH: u32 = DSHOT_ARR_600 * 3 / 4;
 const DUTY_LOW: u32 = DSHOT_ARR_600 * 3 / 8;
 
 // We use this during config that requires multiple signals sent, eg setting. motor direction.
-// pub static PAUSE_AFTER_DSHOT: AtomicBool = AtomicBool::new(false);
 
 // Use this pause duration, in ms, when setting up motor dir.
 pub const PAUSE_BETWEEN_COMMANDS: u32 = 1;
 pub const PAUSE_AFTER_SAVE: u32 = 40; // Must be at least 35ms.
-                                      // BLHeli_32 requires you repeat certain commands, like motor direction, 6 times.
+// BLHeli_32 requires you repeat certain commands, like motor direction, 6 times.
 pub const REPEAT_COMMAND_COUNT: u32 = 10; // todo: Set back to 6 once sorted out.
 
 // DMA buffers for each rotor. 16-bit data.
@@ -96,13 +100,15 @@ static mut PAYLOAD: [u16; 18 * NUM_MOTORS] = [0; 18 * NUM_MOTORS];
 // todo: The receive payload may be shorter due to how it's encoded; come back to this.
 
 // The position we're reading when updating the DSHOT read.
-pub static DSHOT_READ_I: AtomicUsize = AtomicUsize::new(0);
+pub static READ_I: AtomicUsize = AtomicUsize::new(0);
+// pub static READ_MSG_STARTED: AtomicBool = AtomicBool::new(false);
 // todo: TS
-pub static mut PAYLOAD_REC: [u16; 18 * NUM_MOTORS] = [0; 18 * NUM_MOTORS];
+// pub static mut PAYLOAD_REC: [u16; 18 * NUM_MOTORS] = [0; 18 * NUM_MOTORS];
 
-// There are 21 bits in each DSHOT RPM reception message. Value is bit is high or low.
-const REC_BUF_LEN: usize = 21 + 13; // 13 buf between end of send and start of xmission
-                                    // todo: Maybe don't start rec process until first down edge.
+// There are 21 bits in each DSHOT RPM reception message. Value is true for line low (bit = 1), and false
+// for line high (bit = 0); idle high.
+pub const REC_BUF_LEN: usize = 20;
+// todo: Maybe don't start rec process until first down edge.
 pub static mut PAYLOAD_REC_BB_1: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_BB_2: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_BB_3: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
@@ -322,7 +328,8 @@ pub fn set_power_single(rotor: Motor, power: f32, timer: &mut MotorTimer) {
     send_payload(timer)
 }
 
-use core::sync::atomic::Ordering; // todo move up if you keep this.
+use core::sync::atomic::Ordering;
+use stm32_hal2::gpio::PinMode; // todo move up if you keep this.
 
 /// Send the stored payload.
 fn send_payload(timer: &mut MotorTimer) {
@@ -341,9 +348,28 @@ fn send_payload(timer: &mut MotorTimer) {
     // timer.disable();
 
     // todo: Deprecate A/R
-    if BIDIR_EN {
-        // set_to_output(timer); // todo
-        DSHOT_REC_MODE.store(false, Ordering::Relaxed);
+    // if BIDIR_EN {
+    // set_to_output(timer); // todo
+    // DSHOT_REC_MODE.store(false, Ordering::Relaxed);
+    // }
+
+    // todo: Reset ARR here and pin in ISR, or in dshot::send_payload? Currently here
+    let alt_mode = 0b10;
+    // todo: H7 pins too.
+    unsafe {
+        // todo: Put these in once you have the new board
+        // (*pac::GPIOC::ptr())
+        //     .moder
+        //     .modify(|_, w| w.moder6().bits(alt_mode));
+        // (*pac::GPIOA::ptr())
+        //     .moder
+        //     .modify(|_, w| w.moder4().bits(alt_mode));
+        (*pac::GPIOB::ptr())
+            .moder
+            .modify(|_, w| w.moder0().bits(alt_mode));
+        (*pac::GPIOB::ptr())
+            .moder
+            .modify(|_, w| w.moder1().bits(alt_mode));
     }
 
     unsafe {
@@ -363,10 +389,12 @@ fn send_payload(timer: &mut MotorTimer) {
     }
 }
 
-/// Receive an RPM payload for channel B on G4, or all channels on H7; for bidirectional mode.
+/// Receive an RPM payload for all channels in bidirectional mode.
+/// Note that we configure what won't affect the FC-ESC transmission in the reception timer's
+/// ISR on payload-reception-complete. Here, we configure things that would affect transmission.
 pub fn receive_payload(timer: &mut MotorTimer) {
     // Note: Should already be stopped, as we call this from a transfer-complete interrupt.
-    dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
+    // dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
 
     // set_to_input(timer);
     // DSHOT_REC_MODE.store(true, Ordering::Relaxed);
@@ -395,12 +423,19 @@ pub fn receive_payload(timer: &mut MotorTimer) {
     // todo: Trying a different approach
     let input_mode = 0b00;
     unsafe {
+        // todo: Put these in once you have the new board
+        // (*pac::GPIOC::ptr())
+        //     .moder
+        //     .modify(|_, w| w.moder6().bits(input_mode));
+        // (*pac::GPIOA::ptr())
+        //     .moder
+        //     .modify(|_, w| w.moder4().bits(input_mode));
         (*pac::GPIOB::ptr())
             .moder
-            .modify(|_, w| w.moder0.bits(input_mode));
+            .modify(|_, w| w.moder0().bits(input_mode));
         (*pac::GPIOB::ptr())
             .moder
-            .modify(|_, w| w.moder1.bits(input_mode));
+            .modify(|_, w| w.moder1().bits(input_mode));
 
         // gpio::read_dma(
         //     &PAYLOAD_REC,
@@ -414,11 +449,20 @@ pub fn receive_payload(timer: &mut MotorTimer) {
         // );
     }
 
-    DSHOT_READ_I.store(0, Ordering::Release);
+        // todo: Shared resource for pins?
+        let exti = unsafe { &(*pac::EXTI::ptr()) };
+        let syscfg = unsafe { &(*pac::SYSCFG::ptr()) };
+        // todo: Diff syntax on H7.
+        // exti.rtsr1.modify(|_, w| w.rt6().clear_bit());
+        // exti.ftsr1.modify(|_, w| w.ft6().set_bit());
+        // syscfg.exticr2.modify(|_, w| unsafe { w.exti6().bits(2) }); // Points to port C.
+        exti.rtsr1.modify(|_, w| w.rt1().clear_bit());
+        exti.ftsr1.modify(|_, w| w.ft1().set_bit());
+        syscfg.exticr1.modify(|_, w| unsafe { w.exti1().bits(1) }); // Points to port B.
 
-    unsafe {
-        (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().set_bit());
-    }
+    // unsafe {
+    //     (*pac::TIM2::ptr()).arr.write(|w| w.bits(READ_TIMER_ARR_INIT));
+    // }
 }
 
 /// Change timer polarity and count direction, to enable or disable bidirectional DSHOT.
@@ -441,9 +485,9 @@ pub fn set_bidirectional(enabled: bool, timer: &mut MotorTimer) {
     timer.set_polarity(Motor::M2.tim_channel(), polarity);
 
     #[cfg(feature = "quad")]
-    timer.set_polarity(Motor::M3.tim_channel(), polarity);
+        timer.set_polarity(Motor::M3.tim_channel(), polarity);
     #[cfg(feature = "quad")]
-    timer.set_polarity(Motor::M4.tim_channel(), polarity);
+        timer.set_polarity(Motor::M4.tim_channel(), polarity);
 
     timer.cfg.direction = count_dir;
     timer.set_dir();
@@ -465,9 +509,9 @@ pub fn set_to_output(timer: &mut MotorTimer) {
     timer.enable_pwm_output(Motor::M2.tim_channel(), oc, 0.);
 
     #[cfg(feature = "quad")]
-    timer.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
+        timer.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
     #[cfg(feature = "quad")]
-    timer.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
+        timer.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
 }
 
 /// Set the timer(s) to input mode. Used to receive PWM data in bidirectional mode.
@@ -485,9 +529,9 @@ pub fn _set_to_input(timer: &mut MotorTimer) {
     timer.set_input_capture(Motor::M1.tim_channel(), cc, pol_p, pol_n);
     timer.set_input_capture(Motor::M2.tim_channel(), cc, pol_p, pol_n);
     #[cfg(feature = "quad")]
-    timer.set_input_capture(Motor::M3.tim_channel(), cc, pol_p, pol_n);
+        timer.set_input_capture(Motor::M3.tim_channel(), cc, pol_p, pol_n);
     #[cfg(feature = "quad")]
-    timer.set_input_capture(Motor::M4.tim_channel(), cc, pol_p, pol_n);
+        timer.set_input_capture(Motor::M4.tim_channel(), cc, pol_p, pol_n);
 
     // todo: Experimenting how to capture both edges.
     let cc2 = CaptureCompare::InputTi2; // For example, this maps CC3 to ch4 and CC4 to TIM3 etc, I believe.
@@ -543,7 +587,7 @@ fn rpm_from_data(packet: u16) -> Result<EscData, RpmCrcError> {
             0x0A => EscTelemType::Debug2,
             0x0C => EscTelemType::Debug3,
             0x0E => EscTelemType::State,
-            _ => return Err(RpmCrcError), // todo: Not a CRC error
+            _ => return Err(RpmCrcError {}), // todo: Not a CRC error
         };
 
         Ok(EscData::Telem(telem_type, val as u8))

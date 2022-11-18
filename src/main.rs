@@ -199,7 +199,7 @@ const WARMUP_TIME: u32 = 2_000;
 // todo: Bit flags that display as diff colored LEDs, and OSD items
 
 // todo: dispatchers are temp
-#[rtic::app(device = pac, peripherals = false, dispatchers= [EXTI9_5])]
+#[rtic::app(device = pac, peripherals = false, dispatchers= [])]
 mod app {
     use super::*;
     // use core::time::Duration; // todo temp
@@ -419,7 +419,9 @@ mod app {
         // todo: Adjust frequency A/R. It should be 5/4 * dshot frequency.
         let mut dshot_read_timer = Timer::new_tim2(
             dp.TIM2,
-            (5. / 4. * 300_000.),
+            // // 25us period, for time between transmission and reception. Modifying during runtime.
+            // 1. / 0.000025,
+            300_000. * 5. / 4., // todo: Adjust A/R per DSHOT freq.
             Default::default(),
             &clock_cfg,
         );
@@ -1382,9 +1384,10 @@ mod app {
             )
     }
 
-    // #[task(binds = DMA1_STR3, shared = [motor_timers], priority = 6)]
-    #[task(binds = DMA1_CH3, shared = [motor_timer], priority = 6)]
-    /// We use this ISR to enable input capture if in bidirectional mode.
+    // #[task(binds = DMA1_STR3, shared = [motor_timers], priority = 7)]
+    #[task(binds = DMA1_CH3, shared = [motor_timer], priority = 7)]
+    /// We use this ISR to initialize the RPM reception procedures upon completion of the dshot
+    /// power setting transmission to the ESC.
     fn dshot_isr(mut cx: dshot_isr::Context) {
         dma::clear_interrupt(
             setup::MOTORS_DMA_PERIPH,
@@ -1414,9 +1417,33 @@ mod app {
         });
     }
 
-    #[task(binds = TIM2, shared = [], local = [dshot_read_timer] priority = 6)]
-    /// We use this ISR to enable input capture if in bidirectional mode.
-    fn dshot_read_isr(mut cx: dshot_isr::Context) {
+    #[task(binds = EXTI1, shared = [], local = [], priority = 7)]
+    /// Start the DSHOT RPM read timer on the first low edge of this pin. (Currently Motor 3.)
+    fn dshot_read_start_isr(mut cx: dshot_read_start_isr::Context) {
+        println!("READ START");
+        gpio::clear_exti_interrupt(1);
+
+        // todo: Diff syntax on H7. Also this is a mess.
+        let exti = unsafe { &(*pac::EXTI::ptr()) };
+        // let syscfg = unsafe { &(*pac::SYSCFG::ptr()) };
+
+        // exti.rtsr1.modify(|_, w| w.rt6().clear_bit());
+        // exti.ftsr1.modify(|_, w| w.ft6().clear_bit());
+        // syscfg.exticr2.modify(|_, w| unsafe { w.exti6().bits(2) }); // Poitns to port C.
+        // exti.rtsr1.modify(|_, w| w.rt0().clear_bit());
+        exti.ftsr1.modify(|_, w| w.ft1().clear_bit());
+        // syscfg.exticr1.modify(|_, w| unsafe { w.exti0().bits(1) }); // Poitns to port B.
+
+        unsafe {
+            (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().set_bit());
+        }
+    }
+
+    #[task(binds = TIM2, shared = [], local = [dshot_read_timer], priority = 7)]
+    /// We use this ISR to, bit-by-bit, fill the buffer when receiving RPM data. It also handles
+    /// termination of the reception timer. Started on the first low edge of the Motor 1 pin.
+    fn dshot_read_isr(mut cx: dshot_read_isr::Context) {
+        println!("READ");
         cx.local
             .dshot_read_timer
             .clear_interrupt(TimerInterrupt::Update);
@@ -1425,49 +1452,71 @@ mod app {
 
         // todo: Perhaps a message started flag etc.
 
-        let i = dshot::DSHOT_READ_I.load(Ordering::Acquire);
 
-        // todo: Maybe don't start reading until the first low pulse.
-        if i > (13 + 21) {
-            // We have read the entire payload.
-            dshot::DSHOT_READ_I.store(0, Ordering::Release);
 
-            cx.local.dshot_read_timer.stop();
-
-            let alt_mode = 0b10;
-            unsafe {
-                (*pac::GPIOC::ptr())
-                    .moder
-                    .modify(|_, w| w.moder6.bits(alt_mode));
-                (*pac::GPIOA::ptr())
-                    .moder
-                    .modify(|_, w| w.moder4.bits(alt_mode));
-                (*pac::GPIOB::ptr())
-                    .moder
-                    .modify(|_, w| w.moder0.bits(alt_mode));
-                (*pac::GPIOB::ptr())
-                    .moder
-                    .modify(|_, w| w.moder1.bits(alt_mode));
-            }
-        }
+        // If this is the first time this fires, it means we've passed through the initial delay
+        // before the ESC sends the first bit. Increase the timer frequency.
+        // if cx.local.dshot_read_timer.get_max_duty() == dshot::READ_TIMER_ARR_INIT  {
+        //     cx.local.dshot_read_timer.set_auto_reload(dshot::READ_TIMER_ARR_READING);
+        //     return
+        // }
 
         // todo: Feature gate for pins
-        let m1_val = gpio::is_high(gpio::Port::C, 6);
-        let m2_val = gpio::is_high(gpio::Port::A, 4);
-        let m3_val = gpio::is_high(gpio::Port::B, 0);
-        let m4_val = gpio::is_high(gpio::Port::B, 1);
+        // let m1_val = gpio::is_low(gpio::Port::C, 6);
+        // let m2_val = gpio::is_low(gpio::Port::A, 4);
+        let m3_val = gpio::is_low(gpio::Port::B, 0);
+        let m4_val = gpio::is_low(gpio::Port::B, 1);
 
-        let i2 = i - 13; // todo: Sort this mess out. Probably by reconfiguring this timer's period.
+        // if dshot::READ_MSG_STARTED.load(Ordering::Acquire) == false {
+        //     // if m1_val == true || m2_val == true || m3_val == true || m4_val == true { // todo: Once new board
+        //     if m3_val == true || m4_val == true {
+        //         dshot::READ_MSG_STARTED.store(true, Ordering::Release);
+        //     }
+        //     // Return here without updateing the buffer; the first bit isn't data; it just indicates
+        //     // the message has started. }
+        //     return;
+        // }
+
+        let i = dshot::READ_I.fetch_add(1, Ordering::Acquire);
 
         unsafe {
-            dshot::PAYLOAD_REC_BB_1[i2] = m1_val;
-            dshot::PAYLOAD_REC_BB_2[i2] = m2_val;
-            dshot::PAYLOAD_REC_BB_3[i2] = m3_val;
-            dshot::PAYLOAD_REC_BB_4[i2] = m4_val;
+            // dshot::PAYLOAD_REC_BB_1[i] = m1_val;
+            // dshot::PAYLOAD_REC_BB_2[i] = m2_val;
+            dshot::PAYLOAD_REC_BB_3[i] = m3_val;
+            dshot::PAYLOAD_REC_BB_4[i] = m4_val;
         }
 
-        // todo: Use a single atomic op instead
-        dshot::DSHOT_READ_I.store(i + 1, Ordering::Release);
+        // We have read the entire payload; reset this timer, state variables, and GPIO pins.
+        // Do this after storing the motor values, since we stil need them for this tick.
+        if i >= dshot::REC_BUF_LEN - 1 {
+            dshot::READ_I.store(0, Ordering::Release);
+            // dshot::READ_MSG_STARTED.store(false, Ordering::Release);
+
+            cx.local.dshot_read_timer.disable();
+
+            // // todo: Reset ARR here and pin mode, or in dshot::send_payload? Currently here
+            // let alt_mode = 0b10;
+            // // todo: H7 pins too.
+            // unsafe {
+            //     // todo: Put these in once you have the new board
+            //     // (*pac::GPIOC::ptr())
+            //     //     .moder
+            //     //     .modify(|_, w| w.moder6().bits(alt_mode));
+            //     // (*pac::GPIOA::ptr())
+            //     //     .moder
+            //     //     .modify(|_, w| w.moder4().bits(alt_mode));
+            //     (*pac::GPIOB::ptr())
+            //         .moder
+            //         .modify(|_, w| w.moder0().bits(alt_mode));
+            //     (*pac::GPIOB::ptr())
+            //         .moder
+            //         .modify(|_, w| w.moder1().bits(alt_mode));
+            // }
+
+
+            // todo: Put back.
+            // cx.local.dshot_read_timer.set_auto_reload(dshot::READ_TIMER_ARR_INIT);
+        }
     }
 
     // // #[task(binds = TIM8, // H7
