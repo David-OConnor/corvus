@@ -759,8 +759,6 @@ mod app {
                     if *cx.local.update_isr_loop_i % PRINT_STATUS_RATIO == 0 {
                         // todo: Flesh this out, and perhaps make it more like Preflight.
 
-                        // println!("RX buf: {:?}", unsafe { crsf::RX_BUFFER });
-
                         println!("DSHOT: {:?}", unsafe { dshot::PAYLOAD_REC });
 
                         println!(
@@ -1165,7 +1163,10 @@ mod app {
                     // todo: Temp debug code.
                     match control_channel_data {
                         Some(ch_data) => {
-                            let p = ch_data.throttle;
+                            let mut p = ch_data.throttle;
+                            if p < 0.025 {
+                                p = 0.025;
+                            }
                             if state_volatile.arm_status == ArmStatus::Armed {
                                 dshot::set_power(p, p, p, p, motor_timer);
                             } else {
@@ -1386,14 +1387,15 @@ mod app {
 
             if dshot::BIDIR_EN {
                 if dshot::DSHOT_REC_MODE.load(Ordering::Relaxed) {
-                    dshot::set_to_output(motor_timer);
+                    // todo: We currently have it set to output mode in `dshot::send_payload`.
+                    // dshot::set_to_output(motor_timer);
 
-                    dshot::DSHOT_REC_MODE.store(false, Ordering::Relaxed);
+                    // dshot::DSHOT_REC_MODE.store(false, Ordering::Relaxed);
                 } else {
-                    dshot::set_to_input(motor_timer);
                     dshot::receive_payload(motor_timer);
 
-                    dshot::DSHOT_REC_MODE.store(true, Ordering::Relaxed);
+                    // // todo: Move to `receive_payload` fn on this atomic op?
+                    // dshot::DSHOT_REC_MODE.store(true, Ordering::Relaxed);
                 }
 
             }

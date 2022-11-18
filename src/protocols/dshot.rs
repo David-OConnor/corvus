@@ -11,8 +11,8 @@
 //! 1 and 0 in the DSHOT frame are distinguished by their high time. This means that every bit has a certain (constant) length,
 //! and the length of the high part of the bit dictates if a 1 or 0 is being received.
 //!
-//! The DSHOT protocol (DSHOT-300, DSHOT-600 etc) is determined by the `DSHOT_ARR_600` and `DSHOT_PSC_600` settings in the
-//! main crate; ie set a 600kHz countdown for DSHOT-600.
+//! The DSHOT protocol (DSHOT-300, DSHOT-600 etc) is determined by the `DSHOT_ARR_600` and
+//! `DSHOT_PSC_600` settings; ie set a 600kHz countdown for DSHOT-600.
 
 use core::sync::atomic::AtomicBool;
 
@@ -40,7 +40,7 @@ use cfg_if::cfg_if;
 use usb_device::device::UsbDeviceState::Default;
 
 // Enable bidirectional DSHOT, which returns RPM data
-pub const BIDIR_EN: bool = false;
+pub const BIDIR_EN: bool = true;
 
 // Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
 // so we can set duty cycle appropriately for DSHOT.
@@ -57,6 +57,9 @@ static mut ESC_TELEM: bool = false;
 #[cfg(feature = "g4")]
 pub static DSHOT_REC_MODE: AtomicBool = AtomicBool::new(false);
 
+// The number of motors here affects our payload interleave logic, and DMA burst length written.
+const NUM_MOTORS: usize = 4;
+
 // Update frequency: 600kHz
 // 170Mhz tim clock on G4.
 // 240Mhz tim clock on H743
@@ -69,6 +72,7 @@ cfg_if! {
     } else if #[cfg(feature = "g4")] {
         // pub const DSHOT_ARR_600: u32 = 282; // 170Mhz tim clock
         pub const DSHOT_ARR_600: u32 = 567; // 170Mhz tim clock // todo: This is for DSHOT 300.
+        pub const DSHOT_ARR_300: u32 = 567; // 170Mhz tim clock // todo: This is for DSHOT 300.
     }
 }
 
@@ -86,11 +90,13 @@ pub const PAUSE_AFTER_SAVE: u32 = 40; // Must be at least 35ms.
 pub const REPEAT_COMMAND_COUNT: u32 = 10; // todo: Set back to 6 once sorted out.
 
 // DMA buffers for each rotor. 16-bit data.
-// todo: Come back to this and examine why. And examine in bidir.
-// Len 36, since last 2 entries will be 0 per channel. Required to prevent extra pulses. (Not sure exactly why)
-static mut PAYLOAD: [u16; 72] = [0; 72];
+// Last 2 entries will be 0 per channel. Required to prevent extra pulses. (Not sure why)
+static mut PAYLOAD: [u16; 18 * NUM_MOTORS] = [0; 18 * NUM_MOTORS];
 // todo: The receive payload may be shorter due to how it's encoded; come back to this.
-pub static mut PAYLOAD_REC: [u16; 72] = [0; 72];
+
+// todo: TS
+pub static mut PAYLOAD_REC: [u16; 18 * NUM_MOTORS] = [0; 18 * NUM_MOTORS];
+// pub static mut PAYLOAD_REC: [u16; 3 * NUM_MOTORS] = [0; 3 * NUM_MOTORS];
 
 /// Possible DSHOT commands (ie, DSHOT values 0 - 47). Does not include power settings.
 /// [Special commands section](https://brushlesswhoop.com/dshot-and-bidirectional-dshot/)
@@ -279,8 +285,7 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
         // DSHOT uses MSB first alignment.
         // Values alternate in the buffer between the 4 registers we're editing, so
         // we interleave values here. (Each timer and DMA stream is associated with 2 channels).
-        // unsafe { PAYLOAD[(15 - i) * 2 + offset] = val as u16 };
-        unsafe { PAYLOAD[(15 - i) * 4 + offset] = val as u16 };
+        unsafe { PAYLOAD[(15 - i) * NUM_MOTORS + offset] = val as u16 };
     }
 
     // Note that the end stays 0-padded, since we init with 0s, and never change those values.
@@ -303,6 +308,8 @@ pub fn set_power_single(rotor: Motor, power: f32, timer: &mut MotorTimer) {
     send_payload(timer)
 }
 
+use core::sync::atomic::Ordering; // todo move up if you keep this.
+
 /// Send the stored payload.
 fn send_payload(timer: &mut MotorTimer) {
     // Stop the receive transaction.
@@ -314,11 +321,21 @@ fn send_payload(timer: &mut MotorTimer) {
         // println!("PAYLOAD: {:?}", PAYLOAD);
     // }
 
+    // todo: Is this where we want to reset to output?
+
+    // // todo: STop temp while TSing receive. Should already have been stopped.
+    // timer.disable();
+
+    if BIDIR_EN {
+        set_to_output(timer);
+        DSHOT_REC_MODE.store(false, Ordering::Relaxed);
+    }
+
     unsafe {
         timer.write_dma_burst(
             &PAYLOAD,
             setup::DSHOT_BASE_DIR_OFFSET,
-            4, // Burst len of 4, since we're updating 4 channels.
+            NUM_MOTORS as u8, // Update a channel per number of motors, up to 4.
             setup::MOTOR_CH,
             ChannelCfg {
                 // Take precedence over CRSF and ADCs.
@@ -333,7 +350,13 @@ fn send_payload(timer: &mut MotorTimer) {
 
 /// Receive an RPM payload for channel B on G4, or all channels on H7; for bidirectional mode.
 pub fn receive_payload(timer: &mut MotorTimer) {
+    // Note: Should already be stopped, as we call this from a transfer-complete interrupt.
     dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
+
+    if BIDIR_EN {
+        set_to_input(timer);
+        DSHOT_REC_MODE.store(true, Ordering::Relaxed);
+    }
 
     #[cfg(feature = "h7")]
     let high_prec_timer = true;
@@ -344,7 +367,7 @@ pub fn receive_payload(timer: &mut MotorTimer) {
         timer.read_dma_burst(
             &PAYLOAD_REC,
             setup::DSHOT_BASE_DIR_OFFSET,
-            4,
+            NUM_MOTORS as u8,
             setup::MOTOR_CH,
             ChannelCfg {
                 // Take precedence over CRSF and ADCs.
@@ -390,6 +413,8 @@ pub fn set_bidirectional(enabled: bool, timer: &mut MotorTimer) {
 pub fn set_to_output(timer: &mut MotorTimer) {
     let oc = OutputCompare::Pwm1;
 
+    timer.set_auto_reload(DSHOT_ARR_600 as u32);
+
     // todo: Here and elsewhere in this module, if you allocate timers/motors differently than 2/2
     // todo for fixed-wing, you'll need to change this logic.
 
@@ -403,17 +428,31 @@ pub fn set_to_output(timer: &mut MotorTimer) {
 }
 
 /// Set the timer(s) to input mode. Used to receive PWM data in bidirectional mode.
-/// We use motor args here, since this will run separately depending on the DSHOT
-/// ISR for G4.
+/// Assumes the timer is stopped prior to calling.
 pub fn set_to_input(timer: &mut MotorTimer) {
     let cc = CaptureCompare::InputTi1;
     let pol_p = Polarity::ActiveLow;
     let pol_n = Polarity::ActiveHigh;
 
-    timer.set_input_capture(Motor::M1.tim_channel(), cc, pol_p, pol_n);
-    timer.set_input_capture(Motor::M2.tim_channel(), cc, pol_p, pol_n);
-    #[cfg(feature = "quad")]
+    // todo: Don't use `set_period here; set ARR and PSC
+    // 100us is longer that we expect the longest received pulse to be. Reduce A/R
+    // timer.set_freq(300_000.);
+    timer.set_auto_reload(14_000); // todo: Use const. And will change H7 vs G4
+
+    // timer.set_input_capture(Motor::M1.tim_channel(), cc, pol_p, pol_n);
+    // timer.set_input_capture(Motor::M2.tim_channel(), cc, pol_p, pol_n);
+    // #[cfg(feature = "quad")]
+    // timer.set_input_capture(Motor::M3.tim_channel(), cc, pol_p, pol_n);
+    // #[cfg(feature = "quad")]
+    // timer.set_input_capture(Motor::M4.tim_channel(), cc, pol_p, pol_n);
+
+    // todo: Experimenting how to capture both edges.
+    let cc2 = CaptureCompare::InputTi2; // For example, this maps CC3 to ch4 and CC4 to TIM3 etc, I believe.
+
     timer.set_input_capture(Motor::M3.tim_channel(), cc, pol_p, pol_n);
+    timer.set_input_capture(Motor::M3.tim_channel(), cc2, pol_n, pol_p);
     #[cfg(feature = "quad")]
     timer.set_input_capture(Motor::M4.tim_channel(), cc, pol_p, pol_n);
+    #[cfg(feature = "quad")]
+    timer.set_input_capture(Motor::M4.tim_channel(), cc2, pol_n, pol_p);
 }

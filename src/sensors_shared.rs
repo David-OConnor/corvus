@@ -116,3 +116,42 @@ pub fn start_transfers(i2c_ext_sensors: &mut I2c<I2C1>, i2c_baro: &mut I2c<I2C2>
         );
     }
 }
+
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+pub enum BattCellCount {
+    S2 = 2,
+    S3 = 3,
+    S4 = 4,
+    S6 = 6,
+    S8 = 8,
+}
+
+impl Default for BattCellCount {
+    fn default() -> Self {
+        Self::S4
+    }
+}
+
+impl BattCellCount {
+    pub fn num_cells(&self) -> f32 {
+        // float since it interacts with floats.
+        match self {
+            Self::S2 => 2.,
+            Self::S3 => 3.,
+            Self::S4 => 4.,
+            Self::S6 => 6.,
+            Self::S8 => 8.,
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::S2 => "2S",
+            Self::S3 => "3S",
+            Self::S4 => "4S",
+            Self::S6 => "6S",
+            Self::S8 => "8S",
+        }
+    }
+}

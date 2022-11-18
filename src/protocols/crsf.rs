@@ -518,7 +518,6 @@ pub fn handle_packet(
             *rx_fault = true;
             println!("Error decoding packet address or frame type; skipping");
             println!("BUF: {:?}", unsafe { RX_BUFFER });
-            println!("S: {:?}", buf_shifted);
             return None;
         }
     };
