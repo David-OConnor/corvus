@@ -246,6 +246,15 @@ pub fn setup_motor_dir(motors_reversed: (bool, bool, bool, bool), timer: &mut Mo
     unsafe { ESC_TELEM = false };
 }
 
+/// Calculate CRC. Used for both sending and receiving.
+fn calc_crc(packet: u16) -> u16 {
+    if BIDIR_EN {
+        (!(packet ^ (packet >> 4) ^ (packet >> 8))) & 0x0F
+    } else {
+        (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F
+    }
+}
+
 /// Update our DSHOT payload for a given rotor, with a given power level. This created a payload
 /// of tick values to send to the CCMR register; the output pin is set high or low for each
 /// tick duration in succession.
@@ -264,12 +273,7 @@ pub fn setup_payload(rotor: Motor, cmd: CmdType) {
     let packet = (data_word << 1) | (unsafe { ESC_TELEM } as u16);
 
     // Compute the checksum
-    let crc = if BIDIR_EN {
-        (!(packet ^ (packet >> 4) ^ (packet >> 8))) & 0x0F
-    } else {
-        (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F
-    };
-    let packet = (packet << 4) | crc;
+    let packet = (packet << 4) | calc_crc(packet);
 
     let offset = match rotor {
         Motor::M1 => 0,
@@ -455,4 +459,64 @@ pub fn set_to_input(timer: &mut MotorTimer) {
     timer.set_input_capture(Motor::M4.tim_channel(), cc, pol_p, pol_n);
     #[cfg(feature = "quad")]
     timer.set_input_capture(Motor::M4.tim_channel(), cc2, pol_n, pol_p);
+}
+
+pub struct RpmCrcError {}
+
+#[derive(Clone, Copy)]
+enum EscData {
+    Rpm(f32),
+    Telem(EscTelemType, u8),
+}
+
+#[derive(Clone, Copy)]
+// todo: These could hold a value
+enum EscTelemType {
+    Temp,
+    Voltage,
+    Current,
+    Debug1,
+    Debug2,
+    Debug3,
+    State,
+}
+
+
+
+
+/// Return RPM in radians-per-second
+/// See https://brushlesswhoop.com/dshot-and-bidirectional-dshot/, "eRPM Telemetry Frame (from ESC)".
+fn rpm_from_data(packet: u16) -> Result<EscData, RpmCrcError> {
+    let crc = packet & 0b1111;
+
+    if crc != calc_crc(packet) {
+        return Err(RpmCrcError {})
+    }
+
+    // Parse extended telemetry if avail. (This may be required to avoid misreading the data?)
+    if (packet & (1 << 8)) == 0 {
+        // Telemetry is passed
+        let telem_type_val = packet & (0b1111 << 12);
+        let val = packet & (0b11111111 << 4); // 8 bits vice 9 for rpm data
+
+        let telem_type = match telem_type_val {
+            0x02 => EscTelemType::Temp,
+            0x04 => EscTelemType::Voltage,
+            0x06 => EscTelemType::Current,
+            0x08 => EscTelemType::Debug1,
+            0x0A => EscTelemType::Debug2,
+            0x0C => EscTelemType::Debug3,
+            0x0E => EscTelemType::State,
+            _ => return Err(RpmCrcError), // todo: Not a CRC error
+        };
+
+        Ok(EscData::Telem(telem_type, val as u8))
+    } else {
+        // No telemetry
+        let shift = packet & (0b111 << 13);
+        let base = packet & (0b111111111 << 4);
+        let period_us = base << shift; // todo period; what does this mean? Multiply by pole count?
+
+        Ok(EscData::RpmOnly(1. / period_us as f32)) // todo temp
+    }
 }
