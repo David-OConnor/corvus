@@ -63,7 +63,7 @@ use stm32_hal2::{
     flash::{Bank, Flash},
     gpio::{self, Edge, Pin, Port},
     i2c::I2c,
-    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, TIM1, TIM15, TIM16, TIM17, TIM5, USART2},
+    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, TIM1, TIM15, TIM16, TIM17, TIM2, TIM5, USART2},
     spi::Spi,
     timer::{Timer, TimerConfig, TimerInterrupt},
     usart::{Usart, UsartInterrupt},
@@ -220,8 +220,6 @@ mod app {
         control_channel_data: Option<ChannelData>,
         /// Link statistics, including Received Signal Strength Indicator (RSSI) from the controller's radio.
         link_stats: LinkStats,
-        // dma: Dma<DMA1>,
-        // dma2: Dma<DMA2>,
         spi1: Spi<SPI1>,
         cs_imu: Pin,
         i2c1: I2c<I2C1>,
@@ -270,6 +268,7 @@ mod app {
         time_with_high_throttle: f32,
         measurement_timer: Timer<TIM5>,
         ahrs: Ahrs,
+        dshot_read_timer: Timer<TIM2>,
     }
 
     #[init]
@@ -285,9 +284,9 @@ mod app {
         // Improves performance, at a cost of slightly increased power use.
         // Note that these enable fns should automatically invalidate prior.
         #[cfg(feature = "h7")]
-            cp.SCB.enable_icache();
+        cp.SCB.enable_icache();
         #[cfg(feature = "h7")]
-            cp.SCB.enable_dcache(&mut cp.CPUID);
+        cp.SCB.enable_dcache(&mut cp.CPUID);
 
         cfg_if! {
             if #[cfg(feature = "h7")] {
@@ -322,9 +321,9 @@ mod app {
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-            clocks::enable_crs(CrsSyncSrc::OtgHs);
+        clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-            clocks::enable_crs(CrsSyncSrc::Usb);
+        clocks::enable_crs(CrsSyncSrc::Usb);
 
         let flash = unsafe { &(*pac::FLASH::ptr()) };
 
@@ -334,14 +333,14 @@ mod app {
         let mut dma = Dma::new(dp.DMA1);
         let mut dma2 = Dma::new(dp.DMA2);
         #[cfg(feature = "g4")]
-            dma::enable_mux1();
+        dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
         #[cfg(feature = "h7")]
-            let uart_crsf = dp.UART7;
+        let uart_crsf = dp.UART7;
         #[cfg(feature = "g4")]
-            let uart_crsf = dp.USART3;
+        let uart_crsf = dp.USART3;
 
         let (mut spi1, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_crsf) =
             setup::setup_busses(dp.SPI1, dp.I2C1, dp.I2C2, dp.USART2, uart_crsf, &clock_cfg);
@@ -358,10 +357,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -415,6 +414,17 @@ mod app {
         // Frequency here can be arbitrary; we set manually using PSC and ARR below.
         let mut motor_timer = Timer::new_tim3(dp.TIM3, 1., motor_timer_cfg.clone(), &clock_cfg);
 
+        // This timer periodically fire. When it does, we read the value of each of the 4 motor lines
+        // in its ISR.
+        // todo: Adjust frequency A/R. It should be 5/4 * dshot frequency.
+        let mut dshot_read_timer = Timer::new_tim2(
+            dp.TIM2,
+            (5. / 4. * 300_000.),
+            Default::default(),
+            &clock_cfg,
+        );
+        dshot_read_timer.enable_interrupt(TimerInterrupt::Update);
+
         // For fixed wing on H7; need a separate timer from the 4 used for DSHOT.
         let mut servo_timer = Timer::new_tim8(dp.TIM8, 1., motor_timer_cfg, &clock_cfg);
 
@@ -440,9 +450,9 @@ mod app {
         });
 
         #[cfg(feature = "quad")]
-            flight_ctrls::setup_timers(&mut motor_timer);
+        flight_ctrls::setup_timers(&mut motor_timer);
         #[cfg(feature = "fixed-wing")]
-            flight_ctrls::setup_timers(&mut motor_timer, &servo_timer);
+        flight_ctrls::setup_timers(&mut motor_timer, &servo_timer);
 
         // Note: With this circular DMA approach, we discard many readings,
         // but shouldn't have consequences other than higher power use, compared to commanding
@@ -492,9 +502,9 @@ mod app {
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -568,13 +578,13 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
@@ -599,9 +609,9 @@ mod app {
         // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
         // todo opendrain and pullup set, and without enabling interrupt.
         #[cfg(feature = "h7")]
-            let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
         #[cfg(feature = "g4")]
-            let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
         imu_exti_pin.enable_interrupt(Edge::Falling);
 
         println!("Init complete; starting main loops");
@@ -672,6 +682,7 @@ mod app {
                 time_with_high_throttle: 0.,
                 measurement_timer,
                 ahrs,
+                dshot_read_timer,
             },
             init::Monotonics(),
             // init::Monotonics(measurement_timer)
@@ -759,7 +770,9 @@ mod app {
                     if *cx.local.update_isr_loop_i % PRINT_STATUS_RATIO == 0 {
                         // todo: Flesh this out, and perhaps make it more like Preflight.
 
-                        println!("DSHOT: {:?}", unsafe { dshot::PAYLOAD_REC });
+                        // println!("DSHOT: {:?}", unsafe { dshot::PAYLOAD_REC });
+                        println!("DSHOT3: {:?}", unsafe { dshot::PAYLOAD_REC_BB_3 });
+                        println!("DSHOT4: {:?}", unsafe { dshot::PAYLOAD_REC_BB_4 });
 
                         println!(
                             "\n\nFaults. Rx: {}. RPM: {}", system_status.rf_control_fault, system_status.esc_rpm_fault,
@@ -1379,27 +1392,82 @@ mod app {
             DmaInterrupt::TransferComplete,
         );
 
-        // todo: Temp. Put motor timers etc back A/R. If you still have trouble, may need to
-        // todo split by 1/2, 3/4 instead of sharing motor timers struct.
-
         cx.shared.motor_timer.lock(|motor_timer| {
             motor_timer.disable();
 
-            if dshot::BIDIR_EN {
-                if dshot::DSHOT_REC_MODE.load(Ordering::Relaxed) {
-                    // todo: We currently have it set to output mode in `dshot::send_payload`.
-                    // dshot::set_to_output(motor_timer);
+            dshot::receive_payload(motor_timer);
 
-                    // dshot::DSHOT_REC_MODE.store(false, Ordering::Relaxed);
-                } else {
-                    dshot::receive_payload(motor_timer);
-
-                    // // todo: Move to `receive_payload` fn on this atomic op?
-                    // dshot::DSHOT_REC_MODE.store(true, Ordering::Relaxed);
-                }
-
-            }
+            // if dshot::BIDIR_EN {
+            //     if dshot::DSHOT_REC_MODE.load(Ordering::Relaxed) {
+            //         // todo: We currently have it set to output mode in `dshot::send_payload`.
+            //         // dshot::set_to_output(motor_timer);
+            //
+            //         // dshot::DSHOT_REC_MODE.store(false, Ordering::Relaxed);
+            //     } else {
+            //         dshot::receive_payload(motor_timer);
+            //
+            //         // // todo: Move to `receive_payload` fn on this atomic op?
+            //         // dshot::DSHOT_REC_MODE.store(true, Ordering::Relaxed);
+            //     }
+            //
+            // }
         });
+    }
+
+    #[task(binds = TIM2, shared = [], local = [dshot_read_timer] priority = 6)]
+    /// We use this ISR to enable input capture if in bidirectional mode.
+    fn dshot_read_isr(mut cx: dshot_isr::Context) {
+        cx.local
+            .dshot_read_timer
+            .clear_interrupt(TimerInterrupt::Update);
+
+        // todo: Figure out a way to use DMA instead of this.
+
+        // todo: Perhaps a message started flag etc.
+
+        let i = dshot::DSHOT_READ_I.load(Ordering::Acquire);
+
+        // todo: Maybe don't start reading until the first low pulse.
+        if i > (13 + 21) {
+            // We have read the entire payload.
+            dshot::DSHOT_READ_I.store(0, Ordering::Release);
+
+            cx.local.dshot_read_timer.stop();
+
+            let alt_mode = 0b10;
+            unsafe {
+                (*pac::GPIOC::ptr())
+                    .moder
+                    .modify(|_, w| w.moder6.bits(alt_mode));
+                (*pac::GPIOA::ptr())
+                    .moder
+                    .modify(|_, w| w.moder4.bits(alt_mode));
+                (*pac::GPIOB::ptr())
+                    .moder
+                    .modify(|_, w| w.moder0.bits(alt_mode));
+                (*pac::GPIOB::ptr())
+                    .moder
+                    .modify(|_, w| w.moder1.bits(alt_mode));
+            }
+        }
+
+        // todo: Feature gate for pins
+        let m1_val = gpio::is_high(gpio::Port::C, 6);
+        let m2_val = gpio::is_high(gpio::Port::A, 4);
+        let m3_val = gpio::is_high(gpio::Port::B, 0);
+        let m4_val = gpio::is_high(gpio::Port::B, 1);
+
+        let i2 = i - 13; // todo: Sort this mess out. Probably by reconfiguring this timer's period.
+
+        unsafe {
+            dshot::PAYLOAD_REC_BB_1[i2] = m1_val;
+            dshot::PAYLOAD_REC_BB_2[i2] = m2_val;
+            dshot::PAYLOAD_REC_BB_3[i2] = m3_val;
+            dshot::PAYLOAD_REC_BB_4[i2] = m4_val;
+        }
+
+        // todo: Use a single atomic op instead
+        dshot::DSHOT_READ_I.store(i + 1, Ordering::Release);
     }
 
     // // #[task(binds = TIM8, // H7
@@ -1496,7 +1564,7 @@ mod app {
                     uart.enable_interrupt(UsartInterrupt::CharDetect(None));
 
                     if let Some(crsf_data) =
-                    crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
+                        crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault)
                     {
                         match crsf_data {
                             crsf::PacketData::ChannelData(data) => {

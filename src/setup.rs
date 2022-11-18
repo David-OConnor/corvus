@@ -289,7 +289,6 @@ pub fn setup_pins() {
 
     uart_osd_rx.pull(Pull::Up);
 
-
     // We use UARTs for misc external devices, including ESC telemetry,
     // and VTX OSD.
 

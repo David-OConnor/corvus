@@ -14,12 +14,13 @@
 //! The DSHOT protocol (DSHOT-300, DSHOT-600 etc) is determined by the `DSHOT_ARR_600` and
 //! `DSHOT_PSC_600` settings; ie set a 600kHz countdown for DSHOT-600.
 
-use core::sync::atomic::AtomicBool;
+use core::sync::atomic::{AtomicBool, AtomicUsize};
 
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
     dma::{self, ChannelCfg, Priority},
+    gpio, pac,
     pac::{self, TIM3},
     timer::{CaptureCompare, CountDir, OutputCompare, Polarity},
 };
@@ -94,9 +95,18 @@ pub const REPEAT_COMMAND_COUNT: u32 = 10; // todo: Set back to 6 once sorted out
 static mut PAYLOAD: [u16; 18 * NUM_MOTORS] = [0; 18 * NUM_MOTORS];
 // todo: The receive payload may be shorter due to how it's encoded; come back to this.
 
+// The position we're reading when updating the DSHOT read.
+pub static DSHOT_READ_I: AtomicUsize = AtomicUsize::new(0);
 // todo: TS
 pub static mut PAYLOAD_REC: [u16; 18 * NUM_MOTORS] = [0; 18 * NUM_MOTORS];
-// pub static mut PAYLOAD_REC: [u16; 3 * NUM_MOTORS] = [0; 3 * NUM_MOTORS];
+
+// There are 21 bits in each DSHOT RPM reception message. Value is bit is high or low.
+const REC_BUF_LEN: usize = 21 + 13; // 13 buf between end of send and start of xmission
+                                    // todo: Maybe don't start rec process until first down edge.
+pub static mut PAYLOAD_REC_BB_1: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
+pub static mut PAYLOAD_REC_BB_2: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
+pub static mut PAYLOAD_REC_BB_3: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
+pub static mut PAYLOAD_REC_BB_4: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
 
 /// Possible DSHOT commands (ie, DSHOT values 0 - 47). Does not include power settings.
 /// [Special commands section](https://brushlesswhoop.com/dshot-and-bidirectional-dshot/)
@@ -322,7 +332,7 @@ fn send_payload(timer: &mut MotorTimer) {
     // Note that timer enabling is handled by `write_dma_burst`.
 
     // unsafe {
-        // println!("PAYLOAD: {:?}", PAYLOAD);
+    // println!("PAYLOAD: {:?}", PAYLOAD);
     // }
 
     // todo: Is this where we want to reset to output?
@@ -330,8 +340,9 @@ fn send_payload(timer: &mut MotorTimer) {
     // // todo: STop temp while TSing receive. Should already have been stopped.
     // timer.disable();
 
+    // todo: Deprecate A/R
     if BIDIR_EN {
-        set_to_output(timer);
+        // set_to_output(timer); // todo
         DSHOT_REC_MODE.store(false, Ordering::Relaxed);
     }
 
@@ -357,30 +368,56 @@ pub fn receive_payload(timer: &mut MotorTimer) {
     // Note: Should already be stopped, as we call this from a transfer-complete interrupt.
     dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
 
-    if BIDIR_EN {
-        set_to_input(timer);
-        DSHOT_REC_MODE.store(true, Ordering::Relaxed);
+    // set_to_input(timer);
+    // DSHOT_REC_MODE.store(true, Ordering::Relaxed);
+    //
+    // #[cfg(feature = "h7")]
+    // let high_prec_timer = true;
+    // #[cfg(feature = "g4")]
+    // let high_prec_timer = false;
+    //
+    // unsafe {
+    //     timer.read_dma_burst(
+    //         &PAYLOAD_REC,
+    //         setup::DSHOT_BASE_DIR_OFFSET,
+    //         NUM_MOTORS as u8,
+    //         setup::MOTOR_CH,
+    //         ChannelCfg {
+    //             // Take precedence over CRSF and ADCs.
+    //             priority: Priority::High,
+    //             ..ChannelCfg::default()
+    //         },
+    //         high_prec_timer,
+    //         setup::MOTORS_DMA_PERIPH,
+    //     );
+    // }
+
+    // todo: Trying a different approach
+    let input_mode = 0b00;
+    unsafe {
+        (*pac::GPIOB::ptr())
+            .moder
+            .modify(|_, w| w.moder0.bits(input_mode));
+        (*pac::GPIOB::ptr())
+            .moder
+            .modify(|_, w| w.moder1.bits(input_mode));
+
+        // gpio::read_dma(
+        //     &PAYLOAD_REC,
+        //     setup::MOTOR_CH,
+        //     ChannelCfg {
+        //         // Take precedence over CRSF and ADCs.
+        //         priority: Priority::High,
+        //         ..ChannelCfg::default()
+        //     },
+        //     setup::MOTORS_DMA_PERIPH,
+        // );
     }
 
-    #[cfg(feature = "h7")]
-    let high_prec_timer = true;
-    #[cfg(feature = "g4")]
-    let high_prec_timer = false;
+    DSHOT_READ_I.store(0, Ordering::Release);
 
     unsafe {
-        timer.read_dma_burst(
-            &PAYLOAD_REC,
-            setup::DSHOT_BASE_DIR_OFFSET,
-            NUM_MOTORS as u8,
-            setup::MOTOR_CH,
-            ChannelCfg {
-                // Take precedence over CRSF and ADCs.
-                priority: Priority::High,
-                ..ChannelCfg::default()
-            },
-            high_prec_timer,
-            setup::MOTORS_DMA_PERIPH,
-        );
+        (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().set_bit());
     }
 }
 
@@ -415,6 +452,8 @@ pub fn set_bidirectional(enabled: bool, timer: &mut MotorTimer) {
 /// Set the timer(s) to output mode. Do this in init, and after a receive
 /// phase of bidirectional DSHOT.
 pub fn set_to_output(timer: &mut MotorTimer) {
+    // todo: The code below may be removed if using bitbang receive
+
     let oc = OutputCompare::Pwm1;
 
     timer.set_auto_reload(DSHOT_ARR_600 as u32);
@@ -433,7 +472,7 @@ pub fn set_to_output(timer: &mut MotorTimer) {
 
 /// Set the timer(s) to input mode. Used to receive PWM data in bidirectional mode.
 /// Assumes the timer is stopped prior to calling.
-pub fn set_to_input(timer: &mut MotorTimer) {
+pub fn _set_to_input(timer: &mut MotorTimer) {
     let cc = CaptureCompare::InputTi1;
     let pol_p = Polarity::ActiveLow;
     let pol_n = Polarity::ActiveHigh;
@@ -443,22 +482,22 @@ pub fn set_to_input(timer: &mut MotorTimer) {
     // timer.set_freq(300_000.);
     timer.set_auto_reload(14_000); // todo: Use const. And will change H7 vs G4
 
-    // timer.set_input_capture(Motor::M1.tim_channel(), cc, pol_p, pol_n);
-    // timer.set_input_capture(Motor::M2.tim_channel(), cc, pol_p, pol_n);
-    // #[cfg(feature = "quad")]
-    // timer.set_input_capture(Motor::M3.tim_channel(), cc, pol_p, pol_n);
-    // #[cfg(feature = "quad")]
-    // timer.set_input_capture(Motor::M4.tim_channel(), cc, pol_p, pol_n);
+    timer.set_input_capture(Motor::M1.tim_channel(), cc, pol_p, pol_n);
+    timer.set_input_capture(Motor::M2.tim_channel(), cc, pol_p, pol_n);
+    #[cfg(feature = "quad")]
+    timer.set_input_capture(Motor::M3.tim_channel(), cc, pol_p, pol_n);
+    #[cfg(feature = "quad")]
+    timer.set_input_capture(Motor::M4.tim_channel(), cc, pol_p, pol_n);
 
     // todo: Experimenting how to capture both edges.
     let cc2 = CaptureCompare::InputTi2; // For example, this maps CC3 to ch4 and CC4 to TIM3 etc, I believe.
 
-    timer.set_input_capture(Motor::M3.tim_channel(), cc, pol_p, pol_n);
-    timer.set_input_capture(Motor::M3.tim_channel(), cc2, pol_n, pol_p);
-    #[cfg(feature = "quad")]
-    timer.set_input_capture(Motor::M4.tim_channel(), cc, pol_p, pol_n);
-    #[cfg(feature = "quad")]
-    timer.set_input_capture(Motor::M4.tim_channel(), cc2, pol_n, pol_p);
+    // timer.set_input_capture(Motor::M3.tim_channel(), cc, pol_p, pol_n);
+    // timer.set_input_capture(Motor::M3.tim_channel(), cc2, pol_n, pol_p);
+    // #[cfg(feature = "quad")]
+    // timer.set_input_capture(Motor::M4.tim_channel(), cc, pol_p, pol_n);
+    // #[cfg(feature = "quad")]
+    // timer.set_input_capture(Motor::M4.tim_channel(), cc2, pol_n, pol_p);
 }
 
 pub struct RpmCrcError {}
@@ -481,16 +520,13 @@ enum EscTelemType {
     State,
 }
 
-
-
-
 /// Return RPM in radians-per-second
 /// See https://brushlesswhoop.com/dshot-and-bidirectional-dshot/, "eRPM Telemetry Frame (from ESC)".
 fn rpm_from_data(packet: u16) -> Result<EscData, RpmCrcError> {
     let crc = packet & 0b1111;
 
     if crc != calc_crc(packet) {
-        return Err(RpmCrcError {})
+        return Err(RpmCrcError {});
     }
 
     // Parse extended telemetry if avail. (This may be required to avoid misreading the data?)
@@ -517,6 +553,8 @@ fn rpm_from_data(packet: u16) -> Result<EscData, RpmCrcError> {
         let base = packet & (0b111111111 << 4);
         let period_us = base << shift; // todo period; what does this mean? Multiply by pole count?
 
-        Ok(EscData::RpmOnly(1. / period_us as f32)) // todo temp
+        let num_poles = 14.; // todo placeholder
+
+        Ok(EscData::Rpm(1. / period_us as f32 * num_poles))
     }
 }

@@ -162,5 +162,5 @@ pub fn batt_left_from_v(v: f32, cell_count: BattCellCount) -> f32 {
     // todo. Not linear! Just for now.
 
     let port_through = (per_cell - BATT_LUT[i].0) / (BATT_LUT[i + 1].0 - BATT_LUT[i].0);
-    port_through * (BATT_LUT[i+1].1 - BATT_LUT[i].1) + BATT_LUT[i].1
+    port_through * (BATT_LUT[i + 1].1 - BATT_LUT[i].1) + BATT_LUT[i].1
 }
