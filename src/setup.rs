@@ -23,6 +23,7 @@ cfg_if! {
     }
 }
 use crate::params::Params;
+use crate::system_status::{SensorStatus, SystemStatus};
 use crate::{
     crsf,
     drivers::{
@@ -31,7 +32,6 @@ use crate::{
     },
     flight_ctrls::common::Motor,
     ppks::{Location, LocationType},
-    state::{SensorStatus, SystemStatus},
 };
 
 // Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.

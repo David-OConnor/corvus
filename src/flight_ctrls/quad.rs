@@ -14,7 +14,8 @@ use crate::{
     dshot,
     safety::ArmStatus,
     setup::MotorTimer,
-    state::{SensorStatus, StateVolatile, SystemStatus},
+    state::StateVolatile,
+    system_status::{SensorStatus, SystemStatus},
     util, DT_FLIGHT_CTRLS,
 };
 

@@ -37,11 +37,11 @@ use filter_imu::ImuFilters;
 use flight_ctrls::{
     autopilot::AutopilotStatus,
     common::MotorRpm,
-    ctrl_logic::{self, PowerMaps},
     // pid::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
     //     PID_CONTROL_ADJ_TIMEOUT,
     // },
+    ctrl_logic::{self, PowerMaps},
     filters::FlightCtrlFilters,
     pid::{MotorCoeffs, MotorPidGroup},
     ControlMapping,
@@ -52,7 +52,7 @@ use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_preflight};
 use safety::ArmStatus;
 use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
-use state::{OperationMode, SensorStatus, StateVolatile, SystemStatus, UserCfg};
+use state::{OperationMode, StateVolatile, UserCfg};
 
 use params::Params;
 use stm32_hal2::{
@@ -68,6 +68,7 @@ use stm32_hal2::{
     timer::{Timer, TimerConfig, TimerInterrupt},
     usart::{Usart, UsartInterrupt},
 };
+use system_status::{SensorStatus, SystemStatus};
 use usb_device::{bus::UsbBusAllocator, prelude::*};
 use usbd_serial::{self, SerialPort};
 
@@ -88,6 +89,7 @@ mod safety;
 mod sensors_shared;
 mod setup;
 mod state;
+mod system_status;
 mod util;
 
 cfg_if! {
@@ -221,7 +223,6 @@ mod app {
         /// Link statistics, including Received Signal Strength Indicator (RSSI) from the controller's radio.
         link_stats: LinkStats,
         spi1: Spi<SPI1>,
-        cs_imu: Pin,
         i2c1: I2c<I2C1>,
         i2c2: I2c<I2C2>,
         altimeter: baro::Altimeter,
@@ -269,6 +270,7 @@ mod app {
         measurement_timer: Timer<TIM5>,
         ahrs: Ahrs,
         dshot_read_timer: Timer<TIM2>,
+        cs_imu: Pin,
     }
 
     #[init]
@@ -646,7 +648,6 @@ mod app {
                 // dma,
                 // dma2,
                 spi1,
-                cs_imu,
                 i2c1,
                 i2c2,
                 altimeter,
@@ -685,6 +686,7 @@ mod app {
                 measurement_timer,
                 ahrs,
                 dshot_read_timer,
+                cs_imu,
             },
             init::Monotonics(),
             // init::Monotonics(measurement_timer)
@@ -777,7 +779,9 @@ mod app {
                         println!("DSHOT4: {:?}", unsafe { dshot::PAYLOAD_REC_BB_4 });
 
                         println!(
-                            "\n\nFaults. Rx: {}. RPM: {}", system_status.rf_control_fault, system_status.esc_rpm_fault,
+                            "\n\nFaults. Rx: {}. RPM: {}",
+                            system_status::RX_FAULT.load(Ordering::Acquire),
+                            system_status::RPM_FAULT.load(Ordering::Acquire),
                         );
 
                         match control_channel_data {
@@ -1075,19 +1079,19 @@ mod app {
 
     /// Runs when new IMU data is ready. Trigger a DMA read.
     /// High priority since it's important, and quick-to-execute
-    #[task(binds = EXTI4, shared = [cs_imu, spi1], local = [], priority = 8)]
-    fn imu_data_isr(cx: imu_data_isr::Context) {
+    #[task(binds = EXTI4, shared = [spi1], local = [], priority = 8)]
+    fn imu_data_isr(mut cx: imu_data_isr::Context) {
         gpio::clear_exti_interrupt(4);
 
-        (cx.shared.cs_imu, cx.shared.spi1).lock(|cs_imu, spi| {
-            imu_shared::read_imu(imu::READINGS_START_ADDR, spi, cs_imu, setup::IMU_DMA_PERIPH);
+        cx.shared.spi1.lock(|spi| {
+            imu_shared::read_imu(imu::READINGS_START_ADDR, spi, setup::IMU_DMA_PERIPH);
         });
     }
 
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [spi1, current_params, params_prev, control_channel_data,
-    autopilot_status, imu_filters, flight_ctrl_filters, cs_imu, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timer, servo_timer, state_volatile], local = [ahrs, imu_isr_loop_i], priority = 4)]
+    autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
+    motor_timer, servo_timer, state_volatile], local = [ahrs, imu_isr_loop_i, cs_imu], priority = 4)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it nominally (and according to our measurements so far) runs at 8kHz.
     /// Note that on the H7 FC with the dedicated IMU LSE, it may run slightly faster.
@@ -1098,10 +1102,26 @@ mod app {
             DmaInterrupt::TransferComplete,
         );
 
-        cx.shared.cs_imu.lock(|cs| {
-            cs.set_high();
-        });
+        cx.local.cs_imu.set_high();
 
+        // todo: Try to get the stop DMA thing here not sharing SPI1, so we can have the `imu_data_isr`
+        // todo not use any locks.
+        // The commented out code below will do it, but in this case, probably not required.
+
+        // dma::stop(setup::IMU_DMA_PERIPH, setup::IMU_TX_CH,);
+        // dma::stop(setup::IMU_DMA_PERIPH, setup::IMU_RX_CH,);
+        //
+        // #[cfg(feature = "h7")]
+        // (*pac::SPI1::ptr()).modify(|_, w| {
+        //     w.txdmaen().clear_bit();
+        //     w.rxdmaen().clear_bit()
+        // });
+        // #[cfg(feature = "g4")]
+        // (*pac::SPI1::ptr()).modify(|_, w| {
+        //     w.txdmaen().clear_bit();
+        //     w.rxdmaen().clear_bit()
+        // });
+        //
         cx.shared.spi1.lock(|spi1| {
             // Note that this step is mandatory, per STM32 RM.
             spi1.stop_dma(setup::IMU_TX_CH, Some(setup::IMU_RX_CH), DmaPeriph::Dma1);
@@ -1215,9 +1235,9 @@ mod app {
                             //     yaw: Some(cfg.input_map.calc_yaw_rate(ch_data.yaw)),
                             // };
 
-                            let pitch=cfg.input_map.calc_pitch_rate(ch_data.pitch);
-                            let roll=cfg.input_map.calc_roll_rate(ch_data.roll);
-                            let yaw=cfg.input_map.calc_yaw_rate(ch_data.yaw);
+                            let pitch = cfg.input_map.calc_pitch_rate(ch_data.pitch);
+                            let roll = cfg.input_map.calc_roll_rate(ch_data.roll);
+                            let yaw = cfg.input_map.calc_yaw_rate(ch_data.yaw);
 
 
                             // If we haven't taken off, apply the attitude lock.
@@ -1255,7 +1275,7 @@ mod app {
                         return;
                     }
 
-                    return; // todo TS: Odd anomalies
+                    return; // todo TS
 
                     cfg_if! {
                         if #[cfg(feature = "quad")] {
@@ -1266,14 +1286,15 @@ mod app {
                                 cfg.control_mapping.frontleft_aftright_dir,
                                 params,
                                 params_prev,
-                                // &state_volatile.ctrl_mix,
-                                // &state_volatile.ctrl_mix_prev,
                                 &cfg.ctrl_coeffs,
                                 &state_volatile.drag_coeffs,
                                 &state_volatile.accel_map,
                                 flight_ctrl_filters,
                                 DT_FLIGHT_CTRLS,
                             );
+
+                            // todo: We're not accessing the RotorRpms sturct here...
+                            // todo: What is that used for etc?
 
                             rpms.send_to_motors(
                                 pid_coeffs,
@@ -1317,10 +1338,10 @@ mod app {
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data,
-    link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer, batt_curr_adc], local = [], priority = 3)]
+    link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer, batt_curr_adc], local = [], priority = 2)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
-    fn usb_isr(mut cx: usb_isr::Context) {
+    fn usb_isr(cx: usb_isr::Context) {
         // todo: Do we want to use an approach where we push stats, or this approach where
         // todo respond only?
         (
@@ -1451,12 +1472,11 @@ mod app {
 
         let exti = unsafe { &(*pac::EXTI::ptr()) };
         #[cfg(feature = "h7")]
-        exti.cpuimr1.modify(|_, w| w.mr6().clear_bit()); // todo: Falling vs rising?
+        exti.cpuimr1.modify(|_, w| w.mr6().clear_bit());
         #[cfg(feature = "g4")]
         exti.ftsr1.modify(|_, w| w.ft1().clear_bit());
     }
 
-    // #[task(binds = TIM2, shared = [rotor_rpms, system_status], local = [dshot_read_timer], priority = 7)]
     #[task(binds = TIM2, shared = [rotor_rpms], local = [dshot_read_timer], priority = 7)]
     /// We use this ISR to, bit-by-bit, fill the buffer when receiving RPM data. It also handles
     /// termination of the reception timer. Started on the first low edge of the Motor 1 pin.
@@ -1500,18 +1520,15 @@ mod app {
             dshot::PAYLOAD_REC_BB_4[i] = m4_val;
         }
 
-        let mut rpm_fault = false; // todo: Use the real fault struct
+        let mut rpm_fault = false;
 
         cx.shared.rotor_rpms.lock(|rotor_rpms| {
             dshot::update_rpms(rotor_rpms, &mut rpm_fault);
         });
 
-        // todo: Put in
-        // if rpm_fault {
-        //     cx.shared.system_status.lock(|system_status| {
-        //         system_status.rpm_fault = true;
-        //     })
-        // }
+        if rpm_fault {
+            system_status::RPM_FAULT.store(true, Ordering::Release);
+        }
     }
 
     // todo: Evaluate priority.
@@ -1644,30 +1661,25 @@ mod app {
                 }
             });
 
-        (
-            cx.shared.link_lost,
-            cx.shared.lost_link_timer,
-            cx.shared.system_status,
-        )
-            .lock(|link_lost, lost_link_timer, system_status| {
-                if recieved_ch_data {
-                    // We've received a packet successfully - reset the lost-link timer.
-                    lost_link_timer.disable();
-                    lost_link_timer.reset_count();
-                    lost_link_timer.enable();
+        (cx.shared.link_lost, cx.shared.lost_link_timer, cx.shared.system_status).lock(|link_lost, lost_link_timer, system_status| {
+            if recieved_ch_data {
+                // We've received a packet successfully - reset the lost-link timer.
+                lost_link_timer.disable();
+                lost_link_timer.reset_count();
+                lost_link_timer.enable();
 
-                    if *link_lost {
-                        println!("Link re-aquired");
-                        *link_lost = false;
-                        // todo: Execute re-acq procedure
-                    }
-                    system_status.rf_control_link = SensorStatus::Pass;
+                if *link_lost {
+                    println!("Link re-aquired");
+                    *link_lost = false;
+                    // todo: Execute re-acq procedure
                 }
+                system_status.rf_control_link = SensorStatus::Pass;
+            }
 
-                if rx_fault {
-                    system_status.rf_control_fault = true;
-                }
-            });
+            if rx_fault {
+                system_status::RX_FAULT.store(true, Ordering::Release);
+            }
+        });
     }
 
     /// If this triggers, it means we've received no radio control signals for a significant

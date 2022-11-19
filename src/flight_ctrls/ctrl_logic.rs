@@ -412,6 +412,9 @@ fn find_ctrl_setting(
 }
 
 #[cfg(feature = "quad")]
+/// Calculate target rotor RPM from current and target attitudes. This is our entry point
+/// for control application: It generates motor powers (in 2 formats) based on the
+/// parameters, and commands.
 pub fn rotor_rpms_from_att(
     target_attitude: Quaternion,
     current_attitude: Quaternion,
@@ -420,21 +423,19 @@ pub fn rotor_rpms_from_att(
     // todo: Params is just for current angular rates. Maybe just pass those?
     params: &Params,
     params_prev: &Params,
-    // mix_prev: &CtrlMix,
     coeffs: &CtrlCoeffs,
     drag_coeffs: &DragCoeffs,
     accel_map: &AccelMap,
     filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
 ) -> (CtrlMix, MotorRpm) {
-    // todo: This fn and approach is a WIP!!
-
-    // This is the rotation we need to cause to arrive at the target attitude.
+    // This is the rotation we need to create to arrive at the target attitude.
     let rotation_cmd = target_attitude * current_attitude.inverse();
     // Split the rotation into 3 euler angles. We do this due to our controls acting primarily
     // along individual axes.
     let (rot_pitch, rot_roll, rot_yaw) = rotation_cmd.to_euler();
 
+    // Measured angular acceleration
     let ang_accel_pitch = (params.v_pitch - params_prev.v_pitch) * dt;
     let ang_accel_roll = (params.v_roll - params_prev.v_roll) * dt;
     let ang_accel_yaw = (params.v_yaw - params_prev.v_yaw) * dt;
@@ -443,34 +444,25 @@ pub fn rotor_rpms_from_att(
         rot_pitch,
         params.v_pitch,
         ang_accel_pitch,
-        // mix_prev.pitch,
-        // dt,
         coeffs,
         drag_coeffs.pitch,
         accel_map,
-        // filters,
     );
     let roll = find_ctrl_setting(
         rot_roll,
         params.v_roll,
         ang_accel_roll,
-        // mix_prev.roll,
-        // dt,
         coeffs,
         drag_coeffs.roll,
         accel_map,
-        // filters,
     );
     let yaw = find_ctrl_setting(
         rot_yaw,
         params.v_yaw,
         ang_accel_yaw,
-        // mix_prev.yaw,
-        // dt,
         coeffs,
         drag_coeffs.yaw,
         accel_map,
-        // filters,
     );
 
     let mix_new = CtrlMix {
@@ -497,7 +489,6 @@ pub fn control_posits_from_att(
     // todo: Params is just for current angular rates. Maybe just pass those?
     params: &Params,
     params_prev: &Params,
-    // mix_prev: &CtrlMix,
     coeffs: &CtrlCoeffs,
     drag_coeffs: &DragCoeffs,
     accel_map: &AccelMap,
@@ -516,23 +507,17 @@ pub fn control_posits_from_att(
         rot_pitch,
         params.v_pitch,
         ang_accel_pitch,
-        // mix_prev.pitch,
-        // dt,
         coeffs,
         drag_coeffs.pitch,
         accel_map,
-        filters,
     );
     let roll = find_ctrl_setting(
         rot_roll,
         params.v_roll,
         ang_accel_roll,
-        // mix_prev.roll,
-        // dt,
         coeffs,
         drag_coeffs.roll,
         accel_map,
-        filters,
     );
 
     let yaw = 0.; // todo?
@@ -574,7 +559,7 @@ pub fn modify_att_target(
 }
 
 /// Calculate an attitude based on control input, in `attitude mode`.
-pub fn from_controls(ch_data: &ChannelData) -> Quaternion {
+pub fn _att_from_ctrls(ch_data: &ChannelData) -> Quaternion {
     // todo: How do you deal with heading? That's a potential disadvantage of using a quaternion:
     // todo we can calculate pitch and roll, but not yaw.
     let rotation_pitch = Quaternion::from_axis_angle(RIGHT, ch_data.pitch);

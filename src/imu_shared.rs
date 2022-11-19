@@ -3,7 +3,7 @@
 
 use stm32_hal2::{
     dma::{self, ChannelCfg, Dma, DmaPeriph, Priority},
-    gpio::Pin,
+    gpio::{self, Port},
     pac::{DMA1, SPI1},
     spi::Spi,
 };
@@ -79,13 +79,17 @@ impl ImuReadings {
 
 /// Read all 3 measurements, by commanding a DMA transfer. The transfer is closed, and readings
 /// are processed in the Transfer Complete ISR.
-pub fn read_imu(starting_addr: u8, spi: &mut Spi<SPI1>, cs: &mut Pin, periph: DmaPeriph) {
+pub fn read_imu(starting_addr: u8, spi: &mut Spi<SPI1>, periph: DmaPeriph) {
     // First byte is the first data reg, per this IMU's. Remaining bytes are empty, while
     // the MISO line transmits readings.
     unsafe {
         WRITE_BUF[0] = starting_addr;
     }
-    cs.set_low();
+
+    #[cfg(feature = "h7")]
+    gpio::set_low(Port::C, 4);
+    #[cfg(feature = "g4")]
+    gpio::set_low(Port::B, 12);
 
     unsafe {
         spi.transfer_dma(

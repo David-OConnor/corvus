@@ -41,10 +41,10 @@ use crate::{
         PidTuneActuation, PidTuneMode, SteerpointCycleActuation,
     },
     safety::ArmStatus,
-    state::SystemStatus,
     util, UART_CRSF,
 };
 
+use crate::system_status::SystemStatus;
 use cfg_if::cfg_if;
 
 // For the receiver, 420k baud is hard set.

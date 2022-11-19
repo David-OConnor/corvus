@@ -14,13 +14,13 @@
 //! The DSHOT protocol (DSHOT-300, DSHOT-600 etc) is determined by the `DSHOT_ARR_600` and
 //! `DSHOT_PSC_600` settings; ie set a 600kHz countdown for DSHOT-600.
 
-use core::sync::atomic::{AtomicBool, AtomicUsize};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
     dma::{self, ChannelCfg, Priority},
-    gpio,
+    gpio::{self, PinMode},
     pac::{self, TIM3},
     timer::{CaptureCompare, CountDir, OutputCompare, Polarity},
 };
@@ -105,9 +105,6 @@ static mut PAYLOAD: [u16; 18 * NUM_MOTORS] = [0; 18 * NUM_MOTORS];
 
 // The position we're reading when updating the DSHOT read.
 pub static READ_I: AtomicUsize = AtomicUsize::new(0);
-// pub static READ_MSG_STARTED: AtomicBool = AtomicBool::new(false);
-// todo: TS
-// pub static mut PAYLOAD_REC: [u16; 18 * NUM_MOTORS] = [0; 18 * NUM_MOTORS];
 
 // There are 21 bits in each DSHOT RPM reception message. Value is true for line low (bit = 1), and false
 // for line high (bit = 0); idle high.
@@ -332,9 +329,6 @@ pub fn set_power_single(rotor: Motor, power: f32, timer: &mut MotorTimer) {
     send_payload(timer)
 }
 
-use core::sync::atomic::Ordering;
-use stm32_hal2::gpio::PinMode; // todo move up if you keep this.
-
 /// Send the stored payload.
 fn send_payload(timer: &mut MotorTimer) {
     // Stop any transations in progress.
@@ -397,33 +391,6 @@ fn send_payload(timer: &mut MotorTimer) {
 /// ISR on payload-reception-complete. Here, we configure things that would affect transmission.
 // pub fn receive_payload(timer: &mut MotorTimer) {
 pub fn receive_payload() {
-    // Note: Should already be stopped, as we call this from a transfer-complete interrupt.
-    // dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
-
-    // set_to_input(timer);
-    // DSHOT_REC_MODE.store(true, Ordering::Relaxed);
-    //
-    // #[cfg(feature = "h7")]
-    // let high_prec_timer = true;
-    // #[cfg(feature = "g4")]
-    // let high_prec_timer = false;
-    //
-    // unsafe {
-    //     timer.read_dma_burst(
-    //         &PAYLOAD_REC,
-    //         setup::DSHOT_BASE_DIR_OFFSET,
-    //         NUM_MOTORS as u8,
-    //         setup::MOTOR_CH,
-    //         ChannelCfg {
-    //             // Take precedence over CRSF and ADCs.
-    //             priority: Priority::High,
-    //             ..ChannelCfg::default()
-    //         },
-    //         high_prec_timer,
-    //         setup::MOTORS_DMA_PERIPH,
-    //     );
-    // }
-
     // todo: Trying a different approach
     let input_mode = 0b00;
     unsafe {
@@ -454,37 +421,21 @@ pub fn receive_payload() {
                 });
             }
         }
-
-        // gpio::read_dma(
-        //     &PAYLOAD_REC,
-        //     setup::MOTOR_CH,
-        //     ChannelCfg {
-        //         // Take precedence over CRSF and ADCs.
-        //         priority: Priority::High,
-        //         ..ChannelCfg::default()
-        //     },
-        //     setup::MOTORS_DMA_PERIPH,
-        // );
     }
 
     // todo: Shared resource for pins?
     let exti = unsafe { &(*pac::EXTI::ptr()) };
 
-    // todo: Diff syntax on H7.
-    // exti.rtsr1.modify(|_, w| w.rt6().clear_bit());
-    // exti.ftsr1.modify(|_, w| w.ft6().set_bit());
     // syscfg.exticr2.modify(|_, w| unsafe { w.exti6().bits(2) }); // Points to port C.
 
-    // exti.rtsr1.modify(|_, w| w.rt1().clear_bit());
+    #[cfg(feature = "h7")]
+    exti.cpuimr1.modify(|_, w| w.mr6().set_bit());
+    #[cfg(feature = "g4")]
     exti.ftsr1.modify(|_, w| w.ft1().set_bit());
 
     // todo: Why is the below working but not above???
     let mut a = gpio::Pin::new(gpio::Port::B, 1, gpio::PinMode::Input);
     a.enable_interrupt(gpio::Edge::Falling);
-
-    // unsafe {
-    //     (*pac::TIM2::ptr()).arr.write(|w| w.bits(READ_TIMER_ARR_INIT));
-    // }
 }
 
 /// Change timer polarity and count direction, to enable or disable bidirectional DSHOT.
@@ -589,7 +540,7 @@ enum EscTelemType {
     State,
 }
 
-/// Return RPM in radians-per-second
+/// Return RPM in revolutions-per-second
 /// See https://brushlesswhoop.com/dshot-and-bidirectional-dshot/, "eRPM Telemetry Frame (from ESC)".
 fn rpm_from_data(packet: u16) -> Result<EscData, RpmError> {
     let crc = packet & 0b1111;
@@ -598,37 +549,39 @@ fn rpm_from_data(packet: u16) -> Result<EscData, RpmError> {
         return Err(RpmError::Crc);
     }
 
+    // todo: Come back to telemetry later.
     // Parse extended telemetry if avail. (This may be required to avoid misreading the data?)
-    if ((packet >> 8) & 1) == 0 {
-        // Telemetry is passed
-        let telem_type_val = packet >> 12;
-        let val = (packet >> 4) & 0xff; // 8 bits vice 9 for rpm data
+    // if ((packet >> 8) & 1) == 0 {
+    //     // println!("T");
+    //     // Telemetry is passed
+    //     let telem_type_val = packet >> 12;
+    //     let val = (packet >> 4) & 0xff; // 8 bits vice 9 for rpm data
+    //
+    //     let telem_type = match telem_type_val {
+    //         0x02 => EscTelemType::Temp,
+    //         0x04 => EscTelemType::Voltage,
+    //         0x06 => EscTelemType::Current,
+    //         0x08 => EscTelemType::Debug1,
+    //         0x0A => EscTelemType::Debug2,
+    //         0x0C => EscTelemType::Debug3,
+    //         0x0E => EscTelemType::State,
+    //         _ => return Err(RpmError::TelemType),
+    //     };
+    //
+    //     Ok(EscData::Telem(telem_type, val as u8))
+    // } else {
+    // println!("R");
+    // RPM data
+    let shift = packet >> 13;
+    let base = (packet >> 4) & 0b1_1111_1111;
+    let period_us = base << shift;
 
-        let telem_type = match telem_type_val {
-            0x02 => EscTelemType::Temp,
-            0x04 => EscTelemType::Voltage,
-            0x06 => EscTelemType::Current,
-            0x08 => EscTelemType::Debug1,
-            0x0A => EscTelemType::Debug2,
-            0x0C => EscTelemType::Debug3,
-            0x0E => EscTelemType::State,
-            _ => return Err(RpmError::TelemType),
-        };
+    // Period is in us. Convert to Radians-per-second using motor pole count.
+    // todo: Pole count in user cfg.
 
-        Ok(EscData::Telem(telem_type, val as u8))
-    } else {
-        // RPM data
-        let shift = packet >> 13;
-        let base = (packet >> 4) & 0b1_1111_1111;
-        let period_us = base << shift;
+    let num_poles = 1.; // todo placeholder
 
-        // Period is in us. Convert to Radians-per-second using motor pole count.
-        // todo: Pole count in user cfg.
-
-        let num_poles = 14.; // todo placeholder
-
-        Ok(EscData::Rpm(1_000_000. / (period_us as f32 * num_poles)))
-    }
+    Ok(EscData::Rpm(1_000_000. / (period_us as f32 * num_poles)))
 }
 
 /// u32 since it's 20 bits.
@@ -636,7 +589,7 @@ fn bool_array_to_u32(arr: &[bool]) -> u32 {
     let mut result = 0;
 
     for (i, v) in arr.iter().enumerate() {
-        result |= (*v as u32) << (20 - i)
+        result |= (*v as u32) << (REC_BUF_LEN - i)
     }
 
     result
@@ -648,8 +601,8 @@ enum RpmError {
     TelemType,
 }
 
-/// Make it stop
-fn reduce_bit_count_helper(val: u16) -> Result<u16, RpmError> {
+/// Map 5-bit nibbles to 4-bit nibbles, per the DSHOT RPM protocol.
+fn reduce_bit_count_map(val: u16) -> Result<u16, RpmError> {
     let result = match val {
         0x19 => 0,
         0x1b => 1,
@@ -667,25 +620,28 @@ fn reduce_bit_count_helper(val: u16) -> Result<u16, RpmError> {
         0x0d => 0xd,
         0x0e => 0xe,
         0x0f => 0xf,
-        _ => return Err(RpmError::Gcr),
+        _ => {
+            // println!("Map err");
+            return Err(RpmError::Gcr);
+        }
     };
 
     Ok(result)
 }
 
 /// https://brushlesswhoop.com/dshot-and-bidirectional-dshot/: `eRPM Transmission`
-/// Reduce from
-/// This is really obnoxious.
+/// Convert from 20-bits to 16-bits, as part of the RPM decoding process.
 fn reduce_gcr_bit_count(val: u32) -> Result<u16, RpmError> {
-    let nibble_0 = (val & 0b1_1111) as u16;
-    let nibble_1 = ((val >> 5) & 0b1_1111) as u16;
-    let nibble_2 = ((val >> 10) & 0b1_1111) as u16;
-    let nibble_3 = ((val >> 15) & 0b1_1111) as u16;
+    let mask = 0b1_1111;
+    let nibble_0 = (val & mask) as u16;
+    let nibble_1 = ((val >> 5) & mask) as u16;
+    let nibble_2 = ((val >> 10) & mask) as u16;
+    let nibble_3 = ((val >> 15) & mask) as u16;
 
-    Ok(reduce_bit_count_helper(nibble_0)?
-        | (reduce_bit_count_helper(nibble_1)? << 4)
-        | (reduce_bit_count_helper(nibble_2)? << 8)
-        | (reduce_bit_count_helper(nibble_3)? << 12))
+    Ok(reduce_bit_count_map(nibble_0)?
+        | (reduce_bit_count_map(nibble_1)? << 4)
+        | (reduce_bit_count_map(nibble_2)? << 8)
+        | (reduce_bit_count_map(nibble_3)? << 12))
 }
 
 /// https://brushlesswhoop.com/dshot-and-bidirectional-dshot/: `Decoding eRPM frame`
@@ -694,28 +650,14 @@ fn gcr_step_1(val: u32) -> u32 {
 }
 
 /// Helper fn
-fn update_rpm_from_packet(
-    rpm: &mut f32,
-    packet: Result<u16, RpmError>,
-    fault: &mut bool,
-) -> Result<(), RpmError> {
-    match packet {
-        Ok(packet) => {
-            match rpm_from_data(packet) {
-                Ok(r) => {
-                    match r {
-                        EscData::Rpm(rpm_) => {
-                            *rpm = rpm_;
-                        }
-                        EscData::Telem(_, _) => {
-                            // todo
-                        }
-                    }
-                }
-                Err(e) => return Err(e),
-            }
+fn update_rpm_from_packet(rpm: &mut f32, packet: Result<u16, RpmError>) -> Result<(), RpmError> {
+    match rpm_from_data(packet?)? {
+        EscData::Rpm(rpm_) => {
+            *rpm = rpm_;
         }
-        Err(e) => return Err(e),
+        EscData::Telem(_, _) => {
+            // todo
+        }
     }
 
     Ok(())
@@ -728,15 +670,13 @@ pub fn update_rpms(rpms: &mut MotorRpm, fault: &mut bool) {
     let gcr1 = bool_array_to_u32(unsafe { &PAYLOAD_REC_BB_1 });
     let gcr2 = bool_array_to_u32(unsafe { &PAYLOAD_REC_BB_2 });
     let gcr3 = bool_array_to_u32(unsafe { &PAYLOAD_REC_BB_3 });
-    let gcr4 = bool_array_to_u32(unsafe { &PAYLOAD_REC_BB_3 });
+    let gcr4 = bool_array_to_u32(unsafe { &PAYLOAD_REC_BB_4 });
 
-    // Perform some initial de-obfuscation.
+    // Perform some initial de-obfuscation using a bit shift and xor
     let gcr1 = gcr_step_1(gcr1);
     let gcr2 = gcr_step_1(gcr2);
     let gcr3 = gcr_step_1(gcr3);
     let gcr4 = gcr_step_1(gcr4);
-
-    // println!("1: {}", gcr3);
 
     // Convert our 20-bit raw GCR data to the 16-bit data packet.
     let packet1 = reduce_gcr_bit_count(gcr1);
@@ -746,16 +686,16 @@ pub fn update_rpms(rpms: &mut MotorRpm, fault: &mut bool) {
 
     // todo: Don't hard code teh mapping!!
 
-    if update_rpm_from_packet(&mut rpms.aft_right, packet1, fault).is_err() {
+    if update_rpm_from_packet(&mut rpms.aft_right, packet1).is_err() {
         *fault = true;
     };
-    if update_rpm_from_packet(&mut rpms.front_right, packet2, fault).is_err() {
+    if update_rpm_from_packet(&mut rpms.front_right, packet2).is_err() {
         *fault = true;
     };
-    if update_rpm_from_packet(&mut rpms.aft_left, packet3, fault).is_err() {
+    if update_rpm_from_packet(&mut rpms.aft_left, packet3).is_err() {
         *fault = true;
     };
-    if update_rpm_from_packet(&mut rpms.front_left, packet4, fault).is_err() {
+    if update_rpm_from_packet(&mut rpms.front_left, packet4).is_err() {
         *fault = true;
     };
 

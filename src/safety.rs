@@ -6,7 +6,6 @@ use crate::{
     flight_ctrls::{autopilot::AutopilotStatus, common::AltType},
     // pid::PidGroup,
     ppks::Location,
-    state::{SensorStatus, SystemStatus},
 };
 
 #[cfg(feature = "fixed-wing")]
@@ -27,6 +26,7 @@ use cfg_if::cfg_if;
 use defmt::println;
 
 use crate::params::Params;
+use crate::system_status::{SensorStatus, SystemStatus};
 use num_traits::Float; // abs on float.
 
 // We must receive arm or disarm signals for this many update cycles in a row to perform those actions.

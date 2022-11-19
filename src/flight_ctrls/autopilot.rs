@@ -12,7 +12,6 @@ use crate::{
     },
     // pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::{Location, LocationType},
-    state::{SensorStatus, SystemStatus},
 };
 
 // Max distance from curent location, to point, then base a
@@ -35,6 +34,7 @@ cfg_if! {
 // todo: FOr various autopilot modes, check if variou sensors are connected like GPS, TOF, and MAG!
 
 use crate::params::Params;
+use crate::system_status::{SensorStatus, SystemStatus};
 use cmsis_dsp_sys::{arm_cos_f32, arm_sin_f32};
 
 const R: f32 = 6_371_000.; // Earth's radius in meters. (ellipsoid?)

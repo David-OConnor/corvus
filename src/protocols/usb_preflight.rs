@@ -10,6 +10,8 @@
 
 // todo: Start char for all messages?
 
+use core::sync::atomic::Ordering;
+
 use crate::{
     control_interface::ChannelData,
     dshot,
@@ -17,8 +19,8 @@ use crate::{
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},
     safety::ArmStatus,
     setup,
-    state::{OperationMode, SystemStatus, MAX_WAYPOINTS},
-    util, LinkStats,
+    state::{OperationMode, MAX_WAYPOINTS},
+    system_status, util, LinkStats,
 };
 
 use lin_alg2::f32::Quaternion;
@@ -51,6 +53,7 @@ use usbd_serial::SerialPort;
 
 use num_enum::TryFromPrimitive; // Enum from integer
 
+use crate::system_status::SystemStatus;
 use defmt::println;
 
 const CRC_POLY: u8 = 0xab;
@@ -237,8 +240,8 @@ impl From<&SystemStatus> for [u8; SYS_STATUS_SIZE] {
             p.esc_telemetry as u8,
             p.esc_rpm as u8,
             p.rf_control_link as u8,
-            if p.rf_control_fault { 1 } else { 0 },
-            if p.esc_rpm_fault { 1 } else { 0 },
+            system_status::RX_FAULT.load(Ordering::Acquire) as u8,
+            system_status::RPM_FAULT.load(Ordering::Acquire) as u8,
         ]
     }
 }
