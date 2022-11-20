@@ -688,16 +688,19 @@ pub fn update_rpms(rpms: &mut MotorRpm, fault: &mut bool) {
 
     if update_rpm_from_packet(&mut rpms.aft_right, packet1).is_err() {
         *fault = true;
-    };
+    }
     if update_rpm_from_packet(&mut rpms.front_right, packet2).is_err() {
         *fault = true;
-    };
+    }
     if update_rpm_from_packet(&mut rpms.aft_left, packet3).is_err() {
         *fault = true;
-    };
+        println!("E");
+    } else {
+        println!("G");
+    }
     if update_rpm_from_packet(&mut rpms.front_left, packet4).is_err() {
         *fault = true;
-    };
+    }
 
     // println!("RPM 3: {}", rpms.aft_left)
     // todo: Mapping! You may need to pass in the mapping struct.

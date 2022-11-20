@@ -137,6 +137,8 @@ static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 // If IMU updates at 8kHz and ratio is 4, the flight control loop operates at 2kHz.
 const FLIGHT_CTRL_IMU_RATIO: usize = 4; // Likely values: 1, 2, 4.
+const UPDATE_RATE_IMU: f32 = 8_000.;
+const DT_IMU: f32 = 1. / UPDATE_RATE_IMU;
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
@@ -162,7 +164,7 @@ cfg_if! {
         const FLASH_WAYPOINT_PAGE: usize = 127;
 
         // Todo: Measured: 8.042kHz (2022-10-26)
-        const UPDATE_RATE_FLIGHT_CTRLS: f32 = 8_000. / FLIGHT_CTRL_IMU_RATIO as f32;
+        const UPDATE_RATE_FLIGHT_CTRLS: f32 = UPDATE_RATE_IMU / FLIGHT_CTRL_IMU_RATIO as f32;
     }
 }
 
@@ -215,9 +217,6 @@ mod app {
         system_status: SystemStatus,
         autopilot_status: AutopilotStatus,
         current_params: Params,
-        // todo: `params_prev` is an experimental var used in our alternative/experimental
-        // todo flight controls code as a derivative.
-        params_prev: Params,
         // None if the data is stale. eg lost link, no link established.
         control_channel_data: Option<ChannelData>,
         /// Link statistics, including Received Signal Strength Indicator (RSSI) from the controller's radio.
@@ -271,6 +270,9 @@ mod app {
         ahrs: Ahrs,
         dshot_read_timer: Timer<TIM2>,
         cs_imu: Pin,
+        // todo: `params_prev` is an experimental var used in our alternative/experimental
+        // todo flight controls code as a derivative.
+        params_prev: Params,
     }
 
     #[init]
@@ -642,7 +644,6 @@ mod app {
                 system_status,
                 autopilot_status: Default::default(),
                 current_params: params.clone(),
-                params_prev: params,
                 control_channel_data: Default::default(),
                 link_stats: Default::default(),
                 // dma,
@@ -687,6 +688,7 @@ mod app {
                 ahrs,
                 dshot_read_timer,
                 cs_imu,
+                params_prev: params,
             },
             init::Monotonics(),
             // init::Monotonics(measurement_timer)
@@ -1089,9 +1091,9 @@ mod app {
     }
 
     // binds = DMA1_STR2,
-    #[task(binds = DMA1_CH2, shared = [spi1, current_params, params_prev, control_channel_data,
+    #[task(binds = DMA1_CH2, shared = [spi1, current_params, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timer, servo_timer, state_volatile], local = [ahrs, imu_isr_loop_i, cs_imu], priority = 4)]
+    motor_timer, servo_timer, state_volatile, rotor_rpms], local = [ahrs, imu_isr_loop_i, cs_imu, params_prev], priority = 4)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it nominally (and according to our measurements so far) runs at 8kHz.
     /// Note that on the H7 FC with the dedicated IMU LSE, it may run slightly faster.
@@ -1136,7 +1138,6 @@ mod app {
 
         (
             cx.shared.current_params,
-            cx.shared.params_prev,
             cx.shared.control_channel_data,
             cx.shared.autopilot_status,
             cx.shared.motor_timer,
@@ -1146,10 +1147,10 @@ mod app {
             cx.shared.user_cfg,
             cx.shared.state_volatile,
             cx.shared.flight_ctrl_filters,
+            cx.shared.rotor_rpms,
         )
             .lock(
                 |params,
-                 params_prev,
                  control_channel_data,
                  autopilot_status,
                  motor_timer,
@@ -1158,7 +1159,8 @@ mod app {
                  pid_coeffs,
                  cfg,
                  state_volatile,
-                 flight_ctrl_filters| {
+                 flight_ctrl_filters,
+                 rotor_rpms| {
                     {
                         // if *cx.local.imu_isr_loop_i % 700 == 0 {
                         // let period = cx.local.measurement_timer.time_elapsed().as_secs();
@@ -1178,14 +1180,14 @@ mod app {
                     });
 
                     // Update `params_prev` with past-update data prior to updating params
-                    *params_prev = params.clone();
+                    // Note that this is updated at the IMU data rate, so when comparing, use that DT.
+                    *cx.local.params_prev = params.clone();
                     params.update_from_imu_readings(imu_data);
 
                     // Update our flight control logic and motors a fraction of IMU updates, but
                     // apply filter data to all.
                     // todo: Consider a different approach; all you need to do each time is
                     // todo read and filter.
-                    // todo: Be wary of how you use params_prev if it's above this break line
 
                     if *cx.local.imu_isr_loop_i % FLIGHT_CTRL_IMU_RATIO != 0 {
                         return
@@ -1275,31 +1277,38 @@ mod app {
                         return;
                     }
 
+                    let mut rpm_fault = false;
+                    // Update RPMs here, so we don't have to lock the read ISR.
+                    // cx.shared.rotor_rpms.lock(|rotor_rpms| {
+                    dshot::update_rpms(rotor_rpms, &mut rpm_fault);
+                    // });
+                    if rpm_fault {
+                        system_status::RPM_FAULT.store(true, Ordering::Release);
+                    }
+
                     return; // todo TS
 
                     cfg_if! {
                         if #[cfg(feature = "quad")] {
-                            let (ctrl_mix, rpms) = ctrl_logic::rotor_rpms_from_att(
+                            let (ctrl_mix, rpms_commanded) = ctrl_logic::rotor_rpms_from_att(
                                 state_volatile.attitude_commanded.quat.unwrap(),
                                 params.attitude_quat,
                                 throttle,
                                 cfg.control_mapping.frontleft_aftright_dir,
                                 params,
-                                params_prev,
+                                cx.local.params_prev,
                                 &cfg.ctrl_coeffs,
                                 &state_volatile.drag_coeffs,
                                 &state_volatile.accel_map,
                                 flight_ctrl_filters,
-                                DT_FLIGHT_CTRLS,
+                                // The DT passed is the IMU rate, since we update params_prev each IMU update.
+                                DT_IMU,
                             );
 
-                            // todo: We're not accessing the RotorRpms sturct here...
-                            // todo: What is that used for etc?
-
-                            rpms.send_to_motors(
+                            rpms_commanded.send_to_motors(
                                 pid_coeffs,
                                 pid_state,
-                                &rpms,
+                                rotor_rpms,
                                 &cfg.control_mapping,
                                 motor_timer,
                                 state_volatile.arm_status,
@@ -1310,21 +1319,21 @@ mod app {
                             // todo for fixed-wing. You're saving it, but when is it used?
                             // state_volatile.current_pwr = motor_power;
                         } else {
-                            let (ctrl_mix, control_posits) = ctrl_logic::control_posits_from_att(
+                            let (ctrl_mix, control_posits_commanded) = ctrl_logic::control_posits_from_att(
                                 state_volatile.attitude_commanded.quat.unwrap(),
                                 params.attitude_quat,
                                 throttle,
                                 params,
-                                params_prev,
+                                cx.local.params_prev,
                                 // &state_volatile.ctrl_mix,
                                 &cfg.ctrl_coeffs,
                                 &state_volatile.drag_coeffs,
                                 &state_volatile.accel_map,
                                 flight_ctrl_filters,
-                                DT_FLIGHT_CTRLS,
+                                DT_IMU,
                             );
 
-                            control_posits.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status,  dma);
+                            control_posits_commanded.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status,  dma);
 
                             state_volatile.ctrl_mix = ctrl_mix;
                             state_volatile.ctrl_positions = control_posits;
@@ -1477,7 +1486,8 @@ mod app {
         exti.ftsr1.modify(|_, w| w.ft1().clear_bit());
     }
 
-    #[task(binds = TIM2, shared = [rotor_rpms], local = [dshot_read_timer], priority = 7)]
+    // todo temp removed rpms.
+    #[task(binds = TIM2, shared = [], local = [dshot_read_timer], priority = 8)]
     /// We use this ISR to, bit-by-bit, fill the buffer when receiving RPM data. It also handles
     /// termination of the reception timer. Started on the first low edge of the Motor 1 pin.
     fn dshot_read_isr(mut cx: dshot_read_isr::Context) {
@@ -1518,16 +1528,6 @@ mod app {
             // dshot::PAYLOAD_REC_BB_2[i] = m2_val;
             dshot::PAYLOAD_REC_BB_3[i] = m3_val;
             dshot::PAYLOAD_REC_BB_4[i] = m4_val;
-        }
-
-        let mut rpm_fault = false;
-
-        cx.shared.rotor_rpms.lock(|rotor_rpms| {
-            dshot::update_rpms(rotor_rpms, &mut rpm_fault);
-        });
-
-        if rpm_fault {
-            system_status::RPM_FAULT.store(true, Ordering::Release);
         }
     }
 
@@ -1661,25 +1661,30 @@ mod app {
                 }
             });
 
-        (cx.shared.link_lost, cx.shared.lost_link_timer, cx.shared.system_status).lock(|link_lost, lost_link_timer, system_status| {
-            if recieved_ch_data {
-                // We've received a packet successfully - reset the lost-link timer.
-                lost_link_timer.disable();
-                lost_link_timer.reset_count();
-                lost_link_timer.enable();
+        (
+            cx.shared.link_lost,
+            cx.shared.lost_link_timer,
+            cx.shared.system_status,
+        )
+            .lock(|link_lost, lost_link_timer, system_status| {
+                if recieved_ch_data {
+                    // We've received a packet successfully - reset the lost-link timer.
+                    lost_link_timer.disable();
+                    lost_link_timer.reset_count();
+                    lost_link_timer.enable();
 
-                if *link_lost {
-                    println!("Link re-aquired");
-                    *link_lost = false;
-                    // todo: Execute re-acq procedure
+                    if *link_lost {
+                        println!("Link re-aquired");
+                        *link_lost = false;
+                        // todo: Execute re-acq procedure
+                    }
+                    system_status.rf_control_link = SensorStatus::Pass;
                 }
-                system_status.rf_control_link = SensorStatus::Pass;
-            }
 
-            if rx_fault {
-                system_status::RX_FAULT.store(true, Ordering::Release);
-            }
-        });
+                if rx_fault {
+                    system_status::RX_FAULT.store(true, Ordering::Release);
+                }
+            });
     }
 
     /// If this triggers, it means we've received no radio control signals for a significant

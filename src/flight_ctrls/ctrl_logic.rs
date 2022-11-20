@@ -366,8 +366,12 @@ fn find_ctrl_setting(
 
     let mut α_target = match t {
         Some(ttc) => {
+            // If it would take too longer to perform the correction, calculate a new
+            // angular acceleration that fits the criteria.
             if ttc > coeffs.max_ttc_per_dθ * dθ {
                 α_from_ttc(dθ, ω_0, coeffs.ttc_per_dθ)
+            // If the time to correction is sufficiently small, apply a constant jerk, which
+            // should be roughly the previous jerk if part way through a maneuver.
             } else {
                 // Calculate the (~constant for a given correction) change in angular acceleration.
                 let j = 6. * (2. * dθ + ttc * ω_0) / ttc.powi(3);
@@ -415,6 +419,7 @@ fn find_ctrl_setting(
 /// Calculate target rotor RPM from current and target attitudes. This is our entry point
 /// for control application: It generates motor powers (in 2 formats) based on the
 /// parameters, and commands.
+/// The DT passed is the IMU rate, since we update params_prev each IMU update.
 pub fn rotor_rpms_from_att(
     target_attitude: Quaternion,
     current_attitude: Quaternion,
@@ -436,9 +441,9 @@ pub fn rotor_rpms_from_att(
     let (rot_pitch, rot_roll, rot_yaw) = rotation_cmd.to_euler();
 
     // Measured angular acceleration
-    let ang_accel_pitch = (params.v_pitch - params_prev.v_pitch) * dt;
-    let ang_accel_roll = (params.v_roll - params_prev.v_roll) * dt;
-    let ang_accel_yaw = (params.v_yaw - params_prev.v_yaw) * dt;
+    let ang_accel_pitch = (params.v_pitch - params_prev.v_pitch) / dt;
+    let ang_accel_roll = (params.v_roll - params_prev.v_roll) / dt;
+    let ang_accel_yaw = (params.v_yaw - params_prev.v_yaw) / dt;
 
     let pitch = find_ctrl_setting(
         rot_pitch,
@@ -500,8 +505,8 @@ pub fn control_posits_from_att(
     let rotation_cmd = target_attitude * current_attitude.inverse();
     let (rot_pitch, rot_roll, _rot_yaw) = rotation_cmd.to_euler();
 
-    let ang_accel_pitch = (params.v_pitch - params_prev.v_pitch) * dt;
-    let ang_accel_roll = (params.v_roll - params_prev.v_roll) * dt;
+    let ang_accel_pitch = (params.v_pitch - params_prev.v_pitch) / dt;
+    let ang_accel_roll = (params.v_roll - params_prev.v_roll) / dt;
 
     let pitch = find_ctrl_setting(
         rot_pitch,
