@@ -200,7 +200,7 @@ impl ControlMapping {
 /// Configures all 4 motor timers for quadcopters. For setting up motors for fixed-wing, see
 /// `fixed_wing::setup_timers`.
 pub fn setup_timers(timer: &mut MotorTimer) {
-    timer.set_prescaler(dshot::DSHOT_PSC_600);
+    timer.set_prescaler(dshot::DSHOT_PSC);
     timer.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
 
     timer.enable_interrupt(TimerInterrupt::UpdateDma);

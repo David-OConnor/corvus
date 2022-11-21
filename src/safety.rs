@@ -43,6 +43,11 @@ static ARM_COMMANDED_WITHOUT_IDLE: AtomicBool = AtomicBool::new(false);
 
 const THROTTLE_MAX_TO_ARM: f32 = 0.005;
 
+/// This tracks if we've lost the link. Note that we have (as of 2022-11-20)
+/// two related values, including part of `SystemStatus`. We update this
+/// in the CRSF ISR, and update system status from it later.
+pub static LINK_LOST: AtomicBool = AtomicBool::new(false);
+
 // Time in seconds between subsequent data received before we execute lost-link procedures.
 pub const LOST_LINK_TIMEOUT: f32 = 0.2;
 
