@@ -128,16 +128,10 @@ impl Altimeter {
     /// Configure settings, including pressure mreasurement rate, and return an instance.
     /// And load calibration data.
     pub fn new(i2c: &mut I2c<I2C2>) -> Result<Self, BaroNotConnectedError> {
-        // todo temp
-        // return Ok(Self {
-        //     ground_cal: Default::default(),
-        //     gps_cal_init: None,
-        //     gps_cal_air: None,
-        //     hardware_coeff_cal: Default::default(),
-        // });
-
+        println!("A");
         // Set 64x oversampling, and 128 measurements per second, for both temp and pres.
         i2c.write(ADDR, &[Reg::PrsCfg as u8, 0b0111_0110])?;
+        println!("B");
         i2c.write(ADDR, &[Reg::TmpCfg as u8, 0b0111_0110])?;
 
         // Continuous pressure and temp measurement in background mode.

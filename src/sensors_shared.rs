@@ -30,6 +30,8 @@ pub const ADC_BATT_V_DIV: f32 = 11.;
 // mA/V
 pub const ADC_CURR_DIV: f32 = 400.; // todo
 
+pub const ADC_SAMPLE_FREQ: f32 = 50.; // todo: what should this be?
+
 /// We use this to sequence DMA writes and reads among the extenral sensors.
 #[derive(Clone, Copy)]
 pub enum ExtSensor {

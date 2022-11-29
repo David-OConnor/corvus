@@ -10,7 +10,7 @@ use stm32_hal2::{
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, USART2},
+    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, SPI2, USART2},
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{TimChannel, Timer},
     usart::{OverSampling, Usart, UsartConfig},
@@ -19,20 +19,25 @@ use stm32_hal2::{
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use crate::flight_ctrls::{ServoWing, ServoWingPosition};
-    } else {
     }
 }
-use crate::params::Params;
-use crate::system_status::{SensorStatus, SystemStatus};
 use crate::{
     crsf,
     drivers::{
-        baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
+        baro_dps310 as baro,
+        gps_ublox as gps,
+        imu_icm426xx as imu,
+        mag_lis3mdl as mag,
+        spi2_kludge::Spi2, // todo: Temp hopefully
         tof_vl53l1 as tof,
     },
     flight_ctrls::common::Motor,
+    params::Params,
     ppks::{Location, LocationType},
+    system_status::{SensorStatus, SystemStatus},
 };
+
+use defmt::println;
 
 // Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.
 
@@ -49,7 +54,7 @@ pub const OSD_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
 pub const IMU_RX_CH: DmaChannel = DmaChannel::C2;
 
-// Note: C4 is unused.
+// Note: DMA1, C4 is unused.
 pub const MOTOR_CH: DmaChannel = DmaChannel::C3;
 
 pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
@@ -82,7 +87,7 @@ cfg_if! {
         pub const BATT_ADC_CH: u8 = 18;
         pub const CURR_ADC_CH: u8 = 16;
     } else {
-        pub const BATT_ADC_CH: u8 = 1;
+        pub const BATT_ADC_CH: u8 = 2;
         pub const CURR_ADC_CH: u8 = 12;
     }
 }
@@ -194,7 +199,7 @@ pub fn setup_pins() {
 
     let alt_motors = 2; // TIM3
 
-    // let mut motor1 = Pin::new(Port::C, 6, PinMode::Alt(alt_motors)); // Ch1 // todo: Put back once new board is in
+    let mut motor1 = Pin::new(Port::C, 6, PinMode::Alt(alt_motors)); // Ch1
 
     cfg_if! {
         if #[cfg(feature = "h7")] {
@@ -202,7 +207,7 @@ pub fn setup_pins() {
             let alt_servos = 3; // TIM8 (Avail on all channels)
 
             // todo: Let us customize; set motor2 as `alt_servos` if equipped with a rudder etc.
-            // let mut motor2 = Pin::new(Port::C, 7, PinMode::Alt(alt_motors)); // Ch2 // todo: Put back once new board is in
+            let mut motor2 = Pin::new(Port::C, 7, PinMode::Alt(alt_motors)); // Ch
             let mut motor3 = Pin::new(Port::C, 8, PinMode::Alt(alt_servos)); // Ch3
             let mut motor4 = Pin::new(Port::C, 9, PinMode::Alt(alt_servos)); // Ch4
         } else {
@@ -218,9 +223,8 @@ pub fn setup_pins() {
     // todo: What should this be?: Low is good up to the Mhz range, which is good enough?
     let dshot_gpiospeed = OutputSpeed::Low; // Note: Low is the default value.
 
-    // todo: Put these back once on new board
-    // motor1.output_speed(dshot_gpiospeed);
-    // motor2.output_speed(dshot_gpiospeed);
+    motor1.output_speed(dshot_gpiospeed);
+    motor2.output_speed(dshot_gpiospeed);
     motor3.output_speed(dshot_gpiospeed);
     motor4.output_speed(dshot_gpiospeed);
 
@@ -414,6 +418,7 @@ type UartCrsfRegs = pac::USART3;
 /// Configure the SPI and I2C busses.
 pub fn setup_busses(
     spi1_pac: SPI1,
+    spi2_pac: SPI2, // todo: QSPI on H7
     i2c1_pac: I2C1,
     i2c2_pac: I2C2,
     uart2_pac: USART2,
@@ -433,13 +438,9 @@ pub fn setup_busses(
     // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
     // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
     #[cfg(feature = "g4")]
-    // todo: Switch to higher speed.
     let imu_baud_div = BaudRate::Div8; // for ICM426xx, for 24Mhz limit
-                                       // todo: 10 MHz max SPI frequency for intialisation? Found in BF; confirm in RM.
-                                       // let imu_baud_div = BaudRate::Div32; // 5.3125 Mhz, for ISM330 10Mhz limit
     #[cfg(feature = "h7")]
     let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
-                                        // let imu_baud_div = BaudRate::Div64; // 6.25Mhz for ISM330 10Mhz limit
 
     let imu_spi_cfg = SpiConfig {
         // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
@@ -456,6 +457,37 @@ pub fn setup_busses(
 
     cs_imu.set_high();
 
+    // todo: TS Flash. Note that we don't currently return or use this.
+
+    let flash_spi_cfg = stm32_hal2::spi::SpiConfig {
+        mode: SpiMode::mode0(), // todo?
+        ..Default::default()
+    };
+
+    // todo: You can probably use even  higher clock speeds than this for flash
+    #[cfg(feature = "g4")]
+    let flash_baud_div = BaudRate::Div4;
+    #[cfg(feature = "h7")]
+    let flash_baud_div = BaudRate::Div16;
+    let mut spi2 = Spi2::new(spi2_pac, flash_spi_cfg, flash_baud_div);
+
+    #[cfg(feature = "h7")]
+    let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output);
+    #[cfg(feature = "g4")]
+    let mut cs_flash = Pin::new(Port::A, 12, PinMode::Output);
+
+    cs_flash.set_high();
+
+    println!("a");
+
+    let mut jedec = [0x90, 0, 0, 0, 0, 0];
+    cs_flash.set_low();
+    spi2.transfer(&mut jedec).unwrap();
+
+    cs_flash.set_high();
+    println!("JEDEC: {:?}", jedec);
+    // todo end TS
+
     // We use I2C1 for the GPS, magnetometer, and TOF sensor. Some details:
     // The U-BLOX GPS' max speed is 400kHz.
     // The LIS3MDL altimeter's max speed is 400kHz.
@@ -467,9 +499,10 @@ pub fn setup_busses(
         ..Default::default()
     };
 
-    // We use I2C for the TOF sensor.(?)
+    // We use I2C2 for the baro. todo: What is its max speed?
     let i2c_baro_cfg = I2cConfig {
-        speed: I2cSpeed::Fast400K,
+        // speed: I2cSpeed::Fast400K, // todo: Try this once working at 100k.
+        speed: I2cSpeed::Standard100K,
         ..Default::default()
     };
 

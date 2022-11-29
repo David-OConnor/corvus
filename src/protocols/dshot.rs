@@ -79,12 +79,20 @@ cfg_if! {
         pub const DSHOT_ARR_600: u32 = 567; // 170Mhz tim clock // todo: This is for DSHOT 300.
         pub const DSHOT_ARR_300: u32 = 567; // 170Mhz tim clock // todo: This is for DSHOT 300.
 
-        // This runs immediately after completion of transmission, prior to the
-        // start of reception
-        pub const READ_TIMER_ARR_INIT: u32 = 4_200; // A 24.7us delay. Note that in practice we measure 35; 25 is conservative.
-        pub const READ_TIMER_ARR_READING: u32 = 452; // This results in a frequency of 375kHz; for DSHOT 300.
+        // todo: Experimenting
+        pub const DSHOT_ARR_READ_300: u32 = 452;
+        pub const DSHOT_ARR_READ_300_PAD: u32 = 679;
+
+        // Experimenting with timer burst dma read
+        const DSHOT_ARR_READ_BURST_300: u32 = 17_000;
+
+        // //This runs immediately after completion of transmission, prior to the
+        // //start of reception
+        // pub const READ_TIMER_ARR_INIT: u32 = 4_200; // A 24.7us delay. Note that in practice we measure 35; 25 is conservative.
+        // pub const READ_TIMER_ARR_READING: u32 = 452; // This results in a frequency of 375kHz; for DSHOT 300.
     }
 }
+pub const DSHOT_REC_MODE: AtomicBool = AtomicBool::new(false);
 
 // Duty cycle values (to be written to CCMRx), based on our ARR value. 0. = 0%. ARR = 100%.
 const DUTY_HIGH: u32 = DSHOT_ARR_600 * 3 / 4;
@@ -108,12 +116,18 @@ pub static READ_I: AtomicUsize = AtomicUsize::new(0);
 
 // There are 21 bits in each DSHOT RPM reception message. Value is true for line low (bit = 1), and false
 // for line high (bit = 0); idle high.
-pub const REC_BUF_LEN: usize = 22; // todo: temp pad.
-                                   // todo: Maybe don't start rec process until first down edge.
+pub const REC_BUF_LEN: usize = 20;
+
 pub static mut PAYLOAD_REC_BB_1: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_BB_2: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_BB_3: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_BB_4: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
+
+pub const REC_BUF_LENb: usize = 3;
+pub static mut PAYLOAD_REC_1: [u16; REC_BUF_LENb] = [0; REC_BUF_LENb];
+pub static mut PAYLOAD_REC_2: [u16; REC_BUF_LENb] = [0; REC_BUF_LENb];
+pub static mut PAYLOAD_REC_3: [u16; REC_BUF_LENb] = [0; REC_BUF_LENb];
+pub static mut PAYLOAD_REC_4: [u16; REC_BUF_LENb] = [0; REC_BUF_LENb];
 
 /// Possible DSHOT commands (ie, DSHOT values 0 - 47). Does not include power settings.
 /// [Special commands section](https://brushlesswhoop.com/dshot-and-bidirectional-dshot/)
@@ -333,13 +347,16 @@ pub fn set_power_single(rotor: Motor, power: f32, timer: &mut MotorTimer) {
 /// Send the stored payload.
 fn send_payload(timer: &mut MotorTimer) {
     // Stop any transations in progress.
-    // dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
+    dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
+    // timer.disable(); // todo TS
 
     // Note that timer enabling is handled by `write_dma_burst`.
+    DSHOT_REC_MODE.store(false, Ordering::Relaxed);
+
+    set_to_output(timer);
 
     // todo: Reset ARR here and pin in ISR, or in dshot::send_payload? Currently here
     let alt_mode = 0b10;
-    // todo: H7 pins too.
     unsafe {
         cfg_if! {
             if #[cfg(feature = "h7")] {
@@ -353,13 +370,12 @@ fn send_payload(timer: &mut MotorTimer) {
                     });
 
             } else {
-                // todo: Put these in once you have the new board
-                // (*pac::GPIOC::ptr())
-                //     .moder
-                //     .modify(|_, w| w.moder6().bits(alt_mode));
-                // (*pac::GPIOA::ptr())
-                //     .moder
-                //     .modify(|_, w| w.moder4().bits(alt_mode));
+                (*pac::GPIOC::ptr())
+                    .moder
+                    .modify(|_, w| w.moder6().bits(alt_mode));
+                (*pac::GPIOA::ptr())
+                    .moder
+                    .modify(|_, w| w.moder4().bits(alt_mode));
                 (*pac::GPIOB::ptr())
                     .moder
                     .modify(|_, w| {
@@ -369,6 +385,14 @@ fn send_payload(timer: &mut MotorTimer) {
             }
         }
     }
+
+    // Disable the read start interrupt, ie in case no data was received after it was enabled,
+    // we don't want it triggering off a write.
+    let exti = unsafe { &(*pac::EXTI::ptr()) };
+    #[cfg(feature = "h7")]
+    exti.cpuimr1.modify(|_, w| w.mr6().clear_bit());
+    #[cfg(feature = "g4")]
+    exti.ftsr1.modify(|_, w| w.ft1().clear_bit());
 
     unsafe {
         timer.write_dma_burst(
@@ -387,11 +411,41 @@ fn send_payload(timer: &mut MotorTimer) {
     }
 }
 
+// todo temp
+use stm32_hal2::dma::DmaChannel;
+
 /// Receive an RPM payload for all channels in bidirectional mode.
 /// Note that we configure what won't affect the FC-ESC transmission in the reception timer's
 /// ISR on payload-reception-complete. Here, we configure things that would affect transmission.
 // pub fn receive_payload(timer: &mut MotorTimer) {
-pub fn receive_payload() {
+// pub fn receive_payload() {
+pub fn receive_payload(timer: &mut MotorTimer) {
+    // Stop any transations in progress.
+    dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
+
+    _set_to_input(timer);
+
+    unsafe {
+        // timer.read_dma_burst(
+        //     &mut PAYLOAD_REC_3,
+        //     setup::DSHOT_BASE_DIR_OFFSET + 2,
+        //     1,
+        //     // setup::DSHOT_BASE_DIR_OFFSET,
+        //     // NUM_MOTORS as u8, // Update a channel per number of motors, up to 4.
+        //     // setup::MOTOR_CH,
+        //     DmaChannel::C4, // todo temp
+        //     ChannelCfg {
+        //         // Take precedence over CRSF and ADCs.
+        //         priority: Priority::High,
+        //         ..ChannelCfg::default()
+        //     },
+        //     true,
+        //     setup::MOTORS_DMA_PERIPH,
+        // );
+        // timer.disable();// todo temp
+    }
+
+    return;
     // todo: Trying a different approach
     let input_mode = 0b00;
     unsafe {
@@ -426,13 +480,14 @@ pub fn receive_payload() {
 
     // todo: Shared resource for pins?
     let exti = unsafe { &(*pac::EXTI::ptr()) };
+    let syscfg = unsafe { &(*pac::SYSCFG::ptr()) };
 
-    // syscfg.exticr2.modify(|_, w| unsafe { w.exti6().bits(2) }); // Points to port C.
-
-    #[cfg(feature = "h7")]
-    exti.cpuimr1.modify(|_, w| w.mr6().set_bit());
-    #[cfg(feature = "g4")]
-    exti.ftsr1.modify(|_, w| w.ft1().set_bit());
+    // #[cfg(feature = "h7")]
+    // exti.cpuimr1.modify(|_, w| w.mr6().set_bit());
+    // #[cfg(feature = "g4")]
+    // exti.ftsr1.modify(|_, w| w.ft1().set_bit());
+    //
+    // syscfg.exticr1.modify(|_, w| unsafe { w.exti1().bits(1) }); // Points to port B.
 
     // todo: Why is the below working but not above???
     let mut a = gpio::Pin::new(gpio::Port::B, 1, gpio::PinMode::Input);
@@ -474,8 +529,8 @@ pub fn set_to_output(timer: &mut MotorTimer) {
 
     // todo: Awk place for this.
     // Point the EXTI0 interrupt to the C port for RPM reception.
-    let syscfg = unsafe { &(*pac::SYSCFG::ptr()) };
-    syscfg.exticr1.modify(|_, w| unsafe { w.exti1().bits(1) }); // Points to port B.
+    // let syscfg = unsafe { &(*pac::SYSCFG::ptr()) };
+    // syscfg.exticr1.modify(|_, w| unsafe { w.exti1().bits(1) }); // Points to port B.
 
     let oc = OutputCompare::Pwm1;
 
@@ -500,10 +555,8 @@ pub fn _set_to_input(timer: &mut MotorTimer) {
     let pol_p = Polarity::ActiveLow;
     let pol_n = Polarity::ActiveHigh;
 
-    // todo: Don't use `set_period here; set ARR and PSC
     // 100us is longer that we expect the longest received pulse to be. Reduce A/R
-    // timer.set_freq(300_000.);
-    timer.set_auto_reload(14_000); // todo: Use const. And will change H7 vs G4
+    timer.set_auto_reload(DSHOT_ARR_READ_BURST_300);
 
     timer.set_input_capture(Motor::M1.tim_channel(), cc, pol_p, pol_n);
     timer.set_input_capture(Motor::M2.tim_channel(), cc, pol_p, pol_n);
@@ -549,7 +602,7 @@ fn rpm_from_data(packet: u16) -> Result<EscData, RpmError> {
 
     // Right shift 4 to exclude the CRC itself from the calculation.
     if crc_read != calc_crc(data) {
-        // println!("E");
+        println!("C");
         // println!("CRC: {}, p: {}", unsafe { &PAYLOAD_REC_BB_3 }, packet);
         return Err(RpmError::Crc);
     }
@@ -630,7 +683,7 @@ fn reduce_bit_count_map(val: u8) -> Result<u16, RpmError> {
         0x0e => 0xe,
         0x0f => 0xf,
         _ => {
-            // println!("Map err");
+            // println!("M {}", val);
             return Err(RpmError::Gcr);
         }
     };
@@ -724,9 +777,7 @@ pub fn update_rpms(rpms: &mut MotorRpm, fault: &mut bool) {
     // }
     if update_rpm_from_packet(&mut rpms.aft_left, packet3).is_err() {
         *fault = true;
-        // println!("E");
     } else {
-        // println!("G");
     }
     if update_rpm_from_packet(&mut rpms.front_left, packet4).is_err() {
         *fault = true;
