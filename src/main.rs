@@ -350,7 +350,7 @@ mod app {
         #[cfg(feature = "g4")]
         let uart_crsf = dp.USART3;
 
-        let (mut spi1, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_crsf) =
+        let (mut spi1, mut flash_spi, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_crsf) =
             setup::setup_busses(
                 dp.SPI1, dp.SPI2, dp.I2C1, dp.I2C2, dp.USART2, uart_crsf, &clock_cfg,
             );
@@ -546,9 +546,11 @@ mod app {
             &mut params,
             &mut state_volatile.base_point,
             &mut spi1,
+            &mut flash_spi,
             &mut i2c1,
             &mut i2c2,
             &mut cs_imu,
+            &mut cs_flash,
             &mut delay,
         );
 

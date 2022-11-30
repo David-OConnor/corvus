@@ -76,7 +76,7 @@ const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
 pub const WAYPOINT_SIZE: usize = F32_SIZE * 3 + WAYPOINT_MAX_NAME_LEN + 1;
 pub const WAYPOINTS_SIZE: usize = crate::state::MAX_WAYPOINTS * WAYPOINT_SIZE;
 pub const SET_SERVO_POSIT_SIZE: usize = 1 + F32_SIZE; // Servo num, value
-pub const SYS_STATUS_SIZE: usize = 10; // Sensor status (u8) * 10
+pub const SYS_STATUS_SIZE: usize = 11; // Sensor status (u8) * 11
 pub const AP_STATUS_SIZE: usize = 0; // todo
 pub const SYS_AP_STATUS_SIZE: usize = SYS_STATUS_SIZE + AP_STATUS_SIZE;
 #[cfg(feature = "quad")]
@@ -240,6 +240,7 @@ impl From<&SystemStatus> for [u8; SYS_STATUS_SIZE] {
             p.esc_telemetry as u8,
             p.esc_rpm as u8,
             p.rf_control_link as u8,
+            p.flash_spi as u8,
             system_status::RX_FAULT.load(Ordering::Acquire) as u8,
             system_status::RPM_FAULT.load(Ordering::Acquire) as u8,
         ]

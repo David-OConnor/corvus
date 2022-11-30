@@ -30,6 +30,7 @@ use crate::{
         mag_lis3mdl as mag,
         spi2_kludge::Spi2, // todo: Temp hopefully
         tof_vl53l1 as tof,
+        flash_spi,
     },
     flight_ctrls::common::Motor,
     params::Params,
@@ -100,14 +101,21 @@ pub fn init_sensors(
     params: &mut Params,
     base_pt: &mut Location,
     spi1: &mut Spi<SPI1>,
+    spi_flash: &mut flash_spi::SpiFlashType,
     i2c1: &mut I2c<I2C1>,
     i2c2: &mut I2c<I2C2>,
     cs_imu: &mut Pin,
+    cs_flash: &mut Pin,
     delay: &mut Delay,
 ) -> (SystemStatus, baro::Altimeter) {
     let mut system_status = SystemStatus::default();
 
     // let eps = 0.001;
+
+    match imu::setup(spi1, cs_imu, delay) {
+        Ok(_) => system_status.imu = SensorStatus::Pass,
+        Err(_) => system_status.imu = SensorStatus::NotConnected,
+    };
 
     match gps::setup(i2c1) {
         Ok(_) => system_status.gps = SensorStatus::Pass,
@@ -124,10 +132,10 @@ pub fn init_sensors(
         Err(_) => system_status.tof = SensorStatus::NotConnected,
     }
 
-    match imu::setup(spi1, cs_imu, delay) {
-        Ok(_) => system_status.imu = SensorStatus::Pass,
-        Err(_) => system_status.imu = SensorStatus::NotConnected,
-    };
+    match flash_spi::setup(spi_flash, cs_flash) {
+        Ok(_) => system_status.flash_spi = SensorStatus::Pass,
+        Err(_) => system_status.flash_spi = SensorStatus::NotConnected,
+    }
 
     // if let Some(agl) = tof::read(params.quaternion, i2c1) {
     //     if agl > 0.01 {
@@ -415,10 +423,15 @@ type UartCrsfRegs = pac::UART7;
 #[cfg(feature = "g4")]
 type UartCrsfRegs = pac::USART3;
 
+#[cfg(feature = "h7")]
+type SpiPacFlash = pac::OCTOSPI;
+#[cfg(feature = "g4")]
+type SpiPacFlash = pac::SPI2;
+
 /// Configure the SPI and I2C busses.
 pub fn setup_busses(
     spi1_pac: SPI1,
-    spi2_pac: SPI2, // todo: QSPI on H7
+    spi_flash_pac: SpiPacFlash,
     i2c1_pac: I2C1,
     i2c2_pac: I2C2,
     uart2_pac: USART2,
@@ -426,6 +439,7 @@ pub fn setup_busses(
     clock_cfg: &Clocks,
 ) -> (
     Spi<SPI1>,
+    Spi2<SPI2>,
     Pin,
     Pin,
     I2c<I2C1>,
@@ -448,7 +462,7 @@ pub fn setup_busses(
         ..Default::default()
     };
 
-    let spi1 = Spi::new(spi1_pac, imu_spi_cfg, imu_baud_div);
+    let spi_imu = Spi::new(spi1_pac, imu_spi_cfg, imu_baud_div);
 
     #[cfg(feature = "h7")]
     let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
@@ -457,36 +471,6 @@ pub fn setup_busses(
 
     cs_imu.set_high();
 
-    // todo: TS Flash. Note that we don't currently return or use this.
-
-    let flash_spi_cfg = stm32_hal2::spi::SpiConfig {
-        mode: SpiMode::mode0(), // todo?
-        ..Default::default()
-    };
-
-    // todo: You can probably use even  higher clock speeds than this for flash
-    #[cfg(feature = "g4")]
-    let flash_baud_div = BaudRate::Div4;
-    #[cfg(feature = "h7")]
-    let flash_baud_div = BaudRate::Div16;
-    let mut spi2 = Spi2::new(spi2_pac, flash_spi_cfg, flash_baud_div);
-
-    #[cfg(feature = "h7")]
-    let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output);
-    #[cfg(feature = "g4")]
-    let mut cs_flash = Pin::new(Port::A, 12, PinMode::Output);
-
-    cs_flash.set_high();
-
-    println!("a");
-
-    let mut jedec = [0x90, 0, 0, 0, 0, 0];
-    cs_flash.set_low();
-    spi2.transfer(&mut jedec).unwrap();
-
-    cs_flash.set_high();
-    println!("JEDEC: {:?}", jedec);
-    // todo end TS
 
     // We use I2C1 for the GPS, magnetometer, and TOF sensor. Some details:
     // The U-BLOX GPS' max speed is 400kHz.
@@ -512,25 +496,25 @@ pub fn setup_busses(
     // We use I2C2 for the onboard barometer (altimeter).
     let i2c2 = I2c::new(i2c2_pac, i2c_baro_cfg, clock_cfg);
 
-    // We use SPI3 for SPI flash on G4. On H7, we use octospi instead.
-    // todo: Find max speed and supported modes.
-    // todo: Commented this out due to a HAL/PAC limitation.
-    // cfg_if! {
-    //     if #[cfg(feature = "h7")] {
-    //         let spi_flash = Octospi::new(dp.OCTOSPI, Default::default(), BaudRate::Div32);
-    //
-    //     } else {
-    //         // todo: HAL issue where SPI needs to cast as SPI1
-    //         let spi_flash = Spi::new(dp.SPI3 as SPI1, Default::default(), BaudRate::Div32);
-    //         // let spi_flash = Spi::new(dp.SPI3, Default::default(), BaudRate::Div32);
-    //     }
-    // }
+    // We use SPI2 for SPI flash on G4. On H7, we use octospi instead.
+    // Max speed: 104Mhz (single, dual, or quad)
+     // W25 flash chips use SPI mode 0 or 3.
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            let spi_flash = Octospi::new(spi_flash_pac, Default::default(), BaudRate::Div8);
+
+        } else {
+            let spi_flash = Spi2::new(spi_flash_pac, Default::default(), BaudRate::Div2);
+        }
+    }
 
     #[cfg(feature = "h7")]
-    let mut cs_flash = Pin::new(Port::C, 10, PinMode::Output);
+    let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output);
     #[cfg(feature = "g4")]
     let mut cs_flash = Pin::new(Port::A, 0, PinMode::Output);
+
     cs_flash.set_high();
+
 
     // We use UART2 for the OSD, for DJI, via the MSP protocol.
     // todo: QC baud.
@@ -573,5 +557,5 @@ pub fn setup_busses(
         clock_cfg,
     );
 
-    (spi1, cs_imu, cs_flash, i2c1, i2c2, uart_osd, uart_crsf)
+    (spi_imu, spi_flash, cs_imu, cs_flash, i2c1, i2c2, uart_osd, uart_crsf)
 }

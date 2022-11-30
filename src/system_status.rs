@@ -27,6 +27,8 @@ pub struct SystemStatus {
                                        // todo: You should have more specific faults than this. Eg what went wrong.
                                        // pub rf_control_fault: bool,
                                        // pub esc_rpm_fault: bool,
+   /// SPI flash, which we may use in the future for data logging.
+   pub flash_spi: SensorStatus,
 }
 
 #[derive(Clone, Copy, PartialEq)]
