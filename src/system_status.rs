@@ -23,12 +23,12 @@ pub struct SystemStatus {
     pub esc_telemetry: SensorStatus,
     pub esc_rpm: SensorStatus,
     pub rf_control_link: SensorStatus, // todo: For now, we use `link_lost` instead.
-                                       // todo: Consider a separate faults struct if this grows in complexity
-                                       // todo: You should have more specific faults than this. Eg what went wrong.
-                                       // pub rf_control_fault: bool,
-                                       // pub esc_rpm_fault: bool,
-   /// SPI flash, which we may use in the future for data logging.
-   pub flash_spi: SensorStatus,
+    // todo: Consider a separate faults struct if this grows in complexity
+    // todo: You should have more specific faults than this. Eg what went wrong.
+    // pub rf_control_fault: bool,
+    // pub esc_rpm_fault: bool,
+    /// SPI flash, which we may use in the future for data logging.
+    pub flash_spi: SensorStatus,
 }
 
 #[derive(Clone, Copy, PartialEq)]

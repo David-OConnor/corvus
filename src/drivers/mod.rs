@@ -9,6 +9,6 @@ pub mod mag_lis3mdl;
 // pub mod optical_flow_driver;
 pub mod osd;
 // `tof_driver` uses partially-translated C code that doesn't conform to Rust naming conventions.
+pub mod flash_spi;
 pub mod spi2_kludge;
 pub mod tof_vl53l1;
-pub mod flash_spi;

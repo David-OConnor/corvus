@@ -23,11 +23,12 @@ use defmt::println;
 // The sensor's address is 0x77 (if SDO pin is left floating or pulled-up to VDDIO) or 0x76 (if the SDO pin is
 // pulled-down to GND).
 pub const ADDR: u8 = 0x77;
+pub const PRODUCT_ID: u8 = 0x69; // Does not include revision id.
 
 pub struct BaroNotConnectedError {}
 
 impl From<i2c::Error> for BaroNotConnectedError {
-    fn from(e: i2c::Error) -> Self {
+    fn from(_: i2c::Error) -> Self {
         Self {}
     }
 }
@@ -49,6 +50,7 @@ pub enum Reg {
     InitSts = 0x0A,
     FifoSts = 0x0B,
     Reset = 0x0C,
+    ProductId = 0x0d,
 
     // Some awkward boundaries due to being packed. See datasheet section 8.11
     Coef0 = 0x10,
@@ -124,10 +126,33 @@ pub struct Altimeter {
 
 // todo: Consider adding a second and/or 3rd gps cal point based on GPS reporting.
 
+use cortex_m::delay::Delay; // todo temp
+
 impl Altimeter {
     /// Configure settings, including pressure mreasurement rate, and return an instance.
     /// And load calibration data.
     pub fn new(i2c: &mut I2c<I2C2>) -> Result<Self, BaroNotConnectedError> {
+        let mut read_buf = [0];
+
+        // todo temp
+        let cp = unsafe { cortex_m::Peripherals::steal() };
+        let mut delay = Delay::new(cp.SYST, 170_000_000);
+
+        // loop {
+        //     // i2c.write_read(ADDR, &[Reg::ProductId as u8], &mut read_buf).ok();
+        //     // println!("BUF: {:?}", read_buf);
+        //     i2c.write(ADDR, &[Reg::PrsCfg as u8, 0b0111_0110]).ok();
+        //     delay.delay_ms(200);
+        //     println!("L");
+        // }
+
+        i2c.write_read(ADDR, &[Reg::ProductId as u8], &mut read_buf);
+
+        println!("READ BUF BARO: {:?}", read_buf);
+        if (read_buf[0] & 0xf) != PRODUCT_ID {
+            // return Err(BaroNotConnectedError {}); // todo: PUt back once baro is workign
+        }
+
         println!("A");
         // Set 64x oversampling, and 128 measurements per second, for both temp and pres.
         i2c.write(ADDR, &[Reg::PrsCfg as u8, 0b0111_0110])?;

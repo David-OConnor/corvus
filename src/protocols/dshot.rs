@@ -22,7 +22,7 @@ use stm32_hal2::{
     dma::{self, ChannelCfg, Priority},
     gpio::{self, PinMode},
     pac::{self, TIM3},
-    timer::{CaptureCompare, CountDir, OutputCompare, Polarity},
+    timer::{CaptureCompare, CountDir, OutputCompare, Polarity, TimerInterrupt},
 };
 
 use crate::{
@@ -84,7 +84,7 @@ cfg_if! {
         pub const DSHOT_ARR_READ_300_PAD: u32 = 679;
 
         // Experimenting with timer burst dma read
-        const DSHOT_ARR_READ_BURST_300: u32 = 17_000;
+        pub const DSHOT_ARR_READ_BURST_300: u32 = 17_000;
 
         // //This runs immediately after completion of transmission, prior to the
         // //start of reception
@@ -123,7 +123,7 @@ pub static mut PAYLOAD_REC_BB_2: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_BB_3: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_BB_4: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
 
-pub const REC_BUF_LENb: usize = 3;
+pub const REC_BUF_LENb: usize = 30;
 pub static mut PAYLOAD_REC_1: [u16; REC_BUF_LENb] = [0; REC_BUF_LENb];
 pub static mut PAYLOAD_REC_2: [u16; REC_BUF_LENb] = [0; REC_BUF_LENb];
 pub static mut PAYLOAD_REC_3: [u16; REC_BUF_LENb] = [0; REC_BUF_LENb];
@@ -348,11 +348,16 @@ pub fn set_power_single(rotor: Motor, power: f32, timer: &mut MotorTimer) {
 fn send_payload(timer: &mut MotorTimer) {
     // Stop any transations in progress.
     dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
+
+    // todo: Probably need at least some of this set up.
+
     // timer.disable(); // todo TS
-
-    // Note that timer enabling is handled by `write_dma_burst`.
-    DSHOT_REC_MODE.store(false, Ordering::Relaxed);
-
+    //
+    // // Note that timer enabling is handled by `write_dma_burst`.
+    DSHOT_REC_MODE.store(false, Ordering::Release);
+    //
+    // timer.disable_interrupt(TimerInterrupt::Update);
+    //
     set_to_output(timer);
 
     // todo: Reset ARR here and pin in ISR, or in dshot::send_payload? Currently here
@@ -421,32 +426,32 @@ use stm32_hal2::dma::DmaChannel;
 // pub fn receive_payload() {
 pub fn receive_payload(timer: &mut MotorTimer) {
     // Stop any transations in progress.
-    dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
+    // dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
+    // timer.enable_interrupt(TimerInterrupt::Update);
 
     _set_to_input(timer);
 
     unsafe {
-        // timer.read_dma_burst(
-        //     &mut PAYLOAD_REC_3,
-        //     setup::DSHOT_BASE_DIR_OFFSET + 2,
-        //     1,
-        //     // setup::DSHOT_BASE_DIR_OFFSET,
-        //     // NUM_MOTORS as u8, // Update a channel per number of motors, up to 4.
-        //     // setup::MOTOR_CH,
-        //     DmaChannel::C4, // todo temp
-        //     ChannelCfg {
-        //         // Take precedence over CRSF and ADCs.
-        //         priority: Priority::High,
-        //         ..ChannelCfg::default()
-        //     },
-        //     true,
-        //     setup::MOTORS_DMA_PERIPH,
-        // );
+        timer.read_dma_burst(
+            &mut PAYLOAD_REC_1,
+            setup::DSHOT_BASE_DIR_OFFSET,
+            1, // todo temp
+            // NUM_MOTORS as u8, // Update a channel per number of motors, up to 4.
+            setup::MOTOR_CH,
+            // DmaChannel::C4, // todo temp
+            ChannelCfg {
+                // Take precedence over CRSF and ADCs.
+                priority: Priority::Medium,
+                ..ChannelCfg::default()
+            },
+            true,
+            setup::MOTORS_DMA_PERIPH,
+        );
         // timer.disable();// todo temp
     }
 
     return;
-    // todo: Trying a different approach
+    // todo: Trying a different approach using burst dma to read
     let input_mode = 0b00;
     unsafe {
         cfg_if! {

@@ -350,10 +350,18 @@ mod app {
         #[cfg(feature = "g4")]
         let uart_crsf = dp.USART3;
 
-        let (mut spi1, mut flash_spi, mut cs_imu, mut cs_flash, mut i2c1, mut i2c2, uart_osd, mut uart_crsf) =
-            setup::setup_busses(
-                dp.SPI1, dp.SPI2, dp.I2C1, dp.I2C2, dp.USART2, uart_crsf, &clock_cfg,
-            );
+        let (
+            mut spi1,
+            mut flash_spi,
+            mut cs_imu,
+            mut cs_flash,
+            mut i2c1,
+            mut i2c2,
+            uart_osd,
+            mut uart_crsf,
+        ) = setup::setup_busses(
+            dp.SPI1, dp.SPI2, dp.I2C1, dp.I2C2, dp.USART2, uart_crsf, &clock_cfg,
+        );
 
         let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
 
@@ -445,7 +453,8 @@ mod app {
             &clock_cfg,
         );
 
-        dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ_300_PAD);
+        // dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ_300_PAD);
+        dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ_BURST_300);
         dshot_read_timer.enable_interrupt(TimerInterrupt::Update);
 
         // For fixed wing on H7; need a separate timer from the 4 used for DSHOT.
@@ -792,8 +801,8 @@ mod app {
                         // todo: Flesh this out, and perhaps make it more like Preflight.
 
                         // println!("DSHOT: {:?}", unsafe { dshot::PAYLOAD_REC });
-                        println!("DSHOT3: {:?}", unsafe { dshot::PAYLOAD_REC_BB_3 });
-                        println!("DSHOT3 burst: {:?}", unsafe { dshot::PAYLOAD_REC_3 });
+                        println!("DSHOT1: {:?}", unsafe { dshot::PAYLOAD_REC_BB_1 });
+                        println!("DSHOT1 burst: {:?}", unsafe { dshot::PAYLOAD_REC_1 });
 
                         println!(
                             "\n\nFaults. Rx: {}. RPM: {}",
@@ -1437,6 +1446,23 @@ mod app {
             )
     }
 
+    // #[task(binds = TIM3, shared = [motor_timer], priority = 5)]
+    // /// We use this ISR to initialize the RPM reception procedures upon completion of the dshot
+    // /// power setting transmission to the ESC.
+    // fn motor_timer_isr(mut cx: motor_timer_isr::Context) {
+    //     println!("MTIM {}", dshot::DSHOT_REC_MODE.load(Ordering::Acquire));
+    //
+    //     dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
+    //     // Note that timer enabling is handled by `write_dma_burst`.
+    //     dshot::DSHOT_REC_MODE.store(false, Ordering::Release);
+    //
+    //     cx.shared.motor_timer.lock(|timer| {
+    //         timer.disable();
+    //         timer.disable_interrupt(TimerInterrupt::Update);
+    //         dshot::set_to_output(timer);
+    //     });
+    // }
+
     // #[task(binds = DMA1_STR3, shared = [], priority = 6)]
     #[task(binds = DMA1_CH3, shared = [motor_timer], priority = 6)]
     /// We use this ISR to initialize the RPM reception procedures upon completion of the dshot
@@ -1455,30 +1481,15 @@ mod app {
         //     dshot::receive_payload(motor_timer);
         // }
 
-        // Shared resource here causes scheduling jitter. (BB)
-        unsafe {
-            (*pac::TIM3::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
-        }
+        _cx.shared.motor_timer.lock(|motor_timer| {
+            motor_timer.disable();
 
-        // motor_timer.disable();
-
-        // cx.shared.motor_timer.lock(|motor_timer| {
-        //     motor_timer.disable();
-
-        // if dshot::BIDIR_EN {
-        //     dshot::receive_payload(motor_timer);
-        // }
-
-        // todo: you might  need a slightly delay etc to make sure you're reading towards
-        // todo: the middle of a pulse vice the start?
-
-        if dshot::BIDIR_EN {
-            _cx.shared.motor_timer.lock(|motor_timer| {
+            if dshot::BIDIR_EN {
                 if dshot::DSHOT_REC_MODE.load(Ordering::Acquire) {
                     println!("Sd");
                     // dshot::set_to_output(motor_timer);
 
-                    dshot::DSHOT_REC_MODE.store(false, Ordering::Release);
+                    // dshot::DSHOT_REC_MODE.store(false, Ordering::Release);
                 } else {
                     // println!("Rc");
                     // Note that `receive_payload` calls `set_to_input`.
@@ -1486,12 +1497,15 @@ mod app {
 
                     // // todo: Move to `receive_payload` fn on this atomic op?
                     dshot::DSHOT_REC_MODE.store(true, Ordering::Release);
+                    unsafe {
+                        (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().set_bit());
+                    }
                 }
-            });
-        }
+            }
+        });
     }
 
-    #[task(binds = EXTI1, shared = [], local = [], priority = 8)]
+    #[task(binds = EXTI9_5, shared = [], local = [], priority = 8)]
     /// Start the DSHOT RPM read timer on the first low edge of this pin. (Currently Motor 3.)
     fn dshot_read_start_isr(_cx: dshot_read_start_isr::Context) {
         gpio::clear_exti_interrupt(1);
@@ -1507,16 +1521,31 @@ mod app {
         #[cfg(feature = "h7")]
         exti.cpuimr1.modify(|_, w| w.mr6().clear_bit());
         #[cfg(feature = "g4")]
-        exti.ftsr1.modify(|_, w| w.ft1().clear_bit());
+        exti.ftsr1.modify(|_, w| w.ft6().clear_bit());
     }
 
     // todo temp removed rpms.
-    #[task(binds = TIM2, shared = [], local = [dshot_read_timer], priority = 9)]
+    #[task(binds = TIM2, shared = [motor_timer], local = [dshot_read_timer], priority = 9)]
     /// We use this ISR to, bit-by-bit, fill the buffer when receiving RPM data. It also handles
     /// termination of the reception timer. Started on the first low edge of the Motor 1 pin.
     fn dshot_read_isr(mut cx: dshot_read_isr::Context) {
         let timer = &mut cx.local.dshot_read_timer; // code shortener.
         timer.clear_interrupt(TimerInterrupt::Update);
+        timer.disable();
+
+        // println!("MTIM {}", dshot::DSHOT_REC_MODE.load(Ordering::Acquire));
+
+        dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
+        // Note that timer enabling is handled by `write_dma_burst`.
+        dshot::DSHOT_REC_MODE.store(false, Ordering::Release);
+
+        cx.shared.motor_timer.lock(|motor_timer| {
+            motor_timer.disable();
+            // timer.disable_interrupt(TimerInterrupt::Update);
+            dshot::set_to_output(motor_timer);
+        });
+
+        return;
 
         println!("BB r B");
         // todo: Figure out a way to use DMA instead of this?
@@ -1527,8 +1556,8 @@ mod app {
                 let m3_val = gpio::is_high(gpio::Port::C, 8);
                 let m4_val = gpio::is_high(gpio::Port::C, 9);
             } else {
-                // let m1_val = gpio::is_high(gpio::Port::C, 6);
-                // let m2_val = gpio::is_high(gpio::Port::A, 4);
+                let m1_val = gpio::is_high(gpio::Port::C, 6);
+                let m2_val = gpio::is_high(gpio::Port::A, 4);
                 let m3_val = gpio::is_high(gpio::Port::B, 0);
                 let m4_val = gpio::is_high(gpio::Port::B, 1);
             }
@@ -1553,8 +1582,8 @@ mod app {
         }
 
         unsafe {
-            // dshot::PAYLOAD_REC_BB_1[i] = m1_val;
-            // dshot::PAYLOAD_REC_BB_2[i] = m2_val;
+            dshot::PAYLOAD_REC_BB_1[i] = m1_val;
+            dshot::PAYLOAD_REC_BB_2[i] = m2_val;
             dshot::PAYLOAD_REC_BB_3[i] = m3_val;
             dshot::PAYLOAD_REC_BB_4[i] = m4_val;
         }

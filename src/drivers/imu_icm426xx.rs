@@ -20,6 +20,8 @@ use crate::imu_shared::_ImuReadingsRaw;
 
 // todo: Use WHOAMI etc to determine if we have this, or the ST IMU
 
+const DEVICE_ID: u8 = 0x47;
+
 #[derive(Clone, Copy)]
 pub enum ImuError {
     NotConnected,
@@ -31,8 +33,6 @@ impl From<spi::Error> for ImuError {
         Self::NotConnected
     }
 }
-
-const ADDR: u8 = 0x69; // todo
 
 /// See Datasheet, Section 13.1 (Note: This doesn't include all regs)
 #[allow(dead_code)]
@@ -120,6 +120,14 @@ fn write_one(reg: Reg, word: u8, spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<()
 pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) -> Result<(), ImuError> {
     // Leave default of SPI mode 0 and 3.
 
+    // todo: Without self-test, we'll use a WHOAMI read to verify if the IMU is connected. Note that
+    // todo the SPI bus will still not fail if the IMU isn't present. HAL error?
+    // todo: Better sanity check than WHOAMI.
+    let device_id = read_one(Reg::WhoAmI, spi, cs)?;
+    if device_id != DEVICE_ID {
+        return Err(ImuError::NotConnected);
+    }
+
     // An external cyrstal is connected on othe H7 FC, but not the G4.
     #[cfg(feature = "h7")]
     write_one(Reg::IntfConfig5, 0b0000_0100, spi, cs)?;
@@ -164,14 +172,6 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) -> Result<(),
     // write_one(Reg::SelfTestConfig, 0b0111_1111, spi, cs)?;
 
     // todo: Get self-test working. DS is unclear on how this works. If fail, return SelfTest error.
-
-    // todo: Without self-test, we'll use a WHOAMI read to verify if the IMU is connected. Note that
-    // todo the SPI bus will still not fail if the IMU isn't present. HAL error?
-    // todo: Better sanity check than WHOAMI.
-    let device_id = read_one(Reg::WhoAmI, spi, cs)?;
-    if device_id != 0x47 {
-        return Err(ImuError::NotConnected);
-    }
 
     Ok(())
 }

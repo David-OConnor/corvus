@@ -25,12 +25,12 @@ use crate::{
     crsf,
     drivers::{
         baro_dps310 as baro,
+        flash_spi,
         gps_ublox as gps,
         imu_icm426xx as imu,
         mag_lis3mdl as mag,
         spi2_kludge::Spi2, // todo: Temp hopefully
         tof_vl53l1 as tof,
-        flash_spi,
     },
     flight_ctrls::common::Motor,
     params::Params,
@@ -78,10 +78,11 @@ pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
 /// automatically when we set burst len = 4 in the DMA write and read.
 /// Calculate by taking the Adddress Offset for the associated CCR channel in the
 /// RM register table, and dividing by 4.
+/// todo: Is this valid for H7 as well?
 pub const DSHOT_BASE_DIR_OFFSET: u8 = 0x34 / 4;
 
 pub type MotorTimer = Timer<pac::TIM3>;
-pub type ServoTimer = Timer<pac::TIM8>;
+pub type ServoTimer = Timer<pac::TIM8>; // todo: Valid for G4 too?
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
@@ -122,7 +123,9 @@ pub fn init_sensors(
         Err(_) => system_status.gps = SensorStatus::NotConnected,
     }
 
-    match mag::setup(i2c1) {
+    // match mag::setup(i2c1) {
+    match mag::setup(i2c2) {
+        // todo temp i2c2 to TS
         Ok(_) => system_status.magnetometer = SensorStatus::Pass,
         Err(_) => system_status.magnetometer = SensorStatus::NotConnected,
     }
@@ -347,6 +350,7 @@ pub fn setup_pins() {
             sda1.pull(Pull::Up);
 
             // I2C2 for the DPS310 barometer, and pads.
+            // todo put back once done TS
             let mut scl2 = Pin::new(Port::A, 9, PinMode::Alt(4));
             scl2.output_type(OutputType::OpenDrain);
             scl2.pull(Pull::Up);
@@ -354,6 +358,16 @@ pub fn setup_pins() {
             let mut sda2 = Pin::new(Port::A, 10, PinMode::Alt(4));
             sda2.output_type(OutputType::OpenDrain);
             sda2.pull(Pull::Up);
+
+            // // todo TS baro
+            // let mut scl = Pin::new(Port::A, 9, PinMode::Output);
+            // let mut sda = Pin::new(Port::A, 10, PinMode::Output);
+            // scl.set_low();
+            // sda.set_low();
+            // println!("loop");
+            // loop {}
+
+
         }
     }
 }
@@ -471,7 +485,6 @@ pub fn setup_busses(
 
     cs_imu.set_high();
 
-
     // We use I2C1 for the GPS, magnetometer, and TOF sensor. Some details:
     // The U-BLOX GPS' max speed is 400kHz.
     // The LIS3MDL altimeter's max speed is 400kHz.
@@ -483,9 +496,10 @@ pub fn setup_busses(
         ..Default::default()
     };
 
-    // We use I2C2 for the baro. todo: What is its max speed?
+    // We use I2C2 for the baro.
     let i2c_baro_cfg = I2cConfig {
-        // speed: I2cSpeed::Fast400K, // todo: Try this once working at 100k.
+        // speed: I2cSpeed::Fast400K, // todo: Switch back to fast once it's working.
+        // speed: I2cSpeed::Standard10K,
         speed: I2cSpeed::Standard100K,
         ..Default::default()
     };
@@ -497,8 +511,9 @@ pub fn setup_busses(
     let i2c2 = I2c::new(i2c2_pac, i2c_baro_cfg, clock_cfg);
 
     // We use SPI2 for SPI flash on G4. On H7, we use octospi instead.
-    // Max speed: 104Mhz (single, dual, or quad)
-     // W25 flash chips use SPI mode 0 or 3.
+    // Max speed: 104Mhz (single, dual, or quad) for 8M variant, and 133Mhz for
+    // 16M variant.
+    // W25 flash chips use SPI mode 0 or 3.
     cfg_if! {
         if #[cfg(feature = "h7")] {
             let spi_flash = Octospi::new(spi_flash_pac, Default::default(), BaudRate::Div8);
@@ -514,7 +529,6 @@ pub fn setup_busses(
     let mut cs_flash = Pin::new(Port::A, 0, PinMode::Output);
 
     cs_flash.set_high();
-
 
     // We use UART2 for the OSD, for DJI, via the MSP protocol.
     // todo: QC baud.
@@ -557,5 +571,7 @@ pub fn setup_busses(
         clock_cfg,
     );
 
-    (spi_imu, spi_flash, cs_imu, cs_flash, i2c1, i2c2, uart_osd, uart_crsf)
+    (
+        spi_imu, spi_flash, cs_imu, cs_flash, i2c1, i2c2, uart_osd, uart_crsf,
+    )
 }

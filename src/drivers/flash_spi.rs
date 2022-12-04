@@ -1,11 +1,7 @@
 //! This module contains setup code for W25 SPI flash.
 //! We use normal SPI on G4, and quad spi on H7.
 
-use stm32_hal2::{
-    pac,
-    gpio::Pin,
-    spi,
-};
+use stm32_hal2::{gpio::Pin, pac, spi};
 
 use defmt::println;
 
@@ -34,9 +30,7 @@ const ADDR: u8 = 0x69; // todo
 #[repr(u8)]
 pub enum Reg {
     Jedec = 0x9f,
-
 }
-
 
 /// Initialize the flash peripheral, and verify it's returning the correct device id and metadata.
 pub fn setup(spi: &mut SpiFlashType, cs: &mut Pin) -> Result<(), FlashSpiError> {
@@ -50,8 +44,9 @@ pub fn setup(spi: &mut SpiFlashType, cs: &mut Pin) -> Result<(), FlashSpiError> 
     // Given SPI devices may report 0s if not connected properly, this is a good check that
     // we have 2-way communication.
     // todo: Will be different for H7.
+    // todo: Even on your new G4 board with 16m, last section is probably 0x15
     if buf[1] != 0xef || buf[2] != 0x40 || buf[3] != 0x14 {
-        return Err(FlashSpiError::NotConnected)
+        return Err(FlashSpiError::NotConnected);
     }
 
     Ok(())

@@ -3,17 +3,21 @@
 
 use stm32_hal2::{
     i2c::{self, I2c},
-    pac::I2C1,
+    pac::{I2C1, I2C2}, // todo 2 is temp to TS
 };
 
 use cortex_m::delay::Delay;
+
+use defmt::println;
 
 // DS: "The Slave Address (SAD) associated to the LIS3MDL is 00111x0b, whereas the x bit is
 // modified by the SDO/SA1 pin in order to modify the device address. If the SDO/SA1 pin is
 // connected to the voltage supply, the address is 0011110b, otherwise, if the SDO/SA1 pin is
 // connected to ground, the address is 0011100b."
 // Our board has it wired to ground.
-pub const ADDR: u8 = 0b11100; // ie 0x1C
+pub const ADDR: u8 = 0b11100; // ie 0x1C (Can alternatively be wired for 0b11110)
+
+const WHOAMI: u8 = 0x3d;
 
 pub struct MagNotConnectedError {}
 
@@ -49,14 +53,27 @@ pub enum Reg {
     INtThsH = 0x33,
 }
 
-pub fn setup(i2c: &mut I2c<I2C1>) -> Result<(), MagNotConnectedError> {
+// pub fn setup(i2c: &mut I2c<I2C1>) -> Result<(), MagNotConnectedError> {
+pub fn setup(i2c: &mut I2c<I2C2>) -> Result<(), MagNotConnectedError> {
+    // todo 2 to TS
     // todo: Could we take advantaeg of temp here for a diff purpose, away
     // from the FC board?
+
+    println!("MAG Pre setup");
+
+    let mut read_buf = [0];
+    i2c.write_read(ADDR, &[Reg::WhoAmI as u8], &mut read_buf);
+
+    println!("READ BUF Mag: {:?}", read_buf);
+    if (read_buf[0] & 0xf) != WHOAMI {
+        // return Err(BaroNotConnectedError {}); // todo: PUt back once baro is workign
+    }
 
     // Disable temp sensor. Set fast ODR, in ultra-high-performance mode.
     // Todo: This sets a relatively low refresh rate of 155Hz.
     // todo: But lower performance modes have up to 1kHz??
     i2c.write(ADDR, &[Reg::Ctrl1 as u8, 0b0110_0010])?;
+    println!("MAG Post setup");
 
     // Set fullscale range to +-4 gauss.
     i2c.write(ADDR, &[Reg::Ctrl2 as u8, 0b0000_0000])?;
