@@ -118,22 +118,21 @@ pub fn init_sensors(
         Err(_) => system_status.imu = SensorStatus::NotConnected,
     };
 
-    match gps::setup(i2c1) {
-        Ok(_) => system_status.gps = SensorStatus::Pass,
-        Err(_) => system_status.gps = SensorStatus::NotConnected,
-    }
+    // todo: Put these external sensor setups back once complete with baro TS
+    // match gps::setup(i2c1) {
+    //     Ok(_) => system_status.gps = SensorStatus::Pass,
+    //     Err(_) => system_status.gps = SensorStatus::NotConnected,
+    // }
 
     // match mag::setup(i2c1) {
-    match mag::setup(i2c2) {
-        // todo temp i2c2 to TS
-        Ok(_) => system_status.magnetometer = SensorStatus::Pass,
-        Err(_) => system_status.magnetometer = SensorStatus::NotConnected,
-    }
-
-    match tof::setup(i2c1) {
-        Ok(_) => system_status.tof = SensorStatus::Pass,
-        Err(_) => system_status.tof = SensorStatus::NotConnected,
-    }
+    //     Ok(_) => system_status.magnetometer = SensorStatus::Pass,
+    //     Err(_) => system_status.magnetometer = SensorStatus::NotConnected,
+    // }
+    //
+    // match tof::setup(i2c1) {
+    //     Ok(_) => system_status.tof = SensorStatus::Pass,
+    //     Err(_) => system_status.tof = SensorStatus::NotConnected,
+    // }
 
     match flash_spi::setup(spi_flash, cs_flash) {
         Ok(_) => system_status.flash_spi = SensorStatus::Pass,
@@ -146,7 +145,8 @@ pub fn init_sensors(
     //     }
     // }
 
-    let mut altimeter = match baro::Altimeter::new(i2c2) {
+    // let mut altimeter = match baro::Altimeter::new(i2c2) {
+    let mut altimeter = match baro::Altimeter::new(i2c1) { // todo temp i2c1
         Ok(a) => {
             system_status.baro = SensorStatus::Pass;
             a
@@ -167,10 +167,10 @@ pub fn init_sensors(
 
             *base_pt = Location::new(LocationType::LatLon, f.lat, f.lon, f.alt_msl);
 
-            altimeter.calibrate_from_gps(Some(f.alt_msl), i2c2);
+            altimeter.calibrate_from_gps(Some(f.alt_msl), i2c1); // todo temp 1
         }
         Err(_) => {
-            altimeter.calibrate_from_gps(None, i2c2);
+            altimeter.calibrate_from_gps(None, i2c1); // todo temp 1
         }
     }
     // todo: Use Rel0 location type if unable to get fix.
@@ -310,9 +310,9 @@ pub fn setup_pins() {
     // Used to trigger a PID update based on new IMU data.
     // We assume here the interrupt config uses default settings active low, push pull, pulsed.
     #[cfg(feature = "h7")]
-    let mut imu_exti_pin = Pin::new(Port::B, 12, PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::B, 12, PinMode::Input);
     #[cfg(feature = "g4")]
-    let mut imu_exti_pin = Pin::new(Port::C, 4, PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::C, 4, PinMode::Input);
 
     imu_exti_pin.output_type(OutputType::OpenDrain);
     imu_exti_pin.pull(Pull::Up);
@@ -324,52 +324,27 @@ pub fn setup_pins() {
         if #[cfg(feature = "h7")] {
             // I2C1 for external sensors, via pads
             let mut scl1 = Pin::new(Port::B, 8, PinMode::Alt(4));
-            scl1.output_type(OutputType::OpenDrain);
-            scl1.pull(Pull::Up);
-
             let mut sda1 = Pin::new(Port::B, 9, PinMode::Alt(4));
-            sda1.output_type(OutputType::OpenDrain);
-            sda1.pull(Pull::Up);
 
             // I2C2 for the DPS310 barometer, and pads.
             let mut scl2 = Pin::new(Port::B, 10, PinMode::Alt(4));
-            scl2.output_type(OutputType::OpenDrain);
-            scl2.pull(Pull::Up);
-
             let mut sda2 = Pin::new(Port::B, 11, PinMode::Alt(4));
             sda2.output_type(OutputType::OpenDrain);
-            sda2.pull(Pull::Up);
         } else {
-            // I2C1 for external sensors, via pads
             let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
-            scl1.output_type(OutputType::OpenDrain);
-            scl1.pull(Pull::Up);
-
             let mut sda1 = Pin::new(Port::B, 9, PinMode::Alt(4));
-            sda1.output_type(OutputType::OpenDrain);
-            sda1.pull(Pull::Up);
 
-            // I2C2 for the DPS310 barometer, and pads.
-            // todo put back once done TS
             let mut scl2 = Pin::new(Port::A, 9, PinMode::Alt(4));
-            scl2.output_type(OutputType::OpenDrain);
-            scl2.pull(Pull::Up);
-
             let mut sda2 = Pin::new(Port::A, 10, PinMode::Alt(4));
-            sda2.output_type(OutputType::OpenDrain);
-            sda2.pull(Pull::Up);
-
-            // // todo TS baro
-            // let mut scl = Pin::new(Port::A, 9, PinMode::Output);
-            // let mut sda = Pin::new(Port::A, 10, PinMode::Output);
-            // scl.set_low();
-            // sda.set_low();
-            // println!("loop");
-            // loop {}
-
 
         }
     }
+
+    // Note that we use hardware pullups, so don't enable the firmware pullups.
+    sda1.output_type(OutputType::OpenDrain);
+    scl1.output_type(OutputType::OpenDrain);
+    sda2.output_type(OutputType::OpenDrain);
+    scl2.output_type(OutputType::OpenDrain);
 }
 
 /// Assign DMA channels to peripherals.
@@ -383,9 +358,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 
     // CRSF (onboard ELRS)
     #[cfg(feature = "h7")]
-    let crsf_dma_ch = DmaInput::Uart7Rx;
+        let crsf_dma_ch = DmaInput::Uart7Rx;
     #[cfg(feature = "g4")]
-    let crsf_dma_ch = DmaInput::Usart3Rx;
+        let crsf_dma_ch = DmaInput::Usart3Rx;
 
     dma::mux(CRSF_DMA_PERIPH, CRSF_RX_CH, crsf_dma_ch);
 
@@ -393,9 +368,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // dma::mux(CRSF_DMA_PERIPH, CRSF_TX_CH, DmaInput::Usart3Tx);
 
     #[cfg(feature = "h7")]
-    dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, DmaInput::Adc1);
+        dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, DmaInput::Adc1);
     #[cfg(feature = "g4")]
-    dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, DmaInput::Adc2);
+        dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, DmaInput::Adc2);
 
     dma::mux(OSD_DMA_PERIPH, OSD_CH, DmaInput::Usart2Tx);
 
@@ -466,9 +441,9 @@ pub fn setup_busses(
     // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
     // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
     #[cfg(feature = "g4")]
-    let imu_baud_div = BaudRate::Div8; // for ICM426xx, for 24Mhz limit
+        let imu_baud_div = BaudRate::Div8; // for ICM426xx, for 24Mhz limit
     #[cfg(feature = "h7")]
-    let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
+        let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
 
     let imu_spi_cfg = SpiConfig {
         // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
@@ -479,9 +454,9 @@ pub fn setup_busses(
     let spi_imu = Spi::new(spi1_pac, imu_spi_cfg, imu_baud_div);
 
     #[cfg(feature = "h7")]
-    let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
+        let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
     #[cfg(feature = "g4")]
-    let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
     cs_imu.set_high();
 
@@ -524,9 +499,9 @@ pub fn setup_busses(
     }
 
     #[cfg(feature = "h7")]
-    let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output);
+        let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output);
     #[cfg(feature = "g4")]
-    let mut cs_flash = Pin::new(Port::A, 0, PinMode::Output);
+        let mut cs_flash = Pin::new(Port::A, 0, PinMode::Output);
 
     cs_flash.set_high();
 

@@ -15,15 +15,17 @@ use crate::{
 
 use stm32_hal2::{
     i2c::{self, I2c},
-    pac::I2C2,
+    pac::{I2C1, I2C2},
 };
 
 use defmt::println;
 
 // The sensor's address is 0x77 (if SDO pin is left floating or pulled-up to VDDIO) or 0x76 (if the SDO pin is
 // pulled-down to GND).
-pub const ADDR: u8 = 0x77;
-pub const PRODUCT_ID: u8 = 0x69; // Does not include revision id.
+pub const ADDR: u8 = 0x76; // todo: Switch back to 0x77 A/R
+pub const PRODUCT_ID: u8 = 0x10;
+
+type I2C = I2c<I2C1>; // todo temp 1
 
 pub struct BaroNotConnectedError {}
 
@@ -124,39 +126,21 @@ pub struct Altimeter {
     hardware_coeff_cal: HardwareCoeffCal,
 }
 
-// todo: Consider adding a second and/or 3rd gps cal point based on GPS reporting.
-
 use cortex_m::delay::Delay; // todo temp
 
 impl Altimeter {
     /// Configure settings, including pressure mreasurement rate, and return an instance.
     /// And load calibration data.
-    pub fn new(i2c: &mut I2c<I2C2>) -> Result<Self, BaroNotConnectedError> {
+    pub fn new(i2c: &mut I2C) -> Result<Self, BaroNotConnectedError> { // todo 1 temp
         let mut read_buf = [0];
-
-        // todo temp
-        let cp = unsafe { cortex_m::Peripherals::steal() };
-        let mut delay = Delay::new(cp.SYST, 170_000_000);
-
-        // loop {
-        //     // i2c.write_read(ADDR, &[Reg::ProductId as u8], &mut read_buf).ok();
-        //     // println!("BUF: {:?}", read_buf);
-        //     i2c.write(ADDR, &[Reg::PrsCfg as u8, 0b0111_0110]).ok();
-        //     delay.delay_ms(200);
-        //     println!("L");
-        // }
-
         i2c.write_read(ADDR, &[Reg::ProductId as u8], &mut read_buf);
 
-        println!("READ BUF BARO: {:?}", read_buf);
-        if (read_buf[0] & 0xf) != PRODUCT_ID {
-            // return Err(BaroNotConnectedError {}); // todo: PUt back once baro is workign
+        if read_buf[0] != PRODUCT_ID {
+            return Err(BaroNotConnectedError {});
         }
 
-        println!("A");
         // Set 64x oversampling, and 128 measurements per second, for both temp and pres.
         i2c.write(ADDR, &[Reg::PrsCfg as u8, 0b0111_0110])?;
-        println!("B");
         i2c.write(ADDR, &[Reg::TmpCfg as u8, 0b0111_0110])?;
 
         // Continuous pressure and temp measurement in background mode.
@@ -264,7 +248,7 @@ impl Altimeter {
         Ok(result)
     }
 
-    pub fn calibrate_from_gps(&mut self, gps_alt: Option<f32>, i2c: &mut I2c<I2C2>) {
+    pub fn calibrate_from_gps(&mut self, gps_alt: Option<f32>, i2c: &mut I2C) {
         let pressure = self.read_pressure(i2c).unwrap_or(0.);
         let temp = self.read_temp(i2c).unwrap_or(0.);
 
@@ -326,7 +310,7 @@ impl Altimeter {
     }
 
     /// Read atmospheric pressure, in kPa.
-    pub fn read_pressure(&self, i2c: &mut I2c<I2C2>) -> Result<f32, BaroNotConnectedError> {
+    pub fn read_pressure(&self, i2c: &mut I2C) -> Result<f32, BaroNotConnectedError> {
         // The Pressure Data registers contains the 24 bit (3 bytes) 2's complement pressure measurement value.
         // If the FIFO is enabled, the register will contain the FIFO pressure and/or temperature results. Otherwise, the
         // register contains the pressure measurement results and will not be cleared after read.
@@ -350,7 +334,7 @@ impl Altimeter {
     }
 
     /// Read temperature, in °C.
-    pub fn read_temp(&self, i2c: &mut I2c<I2C2>) -> Result<f32, BaroNotConnectedError> {
+    pub fn read_temp(&self, i2c: &mut I2C) -> Result<f32, BaroNotConnectedError> {
         // The Temperature Data registers contain the 24 bit (3 bytes) 2's complement temperature measurement value
         // ( unless the FIFO is enabled, please see FIFO operation ) and will not be cleared after the read.
 

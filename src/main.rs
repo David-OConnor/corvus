@@ -288,9 +288,9 @@ mod app {
         // Improves performance, at a cost of slightly increased power use.
         // Note that these enable fns should automatically invalidate prior.
         #[cfg(feature = "h7")]
-        cp.SCB.enable_icache();
+            cp.SCB.enable_icache();
         #[cfg(feature = "h7")]
-        cp.SCB.enable_dcache(&mut cp.CPUID);
+            cp.SCB.enable_dcache(&mut cp.CPUID);
 
         cfg_if! {
             if #[cfg(feature = "h7")] {
@@ -325,9 +325,9 @@ mod app {
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-        clocks::enable_crs(CrsSyncSrc::OtgHs);
+            clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-        clocks::enable_crs(CrsSyncSrc::Usb);
+            clocks::enable_crs(CrsSyncSrc::Usb);
 
         let flash = unsafe { &(*pac::FLASH::ptr()) };
 
@@ -341,14 +341,14 @@ mod app {
         let dma2_ch1 = dma::Dma2Ch1::new();
 
         #[cfg(feature = "g4")]
-        dma::enable_mux1();
+            dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
         #[cfg(feature = "h7")]
-        let uart_crsf = dp.UART7;
+            let uart_crsf = dp.UART7;
         #[cfg(feature = "g4")]
-        let uart_crsf = dp.USART3;
+            let uart_crsf = dp.USART3;
 
         let (
             mut spi1,
@@ -375,10 +375,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -482,9 +482,9 @@ mod app {
         });
 
         #[cfg(feature = "quad")]
-        flight_ctrls::setup_timers(&mut motor_timer);
+            flight_ctrls::setup_timers(&mut motor_timer);
         #[cfg(feature = "fixed-wing")]
-        flight_ctrls::setup_timers(&mut motor_timer, &servo_timer);
+            flight_ctrls::setup_timers(&mut motor_timer, &servo_timer);
 
         // Note: With this circular DMA approach, we discard many readings,
         // but shouldn't have consequences other than higher power use, compared to commanding
@@ -534,9 +534,9 @@ mod app {
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -606,19 +606,19 @@ mod app {
         delay.delay_ms(WARMUP_TIME);
 
         // We must set up the USB device after the warmup delay, since its long blocking delay
-        // leads teh host (PC) to terminate the connection. The (short, repeated) blocking delays
+        // leads the host (PC) to terminate the connection. The (short, repeated) blocking delays
         // in the motor dir config appear to be acceptable.
         let usb_dev = UsbDeviceBuilder::new(
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
@@ -644,9 +644,9 @@ mod app {
         // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
         // todo opendrain and pullup set, and without enabling interrupt.
         #[cfg(feature = "h7")]
-        let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
+            let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
         #[cfg(feature = "g4")]
-        let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
+            let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
         imu_exti_pin.enable_interrupt(Edge::Falling);
 
         println!("Init complete; starting main loops");
@@ -899,6 +899,12 @@ mod app {
                             rpms.front_left, rpms.front_right, rpms.aft_left, rpms.aft_right
                         );
 
+                        // todo temp testing baro
+                        (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
+                            let pressure = altimeter.read_pressure(i2c1).ok();
+                            println!("Pressure: {}", pressure);
+                        });
+
                         // println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
                         // println!(
                         //     "Input mode sw: {:?}",
@@ -1102,12 +1108,12 @@ mod app {
                     }
                 });
 
-        (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
-            // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
-            // DMA TC isrs are sequenced.
-            // todo: Put back; Troubleshooting control and motors issues.
-            sensors_shared::start_transfers(i2c1, i2c2);
-        });
+        // todo: Put this back
+        // (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
+        // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
+        // DMA TC isrs are sequenced.
+        // sensors_shared::start_transfers(i2c1, i2c2);
+        // });
     }
 
     /// Runs when new IMU data is ready. Trigger a DMA read.
@@ -1483,6 +1489,7 @@ mod app {
 
         _cx.shared.motor_timer.lock(|motor_timer| {
             motor_timer.disable();
+            // motor_timer.reset_count();
 
             if dshot::BIDIR_EN {
                 if dshot::DSHOT_REC_MODE.load(Ordering::Acquire) {
@@ -1497,9 +1504,6 @@ mod app {
 
                     // // todo: Move to `receive_payload` fn on this atomic op?
                     dshot::DSHOT_REC_MODE.store(true, Ordering::Release);
-                    unsafe {
-                        (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().set_bit());
-                    }
                 }
             }
         });
@@ -1519,9 +1523,9 @@ mod app {
         // todo: Investiate if this is firing twice etc.
         let exti = unsafe { &(*pac::EXTI::ptr()) };
         #[cfg(feature = "h7")]
-        exti.cpuimr1.modify(|_, w| w.mr6().clear_bit());
+            exti.cpuimr1.modify(|_, w| w.mr6().clear_bit());
         #[cfg(feature = "g4")]
-        exti.ftsr1.modify(|_, w| w.ft6().clear_bit());
+            exti.ftsr1.modify(|_, w| w.ft6().clear_bit());
     }
 
     // todo temp removed rpms.

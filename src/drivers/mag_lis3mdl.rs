@@ -53,8 +53,7 @@ pub enum Reg {
     INtThsH = 0x33,
 }
 
-// pub fn setup(i2c: &mut I2c<I2C1>) -> Result<(), MagNotConnectedError> {
-pub fn setup(i2c: &mut I2c<I2C2>) -> Result<(), MagNotConnectedError> {
+pub fn setup(i2c: &mut I2c<I2C1>) -> Result<(), MagNotConnectedError> {
     // todo 2 to TS
     // todo: Could we take advantaeg of temp here for a diff purpose, away
     // from the FC board?
