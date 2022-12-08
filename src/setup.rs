@@ -374,11 +374,16 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 
     dma::mux(OSD_DMA_PERIPH, OSD_CH, DmaInput::Usart2Tx);
 
-    dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c2Tx);
-    dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c2Rx);
+    // todo: Temp on I2C1!
+    // dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c2Tx);
+    // dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c2Rx);
+    // dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c1Tx);
+    dma::mux(DmaPeriph::Dma1, DmaChannel::C4, DmaInput::I2c1Tx); // todo temp
+    dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c1Rx);
 
-    dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_TX_CH, DmaInput::I2c1Tx);
-    dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_RX_CH, DmaInput::I2c1Rx);
+    // todo: Put back!
+    // dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_TX_CH, DmaInput::I2c1Tx);
+    // dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_RX_CH, DmaInput::I2c1Rx);
 
     // TOF sensor
     // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx);
@@ -398,11 +403,11 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // #[cfg(not(feature = "h7"))]
     // dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
 
-    // todo: Put these back. Troubleshooting issues post-deployment
     // Enable TC interrupts for all I2C sections; we use this to sequence readings,
     // and store reading data.
-    // dma.enable_interrupt(BARO_TX_CH, DmaInterrupt::TransferComplete);
-    // dma.enable_interrupt(BARO_RX_CH, DmaInterrupt::TransferComplete);
+    dma::enable_interrupt(BARO_DMA_PERIPH, BARO_TX_CH, DmaInterrupt::TransferComplete);
+    dma::enable_interrupt(DmaPeriph::Dma1, DmaChannel::C4, DmaInterrupt::TransferComplete); // todo temp TS
+    dma::enable_interrupt(BARO_DMA_PERIPH, BARO_RX_CH, DmaInterrupt::TransferComplete);
     // dma.enable_interrupt(EXT_SENSORS_TX_CH, DmaInterrupt::TransferComplete);
     // dma.enable_interrupt(EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);
 }

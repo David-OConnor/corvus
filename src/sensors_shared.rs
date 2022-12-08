@@ -1,10 +1,7 @@
 //! This module contains code shared between sensors. Currently this is
 //! regarding DMA operations on the barometer and external sensors I2C lines.
 
-use stm32_hal2::{
-    i2c::I2c,
-    pac::{I2C1, I2C2},
-};
+use stm32_hal2::{dma, i2c::I2c, pac::{I2C1, I2C2}};
 
 use crate::{
     baro, gps, mag,
@@ -13,6 +10,8 @@ use crate::{
 };
 
 use defmt::println;
+use stm32_hal2::dma::DmaChannel;
+use crate::setup::{BARO_DMA_PERIPH, IMU_DMA_PERIPH};
 
 // Each of these values is register, value to write to register.
 // todo: Populate these.
@@ -99,23 +98,28 @@ pub fn start_transfers(i2c_ext_sensors: &mut I2c<I2C1>, i2c_baro: &mut I2c<I2C2>
         // In DMA TC ISRs, sequence read and writes; These are the transfers that start
         // the sequence of writes and reads for each bus.
 
+        // dma::stop(BARO_DMA_PERIPH, BARO_TX_CH);
         i2c_baro.write_dma(
             baro::ADDR,
             &write_buf_baro,
-            false,
-            BARO_TX_CH,
+            // false,
+            true,
+            // BARO_TX_CH,
+            DmaChannel::C4,
             Default::default(),
-            setup::EXT_SENSORS_DMA_PERIPH,
+            // setup::BARO_DMA_PERIPH,
+            IMU_DMA_PERIPH,
         );
 
-        i2c_ext_sensors.write_dma(
-            mag::ADDR,
-            &write_buf_mag,
-            false,
-            EXT_SENSORS_TX_CH,
-            Default::default(),
-            setup::EXT_SENSORS_DMA_PERIPH,
-        );
+        // todo: Put back; temp removed while testing Baro
+        // i2c_ext_sensors.write_dma(
+        //     mag::ADDR,
+        //     &write_buf_mag,
+        //     false,
+        //     EXT_SENSORS_TX_CH,
+        //     Default::default(),
+        //     setup::EXT_SENSORS_DMA_PERIPH,
+        // );
     }
 }
 

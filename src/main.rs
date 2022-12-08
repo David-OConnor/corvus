@@ -207,7 +207,6 @@ const WARMUP_TIME: u32 = 2_000;
 mod app {
     use super::*;
     use crate::safety::LINK_LOST;
-    // use core::time::Duration; // todo temp
 
     #[monotonic(binds = TIM5, default = true)]
     // type MyMono = Timer<TIM5>; // todo temp
@@ -899,7 +898,7 @@ mod app {
                             rpms.front_left, rpms.front_right, rpms.aft_left, rpms.aft_right
                         );
 
-                        // todo temp testing baro
+                        // todo temp testing baro without DMA; DMA not working
                         (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
                             let pressure = altimeter.read_pressure(i2c1).ok();
                             println!("Pressure: {}", pressure);
@@ -1110,9 +1109,10 @@ mod app {
 
         // todo: Put this back
         // (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
-        // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
-        // DMA TC isrs are sequenced.
-        // sensors_shared::start_transfers(i2c1, i2c2);
+            // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
+            // DMA TC isrs are sequenced.
+            // todo: Put back.
+            // sensors_shared::start_transfers(i2c1, i2c2);
         // });
     }
 
@@ -1797,8 +1797,9 @@ mod app {
     }
 
     // binds = DMA2_STR1,
-    #[task(binds = DMA2_CH1,
-    shared = [i2c2], priority = 1)]
+    // todo temp high pri and 1/4. Should be 2/1
+    #[task(binds = DMA1_CH4,
+    shared = [i2c2], priority = 10)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
         dma::clear_interrupt(
@@ -1806,19 +1807,20 @@ mod app {
             setup::BARO_TX_CH,
             DmaInterrupt::TransferComplete,
         );
+        println!("BARO W");
 
-        dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_TX_CH);
-
-        println!("Ext sensors D");
-        cx.shared.i2c2.lock(|i2c2| unsafe {
-            i2c2.read_dma(
-                baro::ADDR,
-                &mut sensors_shared::BARO_READINGS,
-                setup::BARO_RX_CH,
-                Default::default(),
-                setup::BARO_DMA_PERIPH,
-            );
-        });
+        // dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_TX_CH);
+        //
+        // println!("Ext sensors D");
+        // cx.shared.i2c2.lock(|i2c2| unsafe {
+        //     i2c2.read_dma(
+        //         baro::ADDR,
+        //         &mut sensors_shared::BARO_READINGS,
+        //         setup::BARO_RX_CH,
+        //         Default::default(),
+        //         setup::BARO_DMA_PERIPH,
+        //     );
+        // });
     }
 
     // todo: For now, we start new transfers in the main loop.
@@ -1842,7 +1844,7 @@ mod app {
             let buf = unsafe { &sensors_shared::BARO_READINGS };
             // todo: Process your baro reading here.
             let pressure =
-                altimeter.pressure_from_readings(buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+                altimeter.pressure_from_readings(buf);
 
             // todo: Altitude from pressure! Maybe in a diff module? (which?)
             params.baro_alt_msl = pressure;
