@@ -22,6 +22,7 @@ cfg_if! {
     }
 }
 use crate::{
+    atmos_model::AltitudeCalPt,
     crsf,
     drivers::{
         baro_dps310 as baro,
@@ -146,10 +147,18 @@ pub fn init_sensors(
     // }
 
     // let mut altimeter = match baro::Altimeter::new(i2c2) {
-    let mut altimeter = match baro::Altimeter::new(i2c1) { // todo temp i2c1
-        Ok(a) => {
+    let mut altimeter = match baro::Altimeter::new(i2c1) {
+        // todo temp i2c1
+        Ok(mut alt) => {
             system_status.baro = SensorStatus::Pass;
-            a
+
+            alt.ground_cal = AltitudeCalPt {
+                pressure: alt.read_pressure(i2c1).unwrap_or(101_325.),
+                altitude: 0., // QFE.
+                temp: alt.read_temp(i2c1).unwrap_or(288.15),
+            };
+
+            alt
         }
         Err(_) => {
             system_status.baro = SensorStatus::NotConnected;
@@ -277,6 +286,11 @@ pub fn setup_pins() {
             let mut miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
             let mut mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
 
+            // todo: Temp config to check radio status
+            let mut _sck3 = Pin::new(Port::B, 3, PinMode::Alt(6));
+            let mut _miso3 = Pin::new(Port::B, 4, PinMode::Alt(6));
+            let mut _mosi3 = Pin::new(Port::B, 5, PinMode::Alt(6));
+
             sck2.output_speed(spi_gpiospeed);
             miso2.output_speed(spi_gpiospeed);
             mosi2.output_speed(spi_gpiospeed);
@@ -310,9 +324,9 @@ pub fn setup_pins() {
     // Used to trigger a PID update based on new IMU data.
     // We assume here the interrupt config uses default settings active low, push pull, pulsed.
     #[cfg(feature = "h7")]
-        let mut imu_exti_pin = Pin::new(Port::B, 12, PinMode::Input);
+    let mut imu_exti_pin = Pin::new(Port::B, 12, PinMode::Input);
     #[cfg(feature = "g4")]
-        let mut imu_exti_pin = Pin::new(Port::C, 4, PinMode::Input);
+    let mut imu_exti_pin = Pin::new(Port::C, 4, PinMode::Input);
 
     imu_exti_pin.output_type(OutputType::OpenDrain);
     imu_exti_pin.pull(Pull::Up);
@@ -358,9 +372,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 
     // CRSF (onboard ELRS)
     #[cfg(feature = "h7")]
-        let crsf_dma_ch = DmaInput::Uart7Rx;
+    let crsf_dma_ch = DmaInput::Uart7Rx;
     #[cfg(feature = "g4")]
-        let crsf_dma_ch = DmaInput::Usart3Rx;
+    let crsf_dma_ch = DmaInput::Usart3Rx;
 
     dma::mux(CRSF_DMA_PERIPH, CRSF_RX_CH, crsf_dma_ch);
 
@@ -368,9 +382,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // dma::mux(CRSF_DMA_PERIPH, CRSF_TX_CH, DmaInput::Usart3Tx);
 
     #[cfg(feature = "h7")]
-        dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, DmaInput::Adc1);
+    dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, DmaInput::Adc1);
     #[cfg(feature = "g4")]
-        dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, DmaInput::Adc2);
+    dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, DmaInput::Adc2);
 
     dma::mux(OSD_DMA_PERIPH, OSD_CH, DmaInput::Usart2Tx);
 
@@ -406,7 +420,11 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // Enable TC interrupts for all I2C sections; we use this to sequence readings,
     // and store reading data.
     dma::enable_interrupt(BARO_DMA_PERIPH, BARO_TX_CH, DmaInterrupt::TransferComplete);
-    dma::enable_interrupt(DmaPeriph::Dma1, DmaChannel::C4, DmaInterrupt::TransferComplete); // todo temp TS
+    dma::enable_interrupt(
+        DmaPeriph::Dma1,
+        DmaChannel::C4,
+        DmaInterrupt::TransferComplete,
+    ); // todo temp TS
     dma::enable_interrupt(BARO_DMA_PERIPH, BARO_RX_CH, DmaInterrupt::TransferComplete);
     // dma.enable_interrupt(EXT_SENSORS_TX_CH, DmaInterrupt::TransferComplete);
     // dma.enable_interrupt(EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);
@@ -446,9 +464,9 @@ pub fn setup_busses(
     // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
     // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
     #[cfg(feature = "g4")]
-        let imu_baud_div = BaudRate::Div8; // for ICM426xx, for 24Mhz limit
+    let imu_baud_div = BaudRate::Div8; // for ICM426xx, for 24Mhz limit
     #[cfg(feature = "h7")]
-        let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
+    let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
 
     let imu_spi_cfg = SpiConfig {
         // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
@@ -459,9 +477,9 @@ pub fn setup_busses(
     let spi_imu = Spi::new(spi1_pac, imu_spi_cfg, imu_baud_div);
 
     #[cfg(feature = "h7")]
-        let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
+    let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
     #[cfg(feature = "g4")]
-        let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+    let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
     cs_imu.set_high();
 
@@ -478,9 +496,7 @@ pub fn setup_busses(
 
     // We use I2C2 for the baro.
     let i2c_baro_cfg = I2cConfig {
-        // speed: I2cSpeed::Fast400K, // todo: Switch back to fast once it's working.
-        // speed: I2cSpeed::Standard10K,
-        speed: I2cSpeed::Standard100K,
+        speed: I2cSpeed::Fast400K,
         ..Default::default()
     };
 
@@ -504,9 +520,9 @@ pub fn setup_busses(
     }
 
     #[cfg(feature = "h7")]
-        let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output);
+    let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output);
     #[cfg(feature = "g4")]
-        let mut cs_flash = Pin::new(Port::A, 0, PinMode::Output);
+    let mut cs_flash = Pin::new(Port::A, 0, PinMode::Output);
 
     cs_flash.set_high();
 

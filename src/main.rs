@@ -64,7 +64,7 @@ use stm32_hal2::{
     gpio::{self, Edge, Pin, Port},
     i2c::I2c,
     pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, TIM1, TIM15, TIM16, TIM17, TIM2, TIM5, USART2},
-    spi::Spi,
+    spi::{self, Spi},
     timer::{BasicTimer, MasterModeSelection, Timer, TimerConfig, TimerInterrupt},
     usart::{Usart, UsartInterrupt},
 };
@@ -362,6 +362,28 @@ mod app {
             dp.SPI1, dp.SPI2, dp.I2C1, dp.I2C2, dp.USART2, uart_crsf, &clock_cfg,
         );
 
+        // todo: Temp setting up spi3 to test ELRS radio
+        // let mut spi_radio = drivers::spi3_kludge::Spi4::new(
+        //     dp.SPI3,
+        //     spi::SpiConfig {
+        //         // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
+        //         mode: spi::SpiMode::mode3(),
+        //         ..Default::default()
+        //     },
+        //     spi::BaudRate::Div32,
+        // );
+        //
+        // let mut buf = [0x03, 0, 0, 0];
+        //
+        // let mut cs_rad = Pin::new(Port::C, 15, gpio::PinMode::Output);
+        //
+        // println!("A");
+        // cs_rad.set_low();
+        // spi_radio.transfer(&mut buf).ok();
+        // cs_rad.set_high();
+        //
+        // println!("Rad buf: {:?}", buf);
+
         let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
 
         // We use the RTC to assist with power use measurement.
@@ -570,16 +592,6 @@ mod app {
             system_status.gps == SensorStatus::Pass,
             system_status.tof == SensorStatus::Pass,
         );
-
-        // loop {
-        //     let pressure = altimeter.read_pressure(&mut i2c2);
-        //     println!("Pressure: {}", pressure);
-        //
-        //     let temp = altimeter.read_temp(&mut i2c2);
-        //     println!("Temp: {}", temp);
-        //
-        //     delay.delay_ms(500);
-        // }
 
         // todo: Calibation proecedure, either in air or on ground.
         let ahrs_settings = ahrs_fusion::Settings::default();
@@ -898,11 +910,7 @@ mod app {
                             rpms.front_left, rpms.front_right, rpms.aft_left, rpms.aft_right
                         );
 
-                        // todo temp testing baro without DMA; DMA not working
-                        (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
-                            let pressure = altimeter.read_pressure(i2c1).ok();
-                            println!("Pressure: {}", pressure);
-                        });
+                        println!("Alt MSL: {}", params.baro_alt_msl);
 
                         // println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
                         // println!(
@@ -1067,6 +1075,25 @@ mod app {
                         state_volatile.autopilot_commands = ap_cmds;
                     }
 
+                    // todo temp testing baro without DMA; DMA not working
+                    (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
+                        // println!("Pressure: {}", pressure);
+                        if let Ok(pressure) = altimeter.read_pressure(i2c1) {
+                            // println!("P: {:?}", pressure);
+                            if let Ok(temp) = altimeter.read_temp(i2c1) {
+                                // todo: Store temp in params?
+                                // todo: Temp not coming out right. Check coeffs.
+                                println!("TEMP: {}", temp);
+
+                                // todo: SHould thsi estimation be an altimter method?
+                                params.baro_alt_msl = atmos_model::estimate_altitude_msl(pressure, temp, &altimeter.ground_cal)
+                            }
+
+
+                        }
+
+                    });
+
                     // if let OperationMode::Preflight = state_volatile.op_mode {
                     //     // exit this fn during preflight *after* measuring voltages using ADCs.
                     //     return;
@@ -1109,10 +1136,10 @@ mod app {
 
         // todo: Put this back
         // (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
-            // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
-            // DMA TC isrs are sequenced.
-            // todo: Put back.
-            // sensors_shared::start_transfers(i2c1, i2c2);
+        // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
+        // DMA TC isrs are sequenced.
+        // todo: Put back.
+        // sensors_shared::start_transfers(i2c1, i2c2);
         // });
     }
 
@@ -1843,8 +1870,7 @@ mod app {
             // code shortener.
             let buf = unsafe { &sensors_shared::BARO_READINGS };
             // todo: Process your baro reading here.
-            let pressure =
-                altimeter.pressure_from_readings(buf);
+            let pressure = altimeter.pressure_from_readings(buf);
 
             // todo: Altitude from pressure! Maybe in a diff module? (which?)
             params.baro_alt_msl = pressure;

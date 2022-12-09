@@ -43,6 +43,7 @@ impl Default for AltitudeCalPt {
         Self {
             pressure: 101_325.,
             altitude: 0.,
+            /// Kelvin.
             temp: 288.15,
         }
     }
@@ -56,7 +57,7 @@ impl Default for AltitudeCalPt {
 /// https://en.wikipedia.org/wiki/Bar3ometric_formula
 /// https://physics.stackexchange.com/questions/333475/how-to-calculate-altitude-from-current-temperature-and-pressure
 /// [NOAA formula](https://en.wikipedia.org/wiki/Pressure_altitude)
-pub fn estimate_altitude_msl(pressure: f32, temp: f32, ground_cal: AltitudeCalPt) -> f32 {
+pub fn estimate_altitude_msl(pressure: f32, temp: f32, ground_cal: &AltitudeCalPt) -> f32 {
     // P = 101.29 * ((temp)/288.08)^5.256   (in kPa)
     // T = 150.4 - .00649h
 

@@ -83,7 +83,6 @@ pub struct UserCfg {
     pub max_speed_ver: f32,
     /// Map motor connection number to position, or servos for fixed wing
     pub control_mapping: ControlMapping,
-    // altitude_cal: AltitudeCalPt,
     // Note that this inst includes idle power.
     // todo: We want to store this inst, but RTIC doesn't like it not being sync. Maybe static mut.
     // todo. For now, lives in the acro PID fn lol.

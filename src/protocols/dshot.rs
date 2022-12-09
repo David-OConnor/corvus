@@ -103,7 +103,7 @@ const DUTY_LOW: u32 = DSHOT_ARR_600 * 3 / 8;
 // Use this pause duration, in ms, when setting up motor dir.
 pub const PAUSE_BETWEEN_COMMANDS: u32 = 1;
 pub const PAUSE_AFTER_SAVE: u32 = 40; // Must be at least 35ms.
-// BLHeli_32 requires you repeat certain commands, like motor direction, 6 times.
+                                      // BLHeli_32 requires you repeat certain commands, like motor direction, 6 times.
 pub const REPEAT_COMMAND_COUNT: u32 = 10; // todo: Set back to 6 once sorted out.
 
 // DMA buffers for each rotor. 16-bit data.
@@ -395,9 +395,9 @@ fn send_payload(timer: &mut MotorTimer) {
     // we don't want it triggering off a write.
     let exti = unsafe { &(*pac::EXTI::ptr()) };
     #[cfg(feature = "h7")]
-        exti.cpuimr1.modify(|_, w| w.mr6().clear_bit());
+    exti.cpuimr1.modify(|_, w| w.mr6().clear_bit());
     #[cfg(feature = "g4")]
-        exti.ftsr1.modify(|_, w| w.ft1().clear_bit());
+    exti.ftsr1.modify(|_, w| w.ft1().clear_bit());
 
     unsafe {
         timer.write_dma_burst(
@@ -522,9 +522,9 @@ pub fn set_bidirectional(enabled: bool, timer: &mut MotorTimer) {
     timer.set_polarity(Motor::M2.tim_channel(), polarity);
 
     #[cfg(feature = "quad")]
-        timer.set_polarity(Motor::M3.tim_channel(), polarity);
+    timer.set_polarity(Motor::M3.tim_channel(), polarity);
     #[cfg(feature = "quad")]
-        timer.set_polarity(Motor::M4.tim_channel(), polarity);
+    timer.set_polarity(Motor::M4.tim_channel(), polarity);
 
     timer.cfg.direction = count_dir;
     timer.set_dir();
@@ -551,9 +551,9 @@ pub fn set_to_output(timer: &mut MotorTimer) {
     timer.enable_pwm_output(Motor::M2.tim_channel(), oc, 0.);
 
     #[cfg(feature = "quad")]
-        timer.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
+    timer.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
     #[cfg(feature = "quad")]
-        timer.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
+    timer.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
 }
 
 /// Set the timer(s) to input mode. Used to receive PWM data in bidirectional mode.
@@ -569,9 +569,9 @@ pub fn _set_to_input(timer: &mut MotorTimer) {
     timer.set_input_capture(Motor::M1.tim_channel(), cc, pol_p, pol_n);
     timer.set_input_capture(Motor::M2.tim_channel(), cc, pol_p, pol_n);
     #[cfg(feature = "quad")]
-        timer.set_input_capture(Motor::M3.tim_channel(), cc, pol_p, pol_n);
+    timer.set_input_capture(Motor::M3.tim_channel(), cc, pol_p, pol_n);
     #[cfg(feature = "quad")]
-        timer.set_input_capture(Motor::M4.tim_channel(), cc, pol_p, pol_n);
+    timer.set_input_capture(Motor::M4.tim_channel(), cc, pol_p, pol_n);
 
     // todo: Experimenting how to capture both edges.
     let cc2 = CaptureCompare::InputTi2; // For example, this maps CC3 to ch4 and CC4 to TIM3 etc, I believe.

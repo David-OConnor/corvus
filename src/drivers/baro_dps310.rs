@@ -85,9 +85,9 @@ pub enum Reg {
 // oversampling rate.
 const K_P: f32 = 1_040_384.; // 64x oversample
 const K_T: f32 = 1_040_384.; // 64x oversample
-// const SCALE_FACTOR: i32 = 2_088_960; // 128x oversample
-// todo: 128 times for even more precision?
-// todo: Result shift (bit 2 and 3 address 0x09, for use with this setting)
+                             // const SCALE_FACTOR: i32 = 2_088_960; // 128x oversample
+                             // todo: 128 times for even more precision?
+                             // todo: Result shift (bit 2 and 3 address 0x09, for use with this setting)
 
 /// Fix the sign on signed 24 bit integers, represented as `i32`. (Here, we use this for pressure
 /// and temp readings)
@@ -107,50 +107,37 @@ fn read_one(reg: Reg, i2c: &mut I2C) -> Result<u8, BaroNotConnectedError> {
 /// 2's complement numbers.
 #[derive(Default)]
 struct HardwareCoeffCal {
-    // These values have varying numbers of bits, but we use them with 24-bit readings.
-    c0: i32,
-    c1: i32,
-    c00: i32,
-    c10: i32,
-    c01: i32,
-    c11: i32,
-    c20: i32,
-    c30: i32,
-    c21: i32,
+    c0: i16, // 12 bits
+    c1: i16, // 12 bits
+    c00: i32, // 20 bits
+    c10: i32, // 20 bits
+    c01: i16, // 16 bits for the rest.
+    c11: i16,
+    c20: i16,
+    c30: i16,
+    c21: i16,
 }
 
 impl HardwareCoeffCal {
     pub fn new(i2c: &mut I2C) -> Result<Self, BaroNotConnectedError> {
         // Read each register value.
-        let c0 = read_one(Reg::c0, i2c)?;
-        let c0_c1 = read_one(Reg::c0_c1, i2c)?;
-        let c1 = read_one(Reg::c1, i2c)?;
-        let c00_a = read_one(Reg::c00_a, i2c)?;
-        let c00_b = read_one(Reg::c00_b, i2c)?;
-        let c00_c10 = read_one(Reg::c00_c10, i2c)?;
-        let c10_a = read_one(Reg::c10_a, i2c)?;
-        let c10_b = read_one(Reg::c10_b, i2c)?;
-        let c01_a = read_one(Reg::c01_a, i2c)?;
-        let c01_b = read_one(Reg::c01_b, i2c)?;
-        let c11_a = read_one(Reg::c11_a, i2c)?;
-        let c11_b = read_one(Reg::c11_b, i2c)?;
-        let c20_a = read_one(Reg::c20_a, i2c)?;
-        let c20_b = read_one(Reg::c20_b, i2c)?;
-        let c21_a = read_one(Reg::c21_a, i2c)?;
-        let c21_b = read_one(Reg::c21_b, i2c)?;
-        let c30_a = read_one(Reg::c30_a, i2c)?;
-        let c30_b = read_one(Reg::c30_b, i2c)?;
 
-        // Unpack into coefficients.
-        let mut c0 = i16::from_be_bytes([c0, c0_c1 >> 4]) as i32;
-        let mut c1 = i16::from_be_bytes([c1, c0_c1 & 0xf]) as i32;
-        let mut c00 = i32::from_be_bytes([0, c00_a, c00_b, c00_c10 >> 4]);
+        let mut buf = [0; 18];
+        i2c.write_read(ADDR, &[Reg::c0 as u8], &mut buf)?;
+
+        let [c0_, c0_c1, c1_, c00_a, c00_b, c00_c10, c10_a, c10_b, c01_a, c01_b, c11_a, c11_b, c20_a,
+        c20_b, c21_a, c21_b, c30_a, c30_b] = buf;
+
+        // Unpack into coefficients. See datasheet Table 18.
+        let mut c0 = ((c0_ as i32) << 4) | ((c0_c1 as i32) >> 4);
+        let mut c1 = i16::from_be_bytes([c0_c1 & 0xf, c1_]) as i32;
+        let mut c00 = ((c00_a as i32) << 12) | ((c00_b as i32) << 4) | ((c00_c10 as i32) >> 4) ;
         let mut c10 = i32::from_be_bytes([0, c00_c10 & 0xf, c10_a, c10_b]);
-        let c01 = i16::from_be_bytes([c01_a, c01_b]) as i32;
-        let c11 = i16::from_be_bytes([c11_a, c11_b]) as i32;
-        let c20 = i16::from_be_bytes([c20_a, c20_b]) as i32;
-        let c21 = i16::from_be_bytes([c21_a, c21_b]) as i32;
-        let c30 = i16::from_be_bytes([c30_a, c30_b]) as i32;
+        let c01 = i16::from_be_bytes([c01_a, c01_b]);
+        let c11 = i16::from_be_bytes([c11_a, c11_b]);
+        let c20 = i16::from_be_bytes([c20_a, c20_b]);
+        let c21 = i16::from_be_bytes([c21_a, c21_b]);
+        let c30 = i16::from_be_bytes([c30_a, c30_b]);
 
         // c0 and c1 are 12 bits. c00 and c10 are 20 bits. The rest are 16.
         // All are 2's complement.
@@ -159,11 +146,11 @@ impl HardwareCoeffCal {
         fix_int_sign(&mut c00, 20);
         fix_int_sign(&mut c10, 20);
 
-        // println!("C0 {} C1 {} C10 {} C20 {} C30 {} C01 {} C11 {} C21 {} C30 {}", c0, c1, c10, c20, c30, c01, c11, c21, c30);
+        // todo: Store as f32?
 
         Ok(Self {
-            c0,
-            c1,
+            c0: c0 as i16,
+            c1: c1 as i16,
             c00,
             c10,
             c01,
@@ -182,7 +169,7 @@ impl HardwareCoeffCal {
 pub struct Altimeter {
     /// Calibration point taken during initialization; used to interpret pressure readings
     /// as pseudo-AGL. (QFE) This point's altitude field must be 0.
-    ground_cal: AltitudeCalPt,
+    pub ground_cal: AltitudeCalPt,
     /// Calibration point taken during initialization; Stores measured pressure and temperature
     /// at the GPS's reported MSL alt.
     /// todo: Currently GPS cal is unused.
@@ -194,7 +181,8 @@ pub struct Altimeter {
 impl Altimeter {
     /// Configure settings, including pressure mreasurement rate, and return an instance.
     /// And load calibration data.
-    pub fn new(i2c: &mut I2C) -> Result<Self, BaroNotConnectedError> { // todo 1 temp
+    pub fn new(i2c: &mut I2C) -> Result<Self, BaroNotConnectedError> {
+        // todo 1 temp
         let mut read_buf = [0];
         i2c.write_read(ADDR, &[Reg::ProductId as u8], &mut read_buf);
 
@@ -225,7 +213,7 @@ impl Altimeter {
         }
 
         let mut result = Self {
-            ground_cal: Default::default(),
+            ground_cal: Default::default(), // initialized elsewhere.
             gps_cal_init: None,
             gps_cal_air: None,
             hardware_coeff_cal: HardwareCoeffCal::new(i2c)?,
@@ -261,26 +249,26 @@ impl Altimeter {
     }
 
     /// Apply compensation values from calibration coefficients to the pressure reading.
-    /// Output is in Pa (todo is it?). Datasheet, section 4.9.1. We use naming conventions
+    /// Output is in Pascals. Datasheet, section 4.9.1. We use naming conventions
     /// to match the DS.
     fn pressure_from_raw(&self, p_raw: i32, t_raw: i32) -> f32 {
         // let p_raw_sc = p_raw / K_P;
         // let t_raw_sc = t_raw / K_T;
-        // 
+        //
         // let cal = &self.hardware_coeff_cal; // code shortener
-        // 
+        //
         // println!("CAL: {:?} {} {} {} {}", cal.c00, cal.c20, cal.c30, cal.c01, cal.c10);
-        // 
+        //
         // println!("P raw: {}, T RAW: {}", p_raw, t_raw);
         // println!("P raw sc: {}, T RAW sc: {}", p_raw_sc, t_raw_sc);
-        // 
+        //
         // println!("A: {} B: {} C: {}", p_raw_sc * (cal.c10 + p_raw_sc * (cal.c20 + p_raw_sc * cal.c30)), t_raw_sc * cal.c01, t_raw_sc * p_raw_sc * (cal.c11 + p_raw_sc * cal.c21));
-        // 
+        //
         // (cal.c00
         //     + p_raw_sc * (cal.c10 + p_raw_sc * (cal.c20 + p_raw_sc * cal.c30))
         //     + t_raw_sc * cal.c01
         //     + t_raw_sc * p_raw_sc * (cal.c11 + p_raw_sc * cal.c21)) as f32
-        
+
         // todo: With floats
         let p_raw_sc = p_raw as f32 / K_P;
         let t_raw_sc = t_raw as f32 / K_T;
@@ -288,20 +276,19 @@ impl Altimeter {
         let cal = &self.hardware_coeff_cal; // code shortener
 
         // println!("CAL: {:?} {} {} {} {}", cal.c00, cal.c20, cal.c30, cal.c01, cal.c10);
-        // 
+        //
         // println!("P raw: {}, T RAW: {}", p_raw, t_raw);
         // println!("P raw sc: {}, T RAW sc: {}", p_raw_sc, t_raw_sc);
-        // 
+        //
         // println!("A: {} B: {} C: {}", p_raw_sc * (cal.c10 + p_raw_sc * (cal.c20 + p_raw_sc * cal.c30)), t_raw_sc * cal.c01, t_raw_sc * p_raw_sc * (cal.c11 + p_raw_sc * cal.c21));
 
         cal.c00 as f32
             + p_raw_sc * (cal.c10 as f32 + p_raw_sc * (cal.c20 as f32 + p_raw_sc * cal.c30 as f32))
             + t_raw_sc * cal.c01 as f32
             + t_raw_sc * p_raw_sc * (cal.c11 as f32 + p_raw_sc * cal.c21 as f32)
-
     }
 
-    /// Datasheet, section 4.9.1
+    /// Datasheet, section 4.9.2. Returns temperature in K.
     fn temp_from_raw(&self, t_raw: i32) -> f32 {
         let t_raw_sc = t_raw as f32 / K_T;
         // (self.pressure_cal.c0 * 0.5 * self.pressure_call.c1 * t_raw_sc) as f32
@@ -310,7 +297,7 @@ impl Altimeter {
 
         // todo: Is this C or K?
 
-        (self.hardware_coeff_cal.c0 as f32 * 0.5 * self.hardware_coeff_cal.c1 as f32 * t_raw_sc) as f32
+        (self.hardware_coeff_cal.c0 as f32 * 0.5 * self.hardware_coeff_cal.c1 as f32 * t_raw_sc) + 273.15
     }
 
     // todo: Given you use temp readings to feed into pressure, combine somehow to reduce reading
@@ -319,20 +306,13 @@ impl Altimeter {
     /// Given readings taken from registers directly, calcualte pressure.
     // pub fn pressure_from_readings(&self, p2: u8, p1: u8, p0: u8, t2: u8, t1: u8, t0: u8) -> f32 {
     pub fn pressure_from_readings(&self, buf: &[u8]) -> f32 {
-        let p2 = buf[0];
-        let p1 = buf[1];
-        let p0 = buf[2];
-        let t2 = buf[3];
-        let t1 = buf[4];
-        let t0 = buf[5];
+        let [p2, p1, p0, t2, t1, t0] = buf;
 
         let mut p_raw = i32::from_be_bytes([0, p2, p1, p0]);
         fix_int_sign(&mut p_raw, 24);
 
         let mut t_raw = i32::from_be_bytes([0, t2, t1, t0]);
-        // println!("t RAW pre: {:b}", t_raw);
         fix_int_sign(&mut t_raw, 24);
-        // println!("t RAW post: {:b}", t_raw);
 
         self.pressure_from_raw(p_raw, t_raw)
     }
@@ -356,16 +336,10 @@ impl Altimeter {
         // The Temperature Data registers contain the 24 bit (3 bytes) 2's complement temperature measurement value
         // ( unless the FIFO is enabled, please see FIFO operation ) and will not be cleared after the read.
 
-        // todo: DRY with pressure read
+        let mut buf = [0; 3];
+        i2c.write_read(ADDR, &[Reg::TmpB2 as u8], &mut buf)?;
 
-        let mut buf2 = [0];
-        let mut buf1 = [0];
-        let mut buf0 = [0];
-        i2c.write_read(ADDR, &[Reg::TmpB2 as u8], &mut buf2)?;
-        i2c.write_read(ADDR, &[Reg::TmpB1 as u8], &mut buf1)?;
-        i2c.write_read(ADDR, &[Reg::TmpB0 as u8], &mut buf0)?;
-
-        let mut reading = i32::from_be_bytes([0, buf2[0], buf1[0], buf0[0]]);
+        let mut reading = i32::from_be_bytes([0, buf[0], buf[1], buf[2]]);
         fix_int_sign(&mut reading, 24);
 
         Ok(self.temp_from_raw(reading))

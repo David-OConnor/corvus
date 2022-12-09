@@ -12,3 +12,4 @@ pub mod osd;
 pub mod flash_spi;
 pub mod spi2_kludge;
 pub mod tof_vl53l1;
+pub mod spi3_kludge;
