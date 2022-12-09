@@ -20,7 +20,9 @@ use stm32_hal2::dma::DmaChannel;
 // Each of these values is register, value to write to register.
 // todo: Populate these.
 // We sequence these using TC ISRs.
-pub static mut WRITE_BUF_GPS: [u8; 1] = [0; 1];
+pub static mut WRITE_BUF_BARO: [u8; 1] = [baro::Reg::PsrB2 as u8];
+pub static mut WRITE_BUF_MAG: [u8; 1] = [0];
+pub static mut WRITE_BUF_GPS: [u8; 1] = [0];
 pub static mut WRITE_BUF_TOF: [u8; 2] = [0; 2];
 
 pub static mut V_A_ADC_READ_BUF: [u16; 2] = [0; 2];
@@ -43,10 +45,10 @@ pub enum ExtSensor {
     Tof,
 }
 
-// todo: Sizes on these, and fns to interp them.
 // 3 pressure bytes, followed by 3 temp bytes.
 pub static mut BARO_READINGS: [u8; 6] = [0; 6];
 
+// todo: Sizes on these, and fns to interp them.
 pub static mut MAG_READINGS: [u8; 8] = [0; 8];
 pub static mut GPS_READINGS: [u8; 12] = [0; 12];
 pub static mut TOF_READINGS: [u8; 2] = [0; 2];
@@ -59,7 +61,6 @@ pub fn start_transfers(i2c_ext_sensors: &mut I2c<I2C1>, i2c_baro: &mut I2c<I2C2>
     // println!("Starting transfers");
     // let write_buf_ext_sensors = [starting_addr, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let write_buf_mag = [0, 0];
-    let write_buf_baro = [baro::Reg::PsrB2 as u8];
     // todo: Hal-level write_read_dma fn?
 
     unsafe {
@@ -103,16 +104,15 @@ pub fn start_transfers(i2c_ext_sensors: &mut I2c<I2C1>, i2c_baro: &mut I2c<I2C2>
         // the sequence of writes and reads for each bus.
 
         // dma::stop(BARO_DMA_PERIPH, BARO_TX_CH);
-        i2c_baro.write_dma(
+        // i2c_baro.write_dma(
+        i2c_ext_sensors.write_dma(
+            // todo temp since baro is currently wired to i2c1.
             baro::ADDR,
-            &write_buf_baro,
-            // false,
-            true,
-            // BARO_TX_CH,
-            DmaChannel::C4,
+            &WRITE_BUF_BARO,
+            false,
+            BARO_TX_CH,
             Default::default(),
-            // setup::BARO_DMA_PERIPH,
-            IMU_DMA_PERIPH,
+            setup::BARO_DMA_PERIPH,
         );
 
         // todo: Put back; temp removed while testing Baro

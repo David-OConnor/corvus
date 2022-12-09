@@ -204,4 +204,8 @@ pub struct StateVolatile {
     /// Relates motor pair delta RPM difference to angular acceleration for quads, or servo settings
     /// to angular accel for fixed-wing.
     pub accel_map: AccelMap,
+    /// Atmospheric pressure, in Pa.
+    pub pressure_static: f32,
+    /// Temperature, in K, measured by the barometer
+    pub temp_baro: f32,
 }

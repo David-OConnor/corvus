@@ -470,7 +470,7 @@ where
         R::write_sel(&mut dma_regs);
         match dma_periph {
             dma::DmaPeriph::Dma1 => {
-                let mut regs = unsafe { &(*DMA1::ptr()) };
+                let mut regs = &(*DMA1::ptr());
                 dma::cfg_channel(
                     &mut regs,
                     channel_write,
@@ -497,7 +497,7 @@ where
             }
             #[cfg(not(any(feature = "f3x4", feature = "g0")))]
             dma::DmaPeriph::Dma2 => {
-                let mut regs = unsafe { &(*pac::DMA2::ptr()) };
+                let mut regs = &(*pac::DMA2::ptr());
                 dma::cfg_channel(
                     &mut regs,
                     channel_write,

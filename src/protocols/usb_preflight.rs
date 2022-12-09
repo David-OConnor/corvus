@@ -67,7 +67,7 @@ const QUATERNION_SIZE: usize = F32_SIZE * 4;
 // Quaternion attitude + quaternion target + altimeter_baro + altimeter_agl +
 // + option byte for altimeter + voltage reading + current reading.
 
-const PARAMS_SIZE: usize = 2 * QUATERNION_SIZE + 4 * F32_SIZE + 1; //
+const PARAMS_SIZE: usize = 2 * QUATERNION_SIZE + 6 * F32_SIZE + 1; //
 const CONTROLS_SIZE: usize = 19; // Includes first byte as an Option byte.
                                  // const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
 const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
@@ -172,6 +172,8 @@ fn params_to_bytes(
     attitude: Quaternion,
     attitude_commanded: Quaternion,
     alt_baro: f32,
+    pressure_static: f32,
+    temp_baro: f32,
     alt_agl: Option<f32>,
     voltage: f32,
     current: f32,
@@ -190,7 +192,9 @@ fn params_to_bytes(
     result[36..40].clone_from_slice(&agl.to_be_bytes());
     result[40] = agl_present;
     result[41..45].clone_from_slice(&voltage.to_be_bytes());
-    result[45..PARAMS_SIZE].clone_from_slice(&current.to_be_bytes());
+    result[45..49].clone_from_slice(&current.to_be_bytes());
+    result[49..53].clone_from_slice(&pressure_static.to_be_bytes());
+    result[53..PARAMS_SIZE].clone_from_slice(&temp_baro.to_be_bytes());
 
     result
 }
@@ -319,6 +323,8 @@ pub fn handle_rx(
     attitude: Quaternion,
     attitude_commanded: &AttitudeCommanded,
     altitude_baro: f32,
+    pressure_static: f32,
+    temp_baro: f32,
     altitude_agl: Option<f32>,
     batt_v: f32,
     esc_current: f32,
@@ -379,6 +385,8 @@ pub fn handle_rx(
                     .quat
                     .unwrap_or(Quaternion::new_identity()),
                 altitude_baro,
+                pressure_static,
+                temp_baro,
                 altitude_agl,
                 batt_v,
                 esc_current,

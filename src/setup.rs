@@ -151,13 +151,6 @@ pub fn init_sensors(
         // todo temp i2c1
         Ok(mut alt) => {
             system_status.baro = SensorStatus::Pass;
-
-            alt.ground_cal = AltitudeCalPt {
-                pressure: alt.read_pressure(i2c1).unwrap_or(101_325.),
-                altitude: 0., // QFE.
-                temp: alt.read_temp(i2c1).unwrap_or(288.15),
-            };
-
             alt
         }
         Err(_) => {
@@ -390,9 +383,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 
     // todo: Temp on I2C1!
     // dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c2Tx);
-    // dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c2Rx);
-    // dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c1Tx);
-    dma::mux(DmaPeriph::Dma1, DmaChannel::C4, DmaInput::I2c1Tx); // todo temp
+    dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c1Tx); // todo temp i2c1.
     dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c1Rx);
 
     // todo: Put back!
@@ -496,6 +487,8 @@ pub fn setup_busses(
 
     // We use I2C2 for the baro.
     let i2c_baro_cfg = I2cConfig {
+        // We could go 1M (3.4Mhz is the DPS310 limit), but perhaps keeping signal speed low
+        // will reduce RF interference.
         speed: I2cSpeed::Fast400K,
         ..Default::default()
     };

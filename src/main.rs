@@ -287,9 +287,9 @@ mod app {
         // Improves performance, at a cost of slightly increased power use.
         // Note that these enable fns should automatically invalidate prior.
         #[cfg(feature = "h7")]
-            cp.SCB.enable_icache();
+        cp.SCB.enable_icache();
         #[cfg(feature = "h7")]
-            cp.SCB.enable_dcache(&mut cp.CPUID);
+        cp.SCB.enable_dcache(&mut cp.CPUID);
 
         cfg_if! {
             if #[cfg(feature = "h7")] {
@@ -324,9 +324,9 @@ mod app {
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-            clocks::enable_crs(CrsSyncSrc::OtgHs);
+        clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-            clocks::enable_crs(CrsSyncSrc::Usb);
+        clocks::enable_crs(CrsSyncSrc::Usb);
 
         let flash = unsafe { &(*pac::FLASH::ptr()) };
 
@@ -340,14 +340,14 @@ mod app {
         let dma2_ch1 = dma::Dma2Ch1::new();
 
         #[cfg(feature = "g4")]
-            dma::enable_mux1();
+        dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
         #[cfg(feature = "h7")]
-            let uart_crsf = dp.UART7;
+        let uart_crsf = dp.UART7;
         #[cfg(feature = "g4")]
-            let uart_crsf = dp.USART3;
+        let uart_crsf = dp.USART3;
 
         let (
             mut spi1,
@@ -396,10 +396,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -503,9 +503,9 @@ mod app {
         });
 
         #[cfg(feature = "quad")]
-            flight_ctrls::setup_timers(&mut motor_timer);
+        flight_ctrls::setup_timers(&mut motor_timer);
         #[cfg(feature = "fixed-wing")]
-            flight_ctrls::setup_timers(&mut motor_timer, &servo_timer);
+        flight_ctrls::setup_timers(&mut motor_timer, &servo_timer);
 
         // Note: With this circular DMA approach, we discard many readings,
         // but shouldn't have consequences other than higher power use, compared to commanding
@@ -555,9 +555,9 @@ mod app {
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -623,13 +623,13 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
@@ -655,9 +655,9 @@ mod app {
         // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
         // todo opendrain and pullup set, and without enabling interrupt.
         #[cfg(feature = "h7")]
-            let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
         #[cfg(feature = "g4")]
-            let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
         imu_exti_pin.enable_interrupt(Edge::Falling);
 
         println!("Init complete; starting main loops");
@@ -1075,25 +1075,6 @@ mod app {
                         state_volatile.autopilot_commands = ap_cmds;
                     }
 
-                    // todo temp testing baro without DMA; DMA not working
-                    (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
-                        // println!("Pressure: {}", pressure);
-                        if let Ok(pressure) = altimeter.read_pressure(i2c1) {
-                            // println!("P: {:?}", pressure);
-                            if let Ok(temp) = altimeter.read_temp(i2c1) {
-                                // todo: Store temp in params?
-                                // todo: Temp not coming out right. Check coeffs.
-                                println!("TEMP: {}", temp);
-
-                                // todo: SHould thsi estimation be an altimter method?
-                                params.baro_alt_msl = atmos_model::estimate_altitude_msl(pressure, temp, &altimeter.ground_cal)
-                            }
-
-
-                        }
-
-                    });
-
                     // if let OperationMode::Preflight = state_volatile.op_mode {
                     //     // exit this fn during preflight *after* measuring voltages using ADCs.
                     //     return;
@@ -1134,13 +1115,11 @@ mod app {
                     }
                 });
 
-        // todo: Put this back
-        // (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
-        // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
-        // DMA TC isrs are sequenced.
-        // todo: Put back.
-        // sensors_shared::start_transfers(i2c1, i2c2);
-        // });
+        (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
+            // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
+            // DMA TC isrs are sequenced.
+            sensors_shared::start_transfers(i2c1, i2c2);
+        });
     }
 
     /// Runs when new IMU data is ready. Trigger a DMA read.
@@ -1456,6 +1435,8 @@ mod app {
                                 params.attitude_quat,
                                 &state_volatile.attitude_commanded,
                                 params.baro_alt_msl,
+                                state_volatile.pressure_static,
+                                state_volatile.temp_baro,
                                 params.tof_alt,
                                 state_volatile.batt_v,
                                 state_volatile.esc_current,
@@ -1550,9 +1531,9 @@ mod app {
         // todo: Investiate if this is firing twice etc.
         let exti = unsafe { &(*pac::EXTI::ptr()) };
         #[cfg(feature = "h7")]
-            exti.cpuimr1.modify(|_, w| w.mr6().clear_bit());
+        exti.cpuimr1.modify(|_, w| w.mr6().clear_bit());
         #[cfg(feature = "g4")]
-            exti.ftsr1.modify(|_, w| w.ft6().clear_bit());
+        exti.ftsr1.modify(|_, w| w.ft6().clear_bit());
     }
 
     // todo temp removed rpms.
@@ -1824,9 +1805,9 @@ mod app {
     }
 
     // binds = DMA2_STR1,
-    // todo temp high pri and 1/4. Should be 2/1
-    #[task(binds = DMA1_CH4,
-    shared = [i2c2], priority = 10)]
+    // todo: Temp i2c1; should be i2c2.
+    #[task(binds = DMA2_CH1,
+    shared = [i2c1], priority = 10)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
         dma::clear_interrupt(
@@ -1834,27 +1815,26 @@ mod app {
             setup::BARO_TX_CH,
             DmaInterrupt::TransferComplete,
         );
-        println!("BARO W");
+        // println!("BARO W");
 
-        // dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_TX_CH);
-        //
-        // println!("Ext sensors D");
-        // cx.shared.i2c2.lock(|i2c2| unsafe {
-        //     i2c2.read_dma(
-        //         baro::ADDR,
-        //         &mut sensors_shared::BARO_READINGS,
-        //         setup::BARO_RX_CH,
-        //         Default::default(),
-        //         setup::BARO_DMA_PERIPH,
-        //     );
-        // });
+        dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_TX_CH);
+
+        cx.shared.i2c1.lock(|i2c| unsafe {
+            i2c.read_dma(
+                baro::ADDR,
+                &mut sensors_shared::BARO_READINGS,
+                setup::BARO_RX_CH,
+                Default::default(),
+                setup::BARO_DMA_PERIPH,
+            );
+        });
     }
 
     // todo: For now, we start new transfers in the main loop.
 
     // binds = DMA2_STR2,
     #[task(binds = DMA2_CH2,
-    shared = [altimeter, current_params], priority = 1)]
+    shared = [altimeter, current_params, state_volatile], priority = 1)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(cx: baro_read_tc_isr::Context) {
         dma::clear_interrupt(
@@ -1862,19 +1842,26 @@ mod app {
             setup::BARO_RX_CH,
             DmaInterrupt::TransferComplete,
         );
-
         dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_RX_CH);
 
-        println!("Ext sensors C");
-        (cx.shared.altimeter, cx.shared.current_params).lock(|altimeter, params| {
-            // code shortener.
-            let buf = unsafe { &sensors_shared::BARO_READINGS };
-            // todo: Process your baro reading here.
-            let pressure = altimeter.pressure_from_readings(buf);
+        let buf = unsafe { &sensors_shared::BARO_READINGS };
 
-            // todo: Altitude from pressure! Maybe in a diff module? (which?)
-            params.baro_alt_msl = pressure;
-        });
+        (
+            cx.shared.altimeter,
+            cx.shared.current_params,
+            cx.shared.state_volatile,
+        )
+            .lock(|altimeter, params, state_volatile| {
+                // code shortener.
+
+                // todo: Process your baro reading here.
+                let (pressure, temp) = altimeter.pressure_temp_from_readings(buf);
+
+                state_volatile.pressure_static = pressure;
+                state_volatile.temp_baro = temp;
+                params.baro_alt_msl =
+                    atmos_model::estimate_altitude_msl(pressure, temp, &altimeter.ground_cal)
+            });
     }
 
     // binds = DMA2_STR3,

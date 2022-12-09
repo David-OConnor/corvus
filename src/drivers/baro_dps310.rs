@@ -92,8 +92,12 @@ const K_T: f32 = 1_040_384.; // 64x oversample
 /// Fix the sign on signed 24 bit integers, represented as `i32`. (Here, we use this for pressure
 /// and temp readings)
 fn fix_int_sign(val: &mut i32, num_bits: u8) {
-    let diff = 32 - num_bits as i32;
-    *val = (*val << diff) >> diff;
+    // let diff = 32 - num_bits as i32;
+    // *val = (*val << diff) >> diff;
+    // todo experimenting
+    if (*val & (1 << (num_bits - 1))) > 0 {
+        *val -= (1 << num_bits) as i32;
+    }
 }
 
 /// Utility function to read a single byte.
@@ -107,8 +111,8 @@ fn read_one(reg: Reg, i2c: &mut I2C) -> Result<u8, BaroNotConnectedError> {
 /// 2's complement numbers.
 #[derive(Default)]
 struct HardwareCoeffCal {
-    c0: i16, // 12 bits
-    c1: i16, // 12 bits
+    c0: i16,  // 12 bits
+    c1: i16,  // 12 bits
     c00: i32, // 20 bits
     c10: i32, // 20 bits
     c01: i16, // 16 bits for the rest.
@@ -125,13 +129,13 @@ impl HardwareCoeffCal {
         let mut buf = [0; 18];
         i2c.write_read(ADDR, &[Reg::c0 as u8], &mut buf)?;
 
-        let [c0_, c0_c1, c1_, c00_a, c00_b, c00_c10, c10_a, c10_b, c01_a, c01_b, c11_a, c11_b, c20_a,
-        c20_b, c21_a, c21_b, c30_a, c30_b] = buf;
+        let [c0_, c0_c1, c1_, c00_a, c00_b, c00_c10, c10_a, c10_b, c01_a, c01_b, c11_a, c11_b, c20_a, c20_b, c21_a, c21_b, c30_a, c30_b] =
+            buf;
 
         // Unpack into coefficients. See datasheet Table 18.
         let mut c0 = ((c0_ as i32) << 4) | ((c0_c1 as i32) >> 4);
         let mut c1 = i16::from_be_bytes([c0_c1 & 0xf, c1_]) as i32;
-        let mut c00 = ((c00_a as i32) << 12) | ((c00_b as i32) << 4) | ((c00_c10 as i32) >> 4) ;
+        let mut c00 = ((c00_a as i32) << 12) | ((c00_b as i32) << 4) | ((c00_c10 as i32) >> 4);
         let mut c10 = i32::from_be_bytes([0, c00_c10 & 0xf, c10_a, c10_b]);
         let c01 = i16::from_be_bytes([c01_a, c01_b]);
         let c11 = i16::from_be_bytes([c11_a, c11_b]);
@@ -141,8 +145,17 @@ impl HardwareCoeffCal {
 
         // c0 and c1 are 12 bits. c00 and c10 are 20 bits. The rest are 16.
         // All are 2's complement.
+        println!("C0:{} C1:{}", c0, c1);
         fix_int_sign(&mut c0, 12);
         fix_int_sign(&mut c1, 12);
+        // if c0 > ((1<<11)-1) {
+        //     c0 -= (1<<12); // todo TS
+        // }
+        // if c1 > ((1<<11)-1) {
+        //     c1 -= (1<<12); // todo TS
+        // }
+        println!("fixedC0:{} fixedC1:{}\n", c0, c1);
+
         fix_int_sign(&mut c00, 20);
         fix_int_sign(&mut c10, 20);
 
@@ -203,11 +216,9 @@ impl Altimeter {
 
         // Load calibration data, factory-coded.
         // Wait until the coefficients are ready to read. Also, wait until readings are ready
-        // here as well.
+        // here as well prior to our base point initialization.
         loop {
-            let mut buf = [0];
-            i2c.write_read(ADDR, &[Reg::MeasCfg as u8], &mut buf)?;
-            if (buf[0] & 0b1100_0000) == 0b1100_0000 {
+            if (read_one(Reg::MeasCfg, i2c)? & 0b1100_0000) == 0b1100_0000 {
                 break;
             }
         }
@@ -219,18 +230,25 @@ impl Altimeter {
             hardware_coeff_cal: HardwareCoeffCal::new(i2c)?,
         };
 
+        // Ground initialization.
+
+        let (pressure, temp) = result.read_pressure_temp(i2c)?;
+
         result.ground_cal = AltitudeCalPt {
-            pressure: result.read_pressure(i2c).unwrap_or(0.),
-            altitude: 0.,
-            temp: result.read_temp(i2c).unwrap_or(0.),
+            pressure,
+            altitude: 0., // QFE
+            temp,
         };
 
         Ok(result)
     }
 
-    pub fn calibrate_from_gps(&mut self, gps_alt: Option<f32>, i2c: &mut I2C) {
-        let pressure = self.read_pressure(i2c).unwrap_or(0.);
-        let temp = self.read_temp(i2c).unwrap_or(0.);
+    pub fn calibrate_from_gps(
+        &mut self,
+        gps_alt: Option<f32>,
+        i2c: &mut I2C,
+    ) -> Result<(), BaroNotConnectedError> {
+        let (pressure, temp) = self.read_pressure_temp(i2c)?;
 
         self.ground_cal = AltitudeCalPt {
             pressure,
@@ -246,41 +264,19 @@ impl Altimeter {
             }),
             None => None,
         };
+
+        Ok(())
     }
 
     /// Apply compensation values from calibration coefficients to the pressure reading.
     /// Output is in Pascals. Datasheet, section 4.9.1. We use naming conventions
     /// to match the DS.
     fn pressure_from_raw(&self, p_raw: i32, t_raw: i32) -> f32 {
-        // let p_raw_sc = p_raw / K_P;
-        // let t_raw_sc = t_raw / K_T;
-        //
-        // let cal = &self.hardware_coeff_cal; // code shortener
-        //
-        // println!("CAL: {:?} {} {} {} {}", cal.c00, cal.c20, cal.c30, cal.c01, cal.c10);
-        //
-        // println!("P raw: {}, T RAW: {}", p_raw, t_raw);
-        // println!("P raw sc: {}, T RAW sc: {}", p_raw_sc, t_raw_sc);
-        //
-        // println!("A: {} B: {} C: {}", p_raw_sc * (cal.c10 + p_raw_sc * (cal.c20 + p_raw_sc * cal.c30)), t_raw_sc * cal.c01, t_raw_sc * p_raw_sc * (cal.c11 + p_raw_sc * cal.c21));
-        //
-        // (cal.c00
-        //     + p_raw_sc * (cal.c10 + p_raw_sc * (cal.c20 + p_raw_sc * cal.c30))
-        //     + t_raw_sc * cal.c01
-        //     + t_raw_sc * p_raw_sc * (cal.c11 + p_raw_sc * cal.c21)) as f32
-
         // todo: With floats
         let p_raw_sc = p_raw as f32 / K_P;
         let t_raw_sc = t_raw as f32 / K_T;
 
         let cal = &self.hardware_coeff_cal; // code shortener
-
-        // println!("CAL: {:?} {} {} {} {}", cal.c00, cal.c20, cal.c30, cal.c01, cal.c10);
-        //
-        // println!("P raw: {}, T RAW: {}", p_raw, t_raw);
-        // println!("P raw sc: {}, T RAW sc: {}", p_raw_sc, t_raw_sc);
-        //
-        // println!("A: {} B: {} C: {}", p_raw_sc * (cal.c10 + p_raw_sc * (cal.c20 + p_raw_sc * cal.c30)), t_raw_sc * cal.c01, t_raw_sc * p_raw_sc * (cal.c11 + p_raw_sc * cal.c21));
 
         cal.c00 as f32
             + p_raw_sc * (cal.c10 as f32 + p_raw_sc * (cal.c20 as f32 + p_raw_sc * cal.c30 as f32))
@@ -297,28 +293,39 @@ impl Altimeter {
 
         // todo: Is this C or K?
 
-        (self.hardware_coeff_cal.c0 as f32 * 0.5 * self.hardware_coeff_cal.c1 as f32 * t_raw_sc) + 273.15
+        // println!("C0: {}, C1: {}, KT: {}", self.hardware_coeff_cal.c0, self.hardware_coeff_cal.c1, K_T);
+        (self.hardware_coeff_cal.c0 as f32 * 0.5 + self.hardware_coeff_cal.c1 as f32 * t_raw_sc)
+            + 273.15
     }
 
-    // todo: Given you use temp readings to feed into pressure, combine somehow to reduce reading
-    // todo and computation.
-
     /// Given readings taken from registers directly, calcualte pressure.
-    // pub fn pressure_from_readings(&self, p2: u8, p1: u8, p0: u8, t2: u8, t1: u8, t0: u8) -> f32 {
-    pub fn pressure_from_readings(&self, buf: &[u8]) -> f32 {
-        let [p2, p1, p0, t2, t1, t0] = buf;
+    /// We split this from the other functions for use with DMA.
+    pub fn pressure_temp_from_readings(&self, buf: &[u8; 6]) -> (f32, f32) {
+        let [p2, p1, p0, t2, t1, t0] = *buf;
 
         let mut p_raw = i32::from_be_bytes([0, p2, p1, p0]);
         fix_int_sign(&mut p_raw, 24);
 
         let mut t_raw = i32::from_be_bytes([0, t2, t1, t0]);
+        // println!("\n\n\nT RAW: {:?}", t_raw);
         fix_int_sign(&mut t_raw, 24);
 
-        self.pressure_from_raw(p_raw, t_raw)
+        (
+            self.pressure_from_raw(p_raw, t_raw),
+            self.temp_from_raw(t_raw),
+        )
     }
 
-    /// Read atmospheric pressure, in kPa.
-    pub fn read_pressure(&self, i2c: &mut I2C) -> Result<f32, BaroNotConnectedError> {
+    // todo: Given you use temp readings to feed into pressure, combine somehow to reduce reading
+    // todo and computation.
+
+    /// Read atmospheric pressure, in Pascals., and temperature, in Kelvin.
+    /// This is our main non-DMA API. Note that we read them together, since we need both
+    /// to estimate altitude.
+    ///
+    /// Note: We don't use this function in practice after init; we use DMA instead to populate the
+    /// buffer.
+    pub fn read_pressure_temp(&self, i2c: &mut I2C) -> Result<(f32, f32), BaroNotConnectedError> {
         // The Pressure Data registers contains the 24 bit (3 bytes) 2's complement pressure measurement value.
         // If the FIFO is enabled, the register will contain the FIFO pressure and/or temperature results. Otherwise, the
         // register contains the pressure measurement results and will not be cleared after read.
@@ -328,20 +335,6 @@ impl Altimeter {
         let mut buf = [0; 6];
         i2c.write_read(ADDR, &[Reg::PsrB2 as u8], &mut buf)?;
 
-        Ok(self.pressure_from_readings(&buf))
-    }
-
-    /// Read temperature, in °C.
-    pub fn read_temp(&self, i2c: &mut I2C) -> Result<f32, BaroNotConnectedError> {
-        // The Temperature Data registers contain the 24 bit (3 bytes) 2's complement temperature measurement value
-        // ( unless the FIFO is enabled, please see FIFO operation ) and will not be cleared after the read.
-
-        let mut buf = [0; 3];
-        i2c.write_read(ADDR, &[Reg::TmpB2 as u8], &mut buf)?;
-
-        let mut reading = i32::from_be_bytes([0, buf[0], buf[1], buf[2]]);
-        fix_int_sign(&mut reading, 24);
-
-        Ok(self.temp_from_raw(reading))
+        Ok(self.pressure_temp_from_readings(&buf))
     }
 }
