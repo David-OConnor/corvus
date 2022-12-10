@@ -75,9 +75,8 @@ cfg_if! {
         pub const DSHOT_ARR_600: u32 = 432;  // 260Mhz tim clock
         // pub const DSHOT_ARR_600: u32 = 457; // 275Mhz tim clock
     } else if #[cfg(feature = "g4")] {
-        // pub const DSHOT_ARR_600: u32 = 282; // 170Mhz tim clock
-        pub const DSHOT_ARR_600: u32 = 567; // 170Mhz tim clock // todo: This is for DSHOT 300.
-        pub const DSHOT_ARR_300: u32 = 567; // 170Mhz tim clock // todo: This is for DSHOT 300.
+        pub const DSHOT_ARR_600: u32 = 282; // 170Mhz tim clock
+        pub const DSHOT_ARR_300: u32 = 567; // 170Mhz tim clock
 
         // todo: Experimenting
         pub const DSHOT_ARR_READ_300: u32 = 452;
@@ -426,7 +425,7 @@ use stm32_hal2::dma::DmaChannel;
 // pub fn receive_payload() {
 pub fn receive_payload(timer: &mut MotorTimer) {
     // Stop any transations in progress.
-    // dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
+    dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
     // timer.enable_interrupt(TimerInterrupt::Update);
 
     // timer.reset_count();
@@ -542,6 +541,9 @@ pub fn set_to_output(timer: &mut MotorTimer) {
 
     let oc = OutputCompare::Pwm1;
 
+    #[cfg(feature = "h7")]
+    timer.set_auto_reload(DSHOT_ARR_600 as u32);
+    #[cfg(feature = "g4")]
     timer.set_auto_reload(DSHOT_ARR_600 as u32);
 
     // todo: Here and elsewhere in this module, if you allocate timers/motors differently than 2/2
@@ -564,6 +566,9 @@ pub fn _set_to_input(timer: &mut MotorTimer) {
     let pol_n = Polarity::ActiveHigh;
 
     // 100us is longer that we expect the longest received pulse to be. Reduce A/R
+    #[cfg(feature = "h7")]
+    timer.set_auto_reload(DSHOT_ARR_READ_BURST_600);
+    #[cfg(feature = "g4")]
     timer.set_auto_reload(DSHOT_ARR_READ_BURST_300);
 
     timer.set_input_capture(Motor::M1.tim_channel(), cc, pol_p, pol_n);

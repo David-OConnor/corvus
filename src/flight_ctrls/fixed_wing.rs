@@ -121,48 +121,6 @@ pub fn set_elevon_posit(
     timer.set_duty(elevon.tim_channel(), duty_arr);
 }
 
-/// Similar to `dshot::setup_timers`, but for fixed-wing.
-pub fn setup_timers(motor_timer: &mut MotorTimer, servo_timer: &mut ServoTimer) {
-    motor_timer.set_prescaler(dshot::DSHOT_PSC_600);
-    motor_timer.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
-
-    servo_timer.set_prescaler(PSC_SERVOS);
-    servo_timer.set_auto_reload(ARR_SERVOS);
-
-    motor_timer.enable_interrupt(TimerInterrupt::UpdateDma);
-    // servo_timer.enable_interrupt(TimerInterrupt::Update);
-
-    // Arbitrary duty cycle set, since we'll override it with DMA bursts for the motor, and
-    // position settings for the servos.
-    motor_timer.enable_pwm_output(Motor::M1.tim_channel(), OutputCompare::Pwm1, 0.);
-    servo_timer.enable_pwm_output(ServoWing::S1.tim_channel(), OutputCompare::Pwm1, 0.);
-    servo_timer.enable_pwm_output(ServoWing::S2.tim_channel(), OutputCompare::Pwm1, 0.);
-
-    // PAC, since our HAL currently only sets this on `new`.
-    servo_timer.regs.cr1.modify(|_, w| w.opm().set_bit()); // todo: Does this work?
-
-    // Set servo pins to pull-up, to make sure they don't shorten a pulse on a MCU reset
-    // or similar condition.
-    // todo: #1: Don't hard-code these pins. #2: Consider if this is helping and/or sufficient.
-    #[cfg(feature = "h7")]
-    unsafe {
-        (*pac::GPIOC::ptr()).pupdr.modify(|_, w| {
-            w.pupdr8().bits(0b01);
-            w.pupdr9().bits(0b01)
-        });
-    }
-    #[cfg(feature = "g4")]
-    unsafe {
-        (*pac::GPIOB::ptr()).pupdr.modify(|_, w| {
-            w.pupdr0().bits(0b01);
-            w.pupdr1().bits(0b01)
-        });
-    }
-
-    // Motor timer is enabled in Timer burst DMA. We enable the servo timer here.
-    servo_timer.enable();
-}
-
 /// Equivalent of `Motor` for quadcopters.
 #[derive(Clone, Copy)]
 pub enum ServoWing {

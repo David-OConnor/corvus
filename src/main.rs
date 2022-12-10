@@ -197,8 +197,8 @@ const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500
 const CTRL_COEFF_ADJ_TIMEOUT: f32 = 0.3; // seconds
 const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 
-// The time, in ms, to wait during initializing to allow the ESC and RX to power up and initialize.
-const WARMUP_TIME: u32 = 2_000;
+//// The time, in ms, to wait during initializing to allow the ESC and RX to power up and initialize.
+// const WARMUP_TIME: u32 = 100;
 
 // todo: Bit flags that display as diff colored LEDs, and OSD items
 
@@ -463,6 +463,11 @@ mod app {
         // Frequency here can be arbitrary; we set manually using PSC and ARR below.
         let mut motor_timer = Timer::new_tim3(dp.TIM3, 1., motor_timer_cfg.clone(), &clock_cfg);
 
+        // For fixed wing on H7; need a separate timer from the 4 used for DSHOT.
+        let mut servo_timer = Timer::new_tim8(dp.TIM8, 1., motor_timer_cfg, &clock_cfg);
+
+        setup::setup_motor_timers(&mut motor_timer, &mut servo_timer);
+
         // This timer periodically fire. When it does, we read the value of each of the 4 motor lines
         // in its ISR.
         // todo: Adjust frequency A/R. It should be 5/4 * dshot frequency.
@@ -477,9 +482,6 @@ mod app {
         // dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ_300_PAD);
         dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ_BURST_300);
         dshot_read_timer.enable_interrupt(TimerInterrupt::Update);
-
-        // For fixed wing on H7; need a separate timer from the 4 used for DSHOT.
-        let mut servo_timer = Timer::new_tim8(dp.TIM8, 1., motor_timer_cfg, &clock_cfg);
 
         let mut lost_link_timer = Timer::new_tim17(
             dp.TIM17,
@@ -501,11 +503,6 @@ mod app {
             lat: 2.,
             alt_msl: 3.,
         });
-
-        #[cfg(feature = "quad")]
-        flight_ctrls::setup_timers(&mut motor_timer);
-        #[cfg(feature = "fixed-wing")]
-        flight_ctrls::setup_timers(&mut motor_timer, &servo_timer);
 
         // Note: With this circular DMA approach, we discard many readings,
         // but shouldn't have consequences other than higher power use, compared to commanding
@@ -614,7 +611,7 @@ mod app {
         let ahrs = Ahrs::new(&ahrs_settings, UPDATE_RATE_FLIGHT_CTRLS as u32);
 
         // Allow ESC to warm up and the radio to connect before starting the main loop.
-        delay.delay_ms(WARMUP_TIME);
+        // delay.delay_ms(WARMUP_TIME);
 
         // We must set up the USB device after the warmup delay, since its long blocking delay
         // leads the host (PC) to terminate the connection. The (short, repeated) blocking delays
@@ -1497,23 +1494,27 @@ mod app {
 
         _cx.shared.motor_timer.lock(|motor_timer| {
             motor_timer.disable();
-            // motor_timer.reset_count();
 
             if dshot::BIDIR_EN {
-                if dshot::DSHOT_REC_MODE.load(Ordering::Acquire) {
-                    println!("Sd");
-                    // dshot::set_to_output(motor_timer);
-
-                    // dshot::DSHOT_REC_MODE.store(false, Ordering::Release);
-                } else {
-                    // println!("Rc");
-                    // Note that `receive_payload` calls `set_to_input`.
-                    dshot::receive_payload(motor_timer);
-
-                    // // todo: Move to `receive_payload` fn on this atomic op?
-                    dshot::DSHOT_REC_MODE.store(true, Ordering::Release);
-                }
+                dshot::receive_payload(motor_timer);
             }
+            // motor_timer.reset_count();
+
+            // if dshot::BIDIR_EN {
+            //     if dshot::DSHOT_REC_MODE.load(Ordering::Acquire) {
+            //         println!("Sd");
+            //         // dshot::set_to_output(motor_timer);
+            //
+            //         // dshot::DSHOT_REC_MODE.store(false, Ordering::Release);
+            //     } else {
+            //         // println!("Rc");
+            //         // Note that `receive_payload` calls `set_to_input`.
+            //         dshot::receive_payload(motor_timer);
+            //
+            //         // // todo: Move to `receive_payload` fn on this atomic op?
+            //         dshot::DSHOT_REC_MODE.store(true, Ordering::Release);
+            //     }
+            // }
         });
     }
 
@@ -1549,7 +1550,7 @@ mod app {
 
         dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
         // Note that timer enabling is handled by `write_dma_burst`.
-        dshot::DSHOT_REC_MODE.store(false, Ordering::Release);
+        // dshot::DSHOT_REC_MODE.store(false, Ordering::Release);
 
         cx.shared.motor_timer.lock(|motor_timer| {
             motor_timer.disable();
@@ -1807,7 +1808,7 @@ mod app {
     // binds = DMA2_STR1,
     // todo: Temp i2c1; should be i2c2.
     #[task(binds = DMA2_CH1,
-    shared = [i2c1], priority = 10)]
+    shared = [i2c1], priority = 2)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
         dma::clear_interrupt(
@@ -1815,7 +1816,6 @@ mod app {
             setup::BARO_TX_CH,
             DmaInterrupt::TransferComplete,
         );
-        // println!("BARO W");
 
         dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_TX_CH);
 
@@ -1834,7 +1834,7 @@ mod app {
 
     // binds = DMA2_STR2,
     #[task(binds = DMA2_CH2,
-    shared = [altimeter, current_params, state_volatile], priority = 1)]
+    shared = [altimeter, current_params, state_volatile], priority = 2)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(cx: baro_read_tc_isr::Context) {
         dma::clear_interrupt(

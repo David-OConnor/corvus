@@ -12,7 +12,7 @@ use stm32_hal2::{
     i2c::{I2c, I2cConfig, I2cSpeed},
     pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, SPI2, USART2},
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
-    timer::{TimChannel, Timer},
+    timer::{TimChannel, TimerInterrupt, OutputCompare, Timer},
     usart::{OverSampling, Usart, UsartConfig},
 };
 
@@ -33,6 +33,7 @@ use crate::{
         spi2_kludge::Spi2, // todo: Temp hopefully
         tof_vl53l1 as tof,
     },
+    dshot,
     flight_ctrls::common::Motor,
     params::Params,
     ppks::{Location, LocationType},
@@ -390,10 +391,6 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_TX_CH, DmaInput::I2c1Tx);
     // dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_RX_CH, DmaInput::I2c1Rx);
 
-    // TOF sensor
-    // dma::mux(DmaChannel::C4, dma::DmaInput::I2c2Tx);
-    // dma::mux(DmaChannel::C5, dma::DmaInput::I2c2Rx);
-
     // We use Spi transfer complete to know when our readings are ready - in its ISR,
     // we trigger the attitude-rates PID loop.
     dma.enable_interrupt(IMU_RX_CH, DmaInterrupt::TransferComplete);
@@ -411,11 +408,6 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // Enable TC interrupts for all I2C sections; we use this to sequence readings,
     // and store reading data.
     dma::enable_interrupt(BARO_DMA_PERIPH, BARO_TX_CH, DmaInterrupt::TransferComplete);
-    dma::enable_interrupt(
-        DmaPeriph::Dma1,
-        DmaChannel::C4,
-        DmaInterrupt::TransferComplete,
-    ); // todo temp TS
     dma::enable_interrupt(BARO_DMA_PERIPH, BARO_RX_CH, DmaInterrupt::TransferComplete);
     // dma.enable_interrupt(EXT_SENSORS_TX_CH, DmaInterrupt::TransferComplete);
     // dma.enable_interrupt(EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);
@@ -563,4 +555,57 @@ pub fn setup_busses(
     (
         spi_imu, spi_flash, cs_imu, cs_flash, i2c1, i2c2, uart_osd, uart_crsf,
     )
+}
+
+/// Configures all 4 motor timers for quadcopters, or combinations of motors and servos
+/// for fixed-wing
+pub fn setup_motor_timers(motor_timer: &mut MotorTimer, servo_timer: &mut ServoTimer) {
+    motor_timer.set_prescaler(dshot::DSHOT_PSC);
+    #[cfg(feature = "h7")]
+    motor_timer.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
+    #[cfg(feature = "g4")]
+    motor_timer.set_auto_reload(dshot::DSHOT_ARR_300 as u32);
+
+    motor_timer.enable_interrupt(TimerInterrupt::UpdateDma);
+    // servo_timer.enable_interrupt(TimerInterrupt::Update);
+
+    cfg_if! {
+        if #[cfg(feature = "quad")] {
+            dshot::set_to_output(motor_timer);
+            dshot::set_bidirectional(dshot::BIDIR_EN, motor_timer);
+        } else {
+            servo_timer.set_prescaler(PSC_SERVOS);
+            servo_timer.set_auto_reload(ARR_SERVOS);
+
+            // Arbitrary duty cycle set, since we'll override it with DMA bursts for the motor, and
+            // position settings for the servos.
+            motor_timer.enable_pwm_output(Motor::M1.tim_channel(), OutputCompare::Pwm1, 0.);
+            servo_timer.enable_pwm_output(ServoWing::S1.tim_channel(), OutputCompare::Pwm1, 0.);
+            servo_timer.enable_pwm_output(ServoWing::S2.tim_channel(), OutputCompare::Pwm1, 0.);
+
+            // PAC, since our HAL currently only sets this on `new`.
+            servo_timer.regs.cr1.modify(|_, w| w.opm().set_bit()); // todo: Does this work?
+
+            // Set servo pins to pull-up, to make sure they don't shorten a pulse on a MCU reset
+            // or similar condition.
+            // todo: #1: Don't hard-code these pins. #2: Consider if this is helping and/or sufficient.
+            #[cfg(feature = "h7")]
+            unsafe {
+                (*pac::GPIOC::ptr()).pupdr.modify(|_, w| {
+                    w.pupdr8().bits(0b01);
+                    w.pupdr9().bits(0b01)
+                });
+            }
+            #[cfg(feature = "g4")]
+            unsafe {
+                (*pac::GPIOB::ptr()).pupdr.modify(|_, w| {
+                    w.pupdr0().bits(0b01);
+                    w.pupdr1().bits(0b01)
+                });
+            }
+
+            // Motor timer is enabled in Timer burst DMA. We enable the servo timer here.
+            servo_timer.enable();
+        }
+    }
 }
