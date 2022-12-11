@@ -35,17 +35,15 @@ cfg_if! {
     }
 }
 
-use stm32_hal2::{adc::Adc, pac};
-
-// use cfg_if::cfg_if;
+// use stm32_hal2::{adc::Adc, pac};
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
         use stm32_hal2::usb_otg::Usb1BusType as UsbBusType;
-        type ADC = pac::ADC1;
+        // type ADC = pac::ADC1;
     } else {
         use stm32_hal2::usb::UsbBusType;
-        type ADC = pac::ADC2;
+        // type ADC = pac::ADC2;
     }
 }
 
@@ -337,7 +335,6 @@ pub fn handle_rx(
     op_mode: &mut OperationMode,
     motor_timer: &mut setup::MotorTimer,
     servo_timer: &mut setup::ServoTimer,
-    adc: &Adc<ADC>,
 ) {
     let rx_msg_type: MsgType = match rx_buf[0].try_into() {
         Ok(d) => d,

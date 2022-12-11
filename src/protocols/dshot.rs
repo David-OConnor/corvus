@@ -65,9 +65,6 @@ static mut ESC_TELEM: bool = false;
 // The number of motors here affects our payload interleave logic, and DMA burst length written.
 const NUM_MOTORS: usize = 4;
 
-// todo: M2-4 as well once this is working,.
-pub static M1_RPM_I: AtomicUsize = AtomicUsize::new(0);
-
 // Update frequency: 600kHz
 // 170Mhz tim clock on G4.
 // 240Mhz tim clock on H743
@@ -77,21 +74,16 @@ cfg_if! {
         // pub const DSHOT_ARR_600: u32 = 399;  // 240Mhz tim clock
         pub const DSHOT_ARR_600: u32 = 432;  // 260Mhz tim clock
         // pub const DSHOT_ARR_600: u32 = 457; // 275Mhz tim clock
+
+        // todo: Rename and modify per 600k dshot and higher H7 clock speeds.
+        pub const DSHOT_ARR_READ_600: u32 = 17_000; // 17k for DSHOT300
+
     } else if #[cfg(feature = "g4")] {
         pub const DSHOT_ARR_600: u32 = 282; // 170Mhz tim clock
         pub const DSHOT_ARR_300: u32 = 567; // 170Mhz tim clock
 
-        // todo: Experimenting
-        pub const DSHOT_ARR_READ_300: u32 = 452;
-        pub const DSHOT_ARR_READ_300_PAD: u32 = 679;
-
-        // Experimenting with timer burst dma read
-        pub const DSHOT_ARR_READ_BURST_300: u32 = 5_000; // todo: You calculated 17k, but it's not working (?)
-
-        // //This runs immediately after completion of transmission, prior to the
-        // //start of reception
-        // pub const READ_TIMER_ARR_INIT: u32 = 4_200; // A 24.7us delay. Note that in practice we measure 35; 25 is conservative.
-        // pub const READ_TIMER_ARR_READING: u32 = 452; // This results in a frequency of 375kHz; for DSHOT 300.
+        // todo: Rename
+        pub const DSHOT_ARR_READ_300: u32 = 17_000; // 17k for DSHOT300
     }
 }
 // pub const DSHOT_REC_MODE: AtomicBool = AtomicBool::new(false);
@@ -121,24 +113,21 @@ pub const REPEAT_COMMAND_COUNT: u32 = 10; // todo: Set back to 6 once sorted out
 static mut PAYLOAD: [u16; 18 * NUM_MOTORS] = [0; 18 * NUM_MOTORS];
 // todo: The receive payload may be shorter due to how it's encoded; come back to this.
 
-// The position we're reading when updating the DSHOT read.
-pub static READ_I: AtomicUsize = AtomicUsize::new(0);
+// The position we're reading when updating each motor's RPM read.
+pub static M1_RPM_I: AtomicUsize = AtomicUsize::new(0);
+pub static M2_RPM_I: AtomicUsize = AtomicUsize::new(0);
+pub static M3_RPM_I: AtomicUsize = AtomicUsize::new(0);
+pub static M4_RPM_I: AtomicUsize = AtomicUsize::new(0);
 
-// There are 21 bits in each DSHOT RPM reception message. Value is true for line low (bit = 1), and false
-// for line high (bit = 0); idle high.
-pub const REC_BUF_LEN: usize = 20;
-
-pub static mut PAYLOAD_REC_BB_1: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
-pub static mut PAYLOAD_REC_BB_2: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
-pub static mut PAYLOAD_REC_BB_3: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
-pub static mut PAYLOAD_REC_BB_4: [bool; REC_BUF_LEN] = [false; REC_BUF_LEN];
-
-pub const REC_BUF_LENb: usize = 30;
-pub static mut PAYLOAD_REC_1_HIGH: [u16; REC_BUF_LENb] = [0; REC_BUF_LENb];
-pub static mut PAYLOAD_REC_1_LOW: [u16; REC_BUF_LENb] = [0; REC_BUF_LENb];
-pub static mut PAYLOAD_REC_2: [u16; REC_BUF_LENb] = [0; REC_BUF_LENb];
-pub static mut PAYLOAD_REC_3: [u16; REC_BUF_LENb] = [0; REC_BUF_LENb];
-pub static mut PAYLOAD_REC_4: [u16; REC_BUF_LENb] = [0; REC_BUF_LENb];
+pub const REC_BUF_LEN: usize = 30; // More than we need
+pub static mut PAYLOAD_REC_1_HIGH: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
+pub static mut PAYLOAD_REC_1_LOW: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
+pub static mut PAYLOAD_REC_2_HIGH: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
+pub static mut PAYLOAD_REC_2_LOW: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
+pub static mut PAYLOAD_REC_3_HIGH: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
+pub static mut PAYLOAD_REC_3_LOW: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
+pub static mut PAYLOAD_REC_4_HIGH: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
+pub static mut PAYLOAD_REC_4_LOW: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
 
 /// Possible DSHOT commands (ie, DSHOT values 0 - 47). Does not include power settings.
 /// [Special commands section](https://brushlesswhoop.com/dshot-and-bidirectional-dshot/)
@@ -359,54 +348,6 @@ fn send_payload(timer: &mut MotorTimer) {
     // Stop any transations in progress.
     dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
 
-    // timer.disable(); // todo TS
-    //
-    // // Note that timer enabling is handled by `write_dma_burst`.
-    // DSHOT_REC_MODE.store(false, Ordering::Release);
-    //
-    // timer.disable_interrupt(TimerInterrupt::Update);
-    //
-    // set_to_output(timer);
-
-    // todo: Reset ARR here and pin in ISR, or in dshot::send_payload? Currently here
-    // let alt_mode = 0b10;
-    // unsafe {
-    //     cfg_if! {
-    //         if #[cfg(feature = "h7")] {
-    //             (*pac::GPIOC::ptr())
-    //                 .moder
-    //                 .modify(|_, w| {
-    //                     w.moder6().bits(alt_mode);
-    //                     w.moder7().bits(alt_mode);
-    //                     w.moder8().bits(alt_mode);
-    //                     w.moder9().bits(alt_mode)
-    //                 });
-    //
-    //         } else {
-    //             (*pac::GPIOC::ptr())
-    //                 .moder
-    //                 .modify(|_, w| w.moder6().bits(alt_mode));
-    //             (*pac::GPIOA::ptr())
-    //                 .moder
-    //                 .modify(|_, w| w.moder4().bits(alt_mode));
-    //             (*pac::GPIOB::ptr())
-    //                 .moder
-    //                 .modify(|_, w| {
-    //                 w.moder0().bits(alt_mode);
-    //                 w.moder1().bits(alt_mode)
-    //             });
-    //         }
-    //     }
-    // }
-
-    // // Disable the read start interrupt, ie in case no data was received after it was enabled,
-    // // we don't want it triggering off a write.
-    // let exti = unsafe { &(*pac::EXTI::ptr()) };
-    // #[cfg(feature = "h7")]
-    // exti.cpuimr1.modify(|_, w| w.mr6().clear_bit());
-    // #[cfg(feature = "g4")]
-    // exti.ftsr1.modify(|_, w| w.ft1().clear_bit());
-
     unsafe {
         timer.write_dma_burst(
             &PAYLOAD,
@@ -425,8 +366,8 @@ fn send_payload(timer: &mut MotorTimer) {
 }
 
 // todo temp
-use stm32_hal2::dma::DmaChannel;
 use crate::protocols::rpm_reception;
+use stm32_hal2::dma::DmaChannel;
 
 /// Receive an RPM payload for all channels in bidirectional mode.
 /// Note that we configure what won't affect the FC-ESC transmission in the reception timer's
@@ -434,32 +375,7 @@ use crate::protocols::rpm_reception;
 // pub fn receive_payload(timer: &mut MotorTimer) {
 // pub fn receive_payload() {
 pub fn receive_payload() {
-    // Stop any transations in progress.
-
-    // dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
-    // timer.enable_interrupt(TimerInterrupt::Update);
-
-    // timer.reset_count();
-    // _set_to_input(timer);
-
-    // unsafe {
-    //     timer.read_dma_burst(
-    //         &mut PAYLOAD_REC_1,
-    //         setup::DSHOT_BASE_DIR_OFFSET,
-    //         1, // todo temp
-    //         // NUM_MOTORS as u8, // Update a channel per number of motors, up to 4.
-    //         setup::MOTOR_CH,
-    //         ChannelCfg {
-    //             // Take precedence over CRSF and ADCs.
-    //             priority: Priority::High,
-    //             ..ChannelCfg::default()
-    //         },
-    //         true,
-    //         setup::MOTORS_DMA_PERIPH,
-    //     );
-    // }
-
-    // todo: Trying a different approach using burst dma to read
+    // Set all motor pins to input mode.
     let input_mode = 0b00;
     unsafe {
         cfg_if! {
@@ -490,20 +406,25 @@ pub fn receive_payload() {
         }
     }
 
-    // todo: Shared resource for pins?
+    // Enable interrupts on the motor pins.
     let exti = unsafe { &(*pac::EXTI::ptr()) };
-    let syscfg = unsafe { &(*pac::SYSCFG::ptr()) };
-
-    // #[cfg(feature = "h7")]
-    // exti.cpuimr1.modify(|_, w| w.mr6().set_bit());
-    // #[cfg(feature = "g4")]
-    // exti.ftsr1.modify(|_, w| w.ft1().set_bit());
-    //
-    // syscfg.exticr1.modify(|_, w| unsafe { w.exti1().bits(1) }); // Points to port B.
-
-    // todo: Why is the below working but not above???
-    let mut m1_pin = gpio::Pin::new(gpio::Port::C, 6, gpio::PinMode::Input);
-    m1_pin.enable_interrupt(gpio::Edge::Either);
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            exti.cpuimr1.modify(|_, w| {
+                w.mr6().set_bit();
+                w.mr7().set_bit();
+                w.mr8().set_bit();
+                w.mr9().set_bit()
+            });
+        } else {
+            exti.imr1.modify(|_, w| {
+                w.im6().set_bit();
+                // w.im4().set_bit();
+                w.im0().set_bit();
+                w.im1().set_bit()
+            });
+        }
+    }
 
     unsafe {
         (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().set_bit());
@@ -538,8 +459,7 @@ pub fn set_bidirectional(enabled: bool, timer: &mut MotorTimer) {
     timer.set_dir();
 }
 
-/// Set the timer(s) to output mode. Do this in init, and after a receive
-/// phase of bidirectional DSHOT.
+/// Set the timer(s) to output mode. This only runs on init.
 pub fn set_to_output(timer: &mut MotorTimer) {
     // todo: The code below may be removed if using bitbang receive
 
@@ -565,35 +485,4 @@ pub fn set_to_output(timer: &mut MotorTimer) {
     timer.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
     #[cfg(feature = "quad")]
     timer.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
-}
-
-/// Set the timer(s) to input mode. Used to receive PWM data in bidirectional mode.
-/// Assumes the timer is stopped prior to calling.
-pub fn _set_to_input(timer: &mut MotorTimer) {
-    let cc = CaptureCompare::InputTi1;
-    let pol_p = Polarity::ActiveLow;
-    let pol_n = Polarity::ActiveHigh;
-
-    // 100us is longer that we expect the longest received pulse to be. Reduce A/R
-    #[cfg(feature = "h7")]
-    timer.set_auto_reload(DSHOT_ARR_READ_BURST_600);
-    #[cfg(feature = "g4")]
-    timer.set_auto_reload(DSHOT_ARR_READ_BURST_300);
-
-    timer.set_input_capture(Motor::M1.tim_channel(), cc, pol_p, pol_n);
-    timer.set_input_capture(Motor::M2.tim_channel(), cc, pol_p, pol_n);
-    #[cfg(feature = "quad")]
-    timer.set_input_capture(Motor::M3.tim_channel(), cc, pol_p, pol_n);
-    #[cfg(feature = "quad")]
-    timer.set_input_capture(Motor::M4.tim_channel(), cc, pol_p, pol_n);
-
-    // todo: Experimenting how to capture both edges.
-    let cc2 = CaptureCompare::InputTi2; // For example, this maps CC3 to ch4 and CC4 to TIM3 etc, I believe.
-
-    // timer.set_input_capture(Motor::M3.tim_channel(), cc, pol_p, pol_n);
-    // timer.set_input_capture(Motor::M3.tim_channel(), cc2, pol_n, pol_p);
-    // #[cfg(feature = "quad")]
-    // timer.set_input_capture(Motor::M4.tim_channel(), cc, pol_p, pol_n);
-    // #[cfg(feature = "quad")]
-    // timer.set_input_capture(Motor::M4.tim_channel(), cc2, pol_n, pol_p);
 }

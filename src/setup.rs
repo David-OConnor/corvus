@@ -12,7 +12,7 @@ use stm32_hal2::{
     i2c::{I2c, I2cConfig, I2cSpeed},
     pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, SPI2, USART2},
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
-    timer::{TimChannel, TimerInterrupt, OutputCompare, Timer},
+    timer::{OutputCompare, TimChannel, Timer, TimerInterrupt},
     usart::{OverSampling, Usart, UsartConfig},
 };
 
@@ -161,7 +161,6 @@ pub fn init_sensors(
     };
 
     let fix = gps::get_fix(i2c1);
-
     match fix {
         Ok(f) => {
             params.lon = f.lon;
@@ -170,14 +169,17 @@ pub fn init_sensors(
 
             *base_pt = Location::new(LocationType::LatLon, f.lat, f.lon, f.alt_msl);
 
-            altimeter.calibrate_from_gps(Some(f.alt_msl), i2c1); // todo temp 1
+            if system_status.baro == SensorStatus::Pass {
+                altimeter.calibrate_from_gps(Some(f.alt_msl), i2c1); // todo temp 1
+            }
         }
         Err(_) => {
-            altimeter.calibrate_from_gps(None, i2c1); // todo temp 1
+            if system_status.baro == SensorStatus::Pass {
+                altimeter.calibrate_from_gps(None, i2c1); // todo temp 1
+            }
         }
     }
     // todo: Use Rel0 location type if unable to get fix.
-
     (system_status, altimeter)
 }
 
@@ -231,6 +233,34 @@ pub fn setup_pins() {
             let mut motor2 = Pin::new(Port::A, 4, PinMode::Alt(alt_motors)); // Ch2
             let mut motor3 = Pin::new(Port::B, 0, PinMode::Alt(alt_motors)); // Ch3
             let mut motor4 = Pin::new(Port::B, 1, PinMode::Alt(alt_motors)); // Ch4
+        }
+    }
+
+    // Enable interrupts on both edges for the pins, for use with reading RPM. Then mask the
+    // interrupt. This performs some extra setup, then lets us enable and disable the interrupt
+    // by masking and unmasking using imr1.
+    motor1.enable_interrupt(Edge::Either);
+    motor2.enable_interrupt(Edge::Either);
+    motor3.enable_interrupt(Edge::Either);
+    motor4.enable_interrupt(Edge::Either);
+
+    let exti = unsafe { &(*pac::EXTI::ptr()) };
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            exti.cpuimr1.modify(|_, w| {
+                w.mr6().clear_bit();
+                w.mr7().clear_bit();
+                w.mr8().clear_bit();
+                w.mr9().clear_bit()
+            });
+        } else {
+            // todo: IM4 causing trouble??
+            exti.imr1.modify(|_, w| {
+                w.im6().clear_bit();
+                // w.im4().clear_bit();
+                w.im0().clear_bit();
+                w.im1().clear_bit()
+            });
         }
     }
 

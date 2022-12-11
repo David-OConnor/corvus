@@ -240,7 +240,7 @@ impl Default for ElrsTxPower {
 }
 
 #[derive(Default)]
-/// https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support
+/// https://www.expresslrs.org/3.0/info/signal-health/
 pub struct LinkStats {
     /// Timestamp these stats were recorded. (TBD format; processed locally; not part of packet from tx).
     pub timestamp: u32,

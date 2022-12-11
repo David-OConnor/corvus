@@ -3,7 +3,7 @@
 //! and in ISRs in `main`. This module handles interpretation of the buffers collected
 //! by those processes.
 
-use super::dshot::{calc_crc, REC_BUF_LEN, PAYLOAD_REC_BB_1, PAYLOAD_REC_1, PAYLOAD_REC_BB_3, PAYLOAD_REC_BB_2, PAYLOAD_REC_BB_4};
+use super::dshot::{self, calc_crc, REC_BUF_LEN};
 
 use crate::{
     flight_ctrls::{
@@ -90,15 +90,32 @@ pub enum RpmError {
     TelemType,
 }
 
-
-
-/// u32 since it's 20 bits.
-pub fn bool_array_to_u32(arr: &[bool]) -> u32 {
+/// Covnert our arrays of high and low edge counts to a 20-bit integer. u32 since it's 20 bits.
+pub fn edge_counts_to_u32(low_counts: &[u16], high_counts: &[u16]) -> u32 {
+    // On G4, with DSHOT 300: Pulse width is ~430 ticks.
+    ////  Low value is ~430 ticks.
+    ////  High time is ~880 ticks.
+    ////  Maybe a threshhold of 665 ticks to split high vs low.
     let mut result = 0;
 
-    for (i, v) in arr.iter().enumerate() {
-        result |= (*v as u32) << (REC_BUF_LEN - i)
+    // todo: Const? todo: Change based on H7, G4.
+    let bit_len = 430; // in ticks.
+
+    let mut bits = [0; 20];
+
+    // First low pulse isn't needed. Find the high pulses.
+    // i = 3
+    for i in 2..40 {
+        if i % 2 != 0 {
+            continue
+        }
+        let val = low_counts[i] - high_counts[i-1];
+        let num_bits = 
     }
+
+    // for (i, v) in arr.iter().enumerate() {
+    //     result |= (*v as u32) << (REC_BUF_LEN - i)
+    // }
 
     result
 }
@@ -186,36 +203,34 @@ fn update_rpm_from_packet(rpm: &mut f32, packet: Result<u16, RpmError>) -> Resul
 
 /// Update the motor RPM struct with our buffer data.
 pub fn update_rpms(rpms: &mut MotorRpm, fault: &mut bool) {
-    // pub fn update_rpms(rpms: &mut MotorRpm, mapping: &ControlMapping) {
+    // pub fn update_rpms(rpms: &mut MotorRpm, mapping: &ControlMapping, fault: &mut bool) {
 
-    // todo: Put back processing 1 and 2.
-
-    // Convert our boolean array to a 20-bit integer.
-    // let gcr1 = bool_array_to_u32(unsafe { &PAYLOAD_REC_BB_1 });
-    // let gcr2 = bool_array_to_u32(unsafe { &PAYLOAD_REC_BB_2 });
-    let gcr3 = bool_array_to_u32(unsafe { &PAYLOAD_REC_BB_3 });
-    let gcr4 = bool_array_to_u32(unsafe { &PAYLOAD_REC_BB_4 });
+    // Convert our arrays of high and low timings to a 20-bit integer.
+    let gcr1 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_1_LOW, &dshot::PAYLOAD_REC_1_HIGH) };
+    let gcr2 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_2_LOW, &dshot::PAYLOAD_REC_2_HIGH) };
+    let gcr3 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_3_LOW, &dshot::PAYLOAD_REC_3_HIGH) };
+    let gcr4 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_4_LOW, &dshot::PAYLOAD_REC_4_HIGH) };
 
     // Perform some initial de-obfuscation using a bit shift and xor
-    // let gcr1 = gcr_step_1(gcr1);
-    // let gcr2 = gcr_step_1(gcr2);
+    let gcr1 = gcr_step_1(gcr1);
+    let gcr2 = gcr_step_1(gcr2);
     let gcr3 = gcr_step_1(gcr3);
     let gcr4 = gcr_step_1(gcr4);
 
     // Convert our 20-bit raw GCR data to the 16-bit data packet.
-    // let packet1 = reduce_bit_count(gcr1);
-    // let packet2 = reduce_bit_count(gcr2);
+    let packet1 = reduce_bit_count(gcr1);
+    let packet2 = reduce_bit_count(gcr2);
     let packet3 = reduce_bit_count(gcr3);
     let packet4 = reduce_bit_count(gcr4);
 
     // todo: Don't hard code the motor mapping!!
 
-    // if update_rpm_from_packet(&mut rpms.aft_right, packet1).is_err() {
-    //     *fault = true;
-    // }
-    // if update_rpm_from_packet(&mut rpms.front_right, packet2).is_err() {
-    //     *fault = true;
-    // }
+    if update_rpm_from_packet(&mut rpms.aft_right, packet1).is_err() {
+        *fault = true;
+    }
+    if update_rpm_from_packet(&mut rpms.front_right, packet2).is_err() {
+        *fault = true;
+    }
     if update_rpm_from_packet(&mut rpms.aft_left, packet3).is_err() {
         *fault = true;
     } else {
@@ -223,7 +238,4 @@ pub fn update_rpms(rpms: &mut MotorRpm, fault: &mut bool) {
     if update_rpm_from_packet(&mut rpms.front_left, packet4).is_err() {
         *fault = true;
     }
-
-    // println!("RPM 3: {}", rpms.aft_left)
-    // todo: Mapping! You may need to pass in the mapping struct.
 }
