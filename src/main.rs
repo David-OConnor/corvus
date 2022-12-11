@@ -50,7 +50,7 @@ use lin_alg2::f32::Quaternion;
 use panic_probe as _;
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, usb_preflight};
-use safety::ArmStatus;
+use safety::{LINK_LOST, ArmStatus};
 use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
 use state::{OperationMode, StateVolatile, UserCfg};
 
@@ -206,7 +206,6 @@ const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 #[rtic::app(device = pac, peripherals = false, dispatchers= [])]
 mod app {
     use super::*;
-    use crate::safety::LINK_LOST;
 
     #[monotonic(binds = TIM5, default = true)]
     // type MyMono = Timer<TIM5>; // todo temp
@@ -287,9 +286,9 @@ mod app {
         // Improves performance, at a cost of slightly increased power use.
         // Note that these enable fns should automatically invalidate prior.
         #[cfg(feature = "h7")]
-        cp.SCB.enable_icache();
+            cp.SCB.enable_icache();
         #[cfg(feature = "h7")]
-        cp.SCB.enable_dcache(&mut cp.CPUID);
+            cp.SCB.enable_dcache(&mut cp.CPUID);
 
         cfg_if! {
             if #[cfg(feature = "h7")] {
@@ -324,9 +323,9 @@ mod app {
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
-        clocks::enable_crs(CrsSyncSrc::OtgHs);
+            clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-        clocks::enable_crs(CrsSyncSrc::Usb);
+            clocks::enable_crs(CrsSyncSrc::Usb);
 
         let flash = unsafe { &(*pac::FLASH::ptr()) };
 
@@ -340,14 +339,14 @@ mod app {
         let dma2_ch1 = dma::Dma2Ch1::new();
 
         #[cfg(feature = "g4")]
-        dma::enable_mux1();
+            dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
         #[cfg(feature = "h7")]
-        let uart_crsf = dp.UART7;
+            let uart_crsf = dp.UART7;
         #[cfg(feature = "g4")]
-        let uart_crsf = dp.USART3;
+            let uart_crsf = dp.USART3;
 
         let (
             mut spi1,
@@ -396,10 +395,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -471,16 +470,20 @@ mod app {
         // This timer periodically fire. When it does, we read the value of each of the 4 motor lines
         // in its ISR.
         // todo: Adjust frequency A/R. It should be 5/4 * dshot frequency.
+        // todo: Eg f
         let mut dshot_read_timer = Timer::new_tim2(
             dp.TIM2,
             1.,
-            // 5./4. * 300_00.,
             Default::default(),
             &clock_cfg,
         );
 
+        dshot_read_timer.set_prescaler(dshot::DSHOT_PSC);
         // dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ_300_PAD);
-        dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ_BURST_300);
+        #[cfg(feature = "h7")]
+            dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ_BURST_600);
+        #[cfg(feature = "g4")]
+            dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ_BURST_300);
         dshot_read_timer.enable_interrupt(TimerInterrupt::Update);
 
         let mut lost_link_timer = Timer::new_tim17(
@@ -552,9 +555,9 @@ mod app {
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -620,13 +623,13 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
@@ -652,9 +655,9 @@ mod app {
         // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
         // todo opendrain and pullup set, and without enabling interrupt.
         #[cfg(feature = "h7")]
-        let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
+            let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
         #[cfg(feature = "g4")]
-        let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
+            let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
         imu_exti_pin.enable_interrupt(Edge::Falling);
 
         println!("Init complete; starting main loops");
@@ -738,17 +741,6 @@ mod app {
             asm::nop();
         }
     }
-
-    // // todo temp
-    // #[task(priority = 10)]
-    // fn foo(_: foo::Context) {
-    //     println!("Mono!");
-    //
-    //     // Schedule `bar` to run 2 seconds in the future (1 second after foo runs)
-    //     // bar::spawn_after(1.secs()).unwrap();
-    // }
-
-    // todo: Go through these tasks, and make sure they're not reserving unneded shared params.
 
     // binds = TIM15,
     // todo: Remove rotor timers, spi, and dma from this ISR; we only use it for tresting DSHOT
@@ -1496,7 +1488,8 @@ mod app {
             motor_timer.disable();
 
             if dshot::BIDIR_EN {
-                dshot::receive_payload(motor_timer);
+                // println!("RPM READ START");
+                dshot::receive_payload();
             }
             // motor_timer.reset_count();
 
@@ -1518,23 +1511,41 @@ mod app {
         });
     }
 
-    #[task(binds = EXTI9_5, shared = [], local = [], priority = 8)]
-    /// Start the DSHOT RPM read timer on the first low edge of this pin. (Currently Motor 3.)
-    fn dshot_read_start_isr(_cx: dshot_read_start_isr::Context) {
-        gpio::clear_exti_interrupt(1);
+    // #[task(binds = EXTI9_5, shared = [], local = [], priority = 8)]
+    // /// Start the DSHOT RPM read timer on the first low edge of this pin. (Currently Motor 3.)
+    // fn dshot_read_start_isr(_cx: dshot_read_start_isr::Context) {
+    //     gpio::clear_exti_interrupt(1);
+    //
+    //     // Shared resource here seems to cause scheduling jitter and missed bits.
+    //     unsafe {
+    //         (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().set_bit());
+    //     }
+    //
+    //     println!("BB r A");
+    //     // todo: Investiate if this is firing twice etc.
+    //     let exti = unsafe { &(*pac::EXTI::ptr()) };
+    //     #[cfg(feature = "h7")]
+    //     exti.cpuimr1.modify(|_, w| w.mr6().clear_bit());
+    //     #[cfg(feature = "g4")]
+    //     exti.ftsr1.modify(|_, w| w.ft6().clear_bit());
+    // }
 
-        // Shared resource here seems to cause scheduling jitter and missed bits.
+    #[task(binds = EXTI9_5, shared = [], local = [], priority = 10)]
+    /// We use this to read RPM status on motor 1. Triggers on rising and falling edges.
+    /// High priority since this is time-sensitive, and fast-to-execute.
+    /// todo: If this works, use EXTI0, EXTI1, and EXTI4 as well
+    fn rpm_read_m1(mut cx: rpm_read_m1::Context) {
+        gpio::clear_exti_interrupt(6);
+
+        let i = dshot::M1_RPM_I.fetch_add(1, Ordering::Relaxed);
         unsafe {
-            (*pac::TIM2::ptr()).cr1.modify(|_, w| w.cen().set_bit());
+            if gpio::is_high(Port::C, 6) {
+                // todo: Better way than 2 bufs? Maybe array of (bool, u16)?
+                dshot::PAYLOAD_REC_1_HIGH[i] = (*pac::TIM2::ptr()).cnt.read().bits();
+            } else {
+                dshot::PAYLOAD_REC_1_LOW[i] = (*pac::TIM2::ptr()).cnt.read().bits();
+            }
         }
-
-        println!("BB r A");
-        // todo: Investiate if this is firing twice etc.
-        let exti = unsafe { &(*pac::EXTI::ptr()) };
-        #[cfg(feature = "h7")]
-        exti.cpuimr1.modify(|_, w| w.mr6().clear_bit());
-        #[cfg(feature = "g4")]
-        exti.ftsr1.modify(|_, w| w.ft6().clear_bit());
     }
 
     // todo temp removed rpms.
@@ -1546,9 +1557,53 @@ mod app {
         timer.clear_interrupt(TimerInterrupt::Update);
         timer.disable();
 
-        // println!("MTIM {}", dshot::DSHOT_REC_MODE.load(Ordering::Acquire));
+        let exti = unsafe { &(*pac::EXTI::ptr()) };
+        #[cfg(feature = "h7")]
+            exti.cpuimr1.modify(|_, w| w.mr6().clear_bit());
+        #[cfg(feature = "g4")]
+            exti.ftsr1.modify(|_, w| w.ft6().clear_bit());
+
+        dshot::M1_RPM_I.store(0, Ordering::Release);
+        // dshot::M2_RPM_I.store(0, Ordering::Release);
+        // dshot::M31_RPM_I.store(0, Ordering::Release);
+        // dshot::M4_RPM_I.store(0, Ordering::Release);
+
+        let alt_mode = 0b10;
+        unsafe {
+            cfg_if! {
+                if #[cfg(feature = "h7")] {
+                    (*pac::GPIOC::ptr())
+                        .moder
+                        .modify(|_, w| {
+                            w.moder6().bits(alt_mode);
+                            w.moder7().bits(alt_mode);
+                            w.moder8().bits(alt_mode);
+                            w.moder9().bits(alt_mode)
+                        });
+
+                } else {
+                    (*pac::GPIOC::ptr())
+                        .moder
+                        .modify(|_, w| w.moder6().bits(alt_mode));
+                    (*pac::GPIOA::ptr())
+                        .moder
+                        .modify(|_, w| w.moder4().bits(alt_mode));
+                    (*pac::GPIOB::ptr())
+                        .moder
+                        .modify(|_, w| {
+                        w.moder0().bits(alt_mode);
+                        w.moder1().bits(alt_mode)
+                    });
+                }
+            }
+        }
+
+        return;
 
         dma::stop(setup::MOTORS_DMA_PERIPH, setup::MOTOR_CH);
+
+
+
         // Note that timer enabling is handled by `write_dma_burst`.
         // dshot::DSHOT_REC_MODE.store(false, Ordering::Release);
 

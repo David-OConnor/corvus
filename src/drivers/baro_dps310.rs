@@ -195,11 +195,7 @@ impl Altimeter {
     /// Configure settings, including pressure mreasurement rate, and return an instance.
     /// And load calibration data.
     pub fn new(i2c: &mut I2C) -> Result<Self, BaroNotConnectedError> {
-        // todo 1 temp
-        let mut read_buf = [0];
-        i2c.write_read(ADDR, &[Reg::ProductId as u8], &mut read_buf);
-
-        if read_buf[0] != PRODUCT_ID {
+        if read_one(Reg::ProductId, i2c)? != PRODUCT_ID {
             return Err(BaroNotConnectedError {});
         }
 

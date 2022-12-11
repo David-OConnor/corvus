@@ -567,7 +567,6 @@ pub fn setup_motor_timers(motor_timer: &mut MotorTimer, servo_timer: &mut ServoT
     motor_timer.set_auto_reload(dshot::DSHOT_ARR_300 as u32);
 
     motor_timer.enable_interrupt(TimerInterrupt::UpdateDma);
-    // servo_timer.enable_interrupt(TimerInterrupt::Update);
 
     cfg_if! {
         if #[cfg(feature = "quad")] {
