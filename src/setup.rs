@@ -573,8 +573,6 @@ pub fn setup_busses(
         uart_crsf_pac,
         crsf::BAUD,
         UsartConfig {
-            // oversampling: OverSampling::O8,
-            // fifo_enabled: true, // todo: Experimenting
             // todo: We're having a struggle with overruns.
             overrun_disabled: true,
             ..Default::default()
@@ -591,10 +589,7 @@ pub fn setup_busses(
 /// for fixed-wing
 pub fn setup_motor_timers(motor_timer: &mut MotorTimer, servo_timer: &mut ServoTimer) {
     motor_timer.set_prescaler(dshot::DSHOT_PSC);
-    #[cfg(feature = "h7")]
-    motor_timer.set_auto_reload(dshot::DSHOT_ARR_600 as u32);
-    #[cfg(feature = "g4")]
-    motor_timer.set_auto_reload(dshot::DSHOT_ARR_300 as u32);
+    motor_timer.set_auto_reload(dshot::DSHOT_ARR as u32);
 
     motor_timer.enable_interrupt(TimerInterrupt::UpdateDma);
 

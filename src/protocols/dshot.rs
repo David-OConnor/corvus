@@ -53,6 +53,7 @@ pub const BIDIR_EN: bool = true;
 // so we can set duty cycle appropriately for DSHOT.
 // (PSC+1)*(ARR+1) = TIMclk/Updatefrequency = TIMclk * period.
 // ARR = (TIMclk/Updatefrequency) / (PSC + 1) - 1
+// With PSC being fixed at 0: ARR = TIMclk/UpdateFrequency - 1
 
 pub const DSHOT_PSC: u16 = 0;
 
@@ -69,36 +70,28 @@ const NUM_MOTORS: usize = 4;
 // 170Mhz tim clock on G4.
 // 240Mhz tim clock on H743
 // 260Mhz tim clock on H723 @ 520Mhz. 275Mhz @ 550Mhz
+
 cfg_if! {
     if #[cfg(feature = "h7")] {
-        // pub const DSHOT_ARR_600: u32 = 399;  // 240Mhz tim clock
-        pub const DSHOT_ARR_600: u32 = 432;  // 260Mhz tim clock
-        // pub const DSHOT_ARR_600: u32 = 457; // 275Mhz tim clock
-
-        // todo: Rename and modify per 600k dshot and higher H7 clock speeds.
-        pub const DSHOT_ARR_READ_600: u32 = 17_000; // 17k for DSHOT300
+        pub const TIM_CLK: u32 = 260_000_000; // Hz. H723 @ 550Mhz
+        // pub const TIM_CLK = 275_000_000; // Hz.  H723 @ 520Mhz
+        // pub const TIM_CLK = 240_000_000; // Hz.  H743
+        pub const DSHOT_SPEED: u32 = 600_000; // Hz.
+        // todo: What should this be on H7?
+        pub const DSHOT_ARR_READ: u32 = 17_000; // 17k for DSHOT300
 
     } else if #[cfg(feature = "g4")] {
-        pub const DSHOT_ARR_600: u32 = 282; // 170Mhz tim clock
-        pub const DSHOT_ARR_300: u32 = 567; // 170Mhz tim clock
-
-        // todo: Rename
-        pub const DSHOT_ARR_READ_300: u32 = 17_000; // 17k for DSHOT300
+        pub const TIM_CLK: u32 = 170_000_000;
+        pub const DSHOT_SPEED: u32 = 300_000; // Hz.
+        // todo: How should thsi be set up?
+        pub const DSHOT_ARR_READ: u32 = 17_000; // 17k for DSHOT300
     }
 }
-// pub const DSHOT_REC_MODE: AtomicBool = AtomicBool::new(false);
 
+pub const DSHOT_ARR: u32 = TIM_CLK / DSHOT_SPEED - 1;
 // Duty cycle values (to be written to CCMRx), based on our ARR value. 0. = 0%. ARR = 100%.
-
-cfg_if! {
-    if #[cfg(feature = "h7")] {
-        const DUTY_HIGH: u32 = DSHOT_ARR_600 * 3 / 4;
-        const DUTY_LOW: u32 = DSHOT_ARR_600 * 3 / 8;
-    } else {
-        const DUTY_HIGH: u32 = DSHOT_ARR_300 * 3 / 4;
-        const DUTY_LOW: u32 = DSHOT_ARR_300 * 3 / 8;
-    }
-}
+const DUTY_HIGH: u32 = DSHOT_ARR * 3 / 4;
+const DUTY_LOW: u32 = DSHOT_ARR * 3 / 8;
 
 // We use this during config that requires multiple signals sent, eg setting. motor direction.
 
@@ -470,10 +463,7 @@ pub fn set_to_output(timer: &mut MotorTimer) {
 
     let oc = OutputCompare::Pwm1;
 
-    #[cfg(feature = "h7")]
-    timer.set_auto_reload(DSHOT_ARR_600 as u32);
-    #[cfg(feature = "g4")]
-    timer.set_auto_reload(DSHOT_ARR_300 as u32);
+    timer.set_auto_reload(DSHOT_ARR as u32);
 
     // todo: Here and elsewhere in this module, if you allocate timers/motors differently than 2/2
     // todo for fixed-wing, you'll need to change this logic.

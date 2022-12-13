@@ -49,7 +49,7 @@ use flight_ctrls::{
 use lin_alg2::f32::Quaternion;
 use panic_probe as _;
 use ppks::{Location, LocationType};
-use protocols::{crsf, dshot, usb_preflight};
+use protocols::{crsf, dshot, rpm_reception, usb_preflight};
 use safety::{ArmStatus, LINK_LOST};
 use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
 use state::{OperationMode, StateVolatile, UserCfg};
@@ -474,11 +474,7 @@ mod app {
         let mut dshot_read_timer = Timer::new_tim2(dp.TIM2, 1., Default::default(), &clock_cfg);
 
         dshot_read_timer.set_prescaler(dshot::DSHOT_PSC);
-        // dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ_300_PAD);
-        #[cfg(feature = "h7")]
-        dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ_BURST_600);
-        #[cfg(feature = "g4")]
-        dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ_300);
+        dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ);
         dshot_read_timer.enable_interrupt(TimerInterrupt::Update);
 
         let mut lost_link_timer = Timer::new_tim17(
@@ -803,7 +799,7 @@ mod app {
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, rotor_rpms, system_status],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
-    arm_signals_received, disarm_signals_received, batt_curr_adc], priority = 3)]
+    arm_signals_received, disarm_signals_received, batt_curr_adc, measurement_timer], priority = 3)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
     /// we receive IMU data; it nominally (and according to our measurements so far) runs at 8kHz.
     /// Note that on the H7 FC with the dedicated IMU LSE, it may run slightly faster.
@@ -978,7 +974,7 @@ mod app {
                     let mut rpm_fault = false;
                     // Update RPMs here, so we don't have to lock the read ISR.
                     // cx.shared.rotor_rpms.lock(|rotor_rpms| {
-                    // dshot::update_rpms(rotor_rpms, &mut rpm_fault); // todo temp commented out
+                    rpm_reception::update_rpms(rpms, &mut rpm_fault); // todo temp commented out
                     // });
                     if rpm_fault {
                         system_status::RPM_FAULT.store(true, Ordering::Release);
@@ -1545,14 +1541,19 @@ mod app {
             dshot::M1_RPM_I.store(0, Ordering::Release);
         }
 
+        // We know the first edge is low, then alternates low, high.
         unsafe {
-            if gpio::is_high(Port::C, 6) {
-                // todo: Better way than 2 bufs? Maybe array of (bool, u16)?
-                dshot::PAYLOAD_REC_1_HIGH[i] = count;
-            } else {
-                dshot::PAYLOAD_REC_1_LOW[i] = count;
-            }
+            dshot::PAYLOAD_REC_1_HIGH[i] = count;
         }
+        //
+        // unsafe {
+        //     if gpio::is_high(Port::C, 6) {
+        //         // todo: Better way than 2 bufs? Maybe array of (bool, u16)?
+        //         dshot::PAYLOAD_REC_1_HIGH[i] = count;
+        //     } else {
+        //         dshot::PAYLOAD_REC_1_LOW[i] = count;
+        //     }
+        // }
     }
 
     #[task(binds = EXTI0, priority = 10)]
@@ -1598,7 +1599,7 @@ mod app {
     }
 
     // todo temp removed rpms.
-    #[task(binds = TIM2, shared = [motor_timer], local = [dshot_read_timer], priority = 9)]
+    #[task(binds = TIM2, shared = [], local = [dshot_read_timer], priority = 9)]
     /// We use this ISR to, bit-by-bit, fill the buffer when receiving RPM data. It also handles
     /// termination of the reception timer. Started on the first low edge of the Motor 1 pin.
     fn dshot_read_isr(mut cx: dshot_read_isr::Context) {
