@@ -1239,7 +1239,6 @@ mod app {
                         // todo: Flesh this out, and perhaps make it more like Preflight.
 
                         println!("DSHOT1 burst H: {:?}", unsafe { dshot::PAYLOAD_REC_1_HIGH });
-                        println!("DSHOT1 burst L: {:?}", unsafe { dshot::PAYLOAD_REC_1_LOW });
 
                         println!(
                             "\n\nFaults. Rx: {}. RPM: {}",
@@ -1569,11 +1568,11 @@ mod app {
         }
 
         unsafe {
-            if gpio::is_high(Port::B, 0) {
-                dshot::PAYLOAD_REC_3_HIGH[i] = count;
-            } else {
-                dshot::PAYLOAD_REC_3_LOW[i] = count;
-            }
+            // if gpio::is_high(Port::B, 0) {
+            dshot::PAYLOAD_REC_3_HIGH[i] = count;
+            // } else {
+            //     dshot::PAYLOAD_REC_3_LOW[i] = count;
+            // }
         }
     }
 
@@ -1590,11 +1589,11 @@ mod app {
         }
 
         unsafe {
-            if gpio::is_high(Port::B, 1) {
-                dshot::PAYLOAD_REC_4_HIGH[i] = count;
-            } else {
-                dshot::PAYLOAD_REC_4_LOW[i] = count;
-            }
+            // if gpio::is_high(Port::B, 1) {
+            dshot::PAYLOAD_REC_4_HIGH[i] = count;
+            // } else {
+            //     dshot::PAYLOAD_REC_4_LOW[i] = count;
+            // }
         }
     }
 

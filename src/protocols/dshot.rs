@@ -84,7 +84,7 @@ cfg_if! {
         pub const TIM_CLK: u32 = 170_000_000;
         pub const DSHOT_SPEED: u32 = 300_000; // Hz.
         // todo: How should thsi be set up?
-        pub const DSHOT_ARR_READ: u32 = 17_000; // 17k for DSHOT300
+        pub const DSHOT_ARR_READ: u32 = 18_000; // 17k for DSHOT300
     }
 }
 
@@ -112,15 +112,16 @@ pub static M2_RPM_I: AtomicUsize = AtomicUsize::new(0);
 pub static M3_RPM_I: AtomicUsize = AtomicUsize::new(0);
 pub static M4_RPM_I: AtomicUsize = AtomicUsize::new(0);
 
+// todo: Rename _HIGH without that.
 pub const REC_BUF_LEN: usize = 30; // More than we need
 pub static mut PAYLOAD_REC_1_HIGH: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
-pub static mut PAYLOAD_REC_1_LOW: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
+// pub static mut PAYLOAD_REC_1_LOW: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_2_HIGH: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
-pub static mut PAYLOAD_REC_2_LOW: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
+// pub static mut PAYLOAD_REC_2_LOW: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_3_HIGH: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
-pub static mut PAYLOAD_REC_3_LOW: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
+// pub static mut PAYLOAD_REC_3_LOW: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_4_HIGH: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
-pub static mut PAYLOAD_REC_4_LOW: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
+// pub static mut PAYLOAD_REC_4_LOW: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
 
 /// Possible DSHOT commands (ie, DSHOT values 0 - 47). Does not include power settings.
 /// [Special commands section](https://brushlesswhoop.com/dshot-and-bidirectional-dshot/)

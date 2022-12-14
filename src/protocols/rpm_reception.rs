@@ -98,94 +98,54 @@ pub enum RpmError {
 }
 
 /// Covnert our arrays of high and low edge counts to a 20-bit integer.  u32 since it's 20 bits.
-pub fn edge_counts_to_u32(low_counts: &[u16], high_counts: &[u16]) -> u32 {
+/// `counts` alternates low and high edges; counts[0] is low.
+pub fn edge_counts_to_u32(counts: &[u16]) -> u32 {
     // On G4, with DSHOT 300: Pulse width is ~430 ticks.
-    ////  Low value is ~430 ticks.
-    ////  High time is ~880 ticks.
-    ////  Maybe a threshhold of 665 ticks to split high vs low.
-
-    // + bit len is because we don't care about the initial low pulse.
-    // + bit_len/2 is so we sample in the center of the pulse.
-    let start_count = low_counts[0] + BIT_LEN + BIT_LEN / 2;
-
-    // todo: Calculate counts statically.
-    // Times to poll the value;
-    let mut counts = [0; 20];
-    for i in 0..20 {
-        counts[i] = BIT_LEN * i as u16 + start_count;
-    }
 
     let mut bits = [false; 20];
-    let mut currently_high = false; // Initialize to starting low pulse.
-
-    let mut next_edge_i = 0;
-    let mut next_edge_count = 0;
-
-    for (i, sample_count) in counts.iter().enumerate() {
-        if sample_count > &next_edge_count {
-            if next_edge_i % 2 == 0 {
-                // Prev edge was low.
-                currently_high = true;
-                next_edge_count = high_counts[next_edge_i + 1];
-            } else {
-                currently_high = false;
-                next_edge_count = low_counts[next_edge_i + 1];
-            }
-
-            next_edge_i += 1;
-        }
-
-        bits[i] = currently_high;
-    }
-
-    // todo: Usue high only. even i = low.
-
-    // todo: Alt take on bits:
-    // let mut currently_high = false;
-    // let mut prev_val = high_counts[0];
-
-    // println!("HIGH COUTNS: {:?}", high_counts);
 
     let mut bits_i = 0;
     // Iterate over edges. What the max number of edge? Around 20?
     for i in 1..20 {
-        if high_counts[i] == 0 || high_counts[i] - 1 == 0 {
-            break; // todo??
+        // We'll have fewer edges for sequences of 1s or 0s in a row, so
+        // we will likely have fewer than 20 edges; abort when we hit the end
+        // the used part of our buffer; where the 0 starts.
+        if counts[i] == 0 {
+            // We build bits based on their closing edge; for the last bit, we
+            // may not have one, so set up remaining bits with the last edge.
+            if bits_i <= 19 {
+                for j in bits_i..20 {
+                    bits[j as usize] = i % 2 == 0;
+                }
+            }
+            break;
         }
 
-        let mut bits_since_last_edge =
-            (high_counts[i] - high_counts[i] - 1) as f32 / BIT_LEN as f32;
-        let bits_since_last_edge = bits_since_last_edge.round() as u16;
-        // println!("BIT LEN: {} i: {}, i-1: {}", BIT_LEN, high_counts[i], high_counts[i-1]);
-        // println!("BITS {}", bits_since_last_edge);
+        let bits_since_last_edge = (counts[i] - counts[i - 1]) as f32 / BIT_LEN as f32;
 
-        bits_i += bits_since_last_edge;
+        let mut bits_since_last_edge = bits_since_last_edge.round() as u16;
+
+        // We discard the first bit; it's a low bit to indicate the start of the sequence.
+        if i == 1 {
+            bits_since_last_edge -= 1;
+        }
 
         for j in bits_i..bits_i + bits_since_last_edge {
-            if j > 20 {
-                // todo: Kludge
+            if j > 19 {
+                // todo: Kludge to prevent overflows.
+                // tood: When does this come up?
                 break;
             }
             bits[j as usize] = i % 2 == 0
         }
 
         bits_i += bits_since_last_edge;
-
-        // if i % 2 == 0 { // low edge
-        //     bits_i += bits_since_last_edge
-        //
-        //     // currently_high = false;
-        // } else {
-        //     // currently_high = true;
-        // }
-
-        // bits[i] = currently_high;
     }
 
     // println!("B: {}", bits);
 
     // Assemble the result from bits.
-    println!("bits: {}", bits);
+    // println!("bits: {}", bits);
     let mut result = 0;
     for (i, v) in bits.iter().enumerate() {
         result |= (*v as u32) << (REC_BUF_LEN - i)
@@ -280,14 +240,14 @@ pub fn update_rpms(rpms: &mut MotorRpm, fault: &mut bool) {
     // pub fn update_rpms(rpms: &mut MotorRpm, mapping: &ControlMapping, fault: &mut bool) {
 
     // Convert our arrays of high and low timings to a 20-bit integer.
-    let gcr1 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_1_LOW, &dshot::PAYLOAD_REC_1_HIGH) };
-    // let gcr2 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_2_LOW, &dshot::PAYLOAD_REC_2_HIGH) };
-    // let gcr3 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_3_LOW, &dshot::PAYLOAD_REC_3_HIGH) };
-    // let gcr4 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_4_LOW, &dshot::PAYLOAD_REC_4_HIGH) };
+    let gcr1 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_1_HIGH) };
+    let gcr2 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_2_HIGH) };
+    let gcr3 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_3_HIGH) };
+    let gcr4 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_4_HIGH) };
     // todo temp
-    let gcr2 = 0;
-    let gcr3 = 0;
-    let gcr4 = 0;
+    // let gcr2 = 0;
+    // let gcr3 = 0;
+    // let gcr4 = 0;
 
     // Perform some initial de-obfuscation using a bit shift and xor
     let gcr1 = gcr_step_1(gcr1);
