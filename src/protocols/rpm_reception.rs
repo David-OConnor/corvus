@@ -100,11 +100,9 @@ pub enum RpmError {
 /// Covnert our arrays of high and low edge counts to a 20-bit integer.  u32 since it's 20 bits.
 /// `counts` alternates low and high edges; counts[0] is low.
 pub fn edge_counts_to_u32(counts: &[u16]) -> u32 {
-    // On G4, with DSHOT 300: Pulse width is ~430 ticks.
-
     let mut bits = [false; 20];
-
     let mut bits_i = 0;
+
     // Iterate over edges. What the max number of edge? Around 20?
     for i in 1..20 {
         // We'll have fewer edges for sequences of 1s or 0s in a row, so
@@ -113,18 +111,24 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> u32 {
         if counts[i] == 0 {
             // We build bits based on their closing edge; for the last bit, we
             // may not have one, so set up remaining bits with the last edge.
+
+            // todo: Dry with below abort.
             if bits_i <= 19 {
                 for j in bits_i..20 {
                     // todo: Ie apply this logic to teh breaks below?
                     bits[j as usize] = i % 2 == 0;
                 }
             }
+            println!("Abort A");
             break;
         }
 
-        // todo: THis iteration should be mostly right (QC this with rust playground),
+        // todo: This iteration should be mostly right (QC this with rust playground),
         // todo: But if you break the loop using some of the checks, the final
         // todo bit will be wrong.
+
+        // todo: Sort out these variou abort conditions, and remove unecessary ones.
+        // todo: Document when each one remaining occurs.
 
         let bits_since_last_edge = (counts[i] - counts[i - 1]) as f32 / BIT_LEN as f32;
 
@@ -135,21 +139,30 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> u32 {
             bits_since_last_edge -= 1;
         }
 
+        let mut complete = false;
+
         if bits_since_last_edge < 1 {
-            break; // todo: Why is this required on top of the excess_j chheck below?
+            println!("Abort B");
+            complete = true;
         }
 
-        let mut excess_j = false;
         for j in bits_i..bits_i + bits_since_last_edge {
             if j > 19 {
-                // todo: Kludge to prevent overflows.
-                // tood: When does this come up?
-                excess_j = true;
-                break;
+                // Ideally, this shouldn't come up; safety against
+                // overflow.
+                println!("Abort C");
+                complete = true;
+            } else {
+                bits[j as usize] = i % 2 == 0;
             }
-            bits[j as usize] = i % 2 == 0
         }
-        if excess_j {
+
+        if complete {
+            // We've hit the last edge; set the remaining bits through
+            // the end of the buffer to this edge.
+            for k in bits_i..20 {
+                bits[k as usize] = i % 2 == 0;
+            } // todo?
             break;
         }
 
