@@ -115,11 +115,16 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> u32 {
             // may not have one, so set up remaining bits with the last edge.
             if bits_i <= 19 {
                 for j in bits_i..20 {
+                    // todo: Ie apply this logic to teh breaks below?
                     bits[j as usize] = i % 2 == 0;
                 }
             }
             break;
         }
+
+        // todo: THis iteration should be mostly right (QC this with rust playground),
+        // todo: But if you break the loop using some of the checks, the final
+        // todo bit will be wrong.
 
         let bits_since_last_edge = (counts[i] - counts[i - 1]) as f32 / BIT_LEN as f32;
 
@@ -130,13 +135,22 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> u32 {
             bits_since_last_edge -= 1;
         }
 
+        if bits_since_last_edge < 1 {
+            break; // todo: Why is this required on top of the excess_j chheck below?
+        }
+
+        let mut excess_j = false;
         for j in bits_i..bits_i + bits_since_last_edge {
             if j > 19 {
                 // todo: Kludge to prevent overflows.
                 // tood: When does this come up?
+                excess_j = true;
                 break;
             }
             bits[j as usize] = i % 2 == 0
+        }
+        if excess_j {
+            break;
         }
 
         bits_i += bits_since_last_edge;
@@ -240,10 +254,10 @@ pub fn update_rpms(rpms: &mut MotorRpm, fault: &mut bool) {
     // pub fn update_rpms(rpms: &mut MotorRpm, mapping: &ControlMapping, fault: &mut bool) {
 
     // Convert our arrays of high and low timings to a 20-bit integer.
-    let gcr1 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_1_HIGH) };
-    let gcr2 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_2_HIGH) };
-    let gcr3 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_3_HIGH) };
-    let gcr4 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_4_HIGH) };
+    let gcr1 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_1) };
+    let gcr2 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_2) };
+    let gcr3 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_3) };
+    let gcr4 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_4) };
     // todo temp
     // let gcr2 = 0;
     // let gcr3 = 0;

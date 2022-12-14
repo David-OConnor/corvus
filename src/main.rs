@@ -733,56 +733,6 @@ mod app {
         }
     }
 
-    // // binds = TIM15,
-    // // todo: Remove rotor timers, spi, and dma from this ISR; we only use it for tresting DSHOT
-    // #[task(
-    // binds = TIM1_BRK_TIM15,
-    // shared = [current_params,
-    // power_used, autopilot_status, user_cfg, flight_ctrl_filters,
-    // control_channel_data, rotor_rpms,
-    // altimeter, i2c1, i2c2, state_volatile, system_status,
-    // batt_curr_adc,
-    // ],
-    // local = [arm_signals_received, disarm_signals_received, update_isr_loop_i, uart_osd,
-    // time_with_high_throttle],
-    //
-    // priority = 5
-    // )]
-    // /// This runs periodically, on a ~1kHz timer. It's used to trigger the attitude and velocity PID loops, ie for
-    // /// sending commands to the attitude and rate PID loop based on things like autopilot, command-mode etc.
-    // /// We give it a relatively high priority, to ensure it gets run despite faster processes ocurring.
-    // fn update_isr(mut cx: update_isr::Context) {
-    //     unsafe { (*pac::TIM15::ptr()).sr.modify(|_, w| w.uif().clear_bit()) }
-    //     *cx.local.update_isr_loop_i += 1;
-    //
-    //
-    //     (
-    //         cx.shared.current_params,
-    //         cx.shared.control_channel_data,
-    //         cx.shared.power_used,
-    //         cx.shared.autopilot_status,
-    //         cx.shared.user_cfg,
-    //         cx.shared.altimeter,
-    //         cx.shared.state_volatile,
-    //         cx.shared.system_status,
-    //         cx.shared.rotor_rpms,
-    //         cx.shared.flight_ctrl_filters,
-    //     )
-    //         .lock(
-    //             |params,
-    //              control_channel_data,
-    //              power_used,
-    //              autopilot_status,
-    //              cfg,
-    //              altimeter,
-    //              state_volatile,
-    //              system_status,
-    //              rpms,
-    //              flight_ctrl_filters| {
-    //
-    //             });
-    // }
-
     /// Runs when new IMU data is ready. Trigger a DMA read.
     /// High priority since it's important, and quick-to-execute
     #[task(binds = EXTI4, shared = [spi1], local = [], priority = 7)]
@@ -1238,7 +1188,10 @@ mod app {
                     if i % PRINT_STATUS_RATIO == 0 {
                         // todo: Flesh this out, and perhaps make it more like Preflight.
 
-                        println!("DSHOT1 burst H: {:?}", unsafe { dshot::PAYLOAD_REC_1_HIGH });
+                        println!("DSHOT1: {:?}", unsafe { dshot::PAYLOAD_REC_1 });
+                        // println!("DSHOT2: {:?}", unsafe { dshot::PAYLOAD_REC_1 });
+                        println!("DSHOT3: {:?}", unsafe { dshot::PAYLOAD_REC_3 });
+                        println!("DSHOT4: {:?}", unsafe { dshot::PAYLOAD_REC_4 });
 
                         println!(
                             "\n\nFaults. Rx: {}. RPM: {}",
@@ -1542,7 +1495,7 @@ mod app {
 
         // We know the first edge is low, then alternates low, high.
         unsafe {
-            dshot::PAYLOAD_REC_1_HIGH[i] = count;
+            dshot::PAYLOAD_REC_1[i] = count;
         }
         //
         // unsafe {
@@ -1569,7 +1522,7 @@ mod app {
 
         unsafe {
             // if gpio::is_high(Port::B, 0) {
-            dshot::PAYLOAD_REC_3_HIGH[i] = count;
+            dshot::PAYLOAD_REC_3[i] = count;
             // } else {
             //     dshot::PAYLOAD_REC_3_LOW[i] = count;
             // }
@@ -1590,7 +1543,7 @@ mod app {
 
         unsafe {
             // if gpio::is_high(Port::B, 1) {
-            dshot::PAYLOAD_REC_4_HIGH[i] = count;
+            dshot::PAYLOAD_REC_4[i] = count;
             // } else {
             //     dshot::PAYLOAD_REC_4_LOW[i] = count;
             // }
