@@ -642,14 +642,17 @@ mod app {
         // update_timer.enable();
         adc_timer.enable();
 
+        // todo: Once back from Argentina, if you have trouble, check this.
         // Start out IMU-driven loop
         // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
         // todo opendrain and pullup set, and without enabling interrupt.
-        #[cfg(feature = "h7")]
-        let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
-        #[cfg(feature = "g4")]
-        let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
-        imu_exti_pin.enable_interrupt(Edge::Falling);
+        // #[cfg(feature = "h7")]
+        // let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
+        // #[cfg(feature = "g4")]
+        // let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
+
+        // // todo: On G4, sort out if you need to set Rising and falling, for M2 RPM reception.
+        // imu_exti_pin.enable_interrupt(Edge::Falling);
 
         println!("Init complete; starting main loops");
 
@@ -738,6 +741,14 @@ mod app {
     #[task(binds = EXTI4, shared = [spi1], local = [], priority = 7)]
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
         gpio::clear_exti_interrupt(4);
+
+        #[cfg(feature = "g4")]
+        if gpio::is_high(Port::C, 4) {
+            // Ie, this was from a PA4 interrupt for Motor 2 on G4.
+            // todo: QC this.
+            dshot::update_rec_buf(&dshot::M2_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_2 });
+            return;
+        }
 
         cx.shared.spi1.lock(|spi| {
             imu_shared::read_imu(imu::READINGS_START_ADDR, spi, setup::IMU_DMA_PERIPH);
@@ -1449,111 +1460,70 @@ mod app {
     }
 
     #[task(binds = EXTI9_5, priority = 10)]
-    /// We use this to read RPM status on motor 1. Triggers on rising and falling edges.
+    /// We use this to read RPM status on motor 1 on G4, or any motor on H7.
+    /// Triggers on rising and falling edges.
     /// High priority since this is time-sensitive, and fast-to-execute.
-    /// This is for all 4 motors on H7.
     fn rpm_read_m1(_cx: rpm_read_m1::Context) {
-        // Determine which line fired.
         let exti = unsafe { &(*pac::EXTI::ptr()) };
+
+        // Determine which line fired. I'm not sure if it's going to be generally (always?)
+        // a single line, or multiple ones.
         cfg_if! {
             if #[cfg(feature = "h7")] {
                 let pr = exti.cpupr1.read();
                 // Don't use if/else, in case multiple fire simultaneously, which seems likely.
-                if pr.mr6().bit_is_set() {
+                if pr.pr6().bit_is_set() {
                     gpio::clear_exti_interrupt(6);
+                    dshot::update_rec_buf(&dshot::M1_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_1 });
                 }
 
                 if pr.pr7().bit_is_set() {
                     gpio::clear_exti_interrupt(7);
+                    dshot::update_rec_buf(&dshot::M2_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_2 });
                 }
 
                 if pr.pr8().bit_is_set() {
                     gpio::clear_exti_interrupt(8);
+                    dshot::update_rec_buf(&dshot::M3_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_3 });
                 }
 
                 if pr.pr9().bit_is_set() {
                     gpio::clear_exti_interrupt(9);
+                    dshot::update_rec_buf(&dshot::M4_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_4 });
                 }
             } else {
+                // On G4, this is only for Motor 1.
                 gpio::clear_exti_interrupt(6);
-                // Only for motor 1 on G4.
-                // let pr = exti.pr1.read();
-                // if pr.pif6().bit_is_set() {
-                //
-                // }
+                dshot::update_rec_buf(&dshot::M1_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_1 });
             }
         }
-
-        let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
-
-        let i = dshot::M1_RPM_I.fetch_add(1, Ordering::Relaxed);
-        if i >= dshot::REC_BUF_LEN {
-            // This shouldn't come up, but this ensures it won't overflow if it does for whatever
-            // reason.
-            dshot::M1_RPM_I.store(0, Ordering::Release);
-        }
-
-        // We know the first edge is low, then alternates low, high.
-        unsafe {
-            dshot::PAYLOAD_REC_1[i] = count;
-        }
-        //
-        // unsafe {
-        //     if gpio::is_high(Port::C, 6) {
-        //         // todo: Better way than 2 bufs? Maybe array of (bool, u16)?
-        //         dshot::PAYLOAD_REC_1_HIGH[i] = count;
-        //     } else {
-        //         dshot::PAYLOAD_REC_1_LOW[i] = count;
-        //     }
-        // }
     }
+
+    // todo: Can we feature-gate the rpm_read_m3[4] ISRs for G4 only?
+    // todo: Probably not with RTIC, but they shouldn't fire on H7, so
+    // todo: not required.
 
     #[task(binds = EXTI0, priority = 10)]
     /// Similar to `rpm_read_m1`, but for M3, on G4 only.
     fn rpm_read_m3(_cx: rpm_read_m3::Context) {
         gpio::clear_exti_interrupt(0);
-        // todo DRY. Make common fn.
-        let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
 
-        let i = dshot::M3_RPM_I.fetch_add(1, Ordering::Relaxed);
-        if i >= dshot::REC_BUF_LEN {
-            dshot::M3_RPM_I.store(0, Ordering::Release);
-        }
-
-        unsafe {
-            // if gpio::is_high(Port::B, 0) {
-            dshot::PAYLOAD_REC_3[i] = count;
-            // } else {
-            //     dshot::PAYLOAD_REC_3_LOW[i] = count;
-            // }
-        }
+        dshot::update_rec_buf(&dshot::M3_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_3 });
     }
 
     #[task(binds = EXTI1, priority = 10)]
     /// Similar to `rpm_read_m1`, but for M4, on G4 only.
     fn rpm_read_m4(_cx: rpm_read_m4::Context) {
         gpio::clear_exti_interrupt(1);
-        // todo DRY. Make common fn.
-        let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
 
-        let i = dshot::M4_RPM_I.fetch_add(1, Ordering::Relaxed);
-        if i >= dshot::REC_BUF_LEN {
-            dshot::M4_RPM_I.store(0, Ordering::Release);
-        }
-
-        unsafe {
-            // if gpio::is_high(Port::B, 1) {
-            dshot::PAYLOAD_REC_4[i] = count;
-            // } else {
-            //     dshot::PAYLOAD_REC_4_LOW[i] = count;
-            // }
-        }
+        dshot::update_rec_buf(&dshot::M4_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_4 });
     }
 
-    // todo temp removed rpms.
     #[task(binds = TIM2, shared = [], local = [dshot_read_timer], priority = 9)]
-    /// We use this ISR to, bit-by-bit, fill the buffer when receiving RPM data. It also handles
-    /// termination of the reception timer. Started on the first low edge of the Motor 1 pin.
+    /// This interrupt fires slightly after the last bit of RPM data is received.
+    /// Its timer is started once power setting is transmitted.
+    /// In this ISR, we disable reception, and return the DSHOT lines to an output
+    /// state.
     fn dshot_read_isr(mut cx: dshot_read_isr::Context) {
         let timer = &mut cx.local.dshot_read_timer; // code shortener.
         timer.clear_interrupt(TimerInterrupt::Update);
@@ -1572,7 +1542,7 @@ mod app {
             } else {
                 exti.imr1.modify(|_, w| {
                     w.im6().clear_bit();
-                    // w.im4().clear_bit()
+                    // w.im4().clear_bit() // EXTI 4 is shared with the IMU; leave enabled.
                     w.im0().clear_bit();
                     w.im1().clear_bit()
                 });
@@ -1587,6 +1557,13 @@ mod app {
         // Set motor pins back to their timer alt fn.
         let alt_mode = 0b10;
         unsafe {
+            // Empty the buffers, since the subsequenct data may
+            // be shorter, eg if there are fewer edges.
+            dshot::PAYLOAD_REC_1 = [0; dshot::REC_BUF_LEN];
+            dshot::PAYLOAD_REC_2 = [0; dshot::REC_BUF_LEN];
+            dshot::PAYLOAD_REC_3 = [0; dshot::REC_BUF_LEN];
+            dshot::PAYLOAD_REC_4 = [0; dshot::REC_BUF_LEN];
+
             cfg_if! {
                 if #[cfg(feature = "h7")] {
                     (*pac::GPIOC::ptr())
@@ -1823,9 +1800,8 @@ mod app {
     }
 
     // binds = DMA2_STR1,
-    // todo: Temp i2c1; should be i2c2.
     #[task(binds = DMA2_CH1,
-    shared = [i2c1], priority = 2)]
+    shared = [i2c2], priority = 2)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
         dma::clear_interrupt(
@@ -1836,7 +1812,7 @@ mod app {
 
         dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_TX_CH);
 
-        cx.shared.i2c1.lock(|i2c| unsafe {
+        cx.shared.i2c2.lock(|i2c| unsafe {
             i2c.read_dma(
                 baro::ADDR,
                 &mut sensors_shared::BARO_READINGS,

@@ -410,7 +410,7 @@ pub fn receive_payload() {
         } else {
             exti.imr1.modify(|_, w| {
                 w.im6().set_bit();
-                // w.im4().set_bit();
+                // w.im4().set_bit();  // EXTI 4 is shared with the IMU; leave enabled.
                 w.im0().set_bit();
                 w.im1().set_bit()
             });
@@ -473,4 +473,23 @@ pub fn set_to_output(timer: &mut MotorTimer) {
     timer.enable_pwm_output(Motor::M3.tim_channel(), oc, 0.);
     #[cfg(feature = "quad")]
     timer.enable_pwm_output(Motor::M4.tim_channel(), oc, 0.);
+}
+
+/// This function, called in motor line EXTI ISRs, updates a motor's receive
+/// RPM buffer with the current count, from the RPM-receive timer.
+pub fn update_rec_buf(rpm_i: &AtomicUsize, payload_rec: &mut [u16]) {
+    let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
+
+    let i = rpm_i.fetch_add(1, Ordering::Relaxed);
+
+    // This shouldn't come up, but this ensures it won't overflow if it does for whatever
+    // reason.
+    if i >= REC_BUF_LEN {
+        rpm_i.store(0, Ordering::Release);
+    }
+
+    unsafe {
+        // We know the first edge is low, then alternates low, high.
+        payload_rec[i] = count;
+    }
 }

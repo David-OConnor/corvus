@@ -104,8 +104,8 @@ pub fn start_transfers(i2c_ext_sensors: &mut I2c<I2C1>, i2c_baro: &mut I2c<I2C2>
         // the sequence of writes and reads for each bus.
 
         // dma::stop(BARO_DMA_PERIPH, BARO_TX_CH);
-        // i2c_baro.write_dma(
-        i2c_ext_sensors.write_dma(
+        i2c_baro.write_dma(
+            // i2c_ext_sensors.write_dma(
             // todo temp since baro is currently wired to i2c1.
             baro::ADDR,
             &WRITE_BUF_BARO,

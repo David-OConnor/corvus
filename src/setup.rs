@@ -147,8 +147,8 @@ pub fn init_sensors(
     //     }
     // }
 
-    // let mut altimeter = match baro::Altimeter::new(i2c2) {
-    let mut altimeter = match baro::Altimeter::new(i2c1) {
+    let mut altimeter = match baro::Altimeter::new(i2c2) {
+        // let mut altimeter = match baro::Altimeter::new(i2c1) {
         // todo temp i2c1
         Ok(mut alt) => {
             system_status.baro = SensorStatus::Pass;
@@ -170,12 +170,12 @@ pub fn init_sensors(
             *base_pt = Location::new(LocationType::LatLon, f.lat, f.lon, f.alt_msl);
 
             if system_status.baro == SensorStatus::Pass {
-                altimeter.calibrate_from_gps(Some(f.alt_msl), i2c1); // todo temp 1
+                altimeter.calibrate_from_gps(Some(f.alt_msl), i2c2); // todo temp 1
             }
         }
         Err(_) => {
             if system_status.baro == SensorStatus::Pass {
-                altimeter.calibrate_from_gps(None, i2c1); // todo temp 1
+                altimeter.calibrate_from_gps(None, i2c2); // todo temp 1
             }
         }
     }
@@ -240,6 +240,8 @@ pub fn setup_pins() {
     // interrupt. This performs some extra setup, then lets us enable and disable the interrupt
     // by masking and unmasking using imr1.
     motor1.enable_interrupt(Edge::Either);
+    // todo: On G4, this interrupt is also used by the IMU. Sort this out; especially given you use both
+    // todo edges on RPM reception, but only one on IMU.
     motor2.enable_interrupt(Edge::Either);
     motor3.enable_interrupt(Edge::Either);
     motor4.enable_interrupt(Edge::Either);
@@ -257,7 +259,7 @@ pub fn setup_pins() {
             // todo: IM4 causing trouble??
             exti.imr1.modify(|_, w| {
                 w.im6().clear_bit();
-                // w.im4().clear_bit();
+                // w.im4().clear_bit();  // EXTI 4 is shared with the IMU; leave enabled.
                 w.im0().clear_bit();
                 w.im1().clear_bit()
             });
@@ -356,7 +358,16 @@ pub fn setup_pins() {
     imu_exti_pin.pull(Pull::Up);
 
     // todo: Moved to `idle` for setup.
-    // imu_exti_pin.enable_interrupt(Edge::Falling);
+    // todo: On G4, sort out if you need to set Rising and falling, for M2 RPM reception.
+    // todo: Once back from Argentina, if you have trouble, check this.
+    #[cfg(feature = "h7")]
+    let imu_exti_edge = Edge::Falling;
+    #[cfg(feature = "g4")]
+    let imu_exti_edge = Edge::Either;
+
+    // todo: Will this still work? Does a given port need control of the exti line, eg
+    // todo from the SYSCFG setup?
+    imu_exti_pin.enable_interrupt(imu_exti_edge);
 
     cfg_if! {
         if #[cfg(feature = "h7")] {
@@ -412,9 +423,8 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 
     dma::mux(OSD_DMA_PERIPH, OSD_CH, DmaInput::Usart2Tx);
 
-    // todo: Temp on I2C1!
-    // dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c2Tx);
-    dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c1Tx); // todo temp i2c1.
+    dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c2Tx);
+    // dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c1Tx); // todo temp i2c1.
     dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c1Rx);
 
     // todo: Put back!

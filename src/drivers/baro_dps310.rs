@@ -25,7 +25,7 @@ use defmt::println;
 pub const ADDR: u8 = 0x76; // todo: Switch back to 0x77 A/R
 pub const PRODUCT_ID: u8 = 0x10;
 
-type I2C = I2c<I2C1>; // todo temp 1
+type I2C = I2c<I2C2>;
 
 pub struct BaroNotConnectedError {}
 
