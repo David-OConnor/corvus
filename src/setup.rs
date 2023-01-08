@@ -147,18 +147,22 @@ pub fn init_sensors(
     //     }
     // }
 
-    let mut altimeter = match baro::Altimeter::new(i2c2) {
-        // let mut altimeter = match baro::Altimeter::new(i2c1) {
-        // todo temp i2c1
-        Ok(mut alt) => {
-            system_status.baro = SensorStatus::Pass;
-            alt
-        }
-        Err(_) => {
-            system_status.baro = SensorStatus::NotConnected;
-            Default::default()
-        }
-    };
+    println!("B");
+
+    // let mut altimeter = match baro::Altimeter::new(i2c2) {
+    //     Ok(mut alt) => {
+    //         system_status.baro = SensorStatus::Pass;
+    //         alt
+    //     }
+    //     Err(_) => {
+    //         system_status.baro = SensorStatus::NotConnected;
+    //         Default::default()
+    //     }
+    // };
+
+    let mut altimeter = baro::Altimeter::default(); // todo tmep!!!
+
+    println!("C");
 
     let fix = gps::get_fix(i2c1);
     match fix {
@@ -179,6 +183,7 @@ pub fn init_sensors(
             }
         }
     }
+    println!("Setup compl");
     // todo: Use Rel0 location type if unable to get fix.
     (system_status, altimeter)
 }
@@ -313,9 +318,9 @@ pub fn setup_pins() {
             let mut mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
 
             // todo: Temp config to check radio status
-            let mut _sck3 = Pin::new(Port::B, 3, PinMode::Alt(6));
-            let mut _miso3 = Pin::new(Port::B, 4, PinMode::Alt(6));
-            let mut _mosi3 = Pin::new(Port::B, 5, PinMode::Alt(6));
+            // let mut _sck3 = Pin::new(Port::B, 3, PinMode::Alt(6));
+            // let mut _miso3 = Pin::new(Port::B, 4, PinMode::Alt(6));
+            // let mut _mosi3 = Pin::new(Port::B, 5, PinMode::Alt(6));
 
             sck2.output_speed(spi_gpiospeed);
             miso2.output_speed(spi_gpiospeed);
@@ -363,7 +368,8 @@ pub fn setup_pins() {
     #[cfg(feature = "h7")]
     let imu_exti_edge = Edge::Falling;
     #[cfg(feature = "g4")]
-    let imu_exti_edge = Edge::Either;
+    // let imu_exti_edge = Edge::Either;
+    let imu_exti_edge = Edge::Falling;
 
     // todo: Will this still work? Does a given port need control of the exti line, eg
     // todo from the SYSCFG setup?

@@ -97,18 +97,21 @@ pub enum RpmError {
     TelemType,
 }
 
-/// Covnert our arrays of high and low edge counts to a 20-bit integer.  u32 since it's 20 bits.
+/// Convert our arrays of high and low edge counts to a 20-bit integer.  u32 since it's 20 bits.
 /// `counts` alternates low and high edges; counts[0] is low.
 pub fn edge_counts_to_u32(counts: &[u16]) -> u32 {
     let mut bits = [false; 20];
     let mut bits_i = 0;
 
+    let mut edge_i = 1;
+
     // Iterate over edges. What the max number of edge? Around 20?
-    for i in 1..20 {
+    // Padded.
+    for _ in 1..25 {
         // We'll have fewer edges for sequences of 1s or 0s in a row, so
         // we will likely have fewer than 20 edges; abort when we hit the end
         // the used part of our buffer; where the 0 starts.
-        if counts[i] == 0 {
+        if counts[edge_i] == 0 {
             // We build bits based on their closing edge; for the last bit, we
             // may not have one, so set up remaining bits with the last edge.
 
@@ -116,7 +119,7 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> u32 {
             if bits_i <= 19 {
                 for j in bits_i..20 {
                     // todo: Ie apply this logic to teh breaks below?
-                    bits[j as usize] = i % 2 == 0;
+                    bits[j as usize] = edge_i % 2 == 0;
                 }
             }
             println!("Abort A");
@@ -130,21 +133,36 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> u32 {
         // todo: Sort out these variou abort conditions, and remove unecessary ones.
         // todo: Document when each one remaining occurs.
 
-        let bits_since_last_edge = (counts[i] - counts[i - 1]) as f32 / BIT_LEN as f32;
+        // Likely 2 triggers on the same count.
+        let mut bits_since_last_edge = if counts[edge_i - 1] > counts[edge_i] {
+            0
+        } else {
+            let as_f = (counts[edge_i] - counts[edge_i - 1]) as f32 / BIT_LEN as f32;
+            as_f.round() as u16
+        };
 
-        let mut bits_since_last_edge = bits_since_last_edge.round() as u16;
+        if bits_since_last_edge == 0 {
+            // Continue without incrementing `edge_i`.
+            continue;
+        }
+
+        // println!("BS:{}", bits_since_last_edge);
 
         // We discard the first bit; it's a low bit to indicate the start of the sequence.
-        if i == 1 {
+        if edge_i == 1 {
             bits_since_last_edge -= 1;
         }
 
         let mut complete = false;
 
-        if bits_since_last_edge < 1 {
-            println!("Abort B");
-            complete = true;
-        }
+        // We get cases of 2 similar values in a row. Not explicitly handling this works,
+        // as it shows bits_since_last_edge = 0.
+
+        // if bits_since_last_edge < 1 {
+        //     println!("Abort B");
+        //     println!("{:?}", counts);
+        //     complete = true;
+        // }
 
         for j in bits_i..bits_i + bits_since_last_edge {
             if j > 19 {
@@ -153,23 +171,27 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> u32 {
                 println!("Abort C");
                 complete = true;
             } else {
-                bits[j as usize] = i % 2 == 0;
+                bits[j as usize] = edge_i % 2 == 0;
             }
         }
+
+        // println!("bits: {:?}-{}", bits, bits_i);
 
         if complete {
             // We've hit the last edge; set the remaining bits through
             // the end of the buffer to this edge.
             for k in bits_i..20 {
-                bits[k as usize] = i % 2 == 0;
+                bits[k as usize] = edge_i % 2 == 0;
             } // todo?
             break;
         }
 
         bits_i += bits_since_last_edge;
+
+        edge_i += 1;
     }
 
-    // println!("B: {}", bits);
+    println!("F: {}", bits);
 
     // Assemble the result from bits.
     // println!("bits: {}", bits);

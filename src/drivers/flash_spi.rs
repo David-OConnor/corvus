@@ -22,8 +22,6 @@ impl From<spi::Error> for FlashSpiError {
     }
 }
 
-const ADDR: u8 = 0x69; // todo
-
 /// See Datasheet, Section 13.1 (Note: This doesn't include all regs)
 #[allow(dead_code)]
 #[derive(Clone, Copy)]
@@ -44,8 +42,7 @@ pub fn setup(spi: &mut SpiFlashType, cs: &mut Pin) -> Result<(), FlashSpiError> 
     // Given SPI devices may report 0s if not connected properly, this is a good check that
     // we have 2-way communication.
     // todo: Will be different for H7.
-    // todo: Even on your new G4 board with 16m, last section is probably 0x15
-    if buf[1] != 0xef || buf[2] != 0x40 || buf[3] != 0x14 {
+    if buf[1] != 0xef || buf[2] != 0x40 || buf[3] != 0x15 {
         return Err(FlashSpiError::NotConnected);
     }
 

@@ -746,7 +746,7 @@ mod app {
         if gpio::is_high(Port::C, 4) {
             // Ie, this was from a PA4 interrupt for Motor 2 on G4.
             // todo: QC this.
-            dshot::update_rec_buf(&dshot::M2_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_2 });
+            // dshot::update_rec_buf(&dshot::M2_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_2 }); // todo put back
             return;
         }
 
@@ -1200,7 +1200,7 @@ mod app {
                         // todo: Flesh this out, and perhaps make it more like Preflight.
 
                         println!("DSHOT1: {:?}", unsafe { dshot::PAYLOAD_REC_1 });
-                        // println!("DSHOT2: {:?}", unsafe { dshot::PAYLOAD_REC_1 });
+                        // println!("DSHOT2: {:?}", unsafe { dshot::PAYLOAD_REC_2 });
                         println!("DSHOT3: {:?}", unsafe { dshot::PAYLOAD_REC_3 });
                         println!("DSHOT4: {:?}", unsafe { dshot::PAYLOAD_REC_4 });
 
@@ -1494,7 +1494,7 @@ mod app {
             } else {
                 // On G4, this is only for Motor 1.
                 gpio::clear_exti_interrupt(6);
-                dshot::update_rec_buf(&dshot::M1_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_1 });
+                // dshot::update_rec_buf(&dshot::M1_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_1 }); // todo put back
             }
         }
     }
@@ -1507,7 +1507,6 @@ mod app {
     /// Similar to `rpm_read_m1`, but for M3, on G4 only.
     fn rpm_read_m3(_cx: rpm_read_m3::Context) {
         gpio::clear_exti_interrupt(0);
-
         dshot::update_rec_buf(&dshot::M3_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_3 });
     }
 
@@ -1516,7 +1515,7 @@ mod app {
     fn rpm_read_m4(_cx: rpm_read_m4::Context) {
         gpio::clear_exti_interrupt(1);
 
-        dshot::update_rec_buf(&dshot::M4_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_4 });
+        // dshot::update_rec_buf(&dshot::M4_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_4 }); // todo put back
     }
 
     #[task(binds = TIM2, shared = [], local = [dshot_read_timer], priority = 9)]
@@ -1561,7 +1560,7 @@ mod app {
             // be shorter, eg if there are fewer edges.
             dshot::PAYLOAD_REC_1 = [0; dshot::REC_BUF_LEN];
             dshot::PAYLOAD_REC_2 = [0; dshot::REC_BUF_LEN];
-            dshot::PAYLOAD_REC_3 = [0; dshot::REC_BUF_LEN];
+            // dshot::PAYLOAD_REC_3 = [0; dshot::REC_BUF_LEN];
             dshot::PAYLOAD_REC_4 = [0; dshot::REC_BUF_LEN];
 
             cfg_if! {
@@ -1579,9 +1578,9 @@ mod app {
                     (*pac::GPIOC::ptr())
                         .moder
                         .modify(|_, w| w.moder6().bits(alt_mode));
-                    (*pac::GPIOA::ptr())
-                        .moder
-                        .modify(|_, w| w.moder4().bits(alt_mode));
+                    // (*pac::GPIOA::ptr())
+                    //     .moder
+                    //     .modify(|_, w| w.moder4().bits(alt_mode));
                     (*pac::GPIOB::ptr())
                         .moder
                         .modify(|_, w| {

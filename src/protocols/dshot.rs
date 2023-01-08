@@ -481,15 +481,18 @@ pub fn update_rec_buf(rpm_i: &AtomicUsize, payload_rec: &mut [u16]) {
     let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
 
     let i = rpm_i.fetch_add(1, Ordering::Relaxed);
+    // println!("{}, {:?}", i, count);
 
     // This shouldn't come up, but this ensures it won't overflow if it does for whatever
     // reason.
     if i >= REC_BUF_LEN {
-        rpm_i.store(0, Ordering::Release);
+        // todo  ?
+        // rpm_i.store(0, Ordering::Release);
     }
 
     unsafe {
         // We know the first edge is low, then alternates low, high.
-        payload_rec[i] = count;
+        // payload_rec[i] = count; // todo: What the hell; why doesn't this work?
+        PAYLOAD_REC_3[i] = count;
     }
 }
