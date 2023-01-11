@@ -6,7 +6,7 @@ use stm32_hal2::{gpio::Pin, pac, spi};
 use defmt::println;
 
 #[cfg(feature = "h7")]
-pub type SpiFlashType = stm32_hal2::qspi::Octospi;
+pub type SpiFlashType = stm32_hal2::qspi::Qspi;
 #[cfg(feature = "g4")]
 pub type SpiFlashType = crate::drivers::spi2_kludge::Spi2<pac::SPI2>;
 
@@ -34,6 +34,8 @@ pub enum Reg {
 pub fn setup(spi: &mut SpiFlashType, cs: &mut Pin) -> Result<(), FlashSpiError> {
     let mut buf = [Reg::Jedec as u8, 0, 0, 0];
     cs.set_low();
+
+    #[cfg(feature = "g4")]
     spi.transfer(&mut buf)?;
 
     cs.set_high();

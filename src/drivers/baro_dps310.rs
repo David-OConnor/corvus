@@ -22,7 +22,7 @@ use defmt::println;
 
 // The sensor's address is 0x77 (if SDO pin is left floating or pulled-up to VDDIO) or 0x76 (if the SDO pin is
 // pulled-down to GND).
-pub const ADDR: u8 = 0x77; // todo: Switch back to 0x77 A/R
+pub const ADDR: u8 = 0x76; // todo: Switch back to 0x77 A/R
 pub const PRODUCT_ID: u8 = 0x10;
 
 type I2C = I2c<I2C2>;

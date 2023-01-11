@@ -349,6 +349,54 @@ mod app {
         #[cfg(feature = "g4")]
         let uart_crsf = dp.USART3;
 
+        let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
+
+        // todo: Temp setting up spi3 to test ELRS radio
+        delay.delay_ms(400);
+
+        let mut _sck3 = Pin::new(Port::B, 3, gpio::PinMode::Alt(6));
+        let mut _miso3 = Pin::new(Port::B, 4, gpio::PinMode::Alt(6));
+        let mut _mosi3 = Pin::new(Port::B, 5, gpio::PinMode::Alt(6));
+
+        cfg_if! {
+            if #[cfg(feature = "g4")] {
+                let mut spi_radio = drivers::spi3_kludge::Spi4::new(
+                    dp.SPI3,
+                    spi::SpiConfig {
+                        mode: spi::SpiMode::mode0(),
+                        ..Default::default()
+                    },
+                    spi::BaudRate::Div32,
+                );
+
+                let mut cs_rad = Pin::new(Port::C, 15, gpio::PinMode::Output);
+                let mut busy = Pin::new(Port::C, 14, gpio::PinMode::Input);
+
+                cs_rad.set_high();
+                delay.delay_ms(100);
+
+                let mut buf = [0x19, 0x08, 0x01, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+                println!("Starting xfer");
+                cs_rad.set_low();
+                spi_radio.transfer(&mut buf).ok();
+                cs_rad.set_high();
+
+                loop {
+                    println!("b: {}", busy.is_high());
+                }
+
+                println!("Rad buf: {:x}", buf);
+            }
+        }
+
+        // todo: End SPI3/ELRs rad test
+
+        #[cfg(feature = "h7")]
+        let spi_flash_pac = dp.OCTOSPI1;
+        #[cfg(feature = "g4")]
+        let spi_flash_pac = dp.SPI2;
+
         let (
             mut spi1,
             mut flash_spi,
@@ -359,31 +407,14 @@ mod app {
             uart_osd,
             mut uart_crsf,
         ) = setup::setup_busses(
-            dp.SPI1, dp.SPI2, dp.I2C1, dp.I2C2, dp.USART2, uart_crsf, &clock_cfg,
+            dp.SPI1,
+            spi_flash_pac,
+            dp.I2C1,
+            dp.I2C2,
+            dp.USART2,
+            uart_crsf,
+            &clock_cfg,
         );
-
-        // todo: Temp setting up spi3 to test ELRS radio
-        // let mut spi_radio = drivers::spi3_kludge::Spi4::new(
-        //     dp.SPI3,
-        //     spi::SpiConfig {
-        //         // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
-        //         mode: spi::SpiMode::mode3(),
-        //         ..Default::default()
-        //     },
-        //     spi::BaudRate::Div32,
-        // );
-        //
-        // let mut buf = [0x03, 0, 0, 0];
-        //
-        // let mut cs_rad = Pin::new(Port::C, 15, gpio::PinMode::Output);
-        //
-        // cs_rad.set_low();
-        // spi_radio.transfer(&mut buf).ok();
-        // cs_rad.set_high();
-        //
-        // println!("Rad buf: {:?}", buf);
-
-        let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
 
         // We use the RTC to assist with power use measurement.
         // let rtc = Rtc::new(dp.RTC, Default::default());

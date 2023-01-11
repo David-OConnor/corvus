@@ -122,7 +122,7 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> u32 {
                     bits[j as usize] = edge_i % 2 == 0;
                 }
             }
-            println!("Abort A");
+            // println!("Abort A");
             break;
         }
 
@@ -191,7 +191,7 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> u32 {
         edge_i += 1;
     }
 
-    println!("F: {}", bits);
+    // println!("F: {}", bits);
 
     // Assemble the result from bits.
     // println!("bits: {}", bits);

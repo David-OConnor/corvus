@@ -73,9 +73,9 @@ const NUM_MOTORS: usize = 4;
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
-        pub const TIM_CLK: u32 = 260_000_000; // Hz. H723 @ 550Mhz
-        // pub const TIM_CLK = 275_000_000; // Hz.  H723 @ 520Mhz
-        // pub const TIM_CLK = 240_000_000; // Hz.  H743
+        // pub const TIM_CLK: u32 = 260_000_000; // Hz. H723 @ 550Mhz
+        // pub const TIM_CLK: u32 = 275_000_000; // Hz.  H723 @ 520Mhz
+        pub const TIM_CLK: u32 = 240_000_000; // Hz.  H743
         pub const DSHOT_SPEED: u32 = 600_000; // Hz.
         // todo: What should this be on H7?
         pub const DSHOT_ARR_READ: u32 = 17_000; // 17k for DSHOT300

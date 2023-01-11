@@ -16,6 +16,9 @@ use stm32_hal2::{
     usart::{OverSampling, Usart, UsartConfig},
 };
 
+#[cfg(feature = "h7")]
+use stm32_hal2::qspi::Qspi;
+
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use crate::flight_ctrls::{ServoWing, ServoWingPosition};
@@ -25,12 +28,7 @@ use crate::{
     atmos_model::AltitudeCalPt,
     crsf,
     drivers::{
-        baro_dps310 as baro,
-        flash_spi,
-        gps_ublox as gps,
-        imu_icm426xx as imu,
-        mag_lis3mdl as mag,
-        spi2_kludge::Spi2, // todo: Temp hopefully
+        baro_dps310 as baro, flash_spi, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
         tof_vl53l1 as tof,
     },
     dshot,
@@ -39,6 +37,9 @@ use crate::{
     ppks::{Location, LocationType},
     system_status::{SensorStatus, SystemStatus},
 };
+
+#[cfg(feature = "g4")]
+use crate::drivers::spi2_kludge::Spi2;
 
 use defmt::println;
 
@@ -149,16 +150,16 @@ pub fn init_sensors(
 
     println!("B");
 
-    // let mut altimeter = match baro::Altimeter::new(i2c2) {
-    //     Ok(mut alt) => {
-    //         system_status.baro = SensorStatus::Pass;
-    //         alt
-    //     }
-    //     Err(_) => {
-    //         system_status.baro = SensorStatus::NotConnected;
-    //         Default::default()
-    //     }
-    // };
+    let mut altimeter = match baro::Altimeter::new(i2c2) {
+        Ok(mut alt) => {
+            system_status.baro = SensorStatus::Pass;
+            alt
+        }
+        Err(_) => {
+            system_status.baro = SensorStatus::NotConnected;
+            Default::default()
+        }
+    };
 
     let mut altimeter = baro::Altimeter::default(); // todo tmep!!!
 
@@ -375,22 +376,23 @@ pub fn setup_pins() {
     // todo from the SYSCFG setup?
     imu_exti_pin.enable_interrupt(imu_exti_edge);
 
+    let i2c_alt = PinMode::Alt(4);
     cfg_if! {
         if #[cfg(feature = "h7")] {
             // I2C1 for external sensors, via pads
-            let mut scl1 = Pin::new(Port::B, 8, PinMode::Alt(4));
-            let mut sda1 = Pin::new(Port::B, 9, PinMode::Alt(4));
+            let mut scl1 = Pin::new(Port::B, 8, i2c_alt);
+            let mut sda1 = Pin::new(Port::B, 9, i2c_alt);
 
             // I2C2 for the DPS310 barometer, and pads.
-            let mut scl2 = Pin::new(Port::B, 10, PinMode::Alt(4));
-            let mut sda2 = Pin::new(Port::B, 11, PinMode::Alt(4));
+            let mut scl2 = Pin::new(Port::B, 10, i2c_alt);
+            let mut sda2 = Pin::new(Port::B, 11, i2c_alt);
             sda2.output_type(OutputType::OpenDrain);
         } else {
-            let mut scl1 = Pin::new(Port::A, 15, PinMode::Alt(4));
-            let mut sda1 = Pin::new(Port::B, 9, PinMode::Alt(4));
+            let mut scl1 = Pin::new(Port::A, 15, i2c_alt);
+            let mut sda1 = Pin::new(Port::B, 9, i2c_alt);
 
-            let mut scl2 = Pin::new(Port::A, 9, PinMode::Alt(4));
-            let mut sda2 = Pin::new(Port::A, 10, PinMode::Alt(4));
+            let mut scl2 = Pin::new(Port::A, 9, i2c_alt);
+            let mut sda2 = Pin::new(Port::A, 10, i2c_alt);
 
         }
     }
@@ -459,15 +461,17 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // dma.enable_interrupt(EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);
 }
 
-#[cfg(feature = "h7")]
-type UartCrsfRegs = pac::UART7;
-#[cfg(feature = "g4")]
-type UartCrsfRegs = pac::USART3;
-
-#[cfg(feature = "h7")]
-type SpiPacFlash = pac::OCTOSPI;
-#[cfg(feature = "g4")]
-type SpiPacFlash = pac::SPI2;
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        type UartCrsfRegs = pac::UART7;
+        type SpiPacFlash = pac::OCTOSPI1;
+        type SpiFlash = Qspi;
+    } else {
+        type UartCrsfRegs = pac::USART3;
+        type SpiPacFlash = pac::SPI2;
+        type SpiFlash = Spi2<SpiPacFlash>;
+    }
+}
 
 /// Configure the SPI and I2C busses.
 pub fn setup_busses(
@@ -480,7 +484,7 @@ pub fn setup_busses(
     clock_cfg: &Clocks,
 ) -> (
     Spi<SPI1>,
-    Spi2<SPI2>,
+    SpiFlash,
     Pin,
     Pin,
     I2c<I2C1>,
@@ -535,7 +539,34 @@ pub fn setup_busses(
     let i2c1 = I2c::new(i2c1_pac, i2c_external_sensors_cfg, clock_cfg);
 
     // We use I2C2 for the onboard barometer (altimeter).
-    let i2c2 = I2c::new(i2c2_pac, i2c_baro_cfg, clock_cfg);
+    let mut i2c2 = I2c::new(i2c2_pac, i2c_baro_cfg, clock_cfg);
+
+    println!("Entering I2C2 test loop");
+    let cp = unsafe { cortex_m::Peripherals::steal() };
+    let mut delay = Delay::new(cp.SYST, 170_000_000);
+
+    // unsafe {
+    //     (*pac::PWR::ptr()).cr3.modify(|_, w| w.ucpd1_dbdis().set_bit()); // todo TS PA9 not working.
+    // }
+
+    let mut scl2 = Pin::new(Port::A, 9, PinMode::Output);
+    let mut sda2 = Pin::new(Port::A, 10, PinMode::Output);
+    sda2.output_type(OutputType::PushPull);
+    scl2.output_type(OutputType::PushPull);
+
+    // todo on Output pin test: SDA2 (PA10 is good)
+    // todo: SCL2 (PA9) shows no signs of life... WTF???
+
+    for i in 0..1_000_000_000 {
+        if i % 2 == 0 {
+            scl2.set_low();
+            sda2.set_high()
+        } else {
+            // scl2.set_high();
+            sda2.set_low()
+        }
+        delay.delay_ms(100);
+    }
 
     // We use SPI2 for SPI flash on G4. On H7, we use octospi instead.
     // Max speed: 104Mhz (single, dual, or quad) for 8M variant, and 133Mhz for
@@ -543,7 +574,7 @@ pub fn setup_busses(
     // W25 flash chips use SPI mode 0 or 3.
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            let spi_flash = Octospi::new(spi_flash_pac, Default::default(), BaudRate::Div8);
+            let spi_flash = Qspi::new(spi_flash_pac, Default::default(), BaudRate::Div8);
 
         } else {
             let spi_flash = Spi2::new(spi_flash_pac, Default::default(), BaudRate::Div2);

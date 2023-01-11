@@ -27,10 +27,15 @@ where
     pub fn new(regs: R, cfg: SpiConfig, baud_rate: BaudRate) -> Self {
         // free(|_| {
         let rcc = unsafe { &(*pac::RCC::ptr()) };
+
+        // todo: Enable both SPI3 and SPI4?
+        rcc.apb1enr1.modify(|_, w| w.spi3en().set_bit());
+        rcc.apb1rstr1.modify(|_, w| w.spi3rst().set_bit());
+        rcc.apb1rstr1.modify(|_, w| w.spi3rst().clear_bit());
+
         rcc.apb2enr.modify(|_, w| w.spi4en().set_bit());
         rcc.apb2rstr.modify(|_, w| w.spi4rst().set_bit());
         rcc.apb2rstr.modify(|_, w| w.spi4rst().clear_bit());
-        // });
 
         // L44 RM, section 40.4.7: Configuration of SPI
         // The configuration procedure is almost the same for master and slave. For specific mode

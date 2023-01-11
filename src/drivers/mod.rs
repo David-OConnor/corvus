@@ -10,6 +10,8 @@ pub mod mag_lis3mdl;
 pub mod osd;
 // `tof_driver` uses partially-translated C code that doesn't conform to Rust naming conventions.
 pub mod flash_spi;
+#[cfg(feature = "g4")]
 pub mod spi2_kludge;
+#[cfg(feature = "g4")]
 pub mod spi3_kludge;
 pub mod tof_vl53l1;

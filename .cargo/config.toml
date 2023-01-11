@@ -1,5 +1,5 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-# todo: No H723?
+#runner = "probe-run --chip STM32H743VIHx" # to list chips, run `probe-run --list-chips.`
 #runner = "probe-run --chip STM32H723VGHx" # to list chips, run `probe-run --list-chips.`
 runner = "probe-run --chip STM32G473CEUx" # to list chips, run `probe-run --list-chips.`
 
