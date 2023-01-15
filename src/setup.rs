@@ -150,16 +150,16 @@ pub fn init_sensors(
 
     println!("B");
 
-    let mut altimeter = match baro::Altimeter::new(i2c2) {
-        Ok(mut alt) => {
-            system_status.baro = SensorStatus::Pass;
-            alt
-        }
-        Err(_) => {
-            system_status.baro = SensorStatus::NotConnected;
-            Default::default()
-        }
-    };
+    // let mut altimeter = match baro::Altimeter::new(i2c2) {
+    //     Ok(mut alt) => {
+    //         system_status.baro = SensorStatus::Pass;
+    //         alt
+    //     }
+    //     Err(_) => {
+    //         system_status.baro = SensorStatus::NotConnected;
+    //         Default::default()
+    //     }
+    // };
 
     let mut altimeter = baro::Altimeter::default(); // todo tmep!!!
 
@@ -541,32 +541,34 @@ pub fn setup_busses(
     // We use I2C2 for the onboard barometer (altimeter).
     let mut i2c2 = I2c::new(i2c2_pac, i2c_baro_cfg, clock_cfg);
 
-    println!("Entering I2C2 test loop");
-    let cp = unsafe { cortex_m::Peripherals::steal() };
-    let mut delay = Delay::new(cp.SYST, 170_000_000);
-
-    // unsafe {
-    //     (*pac::PWR::ptr()).cr3.modify(|_, w| w.ucpd1_dbdis().set_bit()); // todo TS PA9 not working.
+    // todo start I2C TS
+    // println!("Entering I2C2 test loop");
+    // let cp = unsafe { cortex_m::Peripherals::steal() };
+    // let mut delay = Delay::new(cp.SYST, 170_000_000);
+    //
+    // // unsafe {
+    // //     (*pac::PWR::ptr()).cr3.modify(|_, w| w.ucpd1_dbdis().set_bit()); // todo TS PA9 not working.
+    // // }
+    //
+    // let mut scl2 = Pin::new(Port::A, 9, PinMode::Output);
+    // let mut sda2 = Pin::new(Port::A, 10, PinMode::Output);
+    // sda2.output_type(OutputType::PushPull);
+    // scl2.output_type(OutputType::PushPull);
+    //
+    // // todo on Output pin test: SDA2 (PA10 is good)
+    // // todo: SCL2 (PA9) shows no signs of life... WTF???
+    //
+    // for i in 0..1_000_000_000 {
+    //     if i % 2 == 0 {
+    //         scl2.set_low();
+    //         sda2.set_high()
+    //     } else {
+    //         // scl2.set_high();
+    //         sda2.set_low()
+    //     }
+    //     delay.delay_ms(100);
     // }
-
-    let mut scl2 = Pin::new(Port::A, 9, PinMode::Output);
-    let mut sda2 = Pin::new(Port::A, 10, PinMode::Output);
-    sda2.output_type(OutputType::PushPull);
-    scl2.output_type(OutputType::PushPull);
-
-    // todo on Output pin test: SDA2 (PA10 is good)
-    // todo: SCL2 (PA9) shows no signs of life... WTF???
-
-    for i in 0..1_000_000_000 {
-        if i % 2 == 0 {
-            scl2.set_low();
-            sda2.set_high()
-        } else {
-            // scl2.set_high();
-            sda2.set_low()
-        }
-        delay.delay_ms(100);
-    }
+    // todo end I2C TS
 
     // We use SPI2 for SPI flash on G4. On H7, we use octospi instead.
     // Max speed: 104Mhz (single, dual, or quad) for 8M variant, and 133Mhz for

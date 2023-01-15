@@ -89,8 +89,8 @@ pub fn update_attitude(ahrs: &mut Ahrs, params: &mut Params) {
 
     let att_euler = ahrs.quaternion.to_euler();
 
-    params.s_pitch = att_euler.0; // around x axis
-    params.s_yaw_heading = att_euler.1; // around y axis
-    params.s_roll = att_euler.2; // around z axis
+    params.s_pitch = att_euler.pitch; // around x axis
+    params.s_yaw_heading = att_euler.yaw; // around y axis
+    params.s_roll = att_euler.roll; // around z axis
     params.attitude_quat = ahrs.quaternion;
 }

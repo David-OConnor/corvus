@@ -358,37 +358,37 @@ mod app {
         let mut _miso3 = Pin::new(Port::B, 4, gpio::PinMode::Alt(6));
         let mut _mosi3 = Pin::new(Port::B, 5, gpio::PinMode::Alt(6));
 
-        cfg_if! {
-            if #[cfg(feature = "g4")] {
-                let mut spi_radio = drivers::spi3_kludge::Spi4::new(
-                    dp.SPI3,
-                    spi::SpiConfig {
-                        mode: spi::SpiMode::mode0(),
-                        ..Default::default()
-                    },
-                    spi::BaudRate::Div32,
-                );
-
-                let mut cs_rad = Pin::new(Port::C, 15, gpio::PinMode::Output);
-                let mut busy = Pin::new(Port::C, 14, gpio::PinMode::Input);
-
-                cs_rad.set_high();
-                delay.delay_ms(100);
-
-                let mut buf = [0x19, 0x08, 0x01, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-                println!("Starting xfer");
-                cs_rad.set_low();
-                spi_radio.transfer(&mut buf).ok();
-                cs_rad.set_high();
-
-                loop {
-                    println!("b: {}", busy.is_high());
-                }
-
-                println!("Rad buf: {:x}", buf);
-            }
-        }
+        // cfg_if! {
+        //     if #[cfg(feature = "g4")] {
+        //         let mut spi_radio = drivers::spi3_kludge::Spi4::new(
+        //             dp.SPI3,
+        //             spi::SpiConfig {
+        //                 mode: spi::SpiMode::mode0(),
+        //                 ..Default::default()
+        //             },
+        //             spi::BaudRate::Div32,
+        //         );
+        //
+        //         let mut cs_rad = Pin::new(Port::C, 15, gpio::PinMode::Output);
+        //         let mut busy = Pin::new(Port::C, 14, gpio::PinMode::Input);
+        //
+        //         cs_rad.set_high();
+        //         delay.delay_ms(100);
+        //
+        //         let mut buf = [0x19, 0x08, 0x01, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        //
+        //         println!("Starting xfer");
+        //         cs_rad.set_low();
+        //         spi_radio.transfer(&mut buf).ok();
+        //         cs_rad.set_high();
+        //
+        //         loop {
+        //             println!("b: {}", busy.is_high());
+        //         }
+        //
+        //         println!("Rad buf: {:x}", buf);
+        //     }
+        // }
 
         // todo: End SPI3/ELRs rad test
 
@@ -1320,8 +1320,8 @@ mod app {
                                      q.z
                             );
 
-                            let (p, r, y) = q.to_euler();
-                            println!("Commanded attitude: pitch: {}, roll: {}, yaw: {}\n", p, r, y);
+                            let euler = q.to_euler();
+                            println!("Commanded attitude: pitch: {}, roll: {}, yaw: {}\n", euler.pitch, euler.roll, euler.yaw);
                         }
 
 
