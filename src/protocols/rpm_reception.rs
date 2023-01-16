@@ -15,6 +15,7 @@ use crate::{
     setup::MotorTimer,
 };
 
+use crate::rpm_reception::RpmError::Gcr;
 use defmt::println;
 
 // Number of counter ticks per bit.
@@ -26,6 +27,7 @@ const GCR_LEN: usize = 20;
 
 #[derive(Clone, Copy)]
 enum EscData {
+    /// Revolutions per minute
     Rpm(f32),
     Telem(EscTelemType, u8),
 }
@@ -42,25 +44,30 @@ enum EscTelemType {
     State,
 }
 
-/// Return RPM in revolutions-per-second
+/// Computes RPM, in revolutions-per-minute, from the decoded data packet.
+/// Hardware-level decoding, and initial processing is handled upstream of this.
 /// See https://brushlesswhoop.com/dshot-and-bidirectional-dshot/, "eRPM Telemetry Frame (from ESC)".
-fn rpm_from_data(packet: u16) -> Result<EscData, RpmError> {
+fn rpm_from_data(packet: u16, pole_count: u8) -> Result<EscData, RpmError> {
     let crc_read = packet & 0b1111;
     let data = packet >> 4;
+
+    /// 0 RPM is encoded as this value; if we were to complete the computation, we'd
+    /// get a low, but positive RPM value that this protocol is unable to directly encode
+    /// as 0.
+    if data == 0xfff {
+        return Ok(EscData::Rpm(0.));
+    }
 
     // Right shift 4 to exclude the CRC itself from the calculation.
     if crc_read != calc_crc(data) {
         println!("C");
-        // println!("CRC: {}, p: {}", unsafe { &PAYLOAD_REC_BB_3 }, packet);
         return Err(RpmError::Crc);
     }
-    // println!("G");
 
     // todo: Come back to telemetry later.
     // Parse extended telemetry if avail. (This may be required to avoid misreading the data?)
     if ((data >> 8) & 1) == 0 {
         let telem_type_val = packet >> 8;
-        // println!("T");
         // Telemetry is passed
 
         let val = packet & 0xff; // 8 bits vice 9 for rpm data
@@ -81,15 +88,18 @@ fn rpm_from_data(packet: u16) -> Result<EscData, RpmError> {
         // println!("R");
         // RPM data
         let shift = data >> 9;
-        let base = packet & 0b1_1111_1111;
+        let base = data & 0b1_1111_1111;
         let period_us = base << shift;
+
+        // println!("S {} V {} C {}", shift, base, crc_read);
 
         // Period is in us. Convert to Radians-per-second using motor pole count.
         // todo: Pole count in user cfg.
 
-        let num_poles = 1.; // todo placeholder
+        const C: f32 = 1_000_000. / 60.; // Scaler to convert from period in us to RPM.
 
-        Ok(EscData::Rpm(1_000_000. / (period_us as f32 * num_poles)))
+        // Note: This is currently revolutions per second; not minute.
+        Ok(EscData::Rpm(C / (period_us as f32 * pole_count as f32)))
     }
 }
 
@@ -97,6 +107,7 @@ pub enum RpmError {
     Gcr,
     Crc,
     TelemType,
+    TempTelem,
 }
 
 /// Convert our arrays of high and low edge counts to a 20-bit integer.  u32 since it's 20 bits.
@@ -189,7 +200,7 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> Result<u32, RpmError> {
         result |= (*v as u32) << (GCR_LEN - 1 - i)
     }
 
-    // println!("{}", result);
+    println!("G{}", result);
     Ok(result)
 }
 
@@ -214,7 +225,6 @@ pub fn reduce_bit_count_map(val: u8) -> Result<u16, RpmError> {
         0x0e => 0xe,
         0x0f => 0xf,
         _ => {
-            // println!("M {}", val);
             return Err(RpmError::Gcr);
         }
     };
@@ -232,10 +242,14 @@ pub fn reduce_bit_count(val: u32) -> Result<u16, RpmError> {
     let nibble_2 = ((val >> 10) & mask) as u8;
     let nibble_3 = ((val >> 15) & mask) as u8;
 
-    Ok(reduce_bit_count_map(nibble_0)?
+    let result = reduce_bit_count_map(nibble_0)?
         | (reduce_bit_count_map(nibble_1)? << 4)
         | (reduce_bit_count_map(nibble_2)? << 8)
-        | (reduce_bit_count_map(nibble_3)? << 12))
+        | (reduce_bit_count_map(nibble_3)? << 12);
+
+    println!("20 {} 16 {}", val, result);
+
+    Ok(result)
 
     //
     //
@@ -260,62 +274,72 @@ fn gcr_step_1(val: u32) -> u32 {
     val ^ (val >> 1)
 }
 
-/// Helper fn
-fn update_rpm_from_packet(rpm: &mut f32, packet: Result<u16, RpmError>) -> Result<(), RpmError> {
-    match rpm_from_data(packet?)? {
-        EscData::Rpm(rpm_) => {
-            *rpm = rpm_;
-        }
+// /// Helper fn
+// fn update_rpm_from_packet(
+//     rpm: &mut f32,
+//     packet: Result<u16, RpmError>,
+//     pole_count: u8,
+// ) -> Result<(), RpmError> {
+//     match rpm_from_data(packet?, pole_count)? {
+//         EscData::Rpm(rpm_) => {
+//             *rpm = rpm_;
+//         }
+//         EscData::Telem(_, _) => {
+//             // todo
+//         }
+//     }
+//
+//     Ok(())
+// }
+
+/// Update RPM satus for a single motor. This goes through each step.
+fn process_rpm(payload: &[u16; REC_BUF_LEN], pole_count: u8) -> Result<f32, RpmError> {
+    // todo: Telemetry?
+
+    // Parse our GCR data from edge timings, with an initial bit-shift maneuver.
+    let gcr = gcr_step_1(edge_counts_to_u32(payload)?);
+
+    // Convert our 20-bit raw GCR data to the 16-bit data packet, using a specific mapping.
+    let packet = reduce_bit_count(gcr)?;
+
+    // todo: Don't hard code the motor mapping!!
+    match rpm_from_data(packet, pole_count)? {
+        EscData::Rpm(rpm) => Ok(rpm),
         EscData::Telem(_, _) => {
-            // todo
+            // todo: We are treating this as an error for now.
+            Err(RpmError::TempTelem)
         }
     }
+}
 
-    Ok(())
+// Helper to process error handling. Kind of temp, as masks most errors as an Option.
+fn error_helper(payload: &[u16; REC_BUF_LEN], fault: &mut bool, pole_count: u8) -> Option<f32> {
+    match process_rpm(payload, pole_count) {
+        Ok(rpm) => {
+            Some(rpm)
+        }
+        Err(e) => {
+            match e {
+                RpmError::TempTelem => (),
+                _ => {
+                    *fault = true;
+                }
+            }
+            None
+        }
+    }
 }
 
 /// Update the motor RPM struct with our buffer data.
-pub fn update_rpms(rpms: &mut MotorRpm, fault: &mut bool) -> Result<(), RpmError> {
-    // pub fn update_rpms(rpms: &mut MotorRpm, mapping: &ControlMapping, fault: &mut bool) {
+/// We delegate to a sub-function for each motor, so we can propogate motor-specific
+/// statuses.
+pub fn update_rpms(rpms: &mut MotorRpm, fault: &mut bool, pole_count: u8) {
+    // todo: Don't hard-code the mapping!
 
-    // Convert our arrays of high and low timings to a 20-bit integer.
-    // let gcr1 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_1)? };
-    // let gcr2 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_2)? };
-    let gcr3 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_3)? };
-    // let gcr4 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_4)? };
-    // todo temp
-    let gcr1 = 0;
-    let gcr2 = 0;
-    // let gcr3 = 0;
-    let gcr4 = 0;
+    // rpms.aft_right = error_helper(&unsafe { dshot::PAYLOAD_REC_1 }, fault, pole_count);
+    // rpms.front_right = error_helper(&unsafe { dshot::PAYLOAD_REC_2 }, fault, pole_count);
+    rpms.aft_left = error_helper(&unsafe { dshot::PAYLOAD_REC_3 }, fault, pole_count);
+    // rpms.front_left = error_helper(&unsafe { dshot::PAYLOAD_REC_4 }, fault, pole_count);
 
-    // Perform some initial de-obfuscation using a bit shift and xor
-    let gcr1 = gcr_step_1(gcr1);
-    let gcr2 = gcr_step_1(gcr2);
-    let gcr3 = gcr_step_1(gcr3);
-    let gcr4 = gcr_step_1(gcr4);
 
-    // Convert our 20-bit raw GCR data to the 16-bit data packet.
-    let packet1 = reduce_bit_count(gcr1);
-    let packet2 = reduce_bit_count(gcr2);
-    let packet3 = reduce_bit_count(gcr3);
-    let packet4 = reduce_bit_count(gcr4);
-
-    // todo: Don't hard code the motor mapping!!
-
-    if update_rpm_from_packet(&mut rpms.aft_right, packet1).is_err() {
-        *fault = true;
-    }
-    if update_rpm_from_packet(&mut rpms.front_right, packet2).is_err() {
-        *fault = true;
-    }
-    if update_rpm_from_packet(&mut rpms.aft_left, packet3).is_err() {
-        *fault = true;
-    } else {
-    }
-    if update_rpm_from_packet(&mut rpms.front_left, packet4).is_err() {
-        *fault = true;
-    }
-
-    Ok(())
 }

@@ -966,10 +966,11 @@ mod app {
                     let mut rpm_fault = false;
                     // Update RPMs here, so we don't have to lock the read ISR.
                     // cx.shared.rotor_rpms.lock(|rotor_rpms| {
-                    match rpm_reception::update_rpms(rpms, &mut rpm_fault) {
-                        Ok(_) => (),
-                        Err(_e) => (), // todo: Handle error A/R.
-                    }
+                   // let (rpm1_status, rpm2_status, rpm3_status, rpm4_status) = rpm_reception::update_rpms(rpms, &mut rpm_fault, cfg.pole_count);
+                    rpm_reception::update_rpms(rpms, &mut rpm_fault, cfg.motor_pole_count);
+
+                    // todo: Handle RPM faults?
+
                     // });
                     if rpm_fault {
                         system_status::RPM_FAULT.store(true, Ordering::Release);

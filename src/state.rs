@@ -104,6 +104,8 @@ pub struct UserCfg {
     pub ctrl_coeffs: CtrlCoeffs,
     pub takeoff_attitude: Quaternion,
     pub batt_cell_count: BattCellCount,
+    /// Number of poles in each motor. Can be counted by hand, or by referencing motor datasheets.
+    pub motor_pole_count: u8,
 }
 
 impl Default for UserCfg {
@@ -161,6 +163,7 @@ impl Default for UserCfg {
             #[cfg(feature = "fixed-wing")]
             takeoff_attitude: Quaternion::from_axis_angle(Vec3::new(1., 0., 0.), 0.35),
             batt_cell_count: Default::default(),
+            motor_pole_count: 14,
         }
     }
 }
