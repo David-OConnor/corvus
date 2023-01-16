@@ -22,6 +22,8 @@ use defmt::println;
 // This corresponds to a period of 5/4 * the DSHOT freq, per its spec.
 const BIT_LEN: u16 = (TIM_CLK / (5 * DSHOT_SPEED / 4) - 1) as u16;
 
+const GCR_LEN: usize = 20;
+
 #[derive(Clone, Copy)]
 enum EscData {
     Rpm(f32),
@@ -99,39 +101,18 @@ pub enum RpmError {
 
 /// Convert our arrays of high and low edge counts to a 20-bit integer.  u32 since it's 20 bits.
 /// `counts` alternates low and high edges; counts[0] is low.
-pub fn edge_counts_to_u32(counts: &[u16]) -> u32 {
-    let mut bits = [false; 20];
-    let mut bits_i = 0;
-
+pub fn edge_counts_to_u32(counts: &[u16]) -> Result<u32, RpmError> {
+    // Start at index 1 of edges; we compare to i-1.
     let mut edge_i = 1;
 
-    // Iterate over edges. What the max number of edge? Around 20?
-    // Padded.
-    for _ in 1..25 {
-        // We'll have fewer edges for sequences of 1s or 0s in a row, so
-        // we will likely have fewer than 20 edges; abort when we hit the end
-        // the used part of our buffer; where the 0 starts.
-        if counts[edge_i] == 0 {
-            // We build bits based on their closing edge; for the last bit, we
-            // may not have one, so set up remaining bits with the last edge.
+    // Assemble bit lengths of each (high or low) value from edge timings.
+    let mut value_lens = [0; 20]; // Generally smaller than this.
 
-            // todo: Dry with below abort.
-            if bits_i <= 19 {
-                for j in bits_i..20 {
-                    // todo: Ie apply this logic to teh breaks below?
-                    bits[j as usize] = edge_i % 2 == 0;
-                }
-            }
-            // println!("Abort A");
+    for _ in 1..25 {
+        if counts[edge_i] == 0 {
+            // A 0 value means we're past the last edge.
             break;
         }
-
-        // todo: This iteration should be mostly right (QC this with rust playground),
-        // todo: But if you break the loop using some of the checks, the final
-        // todo bit will be wrong.
-
-        // todo: Sort out these variou abort conditions, and remove unecessary ones.
-        // todo: Document when each one remaining occurs.
 
         // Likely 2 triggers on the same count.
         let mut bits_since_last_edge = if counts[edge_i - 1] > counts[edge_i] {
@@ -141,66 +122,75 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> u32 {
             as_f.round() as u16
         };
 
-        if bits_since_last_edge == 0 {
-            // Continue without incrementing `edge_i`.
-            continue;
-        }
-
-        // println!("BS:{}", bits_since_last_edge);
-
         // We discard the first bit; it's a low bit to indicate the start of the sequence.
         if edge_i == 1 {
             bits_since_last_edge -= 1;
         }
 
-        let mut complete = false;
+        if bits_since_last_edge == 0 {
+            // Continue without incrementing `edge_i`, or modifying our counts.
+            continue;
+        }
 
-        // We get cases of 2 similar values in a row. Not explicitly handling this works,
-        // as it shows bits_since_last_edge = 0.
+        value_lens[edge_i - 1] = bits_since_last_edge;
+        edge_i += 1;
+    }
+    // println!("E: {} {} {} {} {}", value_lens[0], value_lens[1], value_lens[2], value_lens[3], value_lens[4]);
 
-        // if bits_since_last_edge < 1 {
-        //     println!("Abort B");
-        //     println!("{:?}", counts);
-        //     complete = true;
-        // }
+    // `edge_i` is now the number of values we have + 1.
+    let num_vals = edge_i - 1;
 
-        for j in bits_i..bits_i + bits_since_last_edge {
-            if j > 19 {
-                // Ideally, this shouldn't come up; safety against
-                // overflow.
-                println!("Abort C");
-                complete = true;
+    let mut bits = [false; GCR_LEN];
+    let mut bits_i = 0;
+
+    // For example, for 0 RPM, we may now have the following `value_lens`:
+    // 1, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 1, 1, 3
+    // This translates into:
+    // low high low high low low high low high low low high low high low high low low low high
+    // (The last high is implicit). `num_vals` is 15.
+
+    // In thsi example, bits_i should increment as follows:
+    // 0, 1, 2, 3, 4, 6, 1, 8, 9, 11, 12, 13, 14, 15, 16, 19
+
+    let mut final_bit_i = 0;
+
+    for i in 0..num_vals {
+        let len_this_pulse = value_lens[i];
+
+        for bit_i in bits_i..bits_i + len_this_pulse {
+            if bit_i > 19 {
+                println!("ESC read error");
+                return Err(RpmError::Gcr);
             } else {
-                bits[j as usize] = edge_i % 2 == 0;
+                // Even-indexed `value_lens` correspond to low edges. (ie 0)
+                // So, we make it true (line is high, value is 1) on odd indices.
+                bits[bit_i as usize] = i % 2 != 0;
+
+                final_bit_i = bit_i;
             }
         }
 
-        // println!("bits: {:?}-{}", bits, bits_i);
-
-        if complete {
-            // We've hit the last edge; set the remaining bits through
-            // the end of the buffer to this edge.
-            for k in bits_i..20 {
-                bits[k as usize] = edge_i % 2 == 0;
-            } // todo?
-            break;
+        // We've hit the last edge; set the remaining bits through
+        // the end of the buffer to this edge.
+        if i == num_vals - 1 {
+            for i_final in final_bit_i + 1..20 {
+                bits[i_final as usize] = !bits[final_bit_i as usize];
+            }
         }
 
-        bits_i += bits_since_last_edge;
-
-        edge_i += 1;
+        bits_i += len_this_pulse;
     }
 
-    // println!("F: {}", bits);
+    // println!("Bits: {} {} {} {} {} {}", bits[14], bits[15], bits[16], bits[17], bits[18], bits[19]);
 
-    // Assemble the result from bits.
-    // println!("bits: {}", bits);
+    // Assemble the resulting 20-bit integer from our array of true and false bits.
     let mut result = 0;
     for (i, v) in bits.iter().enumerate() {
-        result |= (*v as u32) << (REC_BUF_LEN - i)
+        result |= (*v as u32) << (GCR_LEN - 1 - i)
     }
 
-    result
+    // println!("{}", result);
+    Ok(result)
 }
 
 /// Map 5-bit nibbles to 4-bit nibbles, per the DSHOT RPM protocol.
@@ -285,18 +275,19 @@ fn update_rpm_from_packet(rpm: &mut f32, packet: Result<u16, RpmError>) -> Resul
 }
 
 /// Update the motor RPM struct with our buffer data.
-pub fn update_rpms(rpms: &mut MotorRpm, fault: &mut bool) {
+pub fn update_rpms(rpms: &mut MotorRpm, fault: &mut bool) -> Result<(), RpmError> {
     // pub fn update_rpms(rpms: &mut MotorRpm, mapping: &ControlMapping, fault: &mut bool) {
 
     // Convert our arrays of high and low timings to a 20-bit integer.
-    let gcr1 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_1) };
-    let gcr2 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_2) };
-    let gcr3 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_3) };
-    let gcr4 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_4) };
+    // let gcr1 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_1)? };
+    // let gcr2 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_2)? };
+    let gcr3 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_3)? };
+    // let gcr4 = unsafe { edge_counts_to_u32(&dshot::PAYLOAD_REC_4)? };
     // todo temp
-    // let gcr2 = 0;
+    let gcr1 = 0;
+    let gcr2 = 0;
     // let gcr3 = 0;
-    // let gcr4 = 0;
+    let gcr4 = 0;
 
     // Perform some initial de-obfuscation using a bit shift and xor
     let gcr1 = gcr_step_1(gcr1);
@@ -325,4 +316,6 @@ pub fn update_rpms(rpms: &mut MotorRpm, fault: &mut bool) {
     if update_rpm_from_packet(&mut rpms.front_left, packet4).is_err() {
         *fault = true;
     }
+
+    Ok(())
 }
