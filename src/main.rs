@@ -36,7 +36,7 @@ use drivers::{
 use filter_imu::ImuFilters;
 use flight_ctrls::{
     autopilot::AutopilotStatus,
-    common::MotorRpm,
+    common::{MotorRpm, RpmStatus},
     // pid::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
     //     PID_CONTROL_ADJ_TIMEOUT,
@@ -243,6 +243,7 @@ mod app {
         pwr_maps: PowerMaps,
         /// Store rotor RPM: (M1, M2, M3, M4). Quad only, but we can't feature gate
         /// shared fields.
+        rpm_status: RpmStatus,
         rotor_rpms: MotorRpm,
         motor_pid_state: MotorPidGroup,
         /// PID motor coefficients
@@ -733,6 +734,7 @@ mod app {
                 pwr_maps: Default::default(),
                 motor_pid_state: Default::default(),
                 motor_pid_coeffs: Default::default(),
+                rpm_status: Default::default(),
                 rotor_rpms: Default::default(),
             },
             Local {
@@ -777,7 +779,8 @@ mod app {
         if gpio::is_high(Port::C, 4) {
             // Ie, this was from a PA4 interrupt for Motor 2 on G4.
             // todo: QC this.
-            // dshot::update_rec_buf(&dshot::M2_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_2 }); // todo put back
+            // dshot::update_rec_buf(&dshot::M2_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_2 });
+            dshot::update_rec_buf_2(&dshot::M2_RPM_I);
             return;
         }
 
@@ -789,7 +792,7 @@ mod app {
     // binds = DMA1_STR2,
     #[task(binds = DMA1_CH2, shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timer, servo_timer, state_volatile, rotor_rpms, system_status],
+    motor_timer, servo_timer, state_volatile, rpm_status, rotor_rpms, system_status],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, measurement_timer], priority = 3)]
     /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
@@ -842,6 +845,7 @@ mod app {
             cx.shared.state_volatile,
             cx.shared.flight_ctrl_filters,
             cx.shared.system_status,
+            cx.shared.rpm_status,
             cx.shared.rotor_rpms,
         )
             .lock(
@@ -856,7 +860,9 @@ mod app {
                  state_volatile,
                  flight_ctrl_filters,
                  system_status,
-                 rpms| {
+                 rpm_status,
+                 rpms
+                | {
                     let mut imu_data =
                         imu_shared::ImuReadings::from_buffer(unsafe { &imu_shared::IMU_READINGS });
 
@@ -964,12 +970,22 @@ mod app {
                     }
 
                     let mut rpm_fault = false;
+
+                    // todo: Clean up the Optionalble Status vs the non-optioned Rpms.
+                    // todo: Consider using only the former.
+
                     // Update RPMs here, so we don't have to lock the read ISR.
                     // cx.shared.rotor_rpms.lock(|rotor_rpms| {
-                   // let (rpm1_status, rpm2_status, rpm3_status, rpm4_status) = rpm_reception::update_rpms(rpms, &mut rpm_fault, cfg.pole_count);
-                    rpm_reception::update_rpms(rpms, &mut rpm_fault, cfg.motor_pole_count);
+                    // let (rpm1_status, rpm2_status, rpm3_status, rpm4_status) = rpm_reception::update_rpms(rpms, &mut rpm_fault, cfg.pole_count);
+                    *rpm_status = rpm_reception::read_rpms(&mut rpm_fault, cfg.motor_pole_count);
 
-                    // todo: Handle RPM faults?
+                    match rpm_status.to_rpms() {
+                        Ok(r) => {
+                            *rpms = r;
+                        }
+                        // todo: Now what?
+                        Err(_e) => (),
+                    }
 
                     // });
                     if rpm_fault {
@@ -1331,7 +1347,8 @@ mod app {
 
                         println!(
                             "RPMs: FL {}, FR: {}, AL: {}, AR: {}\n",
-                            rpms.front_left, rpms.front_right, rpms.aft_left, rpms.aft_right
+                            // rpms.front_left, rpms.front_right, rpms.aft_left, rpms.aft_right
+                            rpm_status.front_left, rpm_status.front_right, rpm_status.aft_left, rpm_status.aft_right
                         );
 
                         println!("Alt MSL: {}", params.baro_alt_msl);
@@ -1403,7 +1420,7 @@ mod app {
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data,
-    link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer],
+    link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer, rpm_status],
     local = [], priority = 1)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
@@ -1421,6 +1438,7 @@ mod app {
             cx.shared.system_status,
             cx.shared.motor_timer,
             cx.shared.servo_timer,
+            cx.shared.rpm_status,
         )
             .lock(
                 |usb_dev,
@@ -1432,7 +1450,8 @@ mod app {
                  state_volatile,
                  system_status,
                  motor_timer,
-                 servo_timer| {
+                 servo_timer,
+                 rpm_status| {
                     if !usb_dev.poll(&mut [usb_serial]) {
                         return;
                     }
@@ -1460,6 +1479,7 @@ mod app {
                                 &mut state_volatile.op_mode,
                                 motor_timer,
                                 servo_timer,
+                                rpm_status,
                             );
                         }
                         Err(_) => {
@@ -1488,7 +1508,20 @@ mod app {
             motor_timer.disable();
 
             if dshot::BIDIR_EN {
-                // println!("RPM READ START");
+                dshot::M1_RPM_I.store(0, Ordering::Release);
+                dshot::M2_RPM_I.store(0, Ordering::Release);
+                dshot::M3_RPM_I.store(0, Ordering::Release);
+                dshot::M4_RPM_I.store(0, Ordering::Release);
+
+                // Make sure to clear these buffers at reception start, not after completion; if we do it after,
+                // they will be blanked before we can process them.
+                unsafe {
+                    dshot::PAYLOAD_REC_1 = [0; dshot::REC_BUF_LEN];
+                    dshot::PAYLOAD_REC_2 = [0; dshot::REC_BUF_LEN];
+                    dshot::PAYLOAD_REC_3 = [0; dshot::REC_BUF_LEN];
+                    dshot::PAYLOAD_REC_4 = [0; dshot::REC_BUF_LEN];
+                }
+
                 dshot::receive_payload();
             }
         });
@@ -1509,27 +1542,32 @@ mod app {
                 // Don't use if/else, in case multiple fire simultaneously, which seems likely.
                 if pr.pr6().bit_is_set() {
                     gpio::clear_exti_interrupt(6);
-                    dshot::update_rec_buf(&dshot::M1_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_1 });
+                    // dshot::update_rec_buf(&dshot::M1_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_1 });
+                    dshot::update_rec_buf_1(&dshot::M1_RPM_I);
                 }
 
                 if pr.pr7().bit_is_set() {
                     gpio::clear_exti_interrupt(7);
-                    dshot::update_rec_buf(&dshot::M2_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_2 });
+                    // dshot::update_rec_buf(&dshot::M2_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_2 });
+                    dshot::update_rec_buf_2(&dshot::M2_RPM_I);
                 }
 
                 if pr.pr8().bit_is_set() {
                     gpio::clear_exti_interrupt(8);
-                    dshot::update_rec_buf(&dshot::M3_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_3 });
+                    // dshot::update_rec_buf(&dshot::M3_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_3 });
+                    dshot::update_rec_buf_3(&dshot::M3_RPM_I);
                 }
 
                 if pr.pr9().bit_is_set() {
                     gpio::clear_exti_interrupt(9);
-                    dshot::update_rec_buf(&dshot::M4_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_4 });
+                    // dshot::update_rec_buf(&dshot::M4_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_4 });
+                    dshot::update_rec_buf_4(&dshot::M4_RPM_I);
                 }
             } else {
                 // On G4, this is only for Motor 1.
                 gpio::clear_exti_interrupt(6);
-                // dshot::update_rec_buf(&dshot::M1_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_1 }); // todo put back
+                // dshot::update_rec_buf(&dshot::M1_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_1 });
+                dshot::update_rec_buf_1(&dshot::M1_RPM_I);
             }
         }
     }
@@ -1542,7 +1580,8 @@ mod app {
     /// Similar to `rpm_read_m1`, but for M3, on G4 only.
     fn rpm_read_m3(_cx: rpm_read_m3::Context) {
         gpio::clear_exti_interrupt(0);
-        dshot::update_rec_buf(&dshot::M3_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_3 });
+        // dshot::update_rec_buf(&dshot::M3_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_3 });
+        dshot::update_rec_buf_3(&dshot::M3_RPM_I);
     }
 
     #[task(binds = EXTI1, priority = 10)]
@@ -1550,7 +1589,8 @@ mod app {
     fn rpm_read_m4(_cx: rpm_read_m4::Context) {
         gpio::clear_exti_interrupt(1);
 
-        // dshot::update_rec_buf(&dshot::M4_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_4 }); // todo put back
+        // dshot::update_rec_buf(&dshot::M4_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_4 });
+        dshot::update_rec_buf_4(&dshot::M4_RPM_I);
     }
 
     #[task(binds = TIM2, shared = [], local = [dshot_read_timer], priority = 9)]
@@ -1583,21 +1623,9 @@ mod app {
             }
         }
 
-        dshot::M1_RPM_I.store(0, Ordering::Release);
-        dshot::M2_RPM_I.store(0, Ordering::Release);
-        dshot::M3_RPM_I.store(0, Ordering::Release);
-        dshot::M4_RPM_I.store(0, Ordering::Release);
-
         // Set motor pins back to their timer alt fn.
         let alt_mode = 0b10;
         unsafe {
-            // Empty the buffers, since the subsequenct data may
-            // be shorter, eg if there are fewer edges.
-            dshot::PAYLOAD_REC_1 = [0; dshot::REC_BUF_LEN];
-            dshot::PAYLOAD_REC_2 = [0; dshot::REC_BUF_LEN];
-            // dshot::PAYLOAD_REC_3 = [0; dshot::REC_BUF_LEN];
-            dshot::PAYLOAD_REC_4 = [0; dshot::REC_BUF_LEN];
-
             cfg_if! {
                 if #[cfg(feature = "h7")] {
                     (*pac::GPIOC::ptr())

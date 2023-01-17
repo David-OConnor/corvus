@@ -15,7 +15,11 @@ use core::sync::atomic::Ordering;
 use crate::{
     control_interface::ChannelData,
     dshot,
-    flight_ctrls::{self, common::AttitudeCommanded, ControlMapping},
+    flight_ctrls::{
+        self,
+        common::{AttitudeCommanded, RpmStatus},
+        ControlMapping,
+    },
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},
     safety::ArmStatus,
     setup,
@@ -65,7 +69,7 @@ const QUATERNION_SIZE: usize = F32_SIZE * 4;
 // Quaternion attitude + quaternion target + altimeter_baro + altimeter_agl +
 // + option byte for altimeter + voltage reading + current reading.
 
-const PARAMS_SIZE: usize = 2 * QUATERNION_SIZE + 6 * F32_SIZE + 1; //
+const PARAMS_SIZE: usize = 2 * QUATERNION_SIZE + 6 * F32_SIZE + 1 + 4 * 3; //
 const CONTROLS_SIZE: usize = 19; // Includes first byte as an Option byte.
                                  // const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
 const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
@@ -175,6 +179,7 @@ fn params_to_bytes(
     alt_agl: Option<f32>,
     voltage: f32,
     current: f32,
+    rpm_status: &RpmStatus,
 ) -> [u8; PARAMS_SIZE] {
     let mut result = [0; PARAMS_SIZE];
 
@@ -192,7 +197,22 @@ fn params_to_bytes(
     result[41..45].clone_from_slice(&voltage.to_be_bytes());
     result[45..49].clone_from_slice(&current.to_be_bytes());
     result[49..53].clone_from_slice(&pressure_static.to_be_bytes());
-    result[53..PARAMS_SIZE].clone_from_slice(&temp_baro.to_be_bytes());
+    result[53..57].clone_from_slice(&temp_baro.to_be_bytes());
+
+    let mut i = 57;
+    for r in &[
+        rpm_status.front_left,
+        rpm_status.aft_left,
+        rpm_status.front_right,
+        rpm_status.aft_right,
+    ] {
+        if let Some(rpm) = r {
+            result[i] = 1;
+            result[i + 1..i + 3].clone_from_slice(&(*rpm as u16).to_be_bytes());
+            // otherwise None
+        }
+        i += 3;
+    }
 
     result
 }
@@ -335,6 +355,7 @@ pub fn handle_rx(
     op_mode: &mut OperationMode,
     motor_timer: &mut setup::MotorTimer,
     servo_timer: &mut setup::ServoTimer,
+    rpm_status: &RpmStatus,
 ) {
     let rx_msg_type: MsgType = match rx_buf[0].try_into() {
         Ok(d) => d,
@@ -387,6 +408,7 @@ pub fn handle_rx(
                 altitude_agl,
                 batt_v,
                 esc_current,
+                rpm_status,
             );
 
             send_payload::<{ PARAMS_SIZE + 2 }>(MsgType::Params, &payload, usb_serial);

@@ -268,12 +268,13 @@ pub fn setup_motor_dir(motors_reversed: (bool, bool, bool, bool), timer: &mut Mo
     unsafe { ESC_TELEM = false };
 }
 
-/// Calculate CRC. Used for both sending and receiving.
-pub fn calc_crc(packet: u16) -> u16 {
+/// Calculate CRC. Used for both sending and receiving. `data` here does not include the
+/// CRC itself, but contains the other 12 bits, right shifted 4.
+pub fn calc_crc(data: u16) -> u16 {
     if BIDIR_EN {
-        !(packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F
+        !(data ^ (data >> 4) ^ (data >> 8)) & 0x0F
     } else {
-        (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F
+        (data ^ (data >> 4) ^ (data >> 8)) & 0x0F
     }
 }
 
@@ -481,7 +482,6 @@ pub fn update_rec_buf(rpm_i: &AtomicUsize, payload_rec: &mut [u16]) {
     let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
 
     let i = rpm_i.fetch_add(1, Ordering::Relaxed);
-    // println!("{}, {:?}", i, count);
 
     // This shouldn't come up, but this ensures it won't overflow if it does for whatever
     // reason.
@@ -494,5 +494,52 @@ pub fn update_rec_buf(rpm_i: &AtomicUsize, payload_rec: &mut [u16]) {
         // We know the first edge is low, then alternates low, high.
         // payload_rec[i] = count; // todo: What the hell; why doesn't this work?
         PAYLOAD_REC_3[i] = count;
+    }
+}
+
+// todo: We are having a mysterious problem with updating the receive buf using an argument.
+// todo: Hard coded fns for now.
+
+pub fn update_rec_buf_1(rpm_i: &AtomicUsize) {
+    let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
+
+    let i = rpm_i.fetch_add(1, Ordering::Relaxed);
+
+    unsafe {
+        // We know the first edge is low, then alternates low, high.
+        PAYLOAD_REC_1[i] = count;
+    }
+}
+
+pub fn update_rec_buf_2(rpm_i: &AtomicUsize) {
+    let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
+
+    let i = rpm_i.fetch_add(1, Ordering::Relaxed);
+
+    unsafe {
+        // We know the first edge is low, then alternates low, high.
+        PAYLOAD_REC_2[i] = count;
+    }
+}
+
+pub fn update_rec_buf_3(rpm_i: &AtomicUsize) {
+    let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
+
+    let i = rpm_i.fetch_add(1, Ordering::Relaxed);
+
+    unsafe {
+        // We know the first edge is low, then alternates low, high.
+        PAYLOAD_REC_3[i] = count;
+    }
+}
+
+pub fn update_rec_buf_4(rpm_i: &AtomicUsize) {
+    let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
+
+    let i = rpm_i.fetch_add(1, Ordering::Relaxed);
+
+    unsafe {
+        // We know the first edge is low, then alternates low, high.
+        PAYLOAD_REC_4[i] = count;
     }
 }

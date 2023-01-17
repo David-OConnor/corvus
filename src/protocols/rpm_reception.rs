@@ -2,6 +2,58 @@
 //! Management of the timers, motor lines, DMA reception etc is handled in the `dshot` module,
 //! and in ISRs in `main`. This module handles interpretation of the buffers collected
 //! by those processes.
+//!
+//!
+//! How to convert edge timings to bits:
+//!
+//! Buf: (With idle motor)
+//! What is this telling us?
+//! [5608, 6508, 6927, 7369, 7811, 8712, 9143, 9582, 10024, 10910, 11353, 11798, 12238, 12680, 13123,
+//! 14451, 0, 0..]
+//!
+//! One bit = about 450 ticks
+//!
+//! low, high, low, high...
+//! 2, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 1, 1, 3 (end)
+//! = 338257
+//!
+//! Comparing to a prev image, this means:
+//! 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1(1 time, since that's 20 bits))
+//!
+//! How to convert these 20 bits to RPM:
+//!
+//! Example, for 0 throttle:
+//!
+//! Raw data: 0b01010_01010_01010_10001 = 338257
+//! post shift: 507385
+//!
+//! nibbles: 15, 15, 15, 25 = f, f, f, 0
+//!
+//! compiled 16-bit number = 65_520 = 0xfff0)
+//! = 0b1111_1111_1111_0000
+//!
+//!
+//! shift = 0b111
+//! val = 0b1_1111_1111
+//! crc = b0000
+//!
+//! period in us = val << shift = 65408 (Is this right?)
+//! (more handling (scaling etc) is required to get RPM from this value)
+//!
+//! ---------
+//! As above, with an idle throttle level:
+//!
+//! GCR = 432427
+//! post shift (20-bit): 382398
+//! 16-bit: 46556 = 1011_0101_1101_1100
+//!
+//! shift = 0b101
+//! val = 1_0101_1101
+//! crc = 1100
+//!
+//! period in us = 11168
+//!
+//! CRC passes.
 
 use super::dshot::{self, calc_crc, DSHOT_SPEED, REC_BUF_LEN, TIM_CLK};
 
@@ -9,7 +61,7 @@ use num_traits::float::FloatCore; // round
 
 use crate::{
     flight_ctrls::{
-        common::{Motor, MotorRpm},
+        common::{Motor, MotorRpm, RpmStatus},
         ControlMapping,
     },
     setup::MotorTimer,
@@ -60,7 +112,8 @@ fn rpm_from_data(packet: u16, pole_count: u8) -> Result<EscData, RpmError> {
 
     // Right shift 4 to exclude the CRC itself from the calculation.
     if crc_read != calc_crc(data) {
-        println!("C");
+        // todo: Put this print statement back, and get to the bottom of this!
+        // println!("C {}", packet);
         return Err(RpmError::Crc);
     }
 
@@ -93,13 +146,21 @@ fn rpm_from_data(packet: u16, pole_count: u8) -> Result<EscData, RpmError> {
 
         // println!("S {} V {} C {}", shift, base, crc_read);
 
-        // Period is in us. Convert to Radians-per-second using motor pole count.
-        // todo: Pole count in user cfg.
+        // Period is in us, and is "erpm". Convert to RPM with further scaling.
 
-        const C: f32 = 1_000_000. / 60.; // Scaler to convert from period in us to RPM.
+        // Some info on BF how to do this. This appears to be the source document for
+        // RPM decoding:
+        // https://github.com/betaflight/betaflight/blob/f39f267301bcad27ec34bdbbf987c4bf595ea136/src/main/drivers/dshot.c#L320
+        // I'd like to move away from bidir DSHOT; I don't like this.
+
+        // Scaler.
+        const C1: f32 = 1_000_000. * 60. / 100.;
+
+        let erpm = (C1 + period_us as f32 / 2.) / period_us as f32;
+        let rpm = erpm * 200. / pole_count as f32;
 
         // Note: This is currently revolutions per second; not minute.
-        Ok(EscData::Rpm(C / (period_us as f32 * pole_count as f32)))
+        Ok(EscData::Rpm(rpm))
     }
 }
 
@@ -116,10 +177,12 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> Result<u32, RpmError> {
     // Start at index 1 of edges; we compare to i-1.
     let mut edge_i = 1;
 
+    // println!("co {} {} {} {}", counts[0], counts[1], counts[2], counts[3]);
+
     // Assemble bit lengths of each (high or low) value from edge timings.
     let mut value_lens = [0; 20]; // Generally smaller than this.
 
-    for _ in 1..25 {
+    for _ in 0..25 {
         if counts[edge_i] == 0 {
             // A 0 value means we're past the last edge.
             break;
@@ -136,6 +199,16 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> Result<u32, RpmError> {
         // We discard the first bit; it's a low bit to indicate the start of the sequence.
         if edge_i == 1 {
             bits_since_last_edge -= 1;
+
+            // If the first bit is high, and bits_since_last_edge (after subtraction) is 0,
+            // append 0 and move on. It is the only place a 0 is allowed here.
+            // This preserved the even-numbers-are-low logic below, while allowing
+            // the first bit to be high.
+            if bits_since_last_edge == 0 {
+                value_lens[edge_i - 1] = bits_since_last_edge;
+                edge_i += 1;
+                continue;
+            }
         }
 
         if bits_since_last_edge == 0 {
@@ -146,7 +219,8 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> Result<u32, RpmError> {
         value_lens[edge_i - 1] = bits_since_last_edge;
         edge_i += 1;
     }
-    // println!("E: {} {} {} {} {}", value_lens[0], value_lens[1], value_lens[2], value_lens[3], value_lens[4]);
+
+    // println!("E: {} {} {} {} {}", value_lens[0], value_lens[1], value_lens[2], value_lens[3], edge_i);
 
     // `edge_i` is now the number of values we have + 1.
     let num_vals = edge_i - 1;
@@ -200,7 +274,7 @@ pub fn edge_counts_to_u32(counts: &[u16]) -> Result<u32, RpmError> {
         result |= (*v as u32) << (GCR_LEN - 1 - i)
     }
 
-    println!("G{}", result);
+    // println!("G{}", result);
     Ok(result)
 }
 
@@ -247,50 +321,15 @@ pub fn reduce_bit_count(val: u32) -> Result<u16, RpmError> {
         | (reduce_bit_count_map(nibble_2)? << 8)
         | (reduce_bit_count_map(nibble_3)? << 12);
 
-    println!("20 {} 16 {}", val, result);
+    // println!("20 {} 16 {}", val, result);
 
     Ok(result)
-
-    //
-    //
-    // let mut mapped = 0;
-    // let mut left_shift = 0;
-    //
-    // // todo: I think the aboev and below code is equiv
-    //
-    // // for(int i = 0; i < 20; i += 5) {
-    // for i in 0..4 {
-    //     let v = ((val >> (i * 5)) & 0x1F) as u8;
-    //     let new_value = reduce_bit_count_map(v)?;
-    //     mapped |= new_value << left_shift;
-    //     left_shift += 4;
-    // }
-    //
-    // Ok(mapped)
 }
 
 /// https://brushlesswhoop.com/dshot-and-bidirectional-dshot/: `Decoding eRPM frame`
 fn gcr_step_1(val: u32) -> u32 {
     val ^ (val >> 1)
 }
-
-// /// Helper fn
-// fn update_rpm_from_packet(
-//     rpm: &mut f32,
-//     packet: Result<u16, RpmError>,
-//     pole_count: u8,
-// ) -> Result<(), RpmError> {
-//     match rpm_from_data(packet?, pole_count)? {
-//         EscData::Rpm(rpm_) => {
-//             *rpm = rpm_;
-//         }
-//         EscData::Telem(_, _) => {
-//             // todo
-//         }
-//     }
-//
-//     Ok(())
-// }
 
 /// Update RPM satus for a single motor. This goes through each step.
 fn process_rpm(payload: &[u16; REC_BUF_LEN], pole_count: u8) -> Result<f32, RpmError> {
@@ -315,9 +354,7 @@ fn process_rpm(payload: &[u16; REC_BUF_LEN], pole_count: u8) -> Result<f32, RpmE
 // Helper to process error handling. Kind of temp, as masks most errors as an Option.
 fn error_helper(payload: &[u16; REC_BUF_LEN], fault: &mut bool, pole_count: u8) -> Option<f32> {
     match process_rpm(payload, pole_count) {
-        Ok(rpm) => {
-            Some(rpm)
-        }
+        Ok(rpm) => Some(rpm),
         Err(e) => {
             match e {
                 RpmError::TempTelem => (),
@@ -333,13 +370,15 @@ fn error_helper(payload: &[u16; REC_BUF_LEN], fault: &mut bool, pole_count: u8) 
 /// Update the motor RPM struct with our buffer data.
 /// We delegate to a sub-function for each motor, so we can propogate motor-specific
 /// statuses.
-pub fn update_rpms(rpms: &mut MotorRpm, fault: &mut bool, pole_count: u8) {
+pub fn read_rpms(fault: &mut bool, pole_count: u8) -> RpmStatus {
     // todo: Don't hard-code the mapping!
-
-    // rpms.aft_right = error_helper(&unsafe { dshot::PAYLOAD_REC_1 }, fault, pole_count);
-    // rpms.front_right = error_helper(&unsafe { dshot::PAYLOAD_REC_2 }, fault, pole_count);
-    rpms.aft_left = error_helper(&unsafe { dshot::PAYLOAD_REC_3 }, fault, pole_count);
-    // rpms.front_left = error_helper(&unsafe { dshot::PAYLOAD_REC_4 }, fault, pole_count);
-
-
+    RpmStatus {
+        aft_right: error_helper(&unsafe { dshot::PAYLOAD_REC_1 }, fault, pole_count),
+        // aft_right: None,
+        front_right: error_helper(&unsafe { dshot::PAYLOAD_REC_2 }, fault, pole_count),
+        // front_right: None,
+        aft_left: error_helper(&unsafe { dshot::PAYLOAD_REC_3 }, fault, pole_count),
+        front_left: error_helper(&unsafe { dshot::PAYLOAD_REC_4 }, fault, pole_count),
+        // front_left: None,
+    }
 }
