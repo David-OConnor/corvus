@@ -22,12 +22,15 @@
 
 use core::sync::atomic::Ordering;
 
-use ahrs_fusion::Ahrs;
 use cfg_if::cfg_if;
 use control_interface::{ChannelData, LinkStats, PidTuneActuation};
 use cortex_m::{self, asm, delay::Delay};
+use ahrs_fusion::Ahrs;
+
 use defmt::println;
 use defmt_rtt as _;
+use panic_probe as _;
+
 use drivers::{
     baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
     osd::{self, AutopilotData, OsdData},
@@ -47,7 +50,7 @@ use flight_ctrls::{
     ControlMapping,
 };
 use lin_alg2::f32::Quaternion;
-use panic_probe as _;
+
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, rpm_reception, usb_preflight};
 use safety::{ArmStatus, LINK_LOST};
@@ -97,7 +100,8 @@ cfg_if! {
         use stm32_hal2::{
             clocks::{PllCfg, VosRange},
             usb_otg::{Usb1, UsbBus, Usb1BusType as UsbBusType},
-            pac::OCTOSPI1,
+            // pac::OCTOSPI1,
+            pac::QUADSPI,
             qspi::{Qspi},
         };
         // This USART alias is made pub here, so we don't repeat this line in other modules.
@@ -307,21 +311,24 @@ mod app {
                         ..Default::default()
                     },
                     hsi48_on: true,
-                    usb_src: clocks::UsbSrc::Hsi48,
-
-                    ..Clocks::full_speed()
+                    // usb_src: clocks::UsbSrc::Hsi48, This is the default.
+                    // ..Clocks::full_speed()
+                    ..Default::default() // todo: TS speed issues.
                 };
             } else {
                 let clock_cfg = Clocks {
                     input_src: InputSrc::Pll(PllSrc::Hse(16_000_000)),
                     hsi48_on: true,
-                    clk48_src: clocks::Clk48Src::Hsi48,
+                    clk48_src: clocks::Clk48Src::Hsi48, // todo: Should be in be default
                     ..Default::default()
                 };
             }
         }
 
+        println!("Pre clocks setup");
         clock_cfg.setup().unwrap();
+
+        println!("CLOCKS setup ");
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
@@ -353,11 +360,11 @@ mod app {
         let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
 
         // todo: Temp setting up spi3 to test ELRS radio
-        delay.delay_ms(400);
+        // delay.delay_ms(400);
 
-        let mut _sck3 = Pin::new(Port::B, 3, gpio::PinMode::Alt(6));
-        let mut _miso3 = Pin::new(Port::B, 4, gpio::PinMode::Alt(6));
-        let mut _mosi3 = Pin::new(Port::B, 5, gpio::PinMode::Alt(6));
+        // let mut _sck3 = Pin::new(Port::B, 3, gpio::PinMode::Alt(6));
+        // let mut _miso3 = Pin::new(Port::B, 4, gpio::PinMode::Alt(6));
+        // let mut _mosi3 = Pin::new(Port::B, 5, gpio::PinMode::Alt(6));
 
         // cfg_if! {
         //     if #[cfg(feature = "g4")] {
@@ -394,7 +401,8 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-        let spi_flash_pac = dp.OCTOSPI1;
+        // let spi_flash_pac = dp.OCTOSPI1;
+        let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
         let spi_flash_pac = dp.SPI2;
 
@@ -557,6 +565,7 @@ mod app {
                     dp.OTG1_HS_DEVICE,
                     dp.OTG1_HS_PWRCLK,
                     clock_cfg.hclk(),
+                    // 240_000_000, // todo temp hardcoded
                 );
 
                 unsafe { USB_BUS = Some(UsbBus::new(usb, unsafe { &mut USB_EP_MEMORY })) };
@@ -688,6 +697,21 @@ mod app {
 
         println!("Init complete; starting main loops");
 
+        cfg_if! {
+            if #[cfg(feature = "h7")] {
+                let mut usb_dev = usb_dev;
+                let mut usb_serial = usb_serial;
+                // todo temp. USB not showing a port. :(
+                loop {
+                    if !usb_dev.poll(&mut [&mut usb_serial]) {
+                        continue;
+                    }
+                    println!("USB!");
+                }
+            }
+        }
+
+
         unsafe {
             uart_crsf.read_dma(
                 &mut crsf::RX_BUFFER,
@@ -700,7 +724,7 @@ mod app {
                 },
                 setup::CRSF_DMA_PERIPH,
             );
-        } //todo temp
+        }
 
         (
             // todo: Make these local as able.
@@ -789,8 +813,9 @@ mod app {
         });
     }
 
-    // binds = DMA1_STR2,
-    #[task(binds = DMA1_CH2, shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
+    // #[task(binds = DMA1_STR2,
+    #[task(binds = DMA1_CH2,
+    shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, rpm_status, rotor_rpms, system_status],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
@@ -1419,7 +1444,9 @@ mod app {
     // binds = OTG_HS
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
-    #[task(binds = USB_LP, shared = [usb_dev, usb_serial, current_params, control_channel_data,
+    // #[task(binds = OTG_HS,
+    #[task(binds = USB_LP,
+    shared = [usb_dev, usb_serial, current_params, control_channel_data,
     link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer, rpm_status],
     local = [], priority = 1)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
@@ -1427,6 +1454,7 @@ mod app {
     fn usb_isr(cx: usb_isr::Context) {
         // todo: Do we want to use an approach where we push stats, or this approach where
         // todo respond only?
+        println!("USB");
         (
             cx.shared.usb_dev,
             cx.shared.usb_serial,
@@ -1490,8 +1518,9 @@ mod app {
             )
     }
 
-    // #[task(binds = DMA1_STR3, shared = [], priority = 6)]
-    #[task(binds = DMA1_CH3, shared = [motor_timer], priority = 6)]
+    // #[task(binds = DMA1_STR3,
+    #[task(binds = DMA1_CH3,
+    shared = [motor_timer], priority = 6)]
     /// We use this ISR to initialize the RPM reception procedures upon completion of the dshot
     /// power setting transmission to the ESC.
     fn dshot_isr(mut _cx: dshot_isr::Context) {
@@ -1616,7 +1645,7 @@ mod app {
             } else {
                 exti.imr1.modify(|_, w| {
                     w.im6().clear_bit();
-                    // w.im4().clear_bit() // EXTI 4 is shared with the IMU; leave enabled.
+                    // EXTI 4 is shared with the IMU; leave enabled.
                     w.im0().clear_bit();
                     w.im1().clear_bit()
                 });
@@ -1641,9 +1670,9 @@ mod app {
                     (*pac::GPIOC::ptr())
                         .moder
                         .modify(|_, w| w.moder6().bits(alt_mode));
-                    // (*pac::GPIOA::ptr())
-                    //     .moder
-                    //     .modify(|_, w| w.moder4().bits(alt_mode));
+                    (*pac::GPIOA::ptr())
+                        .moder
+                        .modify(|_, w| w.moder4().bits(alt_mode));
                     (*pac::GPIOB::ptr())
                         .moder
                         .modify(|_, w| {
@@ -1657,7 +1686,7 @@ mod app {
     }
 
     // todo: Evaluate priority.
-    // #[task(binds = USART7,
+    // #[task(binds = UART7,
     #[task(binds = USART3,
     shared = [control_channel_data, link_stats, rf_limiter_timer,
     lost_link_timer], local = [uart_crsf], priority = 4)]
@@ -1672,6 +1701,8 @@ mod app {
     /// Must be a higher priority than the IMU TC isr.
     fn crsf_isr(mut cx: crsf_isr::Context) {
         let uart = &mut cx.local.uart_crsf; // Code shortener
+
+        println!("CRSF");
 
         let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
         let mut rx_fault = false;
@@ -1851,7 +1882,9 @@ mod app {
             });
     }
 
-    #[task(binds = TIM1_UP_TIM16, shared = [rf_limiter_timer], priority = 1)]
+    // #[task(binds = TIM16,
+    #[task(binds = TIM1_UP_TIM16,
+    shared = [rf_limiter_timer], priority = 1)]
     fn rf_limiter_isr(mut cx: rf_limiter_isr::Context) {
         // println!("RF limiter ISR");
         cx.shared.rf_limiter_timer.lock(|timer| {
@@ -1861,7 +1894,7 @@ mod app {
         });
     }
 
-    // binds = DMA2_STR1,
+    // #[task(binds = DMA2_STR1,
     #[task(binds = DMA2_CH1,
     shared = [i2c2], priority = 2)]
     /// Baro write complete; start baro read.
@@ -1887,7 +1920,7 @@ mod app {
 
     // todo: For now, we start new transfers in the main loop.
 
-    // binds = DMA2_STR2,
+    // #[task(binds = DMA2_STR2,
     #[task(binds = DMA2_CH2,
     shared = [altimeter, current_params, state_volatile], priority = 2)]
     /// Baro read complete; handle data, and start next write.
@@ -1919,7 +1952,7 @@ mod app {
             });
     }
 
-    // binds = DMA2_STR3,
+    // #[task(binds = DMA2_STR3,
     #[task(binds = DMA2_CH3,
     shared = [i2c1, ext_sensor_active], priority = 1)]
     /// External sensors write complete; start external sensors read.
@@ -1970,7 +2003,7 @@ mod app {
         });
     }
 
-    // binds = DMA2_STR4,
+    // #[task(binds = DMA2_STR4,
     #[task(binds = DMA2_CH4,
     shared = [i2c1, ext_sensor_active], priority = 1)]
     /// Baro write complete; start baro read.

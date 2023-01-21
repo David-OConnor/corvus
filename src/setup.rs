@@ -114,8 +114,6 @@ pub fn init_sensors(
 ) -> (SystemStatus, baro::Altimeter) {
     let mut system_status = SystemStatus::default();
 
-    // let eps = 0.001;
-
     match imu::setup(spi1, cs_imu, delay) {
         Ok(_) => system_status.imu = SensorStatus::Pass,
         Err(_) => system_status.imu = SensorStatus::NotConnected,
@@ -248,7 +246,7 @@ pub fn setup_pins() {
     motor1.enable_interrupt(Edge::Either);
     // todo: On G4, this interrupt is also used by the IMU. Sort this out; especially given you use both
     // todo edges on RPM reception, but only one on IMU.
-    motor2.enable_interrupt(Edge::Either);
+    // motor2.enable_interrupt(Edge::Either);
     motor3.enable_interrupt(Edge::Either);
     motor4.enable_interrupt(Edge::Either);
 
@@ -262,7 +260,6 @@ pub fn setup_pins() {
                 w.mr9().clear_bit()
             });
         } else {
-            // todo: IM4 causing trouble??
             exti.imr1.modify(|_, w| {
                 w.im6().clear_bit();
                 // w.im4().clear_bit();  // EXTI 4 is shared with the IMU; leave enabled.
@@ -289,6 +286,34 @@ pub fn setup_pins() {
     let mut sck1 = Pin::new(Port::A, 5, PinMode::Alt(5));
     let mut miso1 = Pin::new(Port::A, 6, PinMode::Alt(5));
     let mut mosi1 = Pin::new(Port::A, 7, PinMode::Alt(5));
+
+    let mut sck1 = Pin::new(Port::A, 5, PinMode::Output);
+    let mut miso1 = Pin::new(Port::A, 6, PinMode::Output);
+    let mut mosi1 = Pin::new(Port::A, 7, PinMode::Output);
+    let mut cs = Pin::new(Port::C, 4, PinMode::Output);
+
+    sck1.set_high();
+    miso1.set_high();
+    mosi1.set_high();
+    cs.set_high();
+
+    // println!("TEST SPI LOOP");
+    // let cp = unsafe { cortex_m::Peripherals::steal() };
+    // let mut delay = Delay::new(cp.SYST, 400_000_000);
+    // loop {
+    //     // sck1.set_high();
+    //     // miso1.set_high();
+    //     // mosi1.set_high();
+    //     cs.set_high();
+    //
+    //     delay.delay_ms(1000);
+    //
+    //     // sck1.set_low();
+    //     // miso1.set_low();
+    //     // mosi1.set_low();
+    //     cs.set_low();
+    //     delay.delay_ms(1000);
+    // }
 
     // Depending on capacitance, med or high should be appropriate for SPI speeds.
     // High means sharper edges, which also may mean more interference.
@@ -332,8 +357,8 @@ pub fn setup_pins() {
     cfg_if! {
         if #[cfg(feature = "h7")] {
             // Use use Uart 7 for the onboard ELRS MCU.
-            let _uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(11));
-            let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(11));
+            let _uart_crsf_tx = Pin::new(Port::B, 4, PinMode::Alt(11));
+            let mut uart_crsf_rx = Pin::new(Port::B, 3, PinMode::Alt(11));
         } else {
             let _uart_crsf_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
             let mut uart_crsf_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
@@ -365,7 +390,6 @@ pub fn setup_pins() {
 
     // todo: Moved to `idle` for setup.
     // todo: On G4, sort out if you need to set Rising and falling, for M2 RPM reception.
-    // todo: Once back from Argentina, if you have trouble, check this.
     #[cfg(feature = "h7")]
     let imu_exti_edge = Edge::Falling;
     #[cfg(feature = "g4")]
@@ -464,7 +488,8 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 cfg_if! {
     if #[cfg(feature = "h7")] {
         type UartCrsfRegs = pac::UART7;
-        type SpiPacFlash = pac::OCTOSPI1;
+        // type SpiPacFlash = pac::OCTOSPI1;
+        type SpiPacFlash = pac::QUADSPI;
         type SpiFlash = Qspi;
     } else {
         type UartCrsfRegs = pac::USART3;
@@ -496,10 +521,17 @@ pub fn setup_busses(
     // SPI input clock is 400MHz for H7, and 170Mhz for G4. 400MHz / 32 = 12.5 MHz. 170Mhz / 8 = 21.25Mhz.
     // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
     // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
+
+    // for ICM426xx, for 24Mhz limit
     #[cfg(feature = "g4")]
-    let imu_baud_div = BaudRate::Div8; // for ICM426xx, for 24Mhz limit
+    let imu_baud_div = BaudRate::Div8;
+
+    // For H743, APB2 speed (SPI clock) is 120Mhz. 120Mhz/8 = 16Mhz.
+    // For H723, it's 275 at 550Mhz, and 260 at 520Mhz.
     #[cfg(feature = "h7")]
-    let imu_baud_div = BaudRate::Div32; // for ICM426xx, for 24Mhz limit
+    let imu_baud_div = BaudRate::Div8; // H743
+                                       // let imu_baud_div = BaudRate::Div64; // todo temp experimenting
+                                       // let imu_baud_div = BaudRate::Div16;  // H723
 
     let imu_spi_cfg = SpiConfig {
         // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
@@ -515,6 +547,12 @@ pub fn setup_busses(
     let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 
     cs_imu.set_high();
+
+    // todo: Temp config of USB pins on H743. We don't need this on G4 or H723
+    #[cfg(feature = "h7")]
+    let _usb_dm = Pin::new(Port::A, 11, PinMode::Alt(10));
+    #[cfg(feature = "h7")]
+    let _usb_dp = Pin::new(Port::A, 12, PinMode::Alt(10));
 
     // We use I2C1 for the GPS, magnetometer, and TOF sensor. Some details:
     // The U-BLOX GPS' max speed is 400kHz.
@@ -576,7 +614,7 @@ pub fn setup_busses(
     // W25 flash chips use SPI mode 0 or 3.
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            let spi_flash = Qspi::new(spi_flash_pac, Default::default(), BaudRate::Div8);
+            let spi_flash = Qspi::new(spi_flash_pac, Default::default(), clock_cfg);
 
         } else {
             let spi_flash = Spi2::new(spi_flash_pac, Default::default(), BaudRate::Div2);

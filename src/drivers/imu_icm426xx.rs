@@ -16,10 +16,6 @@ use cortex_m::delay::Delay;
 
 use crate::imu_shared::_ImuReadingsRaw;
 
-// todo: Consider hardware notch filter.
-
-// todo: Use WHOAMI etc to determine if we have this, or the ST IMU
-
 const DEVICE_ID: u8 = 0x47;
 
 #[derive(Clone, Copy)]
@@ -116,6 +112,8 @@ fn write_one(reg: Reg, word: u8, spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<()
     Ok(())
 }
 
+use defmt::println;
+
 /// Configure the device.
 pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) -> Result<(), ImuError> {
     // Leave default of SPI mode 0 and 3.
@@ -123,14 +121,19 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) -> Result<(),
     // todo: Without self-test, we'll use a WHOAMI read to verify if the IMU is connected. Note that
     // todo the SPI bus will still not fail if the IMU isn't present. HAL error?
     // todo: Better sanity check than WHOAMI.
+
+    println!("IMU 1");
     let device_id = read_one(Reg::WhoAmI, spi, cs)?;
+    println!("IMU 2");
+
     if device_id != DEVICE_ID {
         return Err(ImuError::NotConnected);
     }
 
     // An external cyrstal is connected on othe H7 FC, but not the G4.
-    #[cfg(feature = "h7")]
-    write_one(Reg::IntfConfig5, 0b0000_0100, spi, cs)?;
+    // todo: Put back.
+    // #[cfg(feature = "h7")]
+    // write_one(Reg::IntfConfig5, 0b0000_0100, spi, cs)?;
 
     // Enable gyros and accelerometers in low noise mode.
     write_one(Reg::PwrMgmt0, 0b0000_1111, spi, cs)?;
@@ -146,7 +149,7 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) -> Result<(),
     write_one(Reg::AccelConfig0, 0b0000_0011, spi, cs)?;
     delay.delay_us(200);
 
-    // Set both the accelerator and gyro filtesr to the low latency option.
+    // Set both the accelerator and gyro filters to the low latency option.
     // todo: This is what BF does. Do we want this?
     write_one(Reg::GyroAccelConfig0, 14 << 4 | 14, spi, cs)?;
 

@@ -364,8 +364,6 @@ use stm32_hal2::dma::DmaChannel;
 /// Receive an RPM payload for all channels in bidirectional mode.
 /// Note that we configure what won't affect the FC-ESC transmission in the reception timer's
 /// ISR on payload-reception-complete. Here, we configure things that would affect transmission.
-// pub fn receive_payload(timer: &mut MotorTimer) {
-// pub fn receive_payload() {
 pub fn receive_payload() {
     // Set all motor pins to input mode.
     let input_mode = 0b00;

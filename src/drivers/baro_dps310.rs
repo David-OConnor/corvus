@@ -22,7 +22,7 @@ use defmt::println;
 
 // The sensor's address is 0x77 (if SDO pin is left floating or pulled-up to VDDIO) or 0x76 (if the SDO pin is
 // pulled-down to GND).
-pub const ADDR: u8 = 0x76; // todo: Switch back to 0x77 A/R
+pub const ADDR: u8 = 0x77;
 pub const PRODUCT_ID: u8 = 0x10;
 
 type I2C = I2c<I2C2>;
@@ -195,12 +195,9 @@ impl Altimeter {
     /// Configure settings, including pressure mreasurement rate, and return an instance.
     /// And load calibration data.
     pub fn new(i2c: &mut I2C) -> Result<Self, BaroNotConnectedError> {
-        println!("BARO aa");
-
         if read_one(Reg::ProductId, i2c)? != PRODUCT_ID {
             return Err(BaroNotConnectedError {});
         }
-        println!("BARO bb");
 
         // Set 64x oversampling, and 32 measurements per second, for both temp and pres.
         i2c.write(ADDR, &[Reg::PrsCfg as u8, 0b0101_0110])?;
