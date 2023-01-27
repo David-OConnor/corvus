@@ -39,9 +39,28 @@ use crate::{
 };
 
 #[cfg(feature = "g4")]
-use crate::drivers::spi2_kludge::Spi2;
+use crate::drivers::{spi2_kludge::Spi2, uart4_kludge::Usart4};
 
 use defmt::println;
+
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        type UartCrsfRegs = pac::UART7;
+        type UartOsdRegs = pac::USART2;
+        // type SpiPacFlash = pac::OCTOSPI1;
+        pub type SpiPacFlash = pac::QUADSPI;
+        pub type SpiFlash = Qspi;
+        pub type UartCrsf = Usart<pac::UART7>;
+        pub type UartOsd = Usart<pac::USART2>;
+    } else {
+        type UartCrsfRegs = pac::USART2;
+        type UartOsdRegs = pac::UART4;
+        pub type SpiPacFlash = pac::SPI2;
+        pub type SpiFlash = Spi2<SpiPacFlash>;
+        pub type UartCrsf = Usart<pac::USART2>;
+        pub type UartOsd = Usart4<pac::UART4>;
+    }
+}
 
 // Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.
 
@@ -148,18 +167,18 @@ pub fn init_sensors(
 
     println!("B");
 
-    // let mut altimeter = match baro::Altimeter::new(i2c2) {
-    //     Ok(mut alt) => {
-    //         system_status.baro = SensorStatus::Pass;
-    //         alt
-    //     }
-    //     Err(_) => {
-    //         system_status.baro = SensorStatus::NotConnected;
-    //         Default::default()
-    //     }
-    // };
+    let mut altimeter = match baro::Altimeter::new(i2c2) {
+        Ok(mut alt) => {
+            system_status.baro = SensorStatus::Pass;
+            alt
+        }
+        Err(_) => {
+            system_status.baro = SensorStatus::NotConnected;
+            Default::default()
+        }
+    };
 
-    let mut altimeter = baro::Altimeter::default(); // todo tmep!!!
+    // let mut altimeter = baro::Altimeter::default(); // todo tmep!!!
 
     println!("C");
 
@@ -287,15 +306,15 @@ pub fn setup_pins() {
     let mut miso1 = Pin::new(Port::A, 6, PinMode::Alt(5));
     let mut mosi1 = Pin::new(Port::A, 7, PinMode::Alt(5));
 
-    let mut sck1 = Pin::new(Port::A, 5, PinMode::Output);
-    let mut miso1 = Pin::new(Port::A, 6, PinMode::Output);
-    let mut mosi1 = Pin::new(Port::A, 7, PinMode::Output);
-    let mut cs = Pin::new(Port::C, 4, PinMode::Output);
-
-    sck1.set_high();
-    miso1.set_high();
-    mosi1.set_high();
-    cs.set_high();
+    // let mut sck1 = Pin::new(Port::A, 5, PinMode::Output);
+    // let mut miso1 = Pin::new(Port::A, 6, PinMode::Output);
+    // let mut mosi1 = Pin::new(Port::A, 7, PinMode::Output);
+    // let mut cs = Pin::new(Port::C, 4, PinMode::Output);
+    //
+    // sck1.set_high();
+    // miso1.set_high();
+    // mosi1.set_high();
+    // cs.set_high();
 
     // println!("TEST SPI LOOP");
     // let cp = unsafe { cortex_m::Peripherals::steal() };
@@ -417,9 +436,12 @@ pub fn setup_pins() {
 
             let mut scl2 = Pin::new(Port::A, 9, i2c_alt);
             let mut sda2 = Pin::new(Port::A, 10, i2c_alt);
-
         }
     }
+
+    // todo temp on this G4 test!!
+    // scl2.pull(Pull::Up);
+    // sda2.pull(Pull::Up);
 
     // Note that we use hardware pullups, so don't enable the firmware pullups.
     sda1.output_type(OutputType::OpenDrain);
@@ -441,12 +463,12 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     #[cfg(feature = "h7")]
     let crsf_dma_ch = DmaInput::Uart7Rx;
     #[cfg(feature = "g4")]
-    let crsf_dma_ch = DmaInput::Usart3Rx;
+    let crsf_dma_ch = DmaInput::Usart2Rx;
 
     dma::mux(CRSF_DMA_PERIPH, CRSF_RX_CH, crsf_dma_ch);
 
     // CRSF TX is currently unused.
-    // dma::mux(CRSF_DMA_PERIPH, CRSF_TX_CH, DmaInput::Usart3Tx);
+    // dma::mux(CRSF_DMA_PERIPH, CRSF_TX_CH, DmaInput::Usart2Tx);
 
     #[cfg(feature = "h7")]
     dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, DmaInput::Adc1);
@@ -485,26 +507,13 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // dma.enable_interrupt(EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);
 }
 
-cfg_if! {
-    if #[cfg(feature = "h7")] {
-        type UartCrsfRegs = pac::UART7;
-        // type SpiPacFlash = pac::OCTOSPI1;
-        type SpiPacFlash = pac::QUADSPI;
-        type SpiFlash = Qspi;
-    } else {
-        type UartCrsfRegs = pac::USART3;
-        type SpiPacFlash = pac::SPI2;
-        type SpiFlash = Spi2<SpiPacFlash>;
-    }
-}
-
 /// Configure the SPI and I2C busses.
 pub fn setup_busses(
     spi1_pac: SPI1,
     spi_flash_pac: SpiPacFlash,
     i2c1_pac: I2C1,
     i2c2_pac: I2C2,
-    uart2_pac: USART2,
+    uart_osd_pac: UartOsdRegs,
     uart_crsf_pac: UartCrsfRegs,
     clock_cfg: &Clocks,
 ) -> (
@@ -514,24 +523,36 @@ pub fn setup_busses(
     Pin,
     I2c<I2C1>,
     I2c<I2C2>,
-    Usart<USART2>,
-    Usart<crate::UART_CRSF>,
+    UartOsd,
+    UartCrsf,
 ) {
     // We use SPI1 for the IMU
     // SPI input clock is 400MHz for H7, and 170Mhz for G4. 400MHz / 32 = 12.5 MHz. 170Mhz / 8 = 21.25Mhz.
     // The limit is the max SPI speed of the ICM-42605 IMU of 24 MHz. The Limit for the St Inemo ISM330  is 10Mhz.
     // 426xx can use any SPI mode. Maybe St is only mode 3? Not sure.
 
-    // for ICM426xx, for 24Mhz limit
-    #[cfg(feature = "g4")]
-    let imu_baud_div = BaudRate::Div8;
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
 
-    // For H743, APB2 speed (SPI clock) is 120Mhz. 120Mhz/8 = 16Mhz.
-    // For H723, it's 275 at 550Mhz, and 260 at 520Mhz.
-    #[cfg(feature = "h7")]
-    let imu_baud_div = BaudRate::Div8; // H743
-                                       // let imu_baud_div = BaudRate::Div64; // todo temp experimenting
-                                       // let imu_baud_div = BaudRate::Div16;  // H723
+            // todo: Temp config of USB pins on H743. We don't need this on G4 or H723
+            let _usb_dm = Pin::new(Port::A, 11, PinMode::Alt(10));
+            let _usb_dp = Pin::new(Port::A, 12, PinMode::Alt(10));
+
+            // For H743, APB2 speed (SPI clock) is 120Mhz. 120Mhz/8 = 15Mhz.
+            // For H723, it's 275 at 550Mhz, and 260 at 520Mhz. /16 = 17Mhz and 16Mhz respectively.
+            let imu_baud_div = BaudRate::Div8; // H743
+            // let imu_baud_div = BaudRate::Div64; // todo temp experimenting
+            // let imu_baud_div = BaudRate::Div16;  // H723
+        } else {
+            let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
+
+            // for ICM426xx, for 24Mhz limit. 170Mhz / 8 = ~21Mhz.
+            let imu_baud_div = BaudRate::Div8;
+        }
+    }
+
+    cs_imu.set_high();
 
     let imu_spi_cfg = SpiConfig {
         // Per ICM42688 and ISM330 DSs, only mode 3 is valid.
@@ -540,19 +561,6 @@ pub fn setup_busses(
     };
 
     let spi_imu = Spi::new(spi1_pac, imu_spi_cfg, imu_baud_div);
-
-    #[cfg(feature = "h7")]
-    let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
-    #[cfg(feature = "g4")]
-    let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
-
-    cs_imu.set_high();
-
-    // todo: Temp config of USB pins on H743. We don't need this on G4 or H723
-    #[cfg(feature = "h7")]
-    let _usb_dm = Pin::new(Port::A, 11, PinMode::Alt(10));
-    #[cfg(feature = "h7")]
-    let _usb_dp = Pin::new(Port::A, 12, PinMode::Alt(10));
 
     // We use I2C1 for the GPS, magnetometer, and TOF sensor. Some details:
     // The U-BLOX GPS' max speed is 400kHz.
@@ -579,35 +587,6 @@ pub fn setup_busses(
     // We use I2C2 for the onboard barometer (altimeter).
     let mut i2c2 = I2c::new(i2c2_pac, i2c_baro_cfg, clock_cfg);
 
-    // todo start I2C TS
-    // println!("Entering I2C2 test loop");
-    // let cp = unsafe { cortex_m::Peripherals::steal() };
-    // let mut delay = Delay::new(cp.SYST, 170_000_000);
-    //
-    // // unsafe {
-    // //     (*pac::PWR::ptr()).cr3.modify(|_, w| w.ucpd1_dbdis().set_bit()); // todo TS PA9 not working.
-    // // }
-    //
-    // let mut scl2 = Pin::new(Port::A, 9, PinMode::Output);
-    // let mut sda2 = Pin::new(Port::A, 10, PinMode::Output);
-    // sda2.output_type(OutputType::PushPull);
-    // scl2.output_type(OutputType::PushPull);
-    //
-    // // todo on Output pin test: SDA2 (PA10 is good)
-    // // todo: SCL2 (PA9) shows no signs of life... WTF???
-    //
-    // for i in 0..1_000_000_000 {
-    //     if i % 2 == 0 {
-    //         scl2.set_low();
-    //         sda2.set_high()
-    //     } else {
-    //         // scl2.set_high();
-    //         sda2.set_low()
-    //     }
-    //     delay.delay_ms(100);
-    // }
-    // todo end I2C TS
-
     // We use SPI2 for SPI flash on G4. On H7, we use octospi instead.
     // Max speed: 104Mhz (single, dual, or quad) for 8M variant, and 133Mhz for
     // 16M variant.
@@ -630,7 +609,21 @@ pub fn setup_busses(
 
     // We use UART2 for the OSD, for DJI, via the MSP protocol.
     // todo: QC baud.
-    let uart_osd = Usart::new(uart2_pac, crate::osd::BAUD, Default::default(), clock_cfg);
+    #[cfg(feature = "h7")]
+    let uart_osd = Usart::new(
+        uart_osd_pac,
+        crate::osd::BAUD,
+        Default::default(),
+        clock_cfg,
+    );
+
+    #[cfg(feature = "g4")]
+    let uart_osd = Usart4::new(
+        uart_osd_pac,
+        crate::osd::BAUD,
+        Default::default(),
+        clock_cfg,
+    );
 
     // We use UART for the radio controller receiver, via CRSF protocol.
 

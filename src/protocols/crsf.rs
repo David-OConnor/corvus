@@ -41,7 +41,7 @@ use crate::{
         PidTuneActuation, PidTuneMode, SteerpointCycleActuation,
     },
     safety::ArmStatus,
-    util, UART_CRSF,
+    setup, util,
 };
 
 use crate::system_status::SystemStatus;
@@ -158,7 +158,7 @@ pub enum PacketData {
 
 /// Configure the Idle interrupt, and start the circular DMA transfer. Run this once, on initial
 /// firmware setup.
-pub fn setup(uart: &mut Usart<UART_CRSF>) {
+pub fn setup(uart: &mut setup::UartCrsf) {
     // We alternate between char matching the flight controller destination address, and
     // line idle, to indicate we're received, or stopped receiving a message respectively.
     uart.enable_interrupt(UsartInterrupt::CharDetect(Some(
@@ -456,7 +456,7 @@ impl Packet {
 
 /// Handle an incomming packet. Triggered whenever the line goes idle.
 pub fn handle_packet(
-    uart: &mut Usart<UART_CRSF>,
+    uart: &mut setup::UartCrsf,
     // dma: &mut Dma<DMA1>,
     rx_chan: DmaChannel,
     // tx_chan: DmaChannel,

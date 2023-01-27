@@ -22,10 +22,10 @@
 
 use core::sync::atomic::Ordering;
 
+use ahrs_fusion::Ahrs;
 use cfg_if::cfg_if;
 use control_interface::{ChannelData, LinkStats, PidTuneActuation};
 use cortex_m::{self, asm, delay::Delay};
-use ahrs_fusion::Ahrs;
 
 use defmt::println;
 use defmt_rtt as _;
@@ -105,19 +105,14 @@ cfg_if! {
             qspi::{Qspi},
         };
         // This USART alias is made pub here, so we don't repeat this line in other modules.
-        pub use stm32_hal2::pac::{UART7 as UART_CRSF, ADC1 as ADC};
-
-        // type SpiFlash = Qspi<OCTOSPI>;
-        type SpiFlash = Qspi;
+        pub use stm32_hal2::pac::{UART7, ADC1 as ADC};
     } else if #[cfg(feature = "g4")] {
         use stm32_hal2::{
             usb::{self, UsbBus, UsbBusType},
             pac::SPI3,
         };
 
-        pub use stm32_hal2::pac::{USART3 as UART_CRSF, ADC2 as ADC};
-
-        type SpiFlash = Spi<SPI3>;
+        pub use stm32_hal2::pac::{UART4, ADC2 as ADC};
     }
 }
 
@@ -212,8 +207,6 @@ const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 mod app {
     use super::*;
 
-    #[monotonic(binds = TIM5, default = true)]
-    // type MyMono = Timer<TIM5>; // todo temp
     #[shared]
     struct Shared {
         user_cfg: UserCfg,
@@ -257,7 +250,7 @@ mod app {
     #[local]
     struct Local {
         // update_timer: Timer<TIM15>,
-        uart_crsf: Usart<UART_CRSF>, // for ELRS over CRSF.
+        uart_crsf: setup::UartCrsf, // for ELRS over CRSF.
         // spi_flash: SpiFlash,  // todo: Fix flash in HAL, then do this.
         arm_signals_received: u8, // todo: Put sharedin state volatile.
         disarm_signals_received: u8,
@@ -267,7 +260,7 @@ mod app {
         imu_isr_loop_i: usize,
         // aux_loop_i: usize, // todo temp
         ctrl_coeff_adj_timer: Timer<TIM1>,
-        uart_osd: Usart<USART2>, // for our DJI OSD, via MSP protocol
+        uart_osd: setup::UartOsd, // for our DJI OSD, via MSP protocol
         time_with_high_throttle: f32,
         measurement_timer: Timer<TIM5>,
         ahrs: Ahrs,
@@ -328,7 +321,7 @@ mod app {
         println!("Pre clocks setup");
         clock_cfg.setup().unwrap();
 
-        println!("CLOCKS setup ");
+        println!("Clocks setup ");
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
         #[cfg(feature = "h7")]
@@ -352,51 +345,16 @@ mod app {
 
         setup::setup_dma(&mut dma, &mut dma2);
 
-        #[cfg(feature = "h7")]
-        let uart_crsf = dp.UART7;
-        #[cfg(feature = "g4")]
-        let uart_crsf = dp.USART3;
-
+        cfg_if! {
+            if #[cfg(feature = "h7")] {
+                let uart_crsf_pac = dp.UART7;
+                let uart_osd_pac = dp.UART2;
+            } else {
+                let uart_crsf_pac = dp.USART2;
+                let uart_osd_pac = dp.UART4;
+            }
+        }
         let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
-
-        // todo: Temp setting up spi3 to test ELRS radio
-        // delay.delay_ms(400);
-
-        // let mut _sck3 = Pin::new(Port::B, 3, gpio::PinMode::Alt(6));
-        // let mut _miso3 = Pin::new(Port::B, 4, gpio::PinMode::Alt(6));
-        // let mut _mosi3 = Pin::new(Port::B, 5, gpio::PinMode::Alt(6));
-
-        // cfg_if! {
-        //     if #[cfg(feature = "g4")] {
-        //         let mut spi_radio = drivers::spi3_kludge::Spi4::new(
-        //             dp.SPI3,
-        //             spi::SpiConfig {
-        //                 mode: spi::SpiMode::mode0(),
-        //                 ..Default::default()
-        //             },
-        //             spi::BaudRate::Div32,
-        //         );
-        //
-        //         let mut cs_rad = Pin::new(Port::C, 15, gpio::PinMode::Output);
-        //         let mut busy = Pin::new(Port::C, 14, gpio::PinMode::Input);
-        //
-        //         cs_rad.set_high();
-        //         delay.delay_ms(100);
-        //
-        //         let mut buf = [0x19, 0x08, 0x01, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        //
-        //         println!("Starting xfer");
-        //         cs_rad.set_low();
-        //         spi_radio.transfer(&mut buf).ok();
-        //         cs_rad.set_high();
-        //
-        //         loop {
-        //             println!("b: {}", busy.is_high());
-        //         }
-        //
-        //         println!("Rad buf: {:x}", buf);
-        //     }
-        // }
 
         // todo: End SPI3/ELRs rad test
 
@@ -420,10 +378,21 @@ mod app {
             spi_flash_pac,
             dp.I2C1,
             dp.I2C2,
-            dp.USART2,
-            uart_crsf,
+            uart_osd_pac,
+            uart_crsf_pac,
             &clock_cfg,
         );
+
+        // todo start I2c test
+        println!("Starting I2c test loop");
+
+        loop {
+            let mut buf = [0];
+            i2c2.write_read(0x77, &[0x0d], &mut buf).ok();
+            println!("Buf: {:?}", buf[0]);
+            delay.delay_ms(500);
+        }
+        // todo end I2c test
 
         // We use the RTC to assist with power use measurement.
         // let rtc = Rtc::new(dp.RTC, Default::default());
@@ -711,7 +680,6 @@ mod app {
             }
         }
 
-
         unsafe {
             uart_crsf.read_dma(
                 &mut crsf::RX_BUFFER,
@@ -781,7 +749,6 @@ mod app {
                 batt_curr_adc,
             },
             init::Monotonics(),
-            // init::Monotonics(measurement_timer)
         )
     }
 
@@ -1454,7 +1421,7 @@ mod app {
     fn usb_isr(cx: usb_isr::Context) {
         // todo: Do we want to use an approach where we push stats, or this approach where
         // todo respond only?
-        println!("USB");
+        // println!("USB");
         (
             cx.shared.usb_dev,
             cx.shared.usb_serial,
@@ -1687,7 +1654,7 @@ mod app {
 
     // todo: Evaluate priority.
     // #[task(binds = UART7,
-    #[task(binds = USART3,
+    #[task(binds = USART2,
     shared = [control_channel_data, link_stats, rf_limiter_timer,
     lost_link_timer], local = [uart_crsf], priority = 4)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
