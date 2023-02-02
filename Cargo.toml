@@ -40,6 +40,7 @@ num_enum = { version = "^0.5.7", default_features = false }
 # Use these features to specify GPIO mapping, and which peripherals to use.
 [features]
 g4 = ["stm32-hal2/g4rt", "stm32-hal2/g473", "stm32-hal2/usb", "stm32-usbd", "stm32-hal2/monotonic"] # todo: monotomic is tmep
+# todo: H7 HS vs FS USB.
 #h7 = ["stm32-hal2/h7rt", "stm32-hal2/h735", "stm32-hal2/usbotg_hs", "synopsys-usb-otg"]
 h7 = ["stm32-hal2/h7rt", "stm32-hal2/h743v", "stm32-hal2/usbotg_hs", "synopsys-usb-otg"]
 quad = [] # For quadcopter aircraft

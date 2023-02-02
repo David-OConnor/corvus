@@ -165,8 +165,6 @@ pub fn init_sensors(
     //     }
     // }
 
-    println!("B");
-
     let mut altimeter = match baro::Altimeter::new(i2c2) {
         Ok(mut alt) => {
             system_status.baro = SensorStatus::Pass;
@@ -179,8 +177,6 @@ pub fn init_sensors(
     };
 
     // let mut altimeter = baro::Altimeter::default(); // todo tmep!!!
-
-    println!("C");
 
     let fix = gps::get_fix(i2c1);
     match fix {
@@ -429,7 +425,6 @@ pub fn setup_pins() {
             // I2C2 for the DPS310 barometer, and pads.
             let mut scl2 = Pin::new(Port::B, 10, i2c_alt);
             let mut sda2 = Pin::new(Port::B, 11, i2c_alt);
-            sda2.output_type(OutputType::OpenDrain);
         } else {
             let mut scl1 = Pin::new(Port::A, 15, i2c_alt);
             let mut sda1 = Pin::new(Port::B, 9, i2c_alt);
@@ -538,12 +533,19 @@ pub fn setup_busses(
             // todo: Temp config of USB pins on H743. We don't need this on G4 or H723
             let _usb_dm = Pin::new(Port::A, 11, PinMode::Alt(10));
             let _usb_dp = Pin::new(Port::A, 12, PinMode::Alt(10));
+            // PB14 and PB15, AF12 on H732 for OTG_HS?
+            //             let _usb_dm = Pin::new(Port::B, 14, PinMode::Alt(12));
+            //             let _usb_dp = Pin::new(Port::B, 15, PinMode::Alt(102));
 
-            // For H743, APB2 speed (SPI clock) is 120Mhz. 120Mhz/8 = 15Mhz.
-            // For H723, it's 275 at 550Mhz, and 260 at 520Mhz. /16 = 17Mhz and 16Mhz respectively.
+            // On H7, we run PLLQ1 as the SPI1 clock (default).
+            // Configured with Divq=8. H743: 120Mhz SPI clock if core clock is 480Mhz. 100Mhz if @400Mhz.
+            // 120Mhz/8 = 15Mhz. 100Mhz / 8 = 12.5Mhz
+            // For H723, using PLLQ1 with PLLQ = DIV8: (And DIVN = 260; we lower DIVP in this case)
+            // 68.75Mhz at 550Mhz, and 65Mhz SPI at 520Mhz core. /16 = 17Mhz and 16Mhz respectively.
+            // If H723 @ 400Mhz, use same settings as H743.
+            // 100Mhz / 8 = 12.5Mhz. 120Mhz/8 = 15Mhz. 65Mhz/4 = 16.25Mhz. 68.75/4 = 17.2Mhz.
             let imu_baud_div = BaudRate::Div8; // H743
-            // let imu_baud_div = BaudRate::Div64; // todo temp experimenting
-            // let imu_baud_div = BaudRate::Div16;  // H723
+            // let imu_baud_div = BaudRate::Div4;  // H723 (Assuming not @ 400Mhz; if that, use Div8)
         } else {
             let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
 

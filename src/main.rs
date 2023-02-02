@@ -99,7 +99,9 @@ cfg_if! {
     if #[cfg(feature = "h7")] {
         use stm32_hal2::{
             clocks::{PllCfg, VosRange},
-            usb_otg::{Usb1, UsbBus, Usb1BusType as UsbBusType},
+            // todo: USB1 on H723; USB2 on H743.
+            // usb::{Usb1, UsbBus, Usb1BusType as UsbBusType},
+            usb::{Usb2, UsbBus, Usb2BusType as UsbBusType},
             // pac::OCTOSPI1,
             pac::QUADSPI,
             qspi::{Qspi},
@@ -206,6 +208,7 @@ const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 #[rtic::app(device = pac, peripherals = false, dispatchers= [])]
 mod app {
     use super::*;
+    use stm32_hal2::dma::DmaChannel;
 
     #[shared]
     struct Shared {
@@ -284,10 +287,13 @@ mod app {
 
         // Improves performance, at a cost of slightly increased power use.
         // Note that these enable fns should automatically invalidate prior.
-        #[cfg(feature = "h7")]
-        cp.SCB.enable_icache();
-        #[cfg(feature = "h7")]
-        cp.SCB.enable_dcache(&mut cp.CPUID);
+
+        // Todo: Enable these caches once the program basicallyw orks on H7; don't want
+        // todo subtle concurrency bugs from the caches confusing things.
+        // #[cfg(feature = "h7")]
+        // cp.SCB.enable_icache();
+        // #[cfg(feature = "h7")]
+        // cp.SCB.enable_dcache(&mut cp.CPUID);
 
         cfg_if! {
             if #[cfg(feature = "h7")] {
@@ -296,10 +302,12 @@ mod app {
                     // Note: to get H723 working at 550Mhz. You'll need to increase divn to 275,
                     // and set CPU_FREQ_BOOST: "The CPU frequency boost can be enabled through the
                     // CPUFREQ_BOOST option byte in the FLASH_OPTSR2_PRG register."
+
                     pll_src: PllSrc::Hse(16_000_000),
                     pll1: PllCfg {
                         // todo: Do we want a 64Mhz HSE for H7?
                         divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
+                        pllq_en: true, // PLLQ for Spi1 clock. Its default div of 8 is fine.
                         // divn: 275, // For 550Mhz with freq boost enabled.
                         ..Default::default()
                     },
@@ -319,11 +327,14 @@ mod app {
         }
 
         println!("Pre clocks setup");
+
         clock_cfg.setup().unwrap();
 
         println!("Clocks setup ");
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
+
+        // todo: Put this back once done USB TS.
         #[cfg(feature = "h7")]
         clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
@@ -348,7 +359,7 @@ mod app {
         cfg_if! {
             if #[cfg(feature = "h7")] {
                 let uart_crsf_pac = dp.UART7;
-                let uart_osd_pac = dp.UART2;
+                let uart_osd_pac = dp.USART2;
             } else {
                 let uart_crsf_pac = dp.USART2;
                 let uart_osd_pac = dp.UART4;
@@ -383,15 +394,50 @@ mod app {
             &clock_cfg,
         );
 
-        // todo start I2c test
-        println!("Starting I2c test loop");
+        // todo: SPI DMA test
 
-        loop {
-            let mut buf = [0];
-            i2c2.write_read(0x77, &[0x0d], &mut buf).ok();
-            println!("Buf: {:?}", buf[0]);
-            delay.delay_ms(500);
-        }
+        // gpio::set_low(Port::C, 4);
+        //
+        // let write_buf = [0x75, 0];
+        // let mut buf_t = [0; 4];
+        //
+        // unsafe {
+        //     spi1.transfer_dma(
+        //         &write_buf,
+        //         &mut buf_t,
+        //         DmaChannel::C1,
+        //         DmaChannel::C2,
+        //         ChannelCfg {
+        //             ..Default::default()
+        //         },
+        //         ChannelCfg {
+        //             ..Default::default()
+        //         },
+        //         DmaPeriph::Dma1,
+        //     );
+        // }
+        //
+        // println!("Starting IMU SPI test loop");
+        // while !dma.transfer_is_complete(DmaChannel::C1) {
+        //
+        // }
+        //
+        // loop {
+        //     println!("BUF TEMP a: {:?}, b: {:?}", write_buf, buf_t);
+        //     delay.delay_ms(500);
+        // }
+
+        // todo end SPI test loop.
+
+        // todo start I2c test
+        // println!("Starting I2c test loop");
+        // //
+        // loop {
+        //     let mut buf = [0];
+        //     i2c1.write_read(0x77, &[0x0d], &mut buf).ok();
+        //     println!("Buf: {:?}", buf[0]);
+        //     delay.delay_ms(500);
+        // }
         // todo end I2c test
 
         // We use the RTC to assist with power use measurement.
@@ -528,11 +574,14 @@ mod app {
         let mut state_volatile = StateVolatile::default();
 
         cfg_if! {
+            // todo: Probably OTG1 on H723.
+            // On H743, PA11 and PA12 are connected to OTG2 AKA OTG_FS. There are naming inconsistencies
+            // on ST's docs.
             if #[cfg(feature = "h7")] {
-                let usb = Usb1::new(
-                    dp.OTG1_HS_GLOBAL,
-                    dp.OTG1_HS_DEVICE,
-                    dp.OTG1_HS_PWRCLK,
+                let usb = Usb2::new(
+                    dp.OTG2_HS_GLOBAL,
+                    dp.OTG2_HS_DEVICE,
+                    dp.OTG2_HS_PWRCLK,
                     clock_cfg.hclk(),
                     // 240_000_000, // todo temp hardcoded
                 );
@@ -664,22 +713,6 @@ mod app {
         // // todo: On G4, sort out if you need to set Rising and falling, for M2 RPM reception.
         // imu_exti_pin.enable_interrupt(Edge::Falling);
 
-        println!("Init complete; starting main loops");
-
-        cfg_if! {
-            if #[cfg(feature = "h7")] {
-                let mut usb_dev = usb_dev;
-                let mut usb_serial = usb_serial;
-                // todo temp. USB not showing a port. :(
-                loop {
-                    if !usb_dev.poll(&mut [&mut usb_serial]) {
-                        continue;
-                    }
-                    println!("USB!");
-                }
-            }
-        }
-
         unsafe {
             uart_crsf.read_dma(
                 &mut crsf::RX_BUFFER,
@@ -693,6 +726,8 @@ mod app {
                 setup::CRSF_DMA_PERIPH,
             );
         }
+
+        println!("Init complete; starting main loops");
 
         (
             // todo: Make these local as able.
@@ -1408,10 +1443,10 @@ mod app {
                 });
     }
 
-    // binds = OTG_HS
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     // #[task(binds = OTG_HS,
+    // #[task(binds = OTG_FS,
     #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, current_params, control_channel_data,
     link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer, rpm_status],
@@ -1421,7 +1456,6 @@ mod app {
     fn usb_isr(cx: usb_isr::Context) {
         // todo: Do we want to use an approach where we push stats, or this approach where
         // todo respond only?
-        // println!("USB");
         (
             cx.shared.usb_dev,
             cx.shared.usb_serial,

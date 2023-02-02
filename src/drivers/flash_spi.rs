@@ -16,8 +16,8 @@ pub enum FlashSpiError {
 }
 
 // todo: This will be diff for H7.
-impl From<spi::Error> for FlashSpiError {
-    fn from(_e: spi::Error) -> Self {
+impl From<spi::SpiError> for FlashSpiError {
+    fn from(_e: spi::SpiError) -> Self {
         Self::NotConnected
     }
 }

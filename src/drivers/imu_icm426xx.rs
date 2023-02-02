@@ -24,8 +24,8 @@ pub enum ImuError {
     SelfTestFail,
 }
 
-impl From<spi::Error> for ImuError {
-    fn from(_e: spi::Error) -> Self {
+impl From<spi::SpiError> for ImuError {
+    fn from(_e: spi::SpiError) -> Self {
         Self::NotConnected
     }
 }
@@ -98,6 +98,27 @@ fn read_one(reg: Reg, spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<u8, ImuError>
 
     cs.set_low();
     spi.transfer(&mut buf)?;
+
+    // match spi.transfer(&mut buf) {
+    //     Ok(_) => {
+    //         println!("OK");
+    //     }
+    //     Err(e) => match e {
+    //         spi::SpiError::Crc => {
+    //             println!("CRC ERROR");
+    //         }
+    //         spi::SpiError::Overrun => {
+    //             println!("Overrun");
+    //         }
+    //         spi::SpiError::ModeFault => {
+    //             println!("Mod efault");
+    //         }
+    //         _ => {
+    //             println!("WTF");
+    //         }
+    //     },
+    // }
+
     cs.set_high();
 
     Ok(buf[1])
@@ -122,9 +143,10 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) -> Result<(),
     // todo the SPI bus will still not fail if the IMU isn't present. HAL error?
     // todo: Better sanity check than WHOAMI.
 
-    println!("IMU 1");
+    println!("Pre IMU setup");
     let device_id = read_one(Reg::WhoAmI, spi, cs)?;
-    println!("IMU 2");
+
+    println!("IMU id: {}", device_id);
 
     if device_id != DEVICE_ID {
         return Err(ImuError::NotConnected);

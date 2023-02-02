@@ -5,7 +5,7 @@ use core::{ops::Deref, ptr};
 use stm32_hal2::{
     dma::{self, ChannelCfg, Dma, DmaChannel},
     pac::{self, dma1 as dma_p, DMA1},
-    spi::{BaudRate, Error, SlaveSelect, SpiCommMode, SpiConfig, SpiInterrupt},
+    spi::{BaudRate, SlaveSelect, SpiCommMode, SpiConfig, SpiError, SpiInterrupt},
 };
 
 use cfg_if::cfg_if;
@@ -161,7 +161,7 @@ where
 
     /// Read a single byte if available, or block until it's available.
     /// See L44 RM, section 40.4.9: Data transmission and reception procedures.
-    pub fn read(&mut self) -> Result<u8, Error> {
+    pub fn read(&mut self) -> Result<u8, SpiError> {
         let sr = self.regs.sr.read();
 
         cfg_if! {
@@ -173,11 +173,11 @@ where
         }
 
         if sr.ovr().bit_is_set() {
-            return Err(Error::Overrun);
+            return Err(SpiError::Overrun);
         } else if sr.modf().bit_is_set() {
-            return Err(Error::ModeFault);
+            return Err(SpiError::ModeFault);
         } else if crce {
-            return Err(Error::Crc);
+            return Err(SpiError::Crc);
         }
 
         cfg_if! {
@@ -194,7 +194,7 @@ where
 
     /// Write a single byte if available, or block until it's available.
     /// See L44 RM, section 40.4.9: Data transmission and reception procedures.
-    pub fn write_one(&mut self, byte: u8) -> Result<(), Error> {
+    pub fn write_one(&mut self, byte: u8) -> Result<(), SpiError> {
         let sr = self.regs.sr.read();
 
         cfg_if! {
@@ -206,11 +206,11 @@ where
         }
 
         if sr.ovr().bit_is_set() {
-            return Err(Error::Overrun);
+            return Err(SpiError::Overrun);
         } else if sr.modf().bit_is_set() {
-            return Err(Error::ModeFault);
+            return Err(SpiError::ModeFault);
         } else if crce {
-            return Err(Error::Crc);
+            return Err(SpiError::Crc);
         }
 
         cfg_if! {
@@ -232,7 +232,7 @@ where
 
     /// Write multiple bytes on the SPI line, blocking until complete.
     /// See L44 RM, section 40.4.9: Data transmission and reception procedures.
-    pub fn write(&mut self, words: &[u8]) -> Result<(), Error> {
+    pub fn write(&mut self, words: &[u8]) -> Result<(), SpiError> {
         for word in words {
             self.write_one(*word)?;
             self.read()?;
@@ -243,7 +243,7 @@ where
 
     /// Read multiple bytes to a buffer, blocking until complete.
     /// See L44 RM, section 40.4.9: Data transmission and reception procedures.
-    pub fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<(), Error> {
+    pub fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<(), SpiError> {
         for word in words.iter_mut() {
             self.write_one(*word)?;
             *word = self.read()?;
