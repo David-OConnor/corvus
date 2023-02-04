@@ -207,8 +207,8 @@ const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 // todo: dispatchers are temp
 #[rtic::app(device = pac, peripherals = false, dispatchers= [])]
 mod app {
-    use super::*;
     use stm32_hal2::dma::DmaChannel;
+    use super::*;
 
     #[shared]
     struct Shared {
@@ -305,16 +305,14 @@ mod app {
 
                     pll_src: PllSrc::Hse(16_000_000),
                     pll1: PllCfg {
-                        // todo: Do we want a 64Mhz HSE for H7?
                         divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
                         pllq_en: true, // PLLQ for Spi1 clock. Its default div of 8 is fine.
-                        // divn: 275, // For 550Mhz with freq boost enabled.
+                        // divn: 275, // For 550Mhz H723 with freq boost enabled.
+                        // divn: 275, // For 550Mhz H723 with freq boost enabled.
                         ..Default::default()
                     },
                     hsi48_on: true,
-                    // usb_src: clocks::UsbSrc::Hsi48, This is the default.
-                    // ..Clocks::full_speed()
-                    ..Default::default() // todo: TS speed issues.
+                    ..Clocks::full_speed()
                 };
             } else {
                 let clock_cfg = Clocks {
@@ -326,8 +324,6 @@ mod app {
             }
         }
 
-        println!("Pre clocks setup");
-
         clock_cfg.setup().unwrap();
 
         println!("Clocks setup ");
@@ -338,7 +334,7 @@ mod app {
         #[cfg(feature = "h7")]
         clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-        clocks::enable_crs(CrsSyncSrc::Usb);
+            clocks::enable_crs(CrsSyncSrc::Usb);
 
         let flash = unsafe { &(*pac::FLASH::ptr()) };
 
@@ -352,7 +348,7 @@ mod app {
         let dma2_ch1 = dma::Dma2Ch1::new();
 
         #[cfg(feature = "g4")]
-        dma::enable_mux1();
+            dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
@@ -370,10 +366,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-        // let spi_flash_pac = dp.OCTOSPI1;
-        let spi_flash_pac = dp.QUADSPI;
+            // let spi_flash_pac = dp.OCTOSPI1;
+            let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-        let spi_flash_pac = dp.SPI2;
+            let spi_flash_pac = dp.SPI2;
 
         let (
             mut spi1,
@@ -450,10 +446,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -605,9 +601,9 @@ mod app {
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -673,13 +669,13 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
@@ -712,6 +708,7 @@ mod app {
 
         // // todo: On G4, sort out if you need to set Rising and falling, for M2 RPM reception.
         // imu_exti_pin.enable_interrupt(Edge::Falling);
+
 
         unsafe {
             uart_crsf.read_dma(
@@ -797,18 +794,10 @@ mod app {
 
     /// Runs when new IMU data is ready. Trigger a DMA read.
     /// High priority since it's important, and quick-to-execute
+    /// todo next version, make this EXTI15_10
     #[task(binds = EXTI4, shared = [spi1], local = [], priority = 7)]
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
-        gpio::clear_exti_interrupt(4);
-
-        #[cfg(feature = "g4")]
-        if gpio::is_high(Port::C, 4) {
-            // Ie, this was from a PA4 interrupt for Motor 2 on G4.
-            // todo: QC this.
-            // dshot::update_rec_buf(&dshot::M2_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_2 });
-            dshot::update_rec_buf_2(&dshot::M2_RPM_I);
-            return;
-        }
+        gpio::clear_exti_interrupt(4); // todo: Line 13
 
         cx.shared.spi1.lock(|spi| {
             imu_shared::read_imu(imu::READINGS_START_ADDR, spi, setup::IMU_DMA_PERIPH);
@@ -1605,6 +1594,16 @@ mod app {
     // todo: Can we feature-gate the rpm_read_m3[4] ISRs for G4 only?
     // todo: Probably not with RTIC, but they shouldn't fire on H7, so
     // todo: not required.
+
+    // todo: Use this once you have the new (6-layer) revision.
+    // #[task(binds = EXTI4, priority = 10)]
+    // /// Similar to `rpm_read_m1`, but for M2, on G4 only.
+    // fn rpm_read_m2(_cx: rpm_read_m4::Context) {
+    //     gpio::clear_exti_interrupt(4);
+    //
+    //     // dshot::update_rec_buf(&dshot::M2_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_2 });
+    //     dshot::update_rec_buf_2(&dshot::M2_RPM_I);
+    // }
 
     #[task(binds = EXTI0, priority = 10)]
     /// Similar to `rpm_read_m1`, but for M3, on G4 only.

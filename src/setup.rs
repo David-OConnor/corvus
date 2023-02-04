@@ -258,10 +258,11 @@ pub fn setup_pins() {
     // Enable interrupts on both edges for the pins, for use with reading RPM. Then mask the
     // interrupt. This performs some extra setup, then lets us enable and disable the interrupt
     // by masking and unmasking using imr1.
+
+    // todo: Thinking through the flow re sharing an EXTI line on G4 between
+
     motor1.enable_interrupt(Edge::Either);
-    // todo: On G4, this interrupt is also used by the IMU. Sort this out; especially given you use both
-    // todo edges on RPM reception, but only one on IMU.
-    // motor2.enable_interrupt(Edge::Either);
+    // motor2.enable_interrupt(Edge::Either); // todo: Put back next revision.
     motor3.enable_interrupt(Edge::Either);
     motor4.enable_interrupt(Edge::Either);
 
@@ -277,7 +278,7 @@ pub fn setup_pins() {
         } else {
             exti.imr1.modify(|_, w| {
                 w.im6().clear_bit();
-                // w.im4().clear_bit();  // EXTI 4 is shared with the IMU; leave enabled.
+                // w.im2().clear_bit(); // todo: Next version
                 w.im0().clear_bit();
                 w.im1().clear_bit()
             });
@@ -533,9 +534,6 @@ pub fn setup_busses(
             // todo: Temp config of USB pins on H743. We don't need this on G4 or H723
             let _usb_dm = Pin::new(Port::A, 11, PinMode::Alt(10));
             let _usb_dp = Pin::new(Port::A, 12, PinMode::Alt(10));
-            // PB14 and PB15, AF12 on H732 for OTG_HS?
-            //             let _usb_dm = Pin::new(Port::B, 14, PinMode::Alt(12));
-            //             let _usb_dp = Pin::new(Port::B, 15, PinMode::Alt(102));
 
             // On H7, we run PLLQ1 as the SPI1 clock (default).
             // Configured with Divq=8. H743: 120Mhz SPI clock if core clock is 480Mhz. 100Mhz if @400Mhz.

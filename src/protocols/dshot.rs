@@ -409,7 +409,7 @@ pub fn receive_payload() {
         } else {
             exti.imr1.modify(|_, w| {
                 w.im6().set_bit();
-                // w.im4().set_bit();  // EXTI 4 is shared with the IMU; leave enabled.
+                // w.im4().set_bit();  // todo: Put back next revision.
                 w.im0().set_bit();
                 w.im1().set_bit()
             });
