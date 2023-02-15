@@ -1,19 +1,13 @@
 //! This module contains flight control code for flying-wing aircraft.
-//! Note: We use M1 to connect to the motor, M3 for left elevon, and M4 for right elevon. M2 is unused.
-//! On G4, We use Tim2 for the motor, and Tim3 for elevons (equivalent to quads).
-//! On H7, since we use a single timer for all 4 motors on quads, but need different periods between servo
-//! and motor here, we use Tim2 for the motor (as before), but Tim8 for the elevons (same pins).
+//! We use the motor 1-4 pins for a mix of motors and servos.
+//! We use M1 for the power motor, M3 for left elevon, and M4 for right elevon.
+//! M2 is currently unused. Possibly future uses include second motor, and rudder.
 
 // todo: For wing, consider lowering your main loop frequency to whatever the min servo update frequency is.
 
-use stm32_hal2::{
-    dma::Dma,
-    pac::{self, DMA1},
-    timer::{OutputCompare, TimerInterrupt},
-};
-
 use crate::{
     dshot,
+    protocols::servo,
     safety::ArmStatus,
     setup::{MotorTimer, ServoTimer},
     util,
@@ -24,14 +18,12 @@ use super::common::{CtrlMix, InputMap, Motor};
 use cfg_if::cfg_if;
 // use defmt::println;
 
-// todo: We're going to assume the servos operate off pulse width, with frequency between 40 and 200hz.
-// todo: Unable to find DS for the specific servos used here.
-
 const MIN_MOTOR_POWER: f32 = 0.02;
 
 // Max power setting for any individual rotor at idle setting.
 pub const MAX_MOTOR_POWER: f32 = 1.;
 
+// Constants that represent min and max position of servos.
 const ELEVON_MIN: f32 = -1.;
 const ELEVON_MAX: f32 = 1.;
 
@@ -39,42 +31,6 @@ const RUDDER_MIN: f32 = -1.;
 const RUDDER_MAX: f32 = 1.;
 
 const ANGULAR_ACCEL_LOG_RATIO: usize = 20;
-
-// ROLL_COEFF is used to balance pitch and roll input sensitivity, compared to the implied
-// pitch coeffecient of 1. A higher coefficient will cause a greater roll response for a given input command,
-// while leaving pitch response the same.
-// const ROLL_COEFF: f32 = 5.;
-// const YAW_COEFF: f32 = 1.; // todo
-
-// Update frequency: 500Hz. See `dshot.rs` for the calculation.
-// 170Mhz tim clock on G4.
-// 240Mhz tim clock on H743
-// 260Mhz tim clock on H723 @ 520Mhz. 275Mhz @ 550Mhz
-cfg_if! {
-    if #[cfg(feature = "h7")] {
-        // 240Mhz tim clock.
-        // pub const PSC_SERVOS: u16 = 7;
-        // pub const ARR_SERVOS: u32 = 59_999;
-        // 260Mhz tim clock.
-        pub const PSC_SERVOS: u16 = 7;
-        pub const ARR_SERVOS: u32 = 64_999;
-        // 275Mhz tim clock.
-        // pub const PSC_SERVOS: u16 = 8;
-        // pub const ARR_SERVOS: u32 = 61_110;
-    } else if #[cfg(feature = "g4")] {
-        pub const PSC_SERVOS: u16 = 6;
-        pub const ARR_SERVOS: u32 = 48_570;
-    }
-}
-
-// These values are to set middle, min and max values of 1.5ms, 1ms, and 2ms used
-// by common hobby servos.
-// Calculations, assuming frequency of 500Hz; 500Hz = 2ms.
-// ARR indicates
-const ARR_MIN: u32 = ARR_SERVOS / 2;
-const ARR_MID: u32 = ARR_SERVOS * 3 / 4;
-// Don't us full ARR: there needs to be some low time.
-const ARR_MAX: u32 = ARR_SERVOS - 100;
 
 impl Default for InputMap {
     fn default() -> Self {
@@ -112,13 +68,7 @@ pub fn set_elevon_posit(
         }
     };
 
-    // todo: Consider storring ARR_MIN and ARR_MAX as f32.
-    let duty_arr = util::map_linear(position, range_in, (ARR_MIN as f32, ARR_MAX as f32)) as u32;
-
-    #[cfg(feature = "h7")]
-    let duty_arr = duty_arr as u16;
-
-    timer.set_duty(elevon.tim_channel(), duty_arr);
+    servo::set_posit(position, range_in, timer, elevon.tim_channel());
 }
 
 /// Equivalent of `Motor` for quadcopters.
@@ -232,30 +182,31 @@ impl ControlPositions {
     pub fn set(
         &self,
         mapping: &ControlMapping,
-        motor_timers: &mut MotorTimers,
+        motor_timer: &mut MotorTimer,
+        servo_timer: &mut ServoTimer,
         arm_status: ArmStatus,
     ) {
         // M2 isn't used here, but keeps our API similar to Quad.
         match arm_status {
             ArmStatus::MotorsControlsArmed => {
-                dshot::set_power(self.motor, 0., 0., 0., motor_timers);
+                dshot::set_power(self.motor, 0., 0., 0., motor_timer);
 
                 // todo: Apply to left and right wing by mapping etc! Here or upstream.
-                set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, motor_timers);
-                set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, motor_timers);
+                set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, servo_timer);
+                set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, servo_timer);
             }
             ArmStatus::ControlsArmed => {
-                dshot::stop_all(motor_timers);
+                dshot::stop_all(motor_timer);
 
                 // todo: Apply to left and right wing by mapping etc! Here or upstream.
-                set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, motor_timers);
-                set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, motor_timers);
+                set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, servo_timer);
+                set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, servo_timer);
             }
             ArmStatus::Disarmed => {
-                dshot::stop_all(motor_timers);
+                dshot::stop_all(motor_timer);
 
-                set_elevon_posit(ServoWing::S1, 0., mapping, motor_timers);
-                set_elevon_posit(ServoWing::S2, 0., mapping, motor_timers);
+                set_elevon_posit(ServoWing::S1, 0., mapping, servo_timer);
+                set_elevon_posit(ServoWing::S2, 0., mapping, servo_timer);
             }
         }
     }
@@ -304,66 +255,3 @@ impl ControlPositions {
         self.rudder
     }
 }
-
-// todo: Move PWM code out of this module if it makes sense, ie separate servo; flight-control module
-
-// /// For a target pitch and roll rate, estimate the control positions required. Note that `throttle`
-// /// in `ctrl_positions` output is unused. Rates are in rad/s. Airspeed is indicated AS in m/s. Throttle is on a
-// /// scale of 0. to 1.
-// /// todo: Using power setting as a standin for airspeed for now, if we don't have a GPS or pitot.
-// /// todo: In the future use power as a permanent standin if these aren't equipped.
-// fn _estimate_ctrl_posits(
-//     pitch_rate: f32,
-//     roll_rate: f32,
-//     airspeed: Option<f32>,
-//     throttle: f32,
-// ) -> ControlPositions {
-//     let mut center = 0.;
-//     let mut diff = 0.; // positive diff = left wing up.
-//     let mut rudder = 0.;
-//
-//     // todo: Placeholder
-//     let pitch_const = 0.1;
-//     let roll_const = 0.1;
-//     let yaw_const = 0.1;
-//
-//     // todo: Clean up DRY once the dust settles on this fn.
-//
-//     // todo: Use this to modify rudder too.
-//     match airspeed {
-//         Some(speed) => {
-//             center = pitch_const * pitch_rate / speed;
-//             diff = roll_const * roll_rate / speed;
-//         }
-//         None => {
-//             center = pitch_const * pitch_rate / throttle;
-//             diff = roll_const * roll_rate / throttle;
-//         }
-//     }
-//
-//     // todo: DRY from apply_ctrls!
-//     let mut elevon_left = 0.;
-//     let mut elevon_right = 0.;
-//
-//     elevon_left += center;
-//     elevon_right += center;
-//
-//     // elevon_left -= diff * ROLL_COEFF;
-//     // elevon_right += diff * ROLL_COEFF;
-//     //
-//     // rudder += diff * YAW_COEFF;
-//
-//     elevon_left -= diff;
-//     elevon_right += diff;
-//
-//     rudder += diff;
-//
-//     // todo: Clamp both elevons in both directions.
-//
-//     ControlPositions {
-//         motor: throttle,
-//         elevon_left,
-//         elevon_right,
-//         rudder,
-//     }
-// }

@@ -54,16 +54,6 @@ pub const THROTTLE_MIN_MNVR_CLAMP: f32 = 0.06;
 // todo: Calibration unimplemented
 // const MIN_CAL_ALT: f32 = 6.;
 
-// Minimium speed before auto-yaw will engate. (if we end up setting up auto-yaw to align flight path
-// with heading)
-// todo: Maybe this could also be used if we end up setting up auto-yaw as sideway-accel cancellation?
-// todo, and this would be the min *fwd* velocity?
-pub const YAW_ASSIST_MIN_SPEED: f32 = 0.5; // m/s
-
-// if coeff = 0.5, if accel is 1 m/s^2, yaw correction is 1/2 rad/s
-// angular velocity / accel: (radians/s) / (m/s^2) = radiants x s / m
-pub const YAW_ASSIST_COEFF: f32 = 0.1;
-
 impl Default for InputMap {
     // todo: move deafult impls to their respective moudles (quad, flying wing)?
     fn default() -> Self {

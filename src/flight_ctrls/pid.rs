@@ -5,6 +5,8 @@
 //!
 //! [Some info on the PID terms, focused on BF](https://gist.github.com/exocode/90339d7f946ad5f83dd1cf29bf5df0dc)
 //! https://oscarliang.com/quadcopter-pid-explained-tuning/
+//!
+//! As of 2023-02-15, we use this only for commanding specific motor RPMs.
 
 use cmsis_dsp_api as dsp_api;
 
@@ -59,7 +61,9 @@ pub enum LowpassCutoff {
 
 // todo: Feature-gate for quad as-required
 
-/// Coefficients and other configurable parameters for our motor PID
+/// Coefficients and other configurable parameters for our motor PID,
+/// where we command RPMs, and use PID to reach and maintain them by adjusting
+/// motor power.
 pub struct MotorCoeffs {
     pub p_front_left: f32,
     pub p_front_right: f32,
@@ -71,11 +75,6 @@ pub struct MotorCoeffs {
     pub i_aft_left: f32,
     pub i_aft_right: f32,
 
-    // pub d_front_left: f32,
-
-    // pub d_front_right: f32,
-    // pub d_aft_left: f32,
-    // pub d_aft_right: f32,
     pub rpm_cutoff: LowpassCutoff,
 }
 

@@ -503,13 +503,13 @@ pub fn control_posits_from_att(
     // todo: Modulate based on airspeed.
 
     let rotation_cmd = target_attitude * current_attitude.inverse();
-    let (rot_pitch, rot_roll, _rot_yaw) = rotation_cmd.to_euler();
+    let rot_euler = rotation_cmd.to_euler();
 
     let ang_accel_pitch = (params.v_pitch - params_prev.v_pitch) / dt;
     let ang_accel_roll = (params.v_roll - params_prev.v_roll) / dt;
 
     let pitch = find_ctrl_setting(
-        rot_pitch,
+        rot_euler.pitch,
         params.v_pitch,
         ang_accel_pitch,
         coeffs,
@@ -517,7 +517,7 @@ pub fn control_posits_from_att(
         accel_map,
     );
     let roll = find_ctrl_setting(
-        rot_roll,
+        rot_euler.roll,
         params.v_roll,
         ang_accel_roll,
         coeffs,

@@ -55,7 +55,7 @@ pub const BIDIR_EN: bool = true;
 // ARR = (TIMclk/Updatefrequency) / (PSC + 1) - 1
 // With PSC being fixed at 0: ARR = TIMclk/UpdateFrequency - 1
 
-pub const DSHOT_PSC: u16 = 0;
+pub const PSC_DSHOT: u16 = 0;
 
 // ESC telemetry is false except when setting motor direction.
 static mut ESC_TELEM: bool = false;
@@ -90,10 +90,10 @@ cfg_if! {
     }
 }
 
-pub const DSHOT_ARR: u32 = TIM_CLK / DSHOT_SPEED - 1;
+pub const ARR_DSHOT: u32 = TIM_CLK / DSHOT_SPEED - 1;
 // Duty cycle values (to be written to CCMRx), based on our ARR value. 0. = 0%. ARR = 100%.
-const DUTY_HIGH: u32 = DSHOT_ARR * 3 / 4;
-const DUTY_LOW: u32 = DSHOT_ARR * 3 / 8;
+const DUTY_HIGH: u32 = ARR_DSHOT * 3 / 4;
+const DUTY_LOW: u32 = ARR_DSHOT * 3 / 8;
 
 // We use this during config that requires multiple signals sent, eg setting. motor direction.
 
@@ -460,7 +460,7 @@ pub fn set_to_output(timer: &mut MotorTimer) {
 
     let oc = OutputCompare::Pwm1;
 
-    timer.set_auto_reload(DSHOT_ARR as u32);
+    timer.set_auto_reload(ARR_DSHOT as u32);
 
     // todo: Here and elsewhere in this module, if you allocate timers/motors differently than 2/2
     // todo for fixed-wing, you'll need to change this logic.

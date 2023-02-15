@@ -27,7 +27,17 @@ use cfg_if::cfg_if;
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
     } else {
-        use crate::flight_ctrls::{InputMode, YAW_ASSIST_COEFF, YAW_ASSIST_MIN_SPEED, takeoff_speed};
+        use crate::flight_ctrls::{InputMode, takeoff_speed};
+
+        // Minimium speed before auto-yaw will engage. (if we end up setting up auto-yaw to align flight path
+        // with heading)
+        // todo: Maybe this could also be used if we end up setting up auto-yaw as sideway-accel cancellation?
+        // todo, and this would be the min *fwd* velocity?
+        const YAW_ASSIST_MIN_SPEED: f32 = 0.5; // m/s
+
+        // if coeff = 0.5, if accel is 1 m/s^2, yaw correction is 1/2 rad/s
+        // angular velocity / accel: (radians/s) / (m/s^2) = radiants x s / m
+        const YAW_ASSIST_COEFF: f32 = 0.1;
     }
 }
 

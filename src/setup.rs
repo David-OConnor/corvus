@@ -31,10 +31,10 @@ use crate::{
         baro_dps310 as baro, flash_spi, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
         tof_vl53l1 as tof,
     },
-    dshot,
     flight_ctrls::common::Motor,
     params::Params,
     ppks::{Location, LocationType},
+    protocols::{dshot, servo},
     system_status::{SensorStatus, SystemStatus},
 };
 
@@ -104,7 +104,7 @@ pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
 pub const DSHOT_BASE_DIR_OFFSET: u8 = 0x34 / 4;
 
 pub type MotorTimer = Timer<pac::TIM3>;
-pub type ServoTimer = Timer<pac::TIM8>; // todo: Valid for G4 too?
+pub type ServoTimer = Timer<pac::TIM8>; // Valid for H7 on all channels. Valid for G4 on Ch 1, 3, 4.
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
@@ -175,8 +175,6 @@ pub fn init_sensors(
             Default::default()
         }
     };
-
-    // let mut altimeter = baro::Altimeter::default(); // todo tmep!!!
 
     let fix = gps::get_fix(i2c1);
     match fix {
@@ -293,43 +291,10 @@ pub fn setup_pins() {
     motor3.output_speed(dshot_gpiospeed);
     motor4.output_speed(dshot_gpiospeed);
 
-    // #[cfg(feature = "g4")]
-    // Not used
-    // let _buzzer = Pin::new(Port::A, 10, PinMode::Alt(6)); // Tim1 ch3
-    // let _buzzer = Pin::new(Port::E, 9, PinMode::Alt(1)); // Tim1 ch1
-
     // SPI1 for the IMU. Nothing else on the bus, since we use it with DMA
     let mut sck1 = Pin::new(Port::A, 5, PinMode::Alt(5));
     let mut miso1 = Pin::new(Port::A, 6, PinMode::Alt(5));
     let mut mosi1 = Pin::new(Port::A, 7, PinMode::Alt(5));
-
-    // let mut sck1 = Pin::new(Port::A, 5, PinMode::Output);
-    // let mut miso1 = Pin::new(Port::A, 6, PinMode::Output);
-    // let mut mosi1 = Pin::new(Port::A, 7, PinMode::Output);
-    // let mut cs = Pin::new(Port::C, 4, PinMode::Output);
-    //
-    // sck1.set_high();
-    // miso1.set_high();
-    // mosi1.set_high();
-    // cs.set_high();
-
-    // println!("TEST SPI LOOP");
-    // let cp = unsafe { cortex_m::Peripherals::steal() };
-    // let mut delay = Delay::new(cp.SYST, 400_000_000);
-    // loop {
-    //     // sck1.set_high();
-    //     // miso1.set_high();
-    //     // mosi1.set_high();
-    //     cs.set_high();
-    //
-    //     delay.delay_ms(1000);
-    //
-    //     // sck1.set_low();
-    //     // miso1.set_low();
-    //     // mosi1.set_low();
-    //     cs.set_low();
-    //     delay.delay_ms(1000);
-    // }
 
     // Depending on capacitance, med or high should be appropriate for SPI speeds.
     // High means sharper edges, which also may mean more interference.
@@ -372,12 +337,13 @@ pub fn setup_pins() {
 
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            // Use use Uart 7 for the onboard ELRS MCU.
+            // We use Uart 7 for the onboard ELRS MCU.
             let _uart_crsf_tx = Pin::new(Port::B, 4, PinMode::Alt(11));
             let mut uart_crsf_rx = Pin::new(Port::B, 3, PinMode::Alt(11));
         } else {
-            let _uart_crsf_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
-            let mut uart_crsf_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
+            // We use UART 2 for ELRS on G4.
+            let _uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
+            let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
         }
     }
 
@@ -400,16 +366,11 @@ pub fn setup_pins() {
     let mut imu_exti_pin = Pin::new(Port::B, 12, PinMode::Input);
     #[cfg(feature = "g4")]
     let mut imu_exti_pin = Pin::new(Port::C, 4, PinMode::Input);
+    // let mut imu_exti_pin = Pin::new(Port::C, 13, PinMode::Input); // todo: Next version.
 
     imu_exti_pin.output_type(OutputType::OpenDrain);
     imu_exti_pin.pull(Pull::Up);
 
-    // todo: Moved to `idle` for setup.
-    // todo: On G4, sort out if you need to set Rising and falling, for M2 RPM reception.
-    #[cfg(feature = "h7")]
-    let imu_exti_edge = Edge::Falling;
-    #[cfg(feature = "g4")]
-    // let imu_exti_edge = Edge::Either;
     let imu_exti_edge = Edge::Falling;
 
     // todo: Will this still work? Does a given port need control of the exti line, eg
@@ -431,7 +392,7 @@ pub fn setup_pins() {
             let mut sda1 = Pin::new(Port::B, 9, i2c_alt);
 
             let mut scl2 = Pin::new(Port::A, 9, i2c_alt);
-            let mut sda2 = Pin::new(Port::A, 10, i2c_alt);
+            let mut sda2 = Pin::new(Port::A, 8, i2c_alt);
         }
     }
 
@@ -668,8 +629,8 @@ pub fn setup_busses(
 /// Configures all 4 motor timers for quadcopters, or combinations of motors and servos
 /// for fixed-wing
 pub fn setup_motor_timers(motor_timer: &mut MotorTimer, servo_timer: &mut ServoTimer) {
-    motor_timer.set_prescaler(dshot::DSHOT_PSC);
-    motor_timer.set_auto_reload(dshot::DSHOT_ARR as u32);
+    motor_timer.set_prescaler(dshot::PSC_DSHOT);
+    motor_timer.set_auto_reload(dshot::ARR_DSHOT as u32);
 
     motor_timer.enable_interrupt(TimerInterrupt::UpdateDma);
 
@@ -678,8 +639,8 @@ pub fn setup_motor_timers(motor_timer: &mut MotorTimer, servo_timer: &mut ServoT
             dshot::set_to_output(motor_timer);
             dshot::set_bidirectional(dshot::BIDIR_EN, motor_timer);
         } else {
-            servo_timer.set_prescaler(PSC_SERVOS);
-            servo_timer.set_auto_reload(ARR_SERVOS);
+            servo_timer.set_prescaler(servo::PSC_SERVOS);
+            servo_timer.set_auto_reload(servo::ARR_SERVOS);
 
             // Arbitrary duty cycle set, since we'll override it with DMA bursts for the motor, and
             // position settings for the servos.

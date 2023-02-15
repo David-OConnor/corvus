@@ -23,6 +23,8 @@ use cfg_if::cfg_if;
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use crate::flight_ctrls::{ControlPositions};
+
+        use lin_alg2::f32::Vec3;
     } else {
         use crate::flight_ctrls::{MotorPower, InputMode};
     }

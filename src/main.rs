@@ -120,7 +120,7 @@ cfg_if! {
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
-        use flight_ctrls::{autopilot::Orbit, ControlPositions};
+        // use flight_ctrls::{autopilot::Orbit, ControlPositions};
     } else {
         use flight_ctrls::RotationDir;
     }
@@ -207,8 +207,8 @@ const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 // todo: dispatchers are temp
 #[rtic::app(device = pac, peripherals = false, dispatchers= [])]
 mod app {
-    use stm32_hal2::dma::DmaChannel;
     use super::*;
+    use stm32_hal2::dma::DmaChannel;
 
     #[shared]
     struct Shared {
@@ -312,7 +312,9 @@ mod app {
                         ..Default::default()
                     },
                     hsi48_on: true,
-                    ..Clocks::full_speed()
+                    // todo: Trouble with full speed on H743
+                    // ..Clocks::full_speed()
+                    ..Default::default()
                 };
             } else {
                 let clock_cfg = Clocks {
@@ -324,6 +326,7 @@ mod app {
             }
         }
 
+        println!("Pre clocks setup");
         clock_cfg.setup().unwrap();
 
         println!("Clocks setup ");
@@ -334,7 +337,7 @@ mod app {
         #[cfg(feature = "h7")]
         clocks::enable_crs(CrsSyncSrc::OtgHs);
         #[cfg(feature = "g4")]
-            clocks::enable_crs(CrsSyncSrc::Usb);
+        clocks::enable_crs(CrsSyncSrc::Usb);
 
         let flash = unsafe { &(*pac::FLASH::ptr()) };
 
@@ -348,7 +351,7 @@ mod app {
         let dma2_ch1 = dma::Dma2Ch1::new();
 
         #[cfg(feature = "g4")]
-            dma::enable_mux1();
+        dma::enable_mux1();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
@@ -366,10 +369,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-            // let spi_flash_pac = dp.OCTOSPI1;
-            let spi_flash_pac = dp.QUADSPI;
+        // let spi_flash_pac = dp.OCTOSPI1;
+        let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-            let spi_flash_pac = dp.SPI2;
+        let spi_flash_pac = dp.SPI2;
 
         let (
             mut spi1,
@@ -390,47 +393,29 @@ mod app {
             &clock_cfg,
         );
 
-        // todo: SPI DMA test
-
-        // gpio::set_low(Port::C, 4);
-        //
-        // let write_buf = [0x75, 0];
-        // let mut buf_t = [0; 4];
-        //
-        // unsafe {
-        //     spi1.transfer_dma(
-        //         &write_buf,
-        //         &mut buf_t,
-        //         DmaChannel::C1,
-        //         DmaChannel::C2,
-        //         ChannelCfg {
-        //             ..Default::default()
-        //         },
-        //         ChannelCfg {
-        //             ..Default::default()
-        //         },
-        //         DmaPeriph::Dma1,
-        //     );
-        // }
-        //
-        // println!("Starting IMU SPI test loop");
-        // while !dma.transfer_is_complete(DmaChannel::C1) {
-        //
-        // }
-        //
-        // loop {
-        //     println!("BUF TEMP a: {:?}, b: {:?}", write_buf, buf_t);
-        //     delay.delay_ms(500);
-        // }
-
         // todo end SPI test loop.
 
         // todo start I2c test
-        // println!("Starting I2c test loop");
+        // println!("Starting I2c/SPI test loop");
+        //
+        // // let x = unsafe {
+        // //     (*pac::RCC::ptr()).apb2enr.read().spi1en().bit_is_set()
+        // // };
+        //
+        // let x = spi1.regs.cr1.read().spe().bit_is_set();
+        //
+        // println!("RCC TEST: {}", x);
         // //
         // loop {
-        //     let mut buf = [0];
-        //     i2c1.write_read(0x77, &[0x0d], &mut buf).ok();
+        //     // let mut buf = [0];
+        //     // i2c1.write_read(0x77, &[0x0d], &mut buf).ok();
+        //
+        //     let mut buf = [0x75, 0, 0];
+        //
+        //     cs_imu.set_low();
+        //     spi1.transfer(&mut buf);
+        //
+        //     cs_imu.set_high();
         //     println!("Buf: {:?}", buf[0]);
         //     delay.delay_ms(500);
         // }
@@ -446,10 +431,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -483,6 +468,18 @@ mod app {
             Default::default(),
             &clock_cfg,
         );
+
+        // todo: Testing ELRS MCU flashing
+        // Pull up the CRSF RX line. Without this, our idle interrupt fires spuratically in
+        // some conditions, like when touching the (even outside) of the wires if an Rx
+        // module isn't connected.
+        // let mut uart_crsf_tx = Pin::new(Port::B, 3, gpio::PinMode::Input);
+        // let mut uart_crsf_rx = Pin::new(Port::B, 4, gpio::PinMode::Input);
+        // // uart_crsf_rx.pull(gpio::Pull::Up);
+        // // uart_crsf_tx.pull(gpio::Pull::Up);
+        //
+        // println!("ELRS test loop");
+        // loop {}
 
         rf_limiter_timer.enable_interrupt(TimerInterrupt::Update);
 
@@ -520,11 +517,9 @@ mod app {
 
         // This timer periodically fire. When it does, we read the value of each of the 4 motor lines
         // in its ISR.
-        // todo: Adjust frequency A/R. It should be 5/4 * dshot frequency.
-        // todo: Eg f
         let mut dshot_read_timer = Timer::new_tim2(dp.TIM2, 1., Default::default(), &clock_cfg);
 
-        dshot_read_timer.set_prescaler(dshot::DSHOT_PSC);
+        dshot_read_timer.set_prescaler(dshot::PSC_DSHOT);
         dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ);
         dshot_read_timer.enable_interrupt(TimerInterrupt::Update);
 
@@ -601,9 +596,9 @@ mod app {
         let mut flash_buf = [0; 8];
         // let cfg_data =
         #[cfg(feature = "h7")]
-            flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
-            flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
 
         // println!(
         //     "mem val: {}",
@@ -669,13 +664,13 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
@@ -708,7 +703,6 @@ mod app {
 
         // // todo: On G4, sort out if you need to set Rising and falling, for M2 RPM reception.
         // imu_exti_pin.enable_interrupt(Edge::Falling);
-
 
         unsafe {
             uart_crsf.read_dma(
@@ -794,10 +788,14 @@ mod app {
 
     /// Runs when new IMU data is ready. Trigger a DMA read.
     /// High priority since it's important, and quick-to-execute
-    /// todo next version, make this EXTI15_10
-    #[task(binds = EXTI4, shared = [spi1], local = [], priority = 7)]
+    #[task(binds = EXTI4,
+    // #[task(binds = EXTI15_10,
+    shared = [spi1], local = [], priority = 7)]
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
-        gpio::clear_exti_interrupt(4); // todo: Line 13
+        #[cfg(feature = "h7")]
+        gpio::clear_exti_interrupt(12); // PB12
+        #[cfg(feature = "g4")]
+        gpio::clear_exti_interrupt(4); // todo: Line 13 next revision.
 
         cx.shared.spi1.lock(|spi| {
             imu_shared::read_imu(imu::READINGS_START_ADDR, spi, setup::IMU_DMA_PERIPH);
@@ -1035,7 +1033,6 @@ mod app {
                     let i_compensated = i / FLIGHT_CTRL_IMU_RATIO;
 
                     if (i_compensated - 0) % NUM_IMU_LOOP_TASKS == 0 {
-                        // println!("A");
                         let mut batt_v = 0.;
                         let mut curr_v = 0.;
                         batt_v = cx.local.batt_curr_adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[0])
@@ -1049,7 +1046,6 @@ mod app {
                         state_volatile.batt_v = batt_v;
                         state_volatile.esc_current = esc_current;
                     } else if (i_compensated - 1) % NUM_IMU_LOOP_TASKS == 0 {
-                        // println!("B");
                         let (arm_status, throttle) = match control_channel_data {
                             Some(ch_data) => (ch_data.arm_status, ch_data.throttle),
                             None => (ArmStatus::Disarmed, 0.),
@@ -1084,8 +1080,6 @@ mod app {
                             system_status.rf_control_link = SensorStatus::Pass;
                         }
                     } else if (i_compensated - 2) % NUM_IMU_LOOP_TASKS == 0 {
-                        // println!("C");
-
                         let osd_data = OsdData {
                             arm_status: state_volatile.arm_status,
                             battery_voltage: state_volatile.batt_v,
@@ -1258,7 +1252,6 @@ mod app {
                         println!("No task");
                     }
 
-
                     // This feature-flag enabled status print runs less frequently
                     // than the above processes. . It's an alternative to Preflight.
                     // todo: Delegat ethis printing to a fn?:
@@ -1423,7 +1416,7 @@ mod app {
                                 DT_IMU,
                             );
 
-                            control_posits_commanded.set(&cfg.control_mapping, motor_timers, state_volatile.arm_status,  dma);
+                            control_posits_commanded.set(&cfg.control_mapping, motor_timer, state_volatile.arm_status);
 
                             state_volatile.ctrl_mix = ctrl_mix;
                             state_volatile.ctrl_positions = control_posits;
