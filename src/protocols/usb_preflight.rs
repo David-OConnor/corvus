@@ -16,7 +16,6 @@ use crate::{
     control_interface::ChannelData,
     dshot,
     flight_ctrls::{
-        self,
         common::{AttitudeCommanded, RpmStatus},
         ControlMapping,
     },
@@ -24,8 +23,14 @@ use crate::{
     safety::ArmStatus,
     setup,
     state::{OperationMode, MAX_WAYPOINTS},
-    system_status, util, LinkStats,
+    system_status::{self, SystemStatus},
+    util, LinkStats,
 };
+
+use defmt::println;
+
+#[cfg(feature = "fixed-wing")]
+use crate::flight_ctrls;
 
 use lin_alg2::f32::Quaternion;
 
@@ -33,7 +38,7 @@ use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
-        use crate::flight_ctrls::{ServoWing, ServoWingPosition};
+        use crate::flight_ctrls::ServoWingPosition;
     } else {
         use crate::flight_ctrls::{RotorPosition};
     }
@@ -56,9 +61,6 @@ cfg_if! {
 use usbd_serial::SerialPort;
 
 use num_enum::TryFromPrimitive; // Enum from integer
-
-use crate::system_status::SystemStatus;
-use defmt::println;
 
 const CRC_POLY: u8 = 0xab;
 const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);

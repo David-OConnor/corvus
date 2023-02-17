@@ -2,20 +2,16 @@
 //! regarding DMA operations on the barometer and external sensors I2C lines.
 
 use stm32_hal2::{
-    dma,
+    dma::DmaChannel,
     i2c::I2c,
     pac::{I2C1, I2C2},
 };
 
 use crate::{
     baro, gps, mag,
-    setup::{self, BARO_TX_CH, EXT_SENSORS_TX_CH},
+    setup::{self, BARO_DMA_PERIPH, BARO_TX_CH, EXT_SENSORS_TX_CH, IMU_DMA_PERIPH},
     tof,
 };
-
-use crate::setup::{BARO_DMA_PERIPH, IMU_DMA_PERIPH};
-use defmt::println;
-use stm32_hal2::dma::DmaChannel;
 
 // Each of these values is register, value to write to register.
 // todo: Populate these.

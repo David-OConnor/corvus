@@ -178,32 +178,30 @@ impl ControlPositions {
         result
     }
 
-    /// Send this command to cause power to be applied to the motor and servos.
     pub fn set(
         &self,
         mapping: &ControlMapping,
-        motor_timer: &mut MotorTimer,
+        // motor_timer: &mut MotorTimer,
         servo_timer: &mut ServoTimer,
         arm_status: ArmStatus,
     ) {
-        // M2 isn't used here, but keeps our API similar to Quad.
         match arm_status {
             ArmStatus::MotorsControlsArmed => {
-                dshot::set_power(self.motor, 0., 0., 0., motor_timer);
+                // dshot::set_power(self.motor, 0., 0., 0., motor_timer);
 
                 // todo: Apply to left and right wing by mapping etc! Here or upstream.
                 set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, servo_timer);
                 set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, servo_timer);
             }
             ArmStatus::ControlsArmed => {
-                dshot::stop_all(motor_timer);
+                // dshot::stop_all(motor_timer);
 
                 // todo: Apply to left and right wing by mapping etc! Here or upstream.
                 set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, servo_timer);
                 set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, servo_timer);
             }
             ArmStatus::Disarmed => {
-                dshot::stop_all(motor_timer);
+                // dshot::stop_all(motor_timer);
 
                 set_elevon_posit(ServoWing::S1, 0., mapping, servo_timer);
                 set_elevon_posit(ServoWing::S2, 0., mapping, servo_timer);

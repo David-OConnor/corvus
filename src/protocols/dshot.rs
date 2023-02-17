@@ -14,26 +14,20 @@
 //! The DSHOT protocol (DSHOT-300, DSHOT-600 etc) is determined by the `DSHOT_ARR_600` and
 //! `DSHOT_PSC_600` settings; ie set a 600kHz countdown for DSHOT-600.
 
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
     dma::{self, ChannelCfg, Priority},
-    gpio::{self, PinMode},
-    pac::{self, TIM3},
-    timer::{CaptureCompare, CountDir, OutputCompare, Polarity, TimerInterrupt},
+    pac,
+    timer::{CountDir, OutputCompare, Polarity},
 };
 
 use crate::{
-    flight_ctrls::{
-        common::{Motor, MotorRpm},
-        ControlMapping,
-    },
+    flight_ctrls::{common::Motor, ControlMapping},
     setup::MotorTimer,
 };
-
-use defmt::println;
 
 // todo: Bidirectional: Set timers to active low, set GPIO idle to high, and perhaps set down counting
 // todo if required. Then figure out input capture, and fix in HAL.
@@ -44,7 +38,6 @@ use defmt::println;
 
 use crate::setup;
 use cfg_if::cfg_if;
-use usb_device::device::UsbDeviceState::Default;
 
 // Enable bidirectional DSHOT, which returns RPM data
 pub const BIDIR_EN: bool = true;
@@ -356,10 +349,6 @@ fn send_payload(timer: &mut MotorTimer) {
         );
     }
 }
-
-// todo temp
-use crate::protocols::rpm_reception;
-use stm32_hal2::dma::DmaChannel;
 
 /// Receive an RPM payload for all channels in bidirectional mode.
 /// Note that we configure what won't affect the FC-ESC transmission in the reception timer's

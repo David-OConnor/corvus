@@ -10,13 +10,11 @@
 
 use crate::{
     atmos_model::{AltitudeCalPt, POINT_0, POINT_1},
+    setup::I2cBaro,
     util,
 };
 
-use stm32_hal2::{
-    i2c::{self, I2c},
-    pac::{I2C1, I2C2},
-};
+use stm32_hal2::i2c;
 
 use defmt::println;
 
@@ -24,8 +22,6 @@ use defmt::println;
 // pulled-down to GND).
 pub const ADDR: u8 = 0x77;
 pub const PRODUCT_ID: u8 = 0x10;
-
-type I2C = I2c<I2C2>;
 
 pub struct BaroNotConnectedError {}
 
@@ -101,7 +97,7 @@ fn fix_int_sign(val: &mut i32, num_bits: u8) {
 }
 
 /// Utility function to read a single byte.
-fn read_one(reg: Reg, i2c: &mut I2C) -> Result<u8, BaroNotConnectedError> {
+fn read_one(reg: Reg, i2c: &mut I2cBaro) -> Result<u8, BaroNotConnectedError> {
     let mut buf = [0];
     i2c.write_read(ADDR, &[reg as u8], &mut buf)?;
     Ok(buf[0])
@@ -123,7 +119,7 @@ struct HardwareCoeffCal {
 }
 
 impl HardwareCoeffCal {
-    pub fn new(i2c: &mut I2C) -> Result<Self, BaroNotConnectedError> {
+    pub fn new(i2c: &mut I2cBaro) -> Result<Self, BaroNotConnectedError> {
         // Read each register value.
 
         let mut buf = [0; 18];
@@ -194,7 +190,7 @@ pub struct Altimeter {
 impl Altimeter {
     /// Configure settings, including pressure mreasurement rate, and return an instance.
     /// And load calibration data.
-    pub fn new(i2c: &mut I2C) -> Result<Self, BaroNotConnectedError> {
+    pub fn new(i2c: &mut I2cBaro) -> Result<Self, BaroNotConnectedError> {
         if read_one(Reg::ProductId, i2c)? != PRODUCT_ID {
             return Err(BaroNotConnectedError {});
         }
@@ -242,7 +238,7 @@ impl Altimeter {
     pub fn calibrate_from_gps(
         &mut self,
         gps_alt: Option<f32>,
-        i2c: &mut I2C,
+        i2c: &mut I2cBaro,
     ) -> Result<(), BaroNotConnectedError> {
         let (pressure, temp) = self.read_pressure_temp(i2c)?;
 
@@ -321,7 +317,10 @@ impl Altimeter {
     ///
     /// Note: We don't use this function in practice after init; we use DMA instead to populate the
     /// buffer.
-    pub fn read_pressure_temp(&self, i2c: &mut I2C) -> Result<(f32, f32), BaroNotConnectedError> {
+    pub fn read_pressure_temp(
+        &self,
+        i2c: &mut I2cBaro,
+    ) -> Result<(f32, f32), BaroNotConnectedError> {
         // The Pressure Data registers contains the 24 bit (3 bytes) 2's complement pressure measurement value.
         // If the FIFO is enabled, the register will contain the FIFO pressure and/or temperature results. Otherwise, the
         // register contains the pressure measurement results and will not be cleared after read.

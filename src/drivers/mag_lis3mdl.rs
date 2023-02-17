@@ -3,7 +3,7 @@
 
 use stm32_hal2::{
     i2c::{self, I2c},
-    pac::{I2C1, I2C2}, // todo 2 is temp to TS
+    pac::I2C1,
 };
 
 use cortex_m::delay::Delay;

@@ -412,7 +412,8 @@ fn find_ctrl_setting(
     #[cfg(feature = "quad")]
     return accel_map.pitch_accel_to_rpm(α_target); // todo: Hard-coded to pitch as stopgap
     #[cfg(feature = "fixed-wing")]
-    return accel_map.accel_to_servo_cmds(α_target);
+    return 0.; // todo
+               // return accel_map.accel_to_servo_cmds(α_target);
 }
 
 #[cfg(feature = "quad")]

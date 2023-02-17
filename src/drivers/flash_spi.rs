@@ -3,8 +3,6 @@
 
 use stm32_hal2::{gpio::Pin, pac, spi};
 
-use defmt::println;
-
 #[cfg(feature = "h7")]
 pub type SpiFlashType = stm32_hal2::qspi::Qspi;
 #[cfg(feature = "g4")]

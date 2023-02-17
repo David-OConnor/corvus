@@ -1,7 +1,7 @@
 //! This module provides a hardware interface for servos.
 //! This are used by fixed-wing, eg for use with elevons.
 
-use stm32_hal2::timer::{TimChannel, Timer};
+use stm32_hal2::timer::TimChannel;
 
 use crate::{setup::ServoTimer, util};
 

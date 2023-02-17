@@ -2,13 +2,11 @@
 //! DMA buffer.
 
 use stm32_hal2::{
-    dma::{self, ChannelCfg, Dma, DmaPeriph, Priority},
+    dma::{ChannelCfg, DmaPeriph, Priority},
     gpio::{self, Port},
-    pac::{DMA1, SPI1},
-    spi::Spi,
 };
 
-use crate::setup::{IMU_DMA_PERIPH, IMU_RX_CH, IMU_TX_CH};
+use crate::setup::{SpiImu, IMU_RX_CH, IMU_TX_CH};
 
 const G: f32 = 9.8; // m/s
 
@@ -79,7 +77,7 @@ impl ImuReadings {
 
 /// Read all 3 measurements, by commanding a DMA transfer. The transfer is closed, and readings
 /// are processed in the Transfer Complete ISR.
-pub fn read_imu(starting_addr: u8, spi: &mut Spi<SPI1>, periph: DmaPeriph) {
+pub fn read_imu(starting_addr: u8, spi: &mut SpiImu, periph: DmaPeriph) {
     // First byte is the first data reg, per this IMU's. Remaining bytes are empty, while
     // the MISO line transmits readings.
     unsafe {

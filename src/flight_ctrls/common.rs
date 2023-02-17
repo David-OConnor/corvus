@@ -3,11 +3,7 @@
 
 use crate::util::map_linear;
 
-// use stm32_hal2::{pac, timer::Timer};
-
 use lin_alg2::f32::Quaternion;
-
-use defmt::println;
 
 // Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);

@@ -24,7 +24,7 @@ use core::sync::atomic::Ordering;
 
 use ahrs_fusion::Ahrs;
 use cfg_if::cfg_if;
-use control_interface::{ChannelData, LinkStats, PidTuneActuation};
+use control_interface::{ChannelData, LinkStats};
 use cortex_m::{self, asm, delay::Delay};
 
 use defmt::println;
@@ -53,7 +53,7 @@ use lin_alg2::f32::Quaternion;
 
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, rpm_reception, usb_preflight};
-use safety::{ArmStatus, LINK_LOST};
+use safety::ArmStatus;
 use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
 use state::{OperationMode, StateVolatile, UserCfg};
 
@@ -64,12 +64,12 @@ use stm32_hal2::{
     clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
     dma::{self, ChannelCfg, Dma, DmaInterrupt, DmaPeriph},
     flash::{Bank, Flash},
-    gpio::{self, Edge, Pin, Port},
+    gpio::{self, Pin},
     i2c::I2c,
-    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, TIM1, TIM15, TIM16, TIM17, TIM2, TIM5, USART2},
-    spi::{self, Spi},
+    pac::{self, I2C1, I2C2, SPI1, TIM1, TIM16, TIM17, TIM2, TIM5},
+    spi::Spi,
     timer::{BasicTimer, MasterModeSelection, Timer, TimerConfig, TimerInterrupt},
-    usart::{Usart, UsartInterrupt},
+    usart::UsartInterrupt,
 };
 use system_status::{SensorStatus, SystemStatus};
 use usb_device::{bus::UsbBusAllocator, prelude::*};
@@ -137,7 +137,13 @@ static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 // todo: Cycle flash pages for even wear. Can postpone this.
 
 // If IMU updates at 8kHz and ratio is 4, the flight control loop operates at 2kHz.
-const FLIGHT_CTRL_IMU_RATIO: usize = 4; // Likely values: 1, 2, 4.
+
+#[cfg(feature = "quad")]
+const FLIGHT_CTRL_IMU_RATIO: usize = 4; // Likely values: 1, 2, 4, 8.
+
+#[cfg(feature = "fixed-wing")]
+const FLIGHT_CTRL_IMU_RATIO: usize = 8; // Likely values: 1, 2, 4.
+
 const UPDATE_RATE_IMU: f32 = 8_000.;
 const DT_IMU: f32 = 1. / UPDATE_RATE_IMU;
 const NUM_IMU_LOOP_TASKS: usize = 6; // We cycle through lower-priority tasks in the main loop.
@@ -208,6 +214,7 @@ const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 #[rtic::app(device = pac, peripherals = false, dispatchers= [])]
 mod app {
     use super::*;
+    use crate::flight_ctrls::pid;
     use stm32_hal2::dma::DmaChannel;
 
     #[shared]
@@ -676,6 +683,7 @@ mod app {
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
+        #[cfg(feature = "quad")]
         let motors_reversed = (
             user_cfg.control_mapping.m1_reversed,
             user_cfg.control_mapping.m2_reversed,
@@ -683,7 +691,7 @@ mod app {
             user_cfg.control_mapping.m4_reversed,
         );
 
-        // todo: temp removed to test bidir
+        #[cfg(feature = "quad")]
         dshot::setup_motor_dir(motors_reversed, &mut motor_timer);
 
         crsf::setup(&mut uart_crsf);
@@ -802,6 +810,13 @@ mod app {
         });
     }
 
+    /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
+    /// we receive IMU data; it nominally (and according to our measurements so far) runs at 8kHz.
+    /// Note that on the H7 FC with the dedicated IMU LSE, it may run slightly faster.
+    ///
+    /// Certain tasks, like reading IMU measurements and filtering are run each time this function runs.
+    /// Flight control logic is run once every several runs. Other tasks are run even less,
+    /// sequenced among each other.
     // #[task(binds = DMA1_STR2,
     #[task(binds = DMA1_CH2,
     shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
@@ -809,9 +824,6 @@ mod app {
     motor_timer, servo_timer, state_volatile, rpm_status, rotor_rpms, system_status],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, measurement_timer], priority = 3)]
-    /// This ISR Handles received data from the IMU, after DMA transfer is complete. This occurs whenever
-    /// we receive IMU data; it nominally (and according to our measurements so far) runs at 8kHz.
-    /// Note that on the H7 FC with the dedicated IMU LSE, it may run slightly faster.
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         dma::clear_interrupt(
             setup::IMU_DMA_PERIPH,
@@ -821,24 +833,6 @@ mod app {
 
         cx.local.cs_imu.set_high();
 
-        // todo: Try to get the stop DMA thing here not sharing SPI1, so we can have the `imu_data_isr`
-        // todo not use any locks.
-        // The commented out code below will do it, but in this case, probably not required.
-
-        // dma::stop(setup::IMU_DMA_PERIPH, setup::IMU_TX_CH,);
-        // dma::stop(setup::IMU_DMA_PERIPH, setup::IMU_RX_CH,);
-        //
-        // #[cfg(feature = "h7")]
-        // (*pac::SPI1::ptr()).modify(|_, w| {
-        //     w.txdmaen().clear_bit();
-        //     w.rxdmaen().clear_bit()
-        // });
-        // #[cfg(feature = "g4")]
-        // (*pac::SPI1::ptr()).modify(|_, w| {
-        //     w.txdmaen().clear_bit();
-        //     w.rxdmaen().clear_bit()
-        // });
-        //
         cx.shared.spi1.lock(|spi1| {
             // Note that this step is mandatory, per STM32 RM.
             spi1.stop_dma(setup::IMU_TX_CH, Some(setup::IMU_RX_CH), DmaPeriph::Dma1);
@@ -884,11 +878,6 @@ mod app {
                         imu_filters.apply(&mut imu_data);
                     });
 
-                    // Update `params_prev` with past-update data prior to updating params
-                    // Note that this is updated at the IMU data rate, so when comparing, use that DT.
-                    *cx.local.params_prev = params.clone();
-                    params.update_from_imu_readings(imu_data);
-
                     // Update our flight control logic and motors a fraction of IMU updates, but
                     // apply filter data to all.
                     // todo: Consider a different approach; all you need to do each time is
@@ -901,19 +890,40 @@ mod app {
                         return
                     }
 
-                    // Note: Consider if you want to update the attitude using the primary update loop,
-                    // vice each IMU update.
+                    // Update `params_prev` with past-update data prior to updating params
+                    // todo: Update params each IMU update, or at FC interval?
+                    *cx.local.params_prev = params.clone();
+                    params.update_from_imu_readings(imu_data);
+
+                    // todo: Update attitude each IMU update, or at FC interval?
                     attitude_platform::update_attitude(cx.local.ahrs, params);
 
                     // todo: Temp debug code.
                     match control_channel_data {
                         Some(ch_data) => {
                             let mut p = ch_data.throttle;
+
                             if p < 0.025 {
                                 p = 0.025;
                             }
+
+                            let rpm_max = 6_000.;
+                            let rpm_min = 300.;
+                            let target_rpm = util::map_linear(p, (0., 1.), (rpm_min, rpm_max));
+
+                            #[cfg(feature = "quad")]
                             if state_volatile.arm_status == ArmStatus::Armed {
-                                dshot::set_power(p, p, p, p, motor_timer);
+                                // dshot::set_power(p, p, p, p, motor_timer);
+                                pid_state.front_left = pid::run(
+                                    target_rpm,
+                                    rpms.front_left,
+                                    &pid_state.front_left,
+                                    pid_coeffs.p_front_left,
+                                    pid_coeffs.i_front_left,
+                                    0.,
+                                    None,
+                                    DT_FLIGHT_CTRLS,
+                                );
                             } else {
                                 dshot::stop_all(motor_timer);
                             }
@@ -1025,8 +1035,6 @@ mod app {
                     //  Compared to performing the tasks asynchronously, this is probably better
                     // determined. Compared to performing them all together, this prevents
                     // the update loop from becoming too long.
-
-                    // todo: Refine what you lock adn when!
 
                     // We're tracking tasks as ones that make it past the initial flight]
                     // control ratio filter, so factor that out.
@@ -1252,121 +1260,9 @@ mod app {
                         println!("No task");
                     }
 
-                    // This feature-flag enabled status print runs less frequently
-                    // than the above processes. . It's an alternative to Preflight.
-                    // todo: Delegat ethis printing to a fn?:
                     #[cfg(feature = "print-status")]
                     if i % PRINT_STATUS_RATIO == 0 {
-                        // todo: Flesh this out, and perhaps make it more like Preflight.
-
-                        println!("DSHOT1: {:?}", unsafe { dshot::PAYLOAD_REC_1 });
-                        // println!("DSHOT2: {:?}", unsafe { dshot::PAYLOAD_REC_2 });
-                        println!("DSHOT3: {:?}", unsafe { dshot::PAYLOAD_REC_3 });
-                        println!("DSHOT4: {:?}", unsafe { dshot::PAYLOAD_REC_4 });
-
-                        println!(
-                            "\n\nFaults. Rx: {}. RPM: {}",
-                            system_status::RX_FAULT.load(Ordering::Acquire),
-                            system_status::RPM_FAULT.load(Ordering::Acquire),
-                        );
-
-                        match control_channel_data {
-                            Some(ch_data) => {
-                                println!(
-                                    "\nControl data:\nPitch: {} Roll: {}, Yaw: {}, Throttle: {}, Arm switch: {}",
-                                    ch_data.pitch, ch_data.roll,
-                                    ch_data.yaw, ch_data.throttle,
-                                    ch_data.arm_status == ArmStatus::Armed, // todo fixed-wing
-                                );
-                            }
-                            None => {
-                                println!("(No current control channel data)")
-                            }
-                        }
-
-                        #[cfg(feature = "quad")]
-                        println!("Motors armed: {:?}", state_volatile.arm_status == ArmStatus::Armed);
-
-                        #[cfg(feature = "fixed-wing")]
-                        println!("Motors armed: {:?}", state_volatile.arm_status == ArmStatus::MotorsArmed ||
-                            state_volatile.arm_status == ArmStatus::MotorsControlsArmed);
-
-                        #[cfg(feature = "fixed-wing")]
-                        println!("Controls armed: {:?}", state_volatile.arm_status == ArmStatus::ControlsArmed ||
-                            state_volatile.arm_status == ArmStatus::MotorsControlsArmed);
-
-                        #[cfg(feature = "quad")]
-                        println!(
-                            "Autopilot_status: Alt hold: {} Heading hold: {}, Yaw assist: {}, Direct to point: {}, \
-                            sequence: {}, takeoff: {}, land: {}, recover: {}, loiter: {}",
-                            autopilot_status.alt_hold.is_some(), autopilot_status.hdg_hold.is_some(),
-                            autopilot_status.yaw_assist != flight_ctrls::autopilot::YawAssist::Disabled,
-                            autopilot_status.direct_to_point.is_some(),
-                            autopilot_status.sequence, autopilot_status.takeoff, autopilot_status.land.is_some(),
-                            autopilot_status.recover.is_some(),
-                            autopilot_status.loiter.is_some(),
-                        );
-
-                        #[cfg(feature = "fixed-wing")]
-                        println!(
-                            "Autopilot_status: Alt hold: {} Heading hold: {}, Direct to point: {}, \
-                            sequence: {}, takeoff: {}, land: {}, recover: {}, loiter/orbit: {}",
-                            autopilot_status.alt_hold.is_some(), autopilot_status.hdg_hold.is_some(),
-                            autopilot_status.direct_to_point.is_some(),
-                            autopilot_status.sequence, autopilot_status.takeoff, autopilot_status.land.is_some(),
-                            autopilot_status.recover.is_some(),
-                            autopilot_status.orbit.is_some(),
-                        );
-
-                        println!("Batt V: {} ESC current: {}", state_volatile.batt_v, state_volatile.esc_current);
-                        //
-                        // println!(
-                        //     "Accel: Ax {}, Ay: {}, Az: {}",
-                        //     params.a_x, params.a_y, params.a_z
-                        // );
-                        // //
-                        // println!(
-                        //     "Gyro: roll {}, pitch: {}, yaw: {}",
-                        //     params.v_roll, params.v_pitch, params.v_yaw
-                        // );
-                        // // //
-                        println!("Attitude quat: {} {} {} {}",
-                                 params.attitude_quat.w,
-                                 params.attitude_quat.x,
-                                 params.attitude_quat.y,
-                                 params.attitude_quat.z
-                        );
-                        println!(
-                            "Attitude: pitch: {}, roll: {}, yaw: {}\n",
-                            params.s_pitch, params.s_roll, params.s_yaw_heading
-                        );
-
-                        if let Some(q) = state_volatile.attitude_commanded.quat {
-                            println!("Commanded attitude quat: {} {} {} {}",
-                                     q.w,
-                                     q.x,
-                                     q.y,
-                                     q.z
-                            );
-
-                            let euler = q.to_euler();
-                            println!("Commanded attitude: pitch: {}, roll: {}, yaw: {}\n", euler.pitch, euler.roll, euler.yaw);
-                        }
-
-
-                        println!(
-                            "RPMs: FL {}, FR: {}, AL: {}, AR: {}\n",
-                            // rpms.front_left, rpms.front_right, rpms.aft_left, rpms.aft_right
-                            rpm_status.front_left, rpm_status.front_right, rpm_status.aft_left, rpm_status.aft_right
-                        );
-
-                        println!("Alt MSL: {}", params.baro_alt_msl);
-
-                        // println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
-                        // println!(
-                        //     "Input mode sw: {:?}",
-                        //     control_channel_data.input_mode == InputModeSwitch::Acro
-                        // );
+                        util::print_status(params, system_status, control_channel_data, state_volatile, autopilot_status, rpm_status);
                     }
 
                     return; // todo TS
@@ -1416,10 +1312,10 @@ mod app {
                                 DT_IMU,
                             );
 
-                            control_posits_commanded.set(&cfg.control_mapping, motor_timer, state_volatile.arm_status);
+                            control_posits_commanded.set(&cfg.control_mapping, servo_timer, state_volatile.arm_status);
 
                             state_volatile.ctrl_mix = ctrl_mix;
-                            state_volatile.ctrl_positions = control_posits;
+                            state_volatile.ctrl_positions = control_posits_commanded;
                         }
                     }
                 });

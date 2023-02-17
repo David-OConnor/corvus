@@ -9,13 +9,11 @@
 
 use stm32_hal2::{
     clocks::Clocks,
-    pac::{self, RCC},
+    pac,
     usart::{IrdaMode, OverSampling, Parity, UsartConfig, UsartInterrupt},
 };
 
 use core::ops::Deref;
-
-use cortex_m::interrupt::free;
 
 #[cfg(not(any(feature = "f4", feature = "l552")))]
 use crate::dma::{self, ChannelCfg, DmaChannel};

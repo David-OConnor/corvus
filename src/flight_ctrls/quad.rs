@@ -7,8 +7,6 @@
 
 use core::f32::consts::TAU;
 
-use stm32_hal2::timer::TimerInterrupt;
-
 use crate::{
     control_interface::InputModeSwitch,
     dshot,
@@ -23,10 +21,6 @@ use super::{
     common::{CtrlMix, InputMap, Motor, MotorRpm},
     pid,
 };
-
-use defmt::println;
-
-use cfg_if::cfg_if;
 
 // // Min power setting for any individual rotor at idle setting.
 // const MIN_ROTOR_POWER: f32 = 0.03;
@@ -69,25 +63,6 @@ impl Default for InputMap {
         }
     }
 }
-
-/// Represents a complete quadcopter. Used for setting control parameters.
-/// todo: Currently unimplemented.
-// struct AircraftProperties {
-//     mass: f32,               // grams
-//     arm_len: f32,            // meters. COG to rotor center, horizontally.
-//     drag_coeff: f32,         // unitless
-//     thrust_coeff: f32,       // N/m^2
-//     moment_of_intertia: f32, // kg x m^2
-//     rotor_inertia: f32,      // kg x m^2
-// }
-
-// impl AircraftProperties {
-//     /// Calculate the power level required, applied to each rotor, to maintain level flight
-//     /// at a given MSL altitude. (Alt is in meters)
-//     pub fn _level_pwr(&self, alt: f32) -> f32 {
-//         0.1 // todo
-//     }
-// }
 
 /// Specify the rotor by position. Used in power application code.
 /// repr(u8) is for use in Preflight.

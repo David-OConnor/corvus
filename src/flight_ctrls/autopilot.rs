@@ -6,10 +6,7 @@ use num_traits::float::Float;
 
 use crate::{
     control_interface::{AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData},
-    flight_ctrls::{
-        self,
-        common::{AltType, CtrlInputs},
-    },
+    flight_ctrls::common::{AltType, CtrlInputs},
     // pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
     ppks::{Location, LocationType},
 };
@@ -27,7 +24,7 @@ use cfg_if::cfg_if;
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
     } else {
-        use crate::flight_ctrls::{InputMode, takeoff_speed};
+        use crate::flight_ctrls::takeoff_speed;
 
         // Minimium speed before auto-yaw will engage. (if we end up setting up auto-yaw to align flight path
         // with heading)

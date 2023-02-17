@@ -6,15 +6,11 @@
 //!
 //! 24 MHz max SPI frequency
 
-use stm32_hal2::{
-    gpio::Pin,
-    pac::SPI1,
-    spi::{self, Spi},
-};
+use stm32_hal2::{gpio::Pin, spi};
 
 use cortex_m::delay::Delay;
 
-use crate::imu_shared::_ImuReadingsRaw;
+use crate::{imu_shared::_ImuReadingsRaw, setup::SpiImu};
 
 const DEVICE_ID: u8 = 0x47;
 
@@ -93,7 +89,7 @@ pub const READINGS_START_ADDR: u8 = 0x80 | 0x1F; // (AccelDataX1)
 // https://github.com/pms67/Attitude-Estimation
 
 /// Utility function to read a single byte.
-fn read_one(reg: Reg, spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<u8, ImuError> {
+fn read_one(reg: Reg, spi: &mut SpiImu, cs: &mut Pin) -> Result<u8, ImuError> {
     let mut buf = [reg.read_addr(), 0];
 
     cs.set_low();
@@ -125,7 +121,7 @@ fn read_one(reg: Reg, spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<u8, ImuError>
 }
 
 /// Utility function to write a single byte.
-fn write_one(reg: Reg, word: u8, spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<(), ImuError> {
+fn write_one(reg: Reg, word: u8, spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
     cs.set_low();
     spi.write(&[reg as u8, word])?;
     cs.set_high();
@@ -136,7 +132,7 @@ fn write_one(reg: Reg, word: u8, spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<()
 use defmt::println;
 
 /// Configure the device.
-pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) -> Result<(), ImuError> {
+pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), ImuError> {
     // Leave default of SPI mode 0 and 3.
 
     // todo: Without self-test, we'll use a WHOAMI read to verify if the IMU is connected. Note that
@@ -204,7 +200,7 @@ pub fn setup(spi: &mut Spi<SPI1>, cs: &mut Pin, delay: &mut Delay) -> Result<(),
 // todo: Low power fn
 
 /// Read temperature.
-pub fn _read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<f32, ImuError> {
+pub fn _read_temp(spi: &mut SpiImu, cs: &mut Pin) -> Result<f32, ImuError> {
     let upper_byte = read_one(Reg::TempData1, spi, cs)?;
     let lower_byte = read_one(Reg::TempData0, spi, cs)?;
 
@@ -214,7 +210,7 @@ pub fn _read_temp(spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<f32, ImuError> {
 }
 
 /// Read all data, in blocking fashion. Deprecated in favor of DMA.
-pub fn _read_all(spi: &mut Spi<SPI1>, cs: &mut Pin) -> Result<_ImuReadingsRaw, ImuError> {
+pub fn _read_all(spi: &mut SpiImu, cs: &mut Pin) -> Result<_ImuReadingsRaw, ImuError> {
     let accel_x_upper = read_one(Reg::AccelDataX1, spi, cs)?;
     let accel_x_lower = read_one(Reg::AccelDataX0, spi, cs)?;
     let accel_y_upper = read_one(Reg::AccelDataY1, spi, cs)?;

@@ -29,11 +29,7 @@ use num_enum::TryFromPrimitive; // Enum from integer
 
 use defmt::println;
 
-use stm32_hal2::{
-    dma,
-    dma::DmaChannel,
-    usart::{Usart, UsartInterrupt},
-};
+use stm32_hal2::{dma::DmaChannel, usart::UsartInterrupt};
 
 use crate::{
     control_interface::{
@@ -44,7 +40,6 @@ use crate::{
     setup, util,
 };
 
-use crate::system_status::SystemStatus;
 use cfg_if::cfg_if;
 
 // For the receiver, 420k baud is hard set.

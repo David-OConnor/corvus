@@ -43,25 +43,6 @@ use crate::drivers::{spi2_kludge::Spi2, uart4_kludge::Usart4};
 
 use defmt::println;
 
-cfg_if! {
-    if #[cfg(feature = "h7")] {
-        type UartCrsfRegs = pac::UART7;
-        type UartOsdRegs = pac::USART2;
-        // type SpiPacFlash = pac::OCTOSPI1;
-        pub type SpiPacFlash = pac::QUADSPI;
-        pub type SpiFlash = Qspi;
-        pub type UartCrsf = Usart<pac::UART7>;
-        pub type UartOsd = Usart<pac::USART2>;
-    } else {
-        type UartCrsfRegs = pac::USART2;
-        type UartOsdRegs = pac::UART4;
-        pub type SpiPacFlash = pac::SPI2;
-        pub type SpiFlash = Spi2<SpiPacFlash>;
-        pub type UartCrsf = Usart<pac::USART2>;
-        pub type UartOsd = Usart4<pac::UART4>;
-    }
-}
-
 // Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.
 
 pub const IMU_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
@@ -103,8 +84,30 @@ pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
 /// todo: Is this valid for H7 as well?
 pub const DSHOT_BASE_DIR_OFFSET: u8 = 0x34 / 4;
 
+// Define types for peripheral buses here; call these types from driver modules.
 pub type MotorTimer = Timer<pac::TIM3>;
 pub type ServoTimer = Timer<pac::TIM8>; // Valid for H7 on all channels. Valid for G4 on Ch 1, 3, 4.
+pub type SpiImu = Spi<SPI1>;
+pub type I2cBaro = I2c<I2C2>;
+
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        type UartCrsfRegs = pac::UART7;
+        type UartOsdRegs = pac::USART2;
+        // type SpiPacFlash = pac::OCTOSPI1;
+        pub type SpiPacFlash = pac::QUADSPI;
+        pub type SpiFlash = Qspi;
+        pub type UartCrsf = Usart<pac::UART7>;
+        pub type UartOsd = Usart<pac::USART2>;
+    } else {
+        type UartCrsfRegs = pac::USART2;
+        type UartOsdRegs = pac::UART4;
+        pub type SpiPacFlash = pac::SPI2;
+        pub type SpiFlash = Spi2<SpiPacFlash>;
+        pub type UartCrsf = Usart<pac::USART2>;
+        pub type UartOsd = Usart4<pac::UART4>;
+    }
+}
 
 cfg_if! {
     if #[cfg(feature = "h7")] {

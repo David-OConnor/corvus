@@ -59,15 +59,8 @@ use super::dshot::{self, calc_crc, DSHOT_SPEED, REC_BUF_LEN, TIM_CLK};
 
 use num_traits::float::FloatCore; // round
 
-use crate::{
-    flight_ctrls::{
-        common::{Motor, MotorRpm, RpmStatus},
-        ControlMapping,
-    },
-    setup::MotorTimer,
-};
+use crate::flight_ctrls::common::RpmStatus;
 
-use crate::rpm_reception::RpmError::Gcr;
 use defmt::println;
 
 // Number of counter ticks per bit.
@@ -103,9 +96,9 @@ fn rpm_from_data(packet: u16, pole_count: u8) -> Result<EscData, RpmError> {
     let crc_read = packet & 0b1111;
     let data = packet >> 4;
 
-    /// 0 RPM is encoded as this value; if we were to complete the computation, we'd
-    /// get a low, but positive RPM value that this protocol is unable to directly encode
-    /// as 0.
+    // 0 RPM is encoded as this value; if we were to complete the computation, we'd
+    // get a low, but positive RPM value that this protocol is unable to directly encode
+    // as 0.
     if data == 0xfff {
         return Ok(EscData::Rpm(0.));
     }

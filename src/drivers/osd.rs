@@ -13,20 +13,16 @@
 use core::f32::consts::TAU;
 
 use crate::{
-    control_interface::InputModeSwitch::AttitudeCommand,
-    flight_ctrls::autopilot::AutopilotStatus,
     ppks::Location,
     protocols::{
         msp::{MsgType, Packet, METADATA_SIZE_V1},
         msp_defines::*,
     },
     safety::ArmStatus,
-    setup,
+    setup::{self, UartOsd},
 };
 
-use stm32_hal2::{dma::DmaChannel, pac::USART2, usart::Usart};
-
-use defmt::println;
+use stm32_hal2::dma::DmaChannel;
 
 pub const BAUD: u32 = 115_200;
 
@@ -128,7 +124,7 @@ pub struct OsdData {
 /// Sends data for all relevant elements to the OSD. Accepts a data struct built from select
 /// elements from the rest of our program, and sends to the display in OSD format, using
 /// only elements supported by DJI's MSP implementation.
-pub fn send_osd_data(uart: &mut Usart<USART2>, dma_chan: DmaChannel, data: &OsdData) {
+pub fn send_osd_data(uart: &mut UartOsd, dma_chan: DmaChannel, data: &OsdData) {
     // todo: Running list of things to add. May be supported by MSP, or co-opt elements they're not
     // made for.
     // - AGL altitude

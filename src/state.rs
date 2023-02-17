@@ -63,6 +63,25 @@ impl Default for OperationMode {
 //     PersonFollower, // When your queen is human.
 // }
 
+/// Represents a complete quadcopter. Used for setting control parameters.
+/// todo: Currently unimplemented.
+// struct AircraftProperties {
+//     mass: f32,               // grams
+//     arm_len: f32,            // meters. COG to rotor center, horizontally.
+//     drag_coeff: f32,         // unitless
+//     thrust_coeff: f32,       // N/m^2
+//     moment_of_intertia: f32, // kg x m^2
+//     rotor_inertia: f32,      // kg x m^2
+// }
+
+// impl AircraftProperties {
+//     /// Calculate the power level required, applied to each rotor, to maintain level flight
+//     /// at a given MSL altitude. (Alt is in meters)
+//     pub fn _level_pwr(&self, alt: f32) -> f32 {
+//         0.1 // todo
+//     }
+// }
+
 /// Persistent state; saved to onboard flash memory. Contains user-configurable settings.
 pub struct UserCfg {
     /// Set a ceiling the aircraft won't exceed. Defaults to 400' (Legal limit in US for drones).

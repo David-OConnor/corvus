@@ -1,13 +1,26 @@
 //! Contains misc and utility functions.
 
+use core::sync::atomic::Ordering;
+
 use cmsis_dsp_sys as dsp_sys;
 
-use crate::sensors_shared::BattCellCount;
+use crate::{
+    control_interface::ChannelData,
+    flight_ctrls::{self, autopilot::AutopilotStatus, common::RpmStatus},
+    params::Params,
+    safety::ArmStatus,
+    sensors_shared::BattCellCount,
+    state::StateVolatile,
+    system_status::{self, SystemStatus},
+};
+
+use defmt::println;
 
 /// Used to satisfy RTIC resource Send requirements.
 pub struct IirInstWrapper {
     pub inner: dsp_sys::arm_biquad_casd_df1_inst_f32,
 }
+
 unsafe impl Send for IirInstWrapper {}
 
 pub fn abs(x: f32) -> f32 {
@@ -163,4 +176,146 @@ pub fn batt_left_from_v(v: f32, cell_count: BattCellCount) -> f32 {
 
     let port_through = (per_cell - BATT_LUT[i].0) / (BATT_LUT[i + 1].0 - BATT_LUT[i].0);
     port_through * (BATT_LUT[i + 1].1 - BATT_LUT[i].1) + BATT_LUT[i].1
+}
+
+/// Print systems status to the console. Alternative to the `Preflight` PC program.
+pub fn print_status(
+    params: &Params,
+    system_status: &SystemStatus,
+    control_channel_data: &Option<ChannelData>,
+    state_volatile: &StateVolatile,
+    autopilot_status: &AutopilotStatus,
+    rpm_status: &RpmStatus,
+) {
+    // todo: Flesh this out, and perhaps make it more like Preflight.
+
+    // println!("DSHOT1: {:?}", unsafe { dshot::PAYLOAD_REC_1 });
+    // println!("DSHOT2: {:?}", unsafe { dshot::PAYLOAD_REC_2 });
+    // println!("DSHOT3: {:?}", unsafe { dshot::PAYLOAD_REC_3 });
+    // println!("DSHOT4: {:?}", unsafe { dshot::PAYLOAD_REC_4 });
+
+    println!(
+        "\n\nFaults. Rx: {}. RPM: {}",
+        system_status::RX_FAULT.load(Ordering::Acquire),
+        system_status::RPM_FAULT.load(Ordering::Acquire),
+    );
+
+    match control_channel_data {
+        Some(ch_data) => {
+            #[cfg(feature = "quad")]
+            let armed = ch_data.arm_status == ArmStatus::Armed;
+            #[cfg(feature = "fixed-wing")]
+            let armed = ch_data.arm_status == ArmStatus::MotorsControlsArmed;
+
+            println!(
+                "\nControl data:\nPitch: {} Roll: {}, Yaw: {}, Throttle: {}, Arm switch: {}",
+                ch_data.pitch, ch_data.roll, ch_data.yaw, ch_data.throttle, armed,
+            );
+        }
+        None => {
+            println!("(No current control channel data)")
+        }
+    }
+
+    #[cfg(feature = "quad")]
+    println!(
+        "Motors armed: {:?}",
+        state_volatile.arm_status == ArmStatus::Armed
+    );
+
+    #[cfg(feature = "fixed-wing")]
+    println!(
+        "Motors armed: {:?}",
+        state_volatile.arm_status == ArmStatus::MotorsControlsArmed
+    );
+
+    #[cfg(feature = "fixed-wing")]
+    println!(
+        "Controls armed: {:?}",
+        state_volatile.arm_status == ArmStatus::ControlsArmed
+            || state_volatile.arm_status == ArmStatus::MotorsControlsArmed
+    );
+
+    #[cfg(feature = "quad")]
+    println!(
+        "Autopilot_status: Alt hold: {} Heading hold: {}, Yaw assist: {}, Direct to point: {}, \
+                            sequence: {}, takeoff: {}, land: {}, recover: {}, loiter: {}",
+        autopilot_status.alt_hold.is_some(),
+        autopilot_status.hdg_hold.is_some(),
+        autopilot_status.yaw_assist != flight_ctrls::autopilot::YawAssist::Disabled,
+        autopilot_status.direct_to_point.is_some(),
+        autopilot_status.sequence,
+        autopilot_status.takeoff,
+        autopilot_status.land.is_some(),
+        autopilot_status.recover.is_some(),
+        autopilot_status.loiter.is_some(),
+    );
+
+    #[cfg(feature = "fixed-wing")]
+    println!(
+        "Autopilot_status: Alt hold: {} Heading hold: {}, Direct to point: {}, \
+                            sequence: {}, takeoff: {}, land: {}, recover: {}, loiter/orbit: {}",
+        autopilot_status.alt_hold.is_some(),
+        autopilot_status.hdg_hold.is_some(),
+        autopilot_status.direct_to_point.is_some(),
+        autopilot_status.sequence,
+        autopilot_status.takeoff,
+        autopilot_status.land.is_some(),
+        autopilot_status.recover.is_some(),
+        autopilot_status.orbit.is_some(),
+    );
+
+    println!(
+        "Batt V: {} ESC current: {}",
+        state_volatile.batt_v, state_volatile.esc_current
+    );
+    //
+    // println!(
+    //     "Accel: Ax {}, Ay: {}, Az: {}",
+    //     params.a_x, params.a_y, params.a_z
+    // );
+    // //
+    // println!(
+    //     "Gyro: roll {}, pitch: {}, yaw: {}",
+    //     params.v_roll, params.v_pitch, params.v_yaw
+    // );
+    // // //
+    println!(
+        "Attitude quat: {} {} {} {}",
+        params.attitude_quat.w,
+        params.attitude_quat.x,
+        params.attitude_quat.y,
+        params.attitude_quat.z
+    );
+    println!(
+        "Attitude: pitch: {}, roll: {}, yaw: {}\n",
+        params.s_pitch, params.s_roll, params.s_yaw_heading
+    );
+
+    if let Some(q) = state_volatile.attitude_commanded.quat {
+        println!("Commanded attitude quat: {} {} {} {}", q.w, q.x, q.y, q.z);
+
+        let euler = q.to_euler();
+        println!(
+            "Commanded attitude: pitch: {}, roll: {}, yaw: {}\n",
+            euler.pitch, euler.roll, euler.yaw
+        );
+    }
+
+    println!(
+        "RPMs: FL {}, FR: {}, AL: {}, AR: {}\n",
+        // rpms.front_left, rpms.front_right, rpms.aft_left, rpms.aft_right
+        rpm_status.front_left,
+        rpm_status.front_right,
+        rpm_status.aft_left,
+        rpm_status.aft_right
+    );
+
+    println!("Alt MSL: {}", params.baro_alt_msl);
+
+    // println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
+    // println!(
+    //     "Input mode sw: {:?}",
+    //     control_channel_data.input_mode == InputModeSwitch::Acro
+    // );
 }
