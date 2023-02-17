@@ -39,7 +39,7 @@ use drivers::{
 use filter_imu::ImuFilters;
 use flight_ctrls::{
     autopilot::AutopilotStatus,
-    common::{MotorRpm, RpmStatus},
+    common::{MotorRpm, RpmReadings},
     // pid::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
     //     PID_CONTROL_ADJ_TIMEOUT,
@@ -250,8 +250,8 @@ mod app {
         pwr_maps: PowerMaps,
         /// Store rotor RPM: (M1, M2, M3, M4). Quad only, but we can't feature gate
         /// shared fields.
-        rpm_status: RpmStatus,
-        rotor_rpms: MotorRpm,
+        rpm_readings: RpmReadings,
+        rpms_commanded: MotorRpm,
         motor_pid_state: MotorPidGroup,
         /// PID motor coefficients
         motor_pid_coeffs: MotorCoeffs,
@@ -376,10 +376,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-        // let spi_flash_pac = dp.OCTOSPI1;
-        let spi_flash_pac = dp.QUADSPI;
+            // let spi_flash_pac = dp.OCTOSPI1;
+            let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-        let spi_flash_pac = dp.SPI2;
+            let spi_flash_pac = dp.SPI2;
 
         let (
             mut spi1,
@@ -438,10 +438,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -671,20 +671,20 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-        let motors_reversed = (
+            let motors_reversed = (
             user_cfg.control_mapping.m1_reversed,
             user_cfg.control_mapping.m2_reversed,
             user_cfg.control_mapping.m3_reversed,
@@ -760,8 +760,8 @@ mod app {
                 pwr_maps: Default::default(),
                 motor_pid_state: Default::default(),
                 motor_pid_coeffs: Default::default(),
-                rpm_status: Default::default(),
-                rotor_rpms: Default::default(),
+                rpm_readings: Default::default(),
+                rpms_commanded: Default::default(),
             },
             Local {
                 // update_timer,
@@ -821,7 +821,7 @@ mod app {
     #[task(binds = DMA1_CH2,
     shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timer, servo_timer, state_volatile, rpm_status, rotor_rpms, system_status],
+    motor_timer, servo_timer, state_volatile, rpm_readings, rpms_commanded, system_status],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, measurement_timer], priority = 3)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
@@ -853,8 +853,8 @@ mod app {
             cx.shared.state_volatile,
             cx.shared.flight_ctrl_filters,
             cx.shared.system_status,
-            cx.shared.rpm_status,
-            cx.shared.rotor_rpms,
+            cx.shared.rpm_readings,
+            cx.shared.rpms_commanded,
         )
             .lock(
                 |params,
@@ -868,8 +868,8 @@ mod app {
                  state_volatile,
                  flight_ctrl_filters,
                  system_status,
-                 rpm_status,
-                 rpms
+                 rpm_readings,
+                 rpms_commanded
                 | {
                     let mut imu_data =
                         imu_shared::ImuReadings::from_buffer(unsafe { &imu_shared::IMU_READINGS });
@@ -898,7 +898,34 @@ mod app {
                     // todo: Update attitude each IMU update, or at FC interval?
                     attitude_platform::update_attitude(cx.local.ahrs, params);
 
+                    let mut rpm_fault = false;
+
+                    // todo: Clean up the Optionalble Status vs the non-optioned Rpms.
+                    // todo: Consider using only the former.
+
+                    // Update RPMs here, so we don't have to lock the read ISR.
+                    // cx.shared.rotor_rpms.lock(|rotor_rpms| {
+                    // let (rpm1_status, rpm2_status, rpm3_status, rpm4_status) = rpm_reception::update_rpms(rpms, &mut rpm_fault, cfg.pole_count);
+                    *rpm_readings = rpm_reception::read_rpms(&mut rpm_fault, cfg.motor_pole_count);
+
+                    // match rpm_readings.to_rpms() {
+                    //     Ok(r) => {
+                    //         *rpms = r;
+                    //     }
+                    //     // todo: Now what?
+                    //     Err(_e) => {
+                    //     }
+                    // }
+
+                    // });
+                    if rpm_fault {
+                        system_status::RPM_FAULT.store(true, Ordering::Release);
+                    }
+
+                    // todo: Sotr out rpms vs rpm status!!
+
                     // todo: Temp debug code.
+
                     match control_channel_data {
                         Some(ch_data) => {
                             let mut p = ch_data.throttle;
@@ -907,31 +934,73 @@ mod app {
                                 p = 0.025;
                             }
 
-                            let rpm_max = 6_000.;
-                            let rpm_min = 300.;
-                            let target_rpm = util::map_linear(p, (0., 1.), (rpm_min, rpm_max));
+                            // todo: Temp mapping of throttle settings to RPM
+                            let target_rpm = util::map_linear(p, (0., 1.), (300., 6_000.));
+
+                            *rpms_commanded = MotorRpm {
+                                front_left: target_rpm,
+                                aft_left: target_rpm,
+                                front_right: target_rpm,
+                                aft_right: target_rpm,
+                            };
+
+                            if i % 8000 == 0 {
+                                println!("Rpms- FL: {:?} FR: {}, AL: {}, AR: {}", rpm_readings.front_left, rpm_readings.front_right,
+                                         rpm_readings.aft_left, rpm_readings.aft_right);
+                            }
 
                             #[cfg(feature = "quad")]
                             if state_volatile.arm_status == ArmStatus::Armed {
                                 // dshot::set_power(p, p, p, p, motor_timer);
-                                pid_state.front_left = pid::run(
-                                    target_rpm,
-                                    rpms.front_left,
-                                    &pid_state.front_left,
-                                    pid_coeffs.p_front_left,
-                                    pid_coeffs.i_front_left,
-                                    0.,
-                                    None,
-                                    DT_FLIGHT_CTRLS,
+
+                                rpms_commanded.send_to_motors(
+                                    pid_coeffs,
+                                    pid_state,
+                                    &mut state_volatile.current_pwr,
+                                    rpm_readings,
+                                    &cfg.control_mapping,
+                                    motor_timer,
+                                    state_volatile.arm_status,
                                 );
+
                             } else {
                                 dshot::stop_all(motor_timer);
                             }
                         }
                         None => {
-                            dshot::stop_all(motor_timer);
+                            // todo testing
+                            if i < 25_000 {
+                                dshot::stop_all(motor_timer);
+                            } else {
+                                let target_rpm = 800.;
+
+                                *rpms_commanded = MotorRpm {
+                                    front_left: target_rpm,
+                                    aft_left: target_rpm,
+                                    front_right: target_rpm,
+                                    aft_right: target_rpm,
+                                };
+
+                                rpms_commanded.send_to_motors(
+                                    pid_coeffs,
+                                    pid_state,
+                                    &mut state_volatile.current_pwr,
+                                    rpm_readings,
+                                    &cfg.control_mapping,
+                                    motor_timer,
+                                    ArmStatus::Armed,
+                                );
+                            }
+                            if i % 8000 == 0 {
+                                println!("Rpms- FL: {:?} FR: {}, AL: {}, AR: {}", rpm_readings.front_left, rpm_readings.front_right,
+                                         rpm_readings.aft_left, rpm_readings.aft_right);
+                            }
+                            // todo testing
+                            // dshot::stop_all(motor_timer);
                         }
                     };
+
+                    return; // todo temp!
 
                     // todo: Impl once you've sorted out your control logic.
                     // todo: Delegate this to another module, eg `attitude_ctrls`.
@@ -993,29 +1062,6 @@ mod app {
                         return;
                     }
 
-                    let mut rpm_fault = false;
-
-                    // todo: Clean up the Optionalble Status vs the non-optioned Rpms.
-                    // todo: Consider using only the former.
-
-                    // Update RPMs here, so we don't have to lock the read ISR.
-                    // cx.shared.rotor_rpms.lock(|rotor_rpms| {
-                    // let (rpm1_status, rpm2_status, rpm3_status, rpm4_status) = rpm_reception::update_rpms(rpms, &mut rpm_fault, cfg.pole_count);
-                    *rpm_status = rpm_reception::read_rpms(&mut rpm_fault, cfg.motor_pole_count);
-
-                    match rpm_status.to_rpms() {
-                        Ok(r) => {
-                            *rpms = r;
-                        }
-                        // todo: Now what?
-                        Err(_e) => (),
-                    }
-
-                    // });
-                    if rpm_fault {
-                        system_status::RPM_FAULT.store(true, Ordering::Release);
-                    }
-
                     // todo: These staggered tasks. should probably be after the flight control logic
 
                     // todo: Global const
@@ -1054,14 +1100,16 @@ mod app {
                         state_volatile.batt_v = batt_v;
                         state_volatile.esc_current = esc_current;
                     } else if (i_compensated - 1) % NUM_IMU_LOOP_TASKS == 0 {
-                        let (arm_status, throttle) = match control_channel_data {
+
+                        let (controller_arm_status, throttle) = match control_channel_data {
                             Some(ch_data) => (ch_data.arm_status, ch_data.throttle),
                             None => (ArmStatus::Disarmed, 0.),
                         };
+
                         safety::handle_arm_status(
                             cx.local.arm_signals_received,
                             cx.local.disarm_signals_received,
-                            arm_status,
+                            controller_arm_status,
                             &mut state_volatile.arm_status,
                             throttle,
                         );
@@ -1262,7 +1310,7 @@ mod app {
 
                     #[cfg(feature = "print-status")]
                     if i % PRINT_STATUS_RATIO == 0 {
-                        util::print_status(params, system_status, control_channel_data, state_volatile, autopilot_status, rpm_status);
+                        util::print_status(params, system_status, control_channel_data, state_volatile, autopilot_status, rpm_readings);
                     }
 
                     return; // todo TS
@@ -1287,7 +1335,8 @@ mod app {
                             rpms_commanded.send_to_motors(
                                 pid_coeffs,
                                 pid_state,
-                                rpms,
+                                &mut state_volatile.current_pwr,
+                                rpm_readings,
                                 &cfg.control_mapping,
                                 motor_timer,
                                 state_volatile.arm_status,
@@ -1327,7 +1376,7 @@ mod app {
     // #[task(binds = OTG_FS,
     #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, current_params, control_channel_data,
-    link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer, rpm_status],
+    link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer, rpm_readings],
     local = [], priority = 1)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
@@ -1345,7 +1394,7 @@ mod app {
             cx.shared.system_status,
             cx.shared.motor_timer,
             cx.shared.servo_timer,
-            cx.shared.rpm_status,
+            cx.shared.rpm_readings,
         )
             .lock(
                 |usb_dev,
@@ -1358,7 +1407,7 @@ mod app {
                  system_status,
                  motor_timer,
                  servo_timer,
-                 rpm_status| {
+                 rpm_readings| {
                     if !usb_dev.poll(&mut [usb_serial]) {
                         return;
                     }
@@ -1386,7 +1435,7 @@ mod app {
                                 &mut state_volatile.op_mode,
                                 motor_timer,
                                 servo_timer,
-                                rpm_status,
+                                rpm_readings,
                             );
                         }
                         Err(_) => {

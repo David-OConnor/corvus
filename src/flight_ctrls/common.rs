@@ -14,7 +14,7 @@ const THROTTLE_IN_RNG: (f32, f32) = (0., 1.);
 /// Holds all 4 RPMs, by position.
 /// todo: Quad-specific, but in `common` due to how we store it in Shared.
 #[derive(Default)]
-pub struct RpmStatus {
+pub struct RpmReadings {
     pub front_left: Option<f32>,
     pub front_right: Option<f32>,
     pub aft_left: Option<f32>,
@@ -23,38 +23,38 @@ pub struct RpmStatus {
 
 pub struct RpmMissingError {}
 
-impl RpmStatus {
-    pub fn to_rpms(&self) -> Result<MotorRpm, RpmMissingError> {
-        let e = Err(RpmMissingError {});
-
-        let front_left = match self.front_left {
-            Some(rpm) => rpm,
-            None => return e,
-        };
-
-        let front_right = match self.front_right {
-            Some(rpm) => rpm,
-            None => return e,
-        };
-
-        let aft_left = match self.aft_left {
-            Some(rpm) => rpm,
-            None => return e,
-        };
-
-        let aft_right = match self.aft_right {
-            Some(rpm) => rpm,
-            None => return e,
-        };
-
-        Ok(MotorRpm {
-            front_left,
-            front_right,
-            aft_left,
-            aft_right,
-        })
-    }
-}
+// impl RpmReadings {
+//     pub fn to_rpms(&self) -> Result<MotorRpm, RpmMissingError> {
+//         let e = Err(RpmMissingError {});
+//
+//         let front_left = match self.front_left {
+//             Some(rpm) => rpm,
+//             None => return e,
+//         };
+//
+//         let front_right = match self.front_right {
+//             Some(rpm) => rpm,
+//             None => return e,
+//         };
+//
+//         let aft_left = match self.aft_left {
+//             Some(rpm) => rpm,
+//             None => return e,
+//         };
+//
+//         let aft_right = match self.aft_right {
+//             Some(rpm) => rpm,
+//             None => return e,
+//         };
+//
+//         Ok(MotorRpm {
+//             front_left,
+//             front_right,
+//             aft_left,
+//             aft_right,
+//         })
+//     }
+// }
 
 /// Holds all 4 RPMs, by position.
 /// todo: Quad-specific, but in `common` due to how we store it in Shared.

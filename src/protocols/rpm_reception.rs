@@ -59,7 +59,7 @@ use super::dshot::{self, calc_crc, DSHOT_SPEED, REC_BUF_LEN, TIM_CLK};
 
 use num_traits::float::FloatCore; // round
 
-use crate::flight_ctrls::common::RpmStatus;
+use crate::flight_ctrls::common::RpmReadings;
 
 use defmt::println;
 
@@ -363,9 +363,9 @@ fn error_helper(payload: &[u16; REC_BUF_LEN], fault: &mut bool, pole_count: u8) 
 /// Update the motor RPM struct with our buffer data.
 /// We delegate to a sub-function for each motor, so we can propogate motor-specific
 /// statuses.
-pub fn read_rpms(fault: &mut bool, pole_count: u8) -> RpmStatus {
+pub fn read_rpms(fault: &mut bool, pole_count: u8) -> RpmReadings {
     // todo: Don't hard-code the mapping!
-    RpmStatus {
+    RpmReadings {
         aft_right: error_helper(&unsafe { dshot::PAYLOAD_REC_1 }, fault, pole_count),
         // aft_right: None,
         front_right: error_helper(&unsafe { dshot::PAYLOAD_REC_2 }, fault, pole_count),

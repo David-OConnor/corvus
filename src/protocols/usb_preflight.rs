@@ -16,7 +16,7 @@ use crate::{
     control_interface::ChannelData,
     dshot,
     flight_ctrls::{
-        common::{AttitudeCommanded, RpmStatus},
+        common::{AttitudeCommanded, RpmReadings},
         ControlMapping,
     },
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},
@@ -73,7 +73,7 @@ const QUATERNION_SIZE: usize = F32_SIZE * 4;
 // Quaternion attitude + quaternion target + altimeter_baro + altimeter_agl +
 // + option byte for altimeter + voltage reading + current reading.
 
-const PARAMS_SIZE: usize = 2 * QUATERNION_SIZE + 6 * F32_SIZE + 1 + 4 * 3; //
+const PARAMS_SIZE: usize = 2 * QUATERNION_SIZE + 6 * F32_SIZE + 1 + 4 * 3 + 1; //
 const CONTROLS_SIZE: usize = 19; // Includes first byte as an Option byte.
                                  // const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
 const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
@@ -183,7 +183,8 @@ fn params_to_bytes(
     alt_agl: Option<f32>,
     voltage: f32,
     current: f32,
-    rpm_status: &RpmStatus,
+    rpm_status: &RpmReadings,
+    aircraft_type: u8,
 ) -> [u8; PARAMS_SIZE] {
     let mut result = [0; PARAMS_SIZE];
 
@@ -217,6 +218,10 @@ fn params_to_bytes(
         }
         i += 3;
     }
+    i -= 3; // undo last +3.
+    i += 1;
+
+    result[i] = aircraft_type;
 
     result
 }
@@ -359,7 +364,7 @@ pub fn handle_rx(
     op_mode: &mut OperationMode,
     motor_timer: &mut setup::MotorTimer,
     servo_timer: &mut setup::ServoTimer,
-    rpm_status: &RpmStatus,
+    rpm_status: &RpmReadings,
 ) {
     let rx_msg_type: MsgType = match rx_buf[0].try_into() {
         Ok(d) => d,
@@ -385,10 +390,15 @@ pub fn handle_rx(
         // todo: return here.
     }
 
-    #[cfg(feature = "quad")]
-    let motors_armed = ArmStatus::Armed;
-    #[cfg(feature = "fixed-wing")]
-    let motors_armed = ArmStatus::MotorsControlsArmed;
+    cfg_if! {
+        if #[cfg(feature = "quad")] {
+            let motors_armed = ArmStatus::Armed;
+            let aircraft_type = 0;
+        } else {
+            let motors_armed = ArmStatus::MotorsControlsArmed;
+            let aircraft_type = 1;
+        }
+    }
 
     match rx_msg_type {
         MsgType::Params => {}
@@ -413,6 +423,7 @@ pub fn handle_rx(
                 batt_v,
                 esc_current,
                 rpm_status,
+                aircraft_type,
             );
 
             send_payload::<{ PARAMS_SIZE + 2 }>(MsgType::Params, &payload, usb_serial);

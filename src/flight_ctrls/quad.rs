@@ -18,7 +18,7 @@ use crate::{
 };
 
 use super::{
-    common::{CtrlMix, InputMap, Motor, MotorRpm},
+    common::{CtrlMix, InputMap, Motor, MotorRpm, RpmReadings},
     pid,
 };
 
@@ -252,14 +252,15 @@ impl MotorRpm {
         &self,
         pid_coeffs: &pid::MotorCoeffs,
         pids: &pid::MotorPidGroup,
-        measured_rpm: &Self,
+        prev_pwr: &mut MotorPower,
+        rpm_readings: &RpmReadings,
         mapping: &ControlMapping,
         timer: &mut MotorTimer,
         arm_status: ArmStatus,
     ) {
         let fl = pid::run(
             self.front_left,
-            measured_rpm.front_left,
+            rpm_readings.front_left.unwrap_or(0.),
             &pids.front_left,
             pid_coeffs.p_front_left,
             pid_coeffs.i_front_left,
@@ -270,7 +271,7 @@ impl MotorRpm {
 
         let fr = pid::run(
             self.front_right,
-            measured_rpm.front_right,
+            rpm_readings.front_right.unwrap_or(0.),
             &pids.front_right,
             pid_coeffs.p_front_right,
             pid_coeffs.i_front_right,
@@ -281,7 +282,7 @@ impl MotorRpm {
 
         let al = pid::run(
             self.aft_left,
-            measured_rpm.aft_left,
+            rpm_readings.aft_left.unwrap_or(0.),
             &pids.aft_left,
             pid_coeffs.p_aft_left,
             pid_coeffs.i_aft_left,
@@ -292,7 +293,7 @@ impl MotorRpm {
 
         let ar = pid::run(
             self.aft_right,
-            measured_rpm.aft_right,
+            rpm_readings.aft_right.unwrap_or(0.),
             &pids.aft_right,
             pid_coeffs.p_aft_right,
             pid_coeffs.i_aft_right,
@@ -302,13 +303,19 @@ impl MotorRpm {
         );
 
         let power = MotorPower {
-            front_left: fl.out(),
-            front_right: fr.out(),
-            aft_left: al.out(),
-            aft_right: ar.out(),
+            front_left: prev_pwr.front_left + fl.out(),
+            // front_right: prev_pwr.front_right + fr.out(),
+            // aft_left: prev_pwr.aft_left + al.out(),
+            aft_right: prev_pwr.aft_right + ar.out(),
+            // todo temp so it doesn't accidentally take off while experimenting.
+            // front_left: 0.,
+            front_right: 0.,
+            aft_left: 0.,
         };
 
         power.set(mapping, timer, arm_status);
+
+        *prev_pwr = power;
     }
 
     /// Motor pair delta. Maps to angular accel. Positive means nose-up pitching.
@@ -512,3 +519,42 @@ pub fn set_input_mode(
         }
     }
 }
+
+// // todo: Should this be in common? Should this also be used to set thrust motor power on fixed-wings?
+// // todo: API by motor posit?
+// /// Apply RPM power to motors.
+// pub fn send_rpm_cmd_to_motors(
+//     rpms_commanded: &MotorRpm,
+//     current_pwr: &mut MotorPower, // Power to command.
+//     rpm_status: &RpmStatus,
+//     pid_state: &mut PidState,
+//     mapping: &ControlMapping,
+//     motor_timer: &mut MotorTimer,
+// ) {
+//
+//     // if i % 8000 == 0 {
+//     //     println!("Tgt RPM: {:?}", target_rpm);
+//     //     println!("AR meas: {:?}", rpm_status.aft_right);
+//     // }
+//
+//
+//     // todo: Apply to all motors once tested.
+//
+//     pid_state.aft_right = pid::run(
+//         target_rpm.aft_right,
+//         rpm_status.aft_right.unwrap_or(69.),
+//         &pid_state.aft_right,
+//         pid_coeffs.p_aft_right,
+//         pid_coeffs.i_aft_right,
+//         0.,
+//         None,
+//         DT_FLIGHT_CTRLS,
+//     );
+//
+//     // For our test, M1 corresponds to AR
+//     let p = state_volatile.current_pwr.aft_right + pid_state.aft_right.out();
+//     current_pwr.aft_right = p;
+//
+//     current_pwr.send_to
+//     dshot::set_power(p, 0.0, 0., 0., motor_timer);
+// }

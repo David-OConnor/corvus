@@ -6,7 +6,7 @@ use cmsis_dsp_sys as dsp_sys;
 
 use crate::{
     control_interface::ChannelData,
-    flight_ctrls::{self, autopilot::AutopilotStatus, common::RpmStatus},
+    flight_ctrls::{self, autopilot::AutopilotStatus, common::RpmReadings},
     params::Params,
     safety::ArmStatus,
     sensors_shared::BattCellCount,
@@ -185,7 +185,7 @@ pub fn print_status(
     control_channel_data: &Option<ChannelData>,
     state_volatile: &StateVolatile,
     autopilot_status: &AutopilotStatus,
-    rpm_status: &RpmStatus,
+    rpm_status: &RpmReadings,
 ) {
     // todo: Flesh this out, and perhaps make it more like Preflight.
 

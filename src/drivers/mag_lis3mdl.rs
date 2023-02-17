@@ -61,7 +61,7 @@ pub fn setup(i2c: &mut I2c<I2C1>) -> Result<(), MagNotConnectedError> {
     println!("MAG Pre setup");
 
     let mut read_buf = [0];
-    i2c.write_read(ADDR, &[Reg::WhoAmI as u8], &mut read_buf);
+    i2c.write_read(ADDR, &[Reg::WhoAmI as u8], &mut read_buf)?;
 
     println!("READ BUF Mag: {:?}", read_buf);
     if (read_buf[0] & 0xf) != WHOAMI {

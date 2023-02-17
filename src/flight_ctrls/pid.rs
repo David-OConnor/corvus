@@ -24,6 +24,10 @@ cfg_if! {
 
 // use defmt::println;
 
+// The maximum amount we can change power in a single loop. Power is on a 0 to 1 scale.
+const OUTPUT_CLAMP_MAX: f32 = 0.01;
+const OUTPUT_CLAMP_MIN: f32 = -OUTPUT_CLAMP_MAX;
+
 const INTEGRATOR_CLAMP_MAX_QUAD: f32 = 0.4;
 const INTEGRATOR_CLAMP_MIN_QUAD: f32 = -INTEGRATOR_CLAMP_MAX_QUAD;
 const INTEGRATOR_CLAMP_MAX_FIXED_WING: f32 = 0.4;
@@ -81,17 +85,29 @@ pub struct MotorCoeffs {
 impl Default for MotorCoeffs {
     #[cfg(feature = "quad")]
     fn default() -> Self {
+        // P and I terms are the same for all motors, but we leave this struct with all 4
+        // to make it easier to change later.
+        // The value of these terms is small since RPMs are 3x the values of power settings,
+        // and we use a khz-order update loop.
+        // todo: float precision issues working with numbers of very different OOMs? Seems to be
+        // todo find from a Rust Playground test.
+        let p = 0.0000001;
+        let i = 0.00000001;
         Self {
-            p_front_left: 1.,
-            p_front_right: 1.,
-            p_aft_left: 1.,
-            p_aft_right: 1.,
+            p_front_left: p,
+            p_front_right: p,
+            p_aft_left: p,
+            p_aft_right: p,
 
-            i_front_left: 0.4,
-            i_front_right: 0.4,
-            i_aft_left: 0.5,
-            i_aft_right: 0.5,
+            i_front_left: i,
+            i_front_right: i,
+            i_aft_left: i,
+            i_aft_right: i,
 
+            // i_front_left: 0.,
+            // i_front_right: 0.,
+            // i_aft_left: 0.,
+            // i_aft_right: 0.,
             rpm_cutoff: LowpassCutoff::H1k,
         }
     }
@@ -185,7 +201,17 @@ impl PidState {
     }
 
     pub fn out(&self) -> f32 {
-        self.p + self.i + self.d
+        let result = self.p + self.i + self.d;
+
+        // Clamp output. Note that output is a *change* in power.
+        if result > OUTPUT_CLAMP_MAX {
+            return OUTPUT_CLAMP_MAX;
+        }
+        if result < OUTPUT_CLAMP_MIN {
+            return OUTPUT_CLAMP_MIN;
+        }
+
+        result
     }
 }
 
@@ -249,10 +275,15 @@ impl Default for DerivFilters {
     }
 }
 
+use defmt::println;
+
 /// Calculate the PID error given flight parameters, and a flight
 /// command.
 /// Example: https://github.com/pms67/PID/blob/master/PID.c
 /// Example 2: https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Pid.c
+///
+/// The value output from the `out` methd on PidState is how we access results. It is a change in commanded
+/// power.
 pub fn run(
     set_pt: f32,
     measurement: f32,
@@ -268,8 +299,12 @@ pub fn run(
 
     let error = set_pt - measurement;
 
+    // println!("Error: {:?}", error);
+
     // https://www.youtube.com/watch?v=zOByx3Izf5U
     let error_p = k_p * error;
+
+    // println!("Error p: {:?}", error_p);
 
     // For inegral term, use a midpoint formula, and use error, vice measurement.
     let error_i = k_i * (error + prev_pid.e) / 2. * dt + prev_pid.i;
@@ -293,8 +328,6 @@ pub fn run(
     };
 
     result.anti_windup_clamp(error_p);
-
-    // todo: Clamp output?
 
     result
 }

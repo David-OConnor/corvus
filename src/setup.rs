@@ -1,5 +1,9 @@
 //! This module contains setup code, including hardware-specific details like pin numbers,
-//! and timer and DMA assigments. Makes use of feature-gating as required.
+//! and timer and DMA assigments. Makes use of feature-gating as required to support both the G4
+//! and H7 flight controller.
+//!
+//! This module is the source of definitions of Buses, binding busses named after use cases to
+//! specific hardware STM32 peripherals.
 
 use cfg_if::cfg_if;
 
@@ -189,12 +193,12 @@ pub fn init_sensors(
             *base_pt = Location::new(LocationType::LatLon, f.lat, f.lon, f.alt_msl);
 
             if system_status.baro == SensorStatus::Pass {
-                altimeter.calibrate_from_gps(Some(f.alt_msl), i2c2); // todo temp 1
+                altimeter.calibrate_from_gps(Some(f.alt_msl), i2c2).ok();
             }
         }
         Err(_) => {
             if system_status.baro == SensorStatus::Pass {
-                altimeter.calibrate_from_gps(None, i2c2); // todo temp 1
+                altimeter.calibrate_from_gps(None, i2c2).ok();
             }
         }
     }
