@@ -16,7 +16,8 @@ use crate::{
     control_interface::ChannelData,
     dshot,
     flight_ctrls::{
-        common::{AttitudeCommanded, RpmReadings},
+        // common::{AttitudeCommanded, RpmReadings},
+        common::{AttitudeCommanded, MotorServoState},
         ControlMapping,
         MotorPower, // todo quad only
     },

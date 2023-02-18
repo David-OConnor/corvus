@@ -11,17 +11,194 @@ const ROLL_IN_RNG: (f32, f32) = (-1., 1.);
 const YAW_IN_RNG: (f32, f32) = (-1., 1.);
 const THROTTLE_IN_RNG: (f32, f32) = (0., 1.);
 
-/// Holds all 4 RPMs, by position.
-/// todo: Quad-specific, but in `common` due to how we store it in Shared.
-#[derive(Default)]
-pub struct RpmReadings {
-    pub front_left: Option<f32>,
-    pub front_right: Option<f32>,
-    pub aft_left: Option<f32>,
-    pub aft_right: Option<f32>,
+const MOTOR_CMD_MIN: f32 = 0.;
+const MOTOR_CMD_MAX: f32 = 1.;
+const MOTOR_RPM_MIN: f32 = 500.;
+const MOTOR_RPM_MAX: f32 = 6_000.; // todo: PRobably depends on motors.
+const SERVO_MIN: f32 = 0.;
+const SERVO_MAX: f32 = 1.;
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+pub enum MotorCmd {
+    Power(f32),
+    Rpm(f32),
 }
 
-pub struct RpmMissingError {}
+impl Default for MotorCmd {
+    fn default() -> Self {
+        Self::Power(0.)
+    }
+}
+
+impl MotorCmd {
+    pub fn clamp(&mut self) {
+        match self {
+            Self::Power(c) => {
+                if *c < MOTOR_CMD_MIN {
+                    *c = MOTOR_CMD_MIN;
+                } else if *c > MOTOR_CMD_MAX {
+                    *c = MOTOR_CMD_MAX;
+                }
+            }
+            Self::Rpm(c) => {
+                if *c < MOTOR_RPM_MIN {
+                    *c = MOTOR_RPM_MIN;
+                } else if *c > MOTOR_RPM_MAX {
+                    *c = MOTOR_RPM_MAX;
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)] // u8 repr for serializing via USB.
+pub enum RotationDir {
+    Clockwise = 0,
+    CounterClockwise = 1,
+}
+
+/// State of an individual motor.
+#[derive(Clone, Copy, PartialEq, Default)]
+pub struct MotorState {
+    /// None indicates no reading.
+    pub cmd: MotorCmd,
+    pub rpm_reading: Option<f32>,
+    // pub dir: RotationDir, // todo: Do we want this?
+    /// Reversed is in relation to the 3-wire motor brushless wiring. This software setting
+    /// allows the wires to be connected in any order, and compensated for in software. (Eg by
+    /// sending a DSHOT command to reverse the direction appropriately)
+    pub reversed: bool,
+}
+
+/// State of an individual servo.
+#[derive(Clone, Copy, PartialEq, Default)]
+pub struct ServoState {
+    /// Commanded position
+    pub posit_cmd: f32,
+}
+
+impl ServoState {
+    pub fn clamp(&mut self) {
+        if self.posit_cmd < SERVO_MIN {
+            self.posit_cmd = SERVO_MIN;
+        } else if self.posit_cmd > SERVO_MAX {
+            self.posit_cmd = SERVO_MAX;
+        }
+    }
+}
+
+/// A possible function for a given motor/servo pin
+/// Interior values for rotors are RPM. Interior values for servos
+/// are servos positions. (On a scale of -1. to 1.)
+// #[derive(Clone, Copy, PartialEq)]
+pub enum MotorServoRole {
+    Unused,
+    RotorFrontLeft(MotorState),
+    RotorFrontRight(MotorState),
+    RotorAftLeft(MotorState),
+    RotorAftRight(MotorState),
+    ThrustMotor1(MotorState),
+    ThrustMotor2(MotorState),
+    ElevonLeft(ServoState),
+    ElevonRight(ServoState), // todo
+}
+
+impl MotorServoRole {
+    /// Clamp commanded settings.
+    pub fn clamp_cmd(&mut self) {
+        match self {
+            Self::Unused => (),
+            Self::RotorFrontLeft(m) => {
+                m.cmd.clamp();
+            }
+            Self::RotorFrontRight(m) => {
+                m.cmd.clamp();
+            }
+            Self::RotorAftLeft(m) => {
+                m.cmd.clamp();
+            }
+            Self::RotorAftRight(m) => {
+                m.cmd.clamp();
+            }
+            Self::ThrustMotor1(m) => {
+                m.cmd.clamp();
+            }
+            Self::ThrustMotor2(m) => {
+                m.cmd.clamp();
+            }
+            Self::ElevonLeft(m) => {
+                m.clamp();
+            }
+            Self::ElevonRight(m) => {
+                m.clamp();
+            }
+        }
+    }
+}
+
+/// Describes the function of all motors and servos.  Is based on the pin connections. Each pin
+/// can be a motor or servo. Doesn't directly deliniate quadcopter vice fixed-wing.
+///
+/// Note: there are some restrictions based on timer-pin mappings, that are different between
+/// G4 and H7.
+/// todo: Rename A/R
+pub struct MotorServoState {
+    pub ms1: MotorServoRole,
+    pub ms2: MotorServoRole,
+    pub ms3: MotorServoRole,
+    pub ms4: MotorServoRole,
+    pub ms5: MotorServoRole,
+    pub ms6: MotorServoRole,
+}
+
+impl Default for MotorServoState {
+    fn default() -> Self {
+        #[cfg(feature = "quad")]
+        return Self {
+            ms1: MotorServoRole::RotorFrontLeft(Default::default()),
+            ms2: MotorServoRole::RotorFrontRight(Default::default()),
+            ms3: MotorServoRole::RotorAftLeft(Default::default()),
+            ms4: MotorServoRole::RotorAftRight(Default::default()),
+            ms5: MotorServoRole::Unused,
+            ms6: MotorServoRole::Unused,
+        };
+
+        #[cfg(feature = "fixed-wing")]
+        return Self {
+            ms1: MotorServoRole::RotorFrontLeft(Default::default()),
+            ms2: MotorServoRole::Unused,
+            ms3: MotorServoRole::ElevonLeft(Default::default()),
+            ms4: MotorServoRole::ElevonRight(Default::default()),
+            ms5: MotorServoRole::Unused,
+            ms6: MotorServoRole::Unused,
+        };
+    }
+}
+
+impl MotorServoState {
+    pub fn clamp_cmd(&mut self) {
+        self.ms1.clamp_cmd();
+        self.ms2.clamp_cmd();
+        self.ms3.clamp_cmd();
+        self.ms4.clamp_cmd();
+        self.ms5.clamp_cmd();
+        self.ms6.clamp_cmd();
+    }
+}
+
+// /// Measurements of RPM. `None` indicates that no reading is available for a given motor.
+// /// todo: Quad-specific, but in `common` due to how we store it in Shared.
+// #[derive(Default)]
+// pub struct RpmReadings {
+//     pub front_left: Option<f32>,
+//     pub front_right: Option<f32>,
+//     pub aft_left: Option<f32>,
+//     pub aft_right: Option<f32>,
+// }
+
+// pub struct RpmMissingError {}
 
 // impl RpmReadings {
 //     pub fn to_rpms(&self) -> Result<MotorRpm, RpmMissingError> {
@@ -56,27 +233,15 @@ pub struct RpmMissingError {}
 //     }
 // }
 
-/// Holds all 4 RPMs, by position.
-/// todo: Quad-specific, but in `common` due to how we store it in Shared.
-#[derive(Default)]
-pub struct MotorRpm {
-    pub front_left: f32,
-    pub front_right: f32,
-    pub aft_left: f32,
-    pub aft_right: f32,
-}
-
-/// Specify the rotor by its connection to the ESC. Includes methods that get information regarding timer
-/// and DMA, per specific board setups, in `setup`.
-/// Note that this is more appplicable to quads, but isn't in the `quad` module due to how
-/// we've structured DSHOT code.
-#[derive(Clone, Copy)]
-pub enum Motor {
-    M1,
-    M2,
-    M3,
-    M4,
-}
+// /// Holds all 4 RPMs, by position.
+// /// todo: Quad-specific, but in `common` due to how we store it in Shared.
+// #[derive(Default)]
+// pub struct MotorRpm {
+//     pub front_left: f32,
+//     pub front_right: f32,
+//     pub aft_left: f32,
+//     pub aft_right: f32,
+// }
 
 /// Maps manual control inputs (range 0. to 1. or -1. to 1.) to velocities, rotational velocities etc
 /// for various flight modes. The values are for full input range.

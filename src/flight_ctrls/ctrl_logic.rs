@@ -4,7 +4,8 @@
 use crate::{control_interface::ChannelData, util::map_linear};
 
 use super::{
-    common::{CtrlMix, MotorRpm},
+    // common::{CtrlMix, MotorRpm},
+    common::{CtrlMix, MotorServoState},
     filters::FlightCtrlFilters,
 };
 
@@ -17,13 +18,13 @@ use cfg_if::cfg_if;
 
 // todo: YOu probably need filters.
 
-cfg_if! {
-    if #[cfg(feature = "quad")] {
-        use super::RotationDir;
-    } else {
-        use super::ControlPositions;
-    }
-}
+// cfg_if! {
+//     if #[cfg(feature = "quad")] {
+//         use super::RotationDir;
+//     } else {
+//         use super::ControlPositions;
+//     }
+// }
 
 const RIGHT: Vec3 = Vec3 {
     x: 1.,

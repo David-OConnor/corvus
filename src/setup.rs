@@ -35,10 +35,10 @@ use crate::{
         baro_dps310 as baro, flash_spi, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
         tof_vl53l1 as tof,
     },
-    flight_ctrls::common::Motor,
+    // flight_ctrls::common::Motor,
     params::Params,
     ppks::{Location, LocationType},
-    protocols::{dshot, servo},
+    protocols::{dshot::{self, Motor}, servo},
     system_status::{SensorStatus, SystemStatus},
 };
 

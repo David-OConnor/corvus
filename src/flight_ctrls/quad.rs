@@ -18,7 +18,8 @@ use crate::{
 };
 
 use super::{
-    common::{CtrlMix, InputMap, Motor, MotorRpm, RpmReadings},
+    // common::{CtrlMix, InputMap, Motor, MotorRpm, RpmReadings},
+    common::{CtrlMix, InputMap, MotorServoState},
     pid,
 };
 
@@ -32,8 +33,8 @@ const MIN_ROTOR_RPM: f32 = 100.; // todo: Finda good value.
 // Max power setting for any individual rotor at idle setting.
 pub const MAX_ROTOR_POWER: f32 = 1.;
 
-const PWR_MIN: f32 = 0.;
-const PWR_MAX: f32 = 1.;
+// const PWR_MIN: f32 = 0.;
+// const PWR_MAX: f32 = 1.;
 
 // todo: Variabel/struct field found from cal routine that is power to hover.
 
@@ -67,16 +68,16 @@ impl Default for InputMap {
     }
 }
 
-/// Specify the rotor by position. Used in power application code.
-/// repr(u8) is for use in Preflight.
-#[derive(Clone, Copy, PartialEq)]
-#[repr(u8)]
-pub enum RotorPosition {
-    FrontLeft = 0,
-    FrontRight = 1,
-    AftLeft = 2,
-    AftRight = 3,
-}
+// /// Specify the rotor by position. Used in power application code.
+// /// repr(u8) is for use in Preflight.
+// #[derive(Clone, Copy, PartialEq)]
+// #[repr(u8)]
+// pub enum RotorPosition {
+//     FrontLeft = 0,
+//     FrontRight = 1,
+//     AftLeft = 2,
+//     AftRight = 3,
+// }
 
 /// Mode used for control inputs. These are the three "industry-standard" modes.
 #[derive(Clone, Copy, PartialEq)]
@@ -108,62 +109,55 @@ impl Default for InputMode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-#[repr(u8)] // u8 repr for serializing via USB.
-pub enum RotationDir {
-    Clockwise = 0,
-    CounterClockwise = 1,
-}
+// /// Maps servos to wing position, and related details.
+// /// Map rotor positions to connection numbers to ESC, and motor directions. Positions are associated with flight controls;
+// /// numbers are associated with motor control. Also allows configuring rotor direcction, using front-left,
+// /// and aft-right rotors as our stake.
+// pub struct ControlMapping {
+//     pub m1: RotorPosition,
+//     pub m2: RotorPosition,
+//     pub m3: RotorPosition,
+//     pub m4: RotorPosition,
+//     /// It's common to arbitrarily wire motors to the ESC. Reverse each from its
+//     /// default direction, as required.
+//     pub m1_reversed: bool,
+//     pub m2_reversed: bool,
+//     pub m3_reversed: bool,
+//     pub m4_reversed: bool,
+//     pub frontleft_aftright_dir: RotationDir,
+// }
 
-/// Maps servos to wing position, and related details.
-/// Map rotor positions to connection numbers to ESC, and motor directions. Positions are associated with flight controls;
-/// numbers are associated with motor control. Also allows configuring rotor direcction, using front-left,
-/// and aft-right rotors as our stake.
-pub struct ControlMapping {
-    pub m1: RotorPosition,
-    pub m2: RotorPosition,
-    pub m3: RotorPosition,
-    pub m4: RotorPosition,
-    /// It's common to arbitrarily wire motors to the ESC. Reverse each from its
-    /// default direction, as required.
-    pub m1_reversed: bool,
-    pub m2_reversed: bool,
-    pub m3_reversed: bool,
-    pub m4_reversed: bool,
-    pub frontleft_aftright_dir: RotationDir,
-}
+// impl Default for ControlMapping {
+//     fn default() -> Self {
+//         Self {
+//             m1: RotorPosition::AftRight,
+//             m2: RotorPosition::FrontRight,
+//             m3: RotorPosition::AftLeft,
+//             m4: RotorPosition::FrontLeft,
+//             m1_reversed: false,
+//             m2_reversed: false,
+//             m3_reversed: false,
+//             m4_reversed: false,
+//             frontleft_aftright_dir: RotationDir::Clockwise,
+//         }
+//     }
+// }
 
-impl Default for ControlMapping {
-    fn default() -> Self {
-        Self {
-            m1: RotorPosition::AftRight,
-            m2: RotorPosition::FrontRight,
-            m3: RotorPosition::AftLeft,
-            m4: RotorPosition::FrontLeft,
-            m1_reversed: false,
-            m2_reversed: false,
-            m3_reversed: false,
-            m4_reversed: false,
-            frontleft_aftright_dir: RotationDir::Clockwise,
-        }
-    }
-}
-
-impl ControlMapping {
-    pub fn motor_from_position(&self, position: RotorPosition) -> Motor {
-        // todo: This assumes each motor maps to exactly one position. We probably
-        // todo should have some constraint to enforce this.
-        if self.m1 == position {
-            Motor::M1
-        } else if self.m2 == position {
-            Motor::M2
-        } else if self.m3 == position {
-            Motor::M3
-        } else {
-            Motor::M4
-        }
-    }
-}
+// impl ControlMapping {
+//     pub fn motor_from_position(&self, position: RotorPosition) -> Motor {
+//         // todo: This assumes each motor maps to exactly one position. We probably
+//         // todo should have some constraint to enforce this.
+//         if self.m1 == position {
+//             Motor::M1
+//         } else if self.m2 == position {
+//             Motor::M2
+//         } else if self.m3 == position {
+//             Motor::M3
+//         } else {
+//             Motor::M4
+//         }
+//     }
+// }
 
 /// Represents power levels for the rotors. These map from 0. to 1.; 0% to 100% power.
 #[derive(Clone, Default)]
@@ -229,25 +223,25 @@ impl MotorRpm {
 
         result
     }
-
-    /// Clamp rotor speeds by an RPM idle.
-    fn clamp_individual_rotors(&mut self) {
-        if self.front_left < MIN_ROTOR_RPM {
-            self.front_left = MIN_ROTOR_RPM;
-        }
-
-        if self.front_right < MIN_ROTOR_RPM {
-            self.front_right = MIN_ROTOR_RPM;
-        }
-
-        if self.aft_left < MIN_ROTOR_RPM {
-            self.aft_left = MIN_ROTOR_RPM;
-        }
-
-        if self.aft_right < MIN_ROTOR_RPM {
-            self.aft_right = MIN_ROTOR_RPM;
-        }
-    }
+    //
+    // /// Clamp rotor speeds by an RPM idle.
+    // fn clamp_individual_rotors(&mut self) {
+    //     if self.front_left < MIN_ROTOR_RPM {
+    //         self.front_left = MIN_ROTOR_RPM;
+    //     }
+    //
+    //     if self.front_right < MIN_ROTOR_RPM {
+    //         self.front_right = MIN_ROTOR_RPM;
+    //     }
+    //
+    //     if self.aft_left < MIN_ROTOR_RPM {
+    //         self.aft_left = MIN_ROTOR_RPM;
+    //     }
+    //
+    //     if self.aft_right < MIN_ROTOR_RPM {
+    //         self.aft_right = MIN_ROTOR_RPM;
+    //     }
+    // }
 
     /// Send this power command to the rotors, after converting to `MotorPower`,
     /// via a power-to-RPM PID.
@@ -255,9 +249,10 @@ impl MotorRpm {
         &self,
         pid_coeffs: &pid::MotorCoeffs,
         pids: &pid::MotorPidGroup,
-        prev_pwr: &mut MotorPower,
-        rpm_readings: &RpmReadings,
-        mapping: &ControlMapping,
+        motor_state: &mut MotorServoState,
+        // prev_pwr: &mut MotorPower,
+        // rpm_readings: &RpmReadings,
+        // mapping: &ControlMapping,
         timer: &mut MotorTimer,
         arm_status: ArmStatus,
     ) {
@@ -272,9 +267,11 @@ impl MotorRpm {
                     0.,
                     None,
                     DT_FLIGHT_CTRLS,
-                ).out() + prev_pwr.front_left
+                )
+                .out()
+                    + prev_pwr.front_left
             }
-            None => 0.
+            None => 0.,
         };
 
         let front_right = match rpm_readings.front_left {
@@ -288,9 +285,11 @@ impl MotorRpm {
                     0.,
                     None,
                     DT_FLIGHT_CTRLS,
-                ).out() + prev_pwr.front_right
+                )
+                .out()
+                    + prev_pwr.front_right
             }
-            None => 0.
+            None => 0.,
         };
 
         let aft_left = match rpm_readings.front_left {
@@ -304,9 +303,11 @@ impl MotorRpm {
                     0.,
                     None,
                     DT_FLIGHT_CTRLS,
-                ).out() + prev_pwr.aft_left
+                )
+                .out()
+                    + prev_pwr.aft_left
             }
-            None => 0.
+            None => 0.,
         };
 
         let aft_right = match rpm_readings.front_left {
@@ -320,13 +321,19 @@ impl MotorRpm {
                     0.,
                     None,
                     DT_FLIGHT_CTRLS,
-                ).out() + prev_pwr.aft_right
+                )
+                .out()
+                    + prev_pwr.aft_right
             }
-            None => 0.
+            None => 0.,
         };
 
-
-        let mut power = MotorPower { front_left, front_right, aft_left, aft_right };
+        let mut power = MotorPower {
+            front_left,
+            front_right,
+            aft_left,
+            aft_right,
+        };
 
         power.clamp();
         power.set(mapping, timer, arm_status);
@@ -359,39 +366,39 @@ impl MotorRpm {
 }
 
 impl MotorPower {
-    /// Convert rotor position to its associated power setting.
-    fn by_rotor_num(&self, mapping: &ControlMapping) -> (f32, f32, f32, f32) {
-        // todo: DRY
-        let p1 = match mapping.m1 {
-            RotorPosition::FrontLeft => self.front_left,
-            RotorPosition::FrontRight => self.front_right,
-            RotorPosition::AftLeft => self.aft_left,
-            RotorPosition::AftRight => self.aft_right,
-        };
-
-        let p2 = match mapping.m2 {
-            RotorPosition::FrontLeft => self.front_left,
-            RotorPosition::FrontRight => self.front_right,
-            RotorPosition::AftLeft => self.aft_left,
-            RotorPosition::AftRight => self.aft_right,
-        };
-
-        let p3 = match mapping.m3 {
-            RotorPosition::FrontLeft => self.front_left,
-            RotorPosition::FrontRight => self.front_right,
-            RotorPosition::AftLeft => self.aft_left,
-            RotorPosition::AftRight => self.aft_right,
-        };
-
-        let p4 = match mapping.m4 {
-            RotorPosition::FrontLeft => self.front_left,
-            RotorPosition::FrontRight => self.front_right,
-            RotorPosition::AftLeft => self.aft_left,
-            RotorPosition::AftRight => self.aft_right,
-        };
-
-        (p1, p2, p3, p4)
-    }
+    // /// Convert rotor position to its associated power setting.
+    // fn by_rotor_num(&self, mapping: &ControlMapping) -> (f32, f32, f32, f32) {
+    //     // todo: DRY
+    //     let p1 = match mapping.m1 {
+    //         RotorPosition::FrontLeft => self.front_left,
+    //         RotorPosition::FrontRight => self.front_right,
+    //         RotorPosition::AftLeft => self.aft_left,
+    //         RotorPosition::AftRight => self.aft_right,
+    //     };
+    //
+    //     let p2 = match mapping.m2 {
+    //         RotorPosition::FrontLeft => self.front_left,
+    //         RotorPosition::FrontRight => self.front_right,
+    //         RotorPosition::AftLeft => self.aft_left,
+    //         RotorPosition::AftRight => self.aft_right,
+    //     };
+    //
+    //     let p3 = match mapping.m3 {
+    //         RotorPosition::FrontLeft => self.front_left,
+    //         RotorPosition::FrontRight => self.front_right,
+    //         RotorPosition::AftLeft => self.aft_left,
+    //         RotorPosition::AftRight => self.aft_right,
+    //     };
+    //
+    //     let p4 = match mapping.m4 {
+    //         RotorPosition::FrontLeft => self.front_left,
+    //         RotorPosition::FrontRight => self.front_right,
+    //         RotorPosition::AftLeft => self.aft_left,
+    //         RotorPosition::AftRight => self.aft_right,
+    //     };
+    //
+    //     (p1, p2, p3, p4)
+    // }
 
     /// Calculates total power. Used to normalize individual rotor powers when setting total
     /// power, eg from a thrust setting.
@@ -408,32 +415,32 @@ impl MotorPower {
         self.aft_right *= scaler;
     }
 
-    /// Clamp rotor speeds to 1.0 max power, and 0. min power.
-    pub fn clamp(&mut self) {
-        if self.front_left > PWR_MAX {
-            self.front_left = PWR_MAX;
-        } else if self.front_left < PWR_MIN {
-            self.front_left = PWR_MIN;
-        }
-
-        if self.front_right > PWR_MAX {
-            self.front_right = PWR_MAX;
-        } else if self.front_right < PWR_MIN {
-            self.front_right = PWR_MIN;
-        }
-
-        if self.aft_left > PWR_MAX {
-            self.aft_left = PWR_MAX;
-        } else if self.aft_left < PWR_MIN {
-            self.aft_left = PWR_MIN;
-        }
-
-        if self.aft_right > PWR_MAX {
-            self.aft_right = PWR_MAX;
-        } else if self.aft_right < PWR_MIN {
-            self.aft_right = PWR_MIN;
-        }
-    }
+    // /// Clamp rotor speeds to 1.0 max power, and 0. min power.
+    // pub fn clamp(&mut self) {
+    //     if self.front_left > PWR_MAX {
+    //         self.front_left = PWR_MAX;
+    //     } else if self.front_left < PWR_MIN {
+    //         self.front_left = PWR_MIN;
+    //     }
+    //
+    //     if self.front_right > PWR_MAX {
+    //         self.front_right = PWR_MAX;
+    //     } else if self.front_right < PWR_MIN {
+    //         self.front_right = PWR_MIN;
+    //     }
+    //
+    //     if self.aft_left > PWR_MAX {
+    //         self.aft_left = PWR_MAX;
+    //     } else if self.aft_left < PWR_MIN {
+    //         self.aft_left = PWR_MIN;
+    //     }
+    //
+    //     if self.aft_right > PWR_MAX {
+    //         self.aft_right = PWR_MAX;
+    //     } else if self.aft_right < PWR_MIN {
+    //         self.aft_right = PWR_MIN;
+    //     }
+    // }
 
     /// Send this power command to the rotors
     pub fn set(&self, mapping: &ControlMapping, timer: &mut MotorTimer, arm_status: ArmStatus) {

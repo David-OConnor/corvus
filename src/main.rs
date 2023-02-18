@@ -39,7 +39,8 @@ use drivers::{
 use filter_imu::ImuFilters;
 use flight_ctrls::{
     autopilot::AutopilotStatus,
-    common::{MotorRpm, RpmReadings},
+    common::MotorServoState,
+    // common::{MotorRpm, RpmReadings},
     // pid::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
     //     PID_CONTROL_ADJ_TIMEOUT,
@@ -250,8 +251,8 @@ mod app {
         pwr_maps: PowerMaps,
         /// Store rotor RPM: (M1, M2, M3, M4). Quad only, but we can't feature gate
         /// shared fields.
-        rpm_readings: RpmReadings,
-        rpms_commanded: MotorRpm,
+        // rpm_readings: RpmReadings,
+        // rpms_commanded: MotorRpm,
         motor_pid_state: MotorPidGroup,
         /// PID motor coefficients
         motor_pid_coeffs: MotorCoeffs,
@@ -821,7 +822,7 @@ mod app {
     #[task(binds = DMA1_CH2,
     shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timer, servo_timer, state_volatile, rpm_readings, rpms_commanded, system_status],
+    motor_timer, servo_timer, state_volatile, system_status],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, measurement_timer], priority = 3)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
@@ -853,8 +854,8 @@ mod app {
             cx.shared.state_volatile,
             cx.shared.flight_ctrl_filters,
             cx.shared.system_status,
-            cx.shared.rpm_readings,
-            cx.shared.rpms_commanded,
+            // cx.shared.rpm_readings,
+            // cx.shared.rpms_commanded,
         )
             .lock(
                 |params,
@@ -868,8 +869,8 @@ mod app {
                  state_volatile,
                  flight_ctrl_filters,
                  system_status,
-                 rpm_readings,
-                 rpms_commanded
+                 // rpm_readings,
+                 // rpms_commanded
                 | {
                     let mut imu_data =
                         imu_shared::ImuReadings::from_buffer(unsafe { &imu_shared::IMU_READINGS });

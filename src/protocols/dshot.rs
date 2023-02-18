@@ -24,10 +24,7 @@ use stm32_hal2::{
     timer::{CountDir, OutputCompare, Polarity},
 };
 
-use crate::{
-    flight_ctrls::{common::Motor, ControlMapping},
-    setup::MotorTimer,
-};
+use crate::setup::MotorTimer;
 
 // todo: Bidirectional: Set timers to active low, set GPIO idle to high, and perhaps set down counting
 // todo if required. Then figure out input capture, and fix in HAL.
@@ -112,6 +109,19 @@ pub static mut PAYLOAD_REC_1: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_2: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_3: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_4: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
+
+/// Specify the motor by its connection to the ESC.
+// /// Includes methods that get information regarding timer
+// /// and DMA, per specific board setups, in `setup`.
+// /// Note that this is more appplicable to quads, but isn't in the `quad` module due to how
+// /// we've structured DSHOT code.
+#[derive(Clone, Copy)]
+pub enum Motor {
+    M1,
+    M2,
+    M3,
+    M4,
+}
 
 /// Possible DSHOT commands (ie, DSHOT values 0 - 47). Does not include power settings.
 /// [Special commands section](https://brushlesswhoop.com/dshot-and-bidirectional-dshot/)

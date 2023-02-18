@@ -6,9 +6,9 @@ use crate::{
     control_interface::InputModeSwitch,
     flight_ctrls::{
         autopilot::LandingCfg,
-        common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap},
+        common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap, MotorServoState},
         ctrl_logic::{AccelMap, CtrlCoeffs, DragCoeffs, PowerMaps},
-        ControlMapping,
+        // ControlMapping,
     },
     ppks::Location,
     safety::ArmStatus,
@@ -102,8 +102,8 @@ pub struct UserCfg {
     pub mapping_obstacles: bool,
     pub max_speed_hor: f32,
     pub max_speed_ver: f32,
-    /// Map motor connection number to position, or servos for fixed wing
-    pub control_mapping: ControlMapping,
+    // /// Map motor connection number to position, or servos for fixed wing
+    // pub control_mapping: ControlMapping,
     // Note that this inst includes idle power.
     // todo: We want to store this inst, but RTIC doesn't like it not being sync. Maybe static mut.
     // todo. For now, lives in the acro PID fn lol.
@@ -144,7 +144,7 @@ impl Default for UserCfg {
             mapping_obstacles: false,
             max_speed_hor: 20.,
             max_speed_ver: 20.,
-            control_mapping: Default::default(),
+            // control_mapping: Default::default(),
             // altitude_cal: Default::default(),
             // Make sure to update this interp table if you change idle power.
             // todo: This LUT setup is backwards! You need to put thrust on a fixed spacing,
@@ -232,4 +232,7 @@ pub struct StateVolatile {
     pub pressure_static: f32,
     /// Temperature, in K, measured by the barometer
     pub temp_baro: f32,
+    /// Holds all motor and servo mappings and state.
+    /// todo: Mappings are more of a User Cfg functionality
+    pub motor_servo_state: MotorServoState,
 }

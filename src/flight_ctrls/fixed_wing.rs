@@ -129,16 +129,16 @@ impl ControlMapping {
     }
 }
 
-/// Represents control settings for the motor, and elevons. Equivalent API to `quad::MotorPower`.
-/// Positive elevon value means pointed up relative to its hinge point.
-#[derive(Clone, Default)]
-pub struct ControlPositions {
-    pub motor: f32,
-    pub elevon_left: f32,
-    pub elevon_right: f32,
-    /// Only used if a rudder (or other yaw system) is connected; otherwise eignore.
-    pub rudder: f32,
-}
+// /// Represents control settings for the motor, and elevons. Equivalent API to `quad::MotorPower`.
+// /// Positive elevon value means pointed up relative to its hinge point.
+// #[derive(Clone, Default)]
+// pub struct ControlPositions {
+//     pub motor: f32,
+//     pub elevon_left: f32,
+//     pub elevon_right: f32,
+//     /// Only used if a rudder (or other yaw system) is connected; otherwise eignore.
+//     pub rudder: f32,
+// }
 
 impl ControlPositions {
     /// Apply controls based on pitch, roll, yaw, and throttle. Servo average position controls pitch;

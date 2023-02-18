@@ -367,11 +367,8 @@ pub fn rpm_readings_from_bufs(fault: &mut bool, pole_count: u8) -> RpmReadings {
     // todo: Don't hard-code the mapping!
     RpmReadings {
         aft_right: error_helper(&unsafe { dshot::PAYLOAD_REC_1 }, fault, pole_count),
-        // aft_right: None,
         front_right: error_helper(&unsafe { dshot::PAYLOAD_REC_2 }, fault, pole_count),
-        // front_right: None,
         aft_left: error_helper(&unsafe { dshot::PAYLOAD_REC_3 }, fault, pole_count),
         front_left: error_helper(&unsafe { dshot::PAYLOAD_REC_4 }, fault, pole_count),
-        // front_left: None,
     }
 }
