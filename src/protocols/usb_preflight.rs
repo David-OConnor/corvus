@@ -17,7 +17,7 @@ use crate::{
     dshot,
     flight_ctrls::{
         // common::{AttitudeCommanded, RpmReadings},
-        common::{AttitudeCommanded, MotorServoState},
+        common::{AttitudeCommanded, RpmReadings, MotorServoState},
         ControlMapping,
         MotorPower, // todo quad only
     },

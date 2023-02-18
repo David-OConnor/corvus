@@ -251,7 +251,7 @@ mod app {
         pwr_maps: PowerMaps,
         /// Store rotor RPM: (M1, M2, M3, M4). Quad only, but we can't feature gate
         /// shared fields.
-        // rpm_readings: RpmReadings,
+        rpm_readings: RpmReadings,
         // rpms_commanded: MotorRpm,
         motor_pid_state: MotorPidGroup,
         /// PID motor coefficients
@@ -762,7 +762,7 @@ mod app {
                 motor_pid_state: Default::default(),
                 motor_pid_coeffs: Default::default(),
                 rpm_readings: Default::default(),
-                rpms_commanded: Default::default(),
+                // rpms_commanded: Default::default(),
             },
             Local {
                 // update_timer,
@@ -823,7 +823,7 @@ mod app {
     shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status],
-    local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
+    local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle, rpm_readings,
     arm_signals_received, disarm_signals_received, batt_curr_adc, measurement_timer], priority = 3)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         dma::clear_interrupt(
@@ -854,7 +854,7 @@ mod app {
             cx.shared.state_volatile,
             cx.shared.flight_ctrl_filters,
             cx.shared.system_status,
-            // cx.shared.rpm_readings,
+            cx.shared.rpm_readings,
             // cx.shared.rpms_commanded,
         )
             .lock(
@@ -869,7 +869,7 @@ mod app {
                  state_volatile,
                  flight_ctrl_filters,
                  system_status,
-                 // rpm_readings,
+                 rpm_readings,
                  // rpms_commanded
                 | {
                     let mut imu_data =

@@ -7,6 +7,7 @@ use crate::{
     setup::{MotorTimer, ServoTimer},
     protocols::dshot,
     flight_ctrls::pid,
+    DT_FLIGHT_CTRLS,
 };
 
 use cfg_if::cfg_if;
@@ -77,7 +78,7 @@ pub enum RotationDir {
 }
 
 /// State of an individual motor.
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Default)]
 pub struct MotorState {
     /// None indicates no reading.
     pub cmd: MotorCmd,
@@ -232,6 +233,8 @@ pub struct MotorServoState {
     pub rotor_aft_right: MotorState,
     pub servo_aux_1: Option<ServoState>,
     pub servo_aux_2: Option<ServoState>,
+
+    pub frontleft_aftright_dir: RotationDir,
 }
 
 #[cfg(feature = "fixed-wing")]
@@ -283,6 +286,8 @@ impl Default for MotorServoState {
             rotor_aft_right: Default::default(),
             servo_aux_1: None,
             servo_aux_2: None,
+
+            frontleft_aftright_dir: RotationDir::Clockwise,
         };
 
         #[cfg(feature = "fixed-wing")]
@@ -339,44 +344,190 @@ impl MotorServoState {
 
     #[cfg(feature = "quad")]
     pub fn clamp_cmds(&mut self) {
-        self.rotor_front_left.clamp_cmd();
-        self.rotor_front_right.clamp_cmd();
-        self.rotor_aft_left.clamp_cmd();
-        self.rotor_aft_right.clamp_cmd();
-        // self.ms5.clamp_cmd();
-        // self.ms6.clamp_cmd();
+        self.rotor_front_left.cmd.clamp();
+        self.rotor_front_right.cmd.clamp();
+        self.rotor_aft_left.cmd.clamp();
+        self.rotor_aft_right.cmd.clamp();
+        // self.ms5.cmd.clamp();
+        // self.ms6.cmd.clamp();
     }
 
     /// Send commands to all rotors. This uses a single DSHOT command.
+    /// todo: Note - we don't need PID coeffs adn readings if sending power.
     #[cfg(feature = "quad")]
     pub fn send_to_rotors(
         &self,
         arm_status: ArmStatus,
         rpm_readings: &RpmReadings,
+        pid_group: &pid::PidGroup,
+        pid_coeffs: &pid::MotorCoeffs,
         motor_timer: &mut MotorTimer,
     ) {
         // todo: Temp hard-coded mappinsg.
 
-        let cmd_aft_left = match self.rotor_front_left.cmd {
+        // todo: Lots of DRY.
+        let cmd_front_left = match self.rotor_front_left.cmd {
             MotorCmd::Power(p) => p,
             MotorCmd::Rpm(r) => {
-                Some(reading) => {
-                    pid::run(
-                        self.aft_left,
-                        reading,
-                        &pids.aft_left,
-                        pid_coeffs.p_aft_left,
-                        pid_coeffs.i_aft_left,
-                        0.,
-                        None,
-                        DT_FLIGHT_CTRLS,
-                    )
-                        .out()
-                        + prev_pwr.aft_left
+                match rpm_readings.front_left {
+                    Some(reading) => {
+                        pid::run(
+                            r,
+                            reading,
+                            &pid_group.front_left,
+                            pid_coeffs.p_front_left,
+                            pid_coeffs.i_front_left,
+                            0.,
+                            None,
+                            DT_FLIGHT_CTRLS,
+                        )
+                            .out()
+                            + prev_pwr.front_left
+                    }
+                    None => 0.,
                 }
-                None => 0.,
             }
         };
+
+        let cmd_front_right = match self.rotor_front_right.cmd {
+            MotorCmd::Power(p) => p,
+            MotorCmd::Rpm(r) => {
+                match rpm_readings.front_right {
+                    Some(reading) => {
+                        pid::run(
+                            r,
+                            reading,
+                            &pid_group.front_right,
+                            pid_coeffs.p_front_right,
+                            pid_coeffs.i_front_right,
+                            0.,
+                            None,
+                            DT_FLIGHT_CTRLS,
+                        )
+                            .out()
+                            + prev_pwr.front_right
+                    }
+                    None => 0.,
+                }
+            }
+        };
+
+        let cmd_aft_left = match self.rotor_aft_left.cmd {
+            MotorCmd::Power(p) => p,
+            MotorCmd::Rpm(r) => {
+                match rpm_readings.aft_left {
+                    Some(reading) => {
+                        pid::run(
+                            r,
+                            reading,
+                            &pid_group.aft_left,
+                            pid_coeffs.p_aft_left,
+                            pid_coeffs.i_aft_left,
+                            0.,
+                            None,
+                            DT_FLIGHT_CTRLS,
+                        )
+                            .out()
+                            + prev_pwr.aft_left
+                    }
+                    None => 0.,
+                }
+            }
+        };
+
+        let cmd_aft_right = match self.rotor_aft_right.cmd {
+            MotorCmd::Power(p) => p,
+            MotorCmd::Rpm(r) => {
+                match rpm_readings.aft_right {
+                    Some(reading) => {
+                        pid::run(
+                            r,
+                            reading,
+                            &pid_group.aft_right,
+                            pid_coeffs.p_aft_right,
+                            pid_coeffs.i_aft_right,
+                            0.,
+                            None,
+                            DT_FLIGHT_CTRLS,
+                        )
+                            .out()
+                            + prev_pwr.aft_right
+                    }
+                    None => 0.,
+                }
+            }
+        };
+
+        let mut p1 = 0.;
+        let mut p2 = 0.;
+        let mut p3 = 0.;
+        let mut p4 = 0.;
+
+        // todo DRY
+        // todo: This process doesn't elegantly handle mismapped pins.
+        match self.rotor_front_left_hardware {
+            MotorServoHardware::Pin1 => {
+                p1 = cmd_front_left;
+            }
+            MotorServoHardware::Pin2 => {
+                p2 = cmd_front_left;
+            }
+            MotorServoHardware::Pin3 => {
+                p3 = cmd_front_left;
+            }
+            MotorServoHardware::Pin4 => {
+                p4 = cmd_front_left;
+            }
+            _ => (), // todo
+        }
+
+        match self.rotor_front_right_hardware {
+            MotorServoHardware::Pin1 => {
+                p1 = cmd_front_right;
+            }
+            MotorServoHardware::Pin2 => {
+                p2 = cmd_front_right;
+            }
+            MotorServoHardware::Pin3 => {
+                p3 = cmd_front_right;
+            }
+            MotorServoHardware::Pin4 => {
+                p4 = cmd_front_right;
+            }
+            _ => (), // todo
+        }
+
+        match self.rotor_aft_left_hardware {
+            MotorServoHardware::Pin1 => {
+                p1 = cmd_aft_left;
+            }
+            MotorServoHardware::Pin2 => {
+                p2 = cmd_aft_left;
+            }
+            MotorServoHardware::Pin3 => {
+                p3 = cmd_aft_left;
+            }
+            MotorServoHardware::Pin4 => {
+                p4 = cmd_aft_left;
+            }
+            _ => (), // todo
+        }
+
+        match self.rotor_aft_right_hardware {
+            MotorServoHardware::Pin1 => {
+                p1 = cmd_aft_right;
+            }
+            MotorServoHardware::Pin2 => {
+                p2 = cmd_aft_right;
+            }
+            MotorServoHardware::Pin3 => {
+                p3 = cmd_aft_right;
+            }
+            MotorServoHardware::Pin4 => {
+                p4 = cmd_aft_right;
+            }
+            _ => (), // todo
+        }
 
         match arm_status {
             ArmStatus::Armed => {
@@ -386,10 +537,6 @@ impl MotorServoState {
                 dshot::stop_all(timer);
             }
         }
-    }
-
-    pub fn from_rotor_cmd(&self, rpms: &RotarRpms) {
-
     }
 }
 

@@ -19,7 +19,7 @@ use crate::{
 
 use super::{
     // common::{CtrlMix, InputMap, Motor, MotorRpm, RpmReadings},
-    common::{CtrlMix, InputMap, MotorServoState},
+    common::{CtrlMix, InputMap, MotorServoState, RotationDir},
     pid,
 };
 
@@ -259,100 +259,100 @@ impl MotorRpm {
     //     }
     // }
 
-    /// Send this power command to the rotors, after converting to `MotorPower`,
-    /// via a power-to-RPM PID.
-    pub fn send_to_motors(
-        &self,
-        pid_coeffs: &pid::MotorCoeffs,
-        pids: &pid::MotorPidGroup,
-        motor_state: &mut MotorServoState,
-        // prev_pwr: &mut MotorPower,
-        // rpm_readings: &RpmReadings,
-        // mapping: &ControlMapping,
-        timer: &mut MotorTimer,
-        arm_status: ArmStatus,
-    ) {
-        let front_left = match rpm_readings.front_left {
-            Some(rpm) => {
-                pid::run(
-                    self.front_left,
-                    rpm,
-                    &pids.front_left,
-                    pid_coeffs.p_front_left,
-                    pid_coeffs.i_front_left,
-                    0.,
-                    None,
-                    DT_FLIGHT_CTRLS,
-                )
-                .out()
-                    + prev_pwr.front_left
-            }
-            None => 0.,
-        };
-
-        let front_right = match rpm_readings.front_left {
-            Some(reading) => {
-                pid::run(
-                    self.front_right,
-                    reading,
-                    &pids.front_right,
-                    pid_coeffs.p_front_right,
-                    pid_coeffs.i_front_right,
-                    0.,
-                    None,
-                    DT_FLIGHT_CTRLS,
-                )
-                .out()
-                    + prev_pwr.front_right
-            }
-            None => 0.,
-        };
-
-        let aft_left = match rpm_readings.front_left {
-            Some(reading) => {
-                pid::run(
-                    self.aft_left,
-                    reading,
-                    &pids.aft_left,
-                    pid_coeffs.p_aft_left,
-                    pid_coeffs.i_aft_left,
-                    0.,
-                    None,
-                    DT_FLIGHT_CTRLS,
-                )
-                .out()
-                    + prev_pwr.aft_left
-            }
-            None => 0.,
-        };
-
-        let aft_right = match rpm_readings.front_left {
-            Some(reading) => {
-                pid::run(
-                    self.aft_right,
-                    reading,
-                    &pids.aft_right,
-                    pid_coeffs.p_aft_right,
-                    pid_coeffs.i_aft_right,
-                    0.,
-                    None,
-                    DT_FLIGHT_CTRLS,
-                )
-                .out()
-                    + prev_pwr.aft_right
-            }
-            None => 0.,
-        };
-
-        let mut power = MotorPower {
-            front_left,
-            front_right,
-            aft_left,
-            aft_right,
-        };
-
-        *prev_pwr = power;
-    }
+    // /// Send this power command to the rotors, after converting to `MotorPower`,
+    // /// via a power-to-RPM PID.
+    // pub fn send_to_motors(
+    //     &self,
+    //     pid_coeffs: &pid::MotorCoeffs,
+    //     pids: &pid::MotorPidGroup,
+    //     motor_state: &mut MotorServoState,
+    //     // prev_pwr: &mut MotorPower,
+    //     // rpm_readings: &RpmReadings,
+    //     // mapping: &ControlMapping,
+    //     timer: &mut MotorTimer,
+    //     arm_status: ArmStatus,
+    // ) {
+    //     let front_left = match rpm_readings.front_left {
+    //         Some(rpm) => {
+    //             pid::run(
+    //                 self.front_left,
+    //                 rpm,
+    //                 &pids.front_left,
+    //                 pid_coeffs.p_front_left,
+    //                 pid_coeffs.i_front_left,
+    //                 0.,
+    //                 None,
+    //                 DT_FLIGHT_CTRLS,
+    //             )
+    //             .out()
+    //                 + prev_pwr.front_left
+    //         }
+    //         None => 0.,
+    //     };
+    //
+    //     let front_right = match rpm_readings.front_left {
+    //         Some(reading) => {
+    //             pid::run(
+    //                 self.front_right,
+    //                 reading,
+    //                 &pids.front_right,
+    //                 pid_coeffs.p_front_right,
+    //                 pid_coeffs.i_front_right,
+    //                 0.,
+    //                 None,
+    //                 DT_FLIGHT_CTRLS,
+    //             )
+    //             .out()
+    //                 + prev_pwr.front_right
+    //         }
+    //         None => 0.,
+    //     };
+    //
+    //     let aft_left = match rpm_readings.front_left {
+    //         Some(reading) => {
+    //             pid::run(
+    //                 self.aft_left,
+    //                 reading,
+    //                 &pids.aft_left,
+    //                 pid_coeffs.p_aft_left,
+    //                 pid_coeffs.i_aft_left,
+    //                 0.,
+    //                 None,
+    //                 DT_FLIGHT_CTRLS,
+    //             )
+    //             .out()
+    //                 + prev_pwr.aft_left
+    //         }
+    //         None => 0.,
+    //     };
+    //
+    //     let aft_right = match rpm_readings.front_left {
+    //         Some(reading) => {
+    //             pid::run(
+    //                 self.aft_right,
+    //                 reading,
+    //                 &pids.aft_right,
+    //                 pid_coeffs.p_aft_right,
+    //                 pid_coeffs.i_aft_right,
+    //                 0.,
+    //                 None,
+    //                 DT_FLIGHT_CTRLS,
+    //             )
+    //             .out()
+    //                 + prev_pwr.aft_right
+    //         }
+    //         None => 0.,
+    //     };
+    //
+    //     let mut power = MotorPower {
+    //         front_left,
+    //         front_right,
+    //         aft_left,
+    //         aft_right,
+    //     };
+    //
+    //     *prev_pwr = power;
+    // }
 
     /// Motor pair delta. Maps to angular accel. Positive means nose-up pitching.
     pub fn pitch_delta(&self) -> f32 {
