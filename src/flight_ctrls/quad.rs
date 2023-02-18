@@ -32,6 +32,9 @@ const MIN_ROTOR_RPM: f32 = 100.; // todo: Finda good value.
 // Max power setting for any individual rotor at idle setting.
 pub const MAX_ROTOR_POWER: f32 = 1.;
 
+const PWR_MIN: f32 = 0.;
+const PWR_MAX: f32 = 1.;
+
 // todo: Variabel/struct field found from cal routine that is power to hover.
 
 // Our maneuverability clamps are different from normal throttle settings: They're used
@@ -258,61 +261,74 @@ impl MotorRpm {
         timer: &mut MotorTimer,
         arm_status: ArmStatus,
     ) {
-        let fl = pid::run(
-            self.front_left,
-            rpm_readings.front_left.unwrap_or(0.),
-            &pids.front_left,
-            pid_coeffs.p_front_left,
-            pid_coeffs.i_front_left,
-            0.,
-            None,
-            DT_FLIGHT_CTRLS,
-        );
-
-        let fr = pid::run(
-            self.front_right,
-            rpm_readings.front_right.unwrap_or(0.),
-            &pids.front_right,
-            pid_coeffs.p_front_right,
-            pid_coeffs.i_front_right,
-            0.,
-            None,
-            DT_FLIGHT_CTRLS,
-        );
-
-        let al = pid::run(
-            self.aft_left,
-            rpm_readings.aft_left.unwrap_or(0.),
-            &pids.aft_left,
-            pid_coeffs.p_aft_left,
-            pid_coeffs.i_aft_left,
-            0.,
-            None,
-            DT_FLIGHT_CTRLS,
-        );
-
-        let ar = pid::run(
-            self.aft_right,
-            rpm_readings.aft_right.unwrap_or(0.),
-            &pids.aft_right,
-            pid_coeffs.p_aft_right,
-            pid_coeffs.i_aft_right,
-            0.,
-            None,
-            DT_FLIGHT_CTRLS,
-        );
-
-        let power = MotorPower {
-            front_left: prev_pwr.front_left + fl.out(),
-            // front_right: prev_pwr.front_right + fr.out(),
-            // aft_left: prev_pwr.aft_left + al.out(),
-            aft_right: prev_pwr.aft_right + ar.out(),
-            // todo temp so it doesn't accidentally take off while experimenting.
-            // front_left: 0.,
-            front_right: 0.,
-            aft_left: 0.,
+        let front_left = match rpm_readings.front_left {
+            Some(rpm) => {
+                pid::run(
+                    self.front_left,
+                    rpm,
+                    &pids.front_left,
+                    pid_coeffs.p_front_left,
+                    pid_coeffs.i_front_left,
+                    0.,
+                    None,
+                    DT_FLIGHT_CTRLS,
+                ).out() + prev_pwr.front_left
+            }
+            None => 0.
         };
 
+        let front_right = match rpm_readings.front_left {
+            Some(reading) => {
+                pid::run(
+                    self.front_right,
+                    reading,
+                    &pids.front_right,
+                    pid_coeffs.p_front_right,
+                    pid_coeffs.i_front_right,
+                    0.,
+                    None,
+                    DT_FLIGHT_CTRLS,
+                ).out() + prev_pwr.front_right
+            }
+            None => 0.
+        };
+
+        let aft_left = match rpm_readings.front_left {
+            Some(reading) => {
+                pid::run(
+                    self.aft_left,
+                    reading,
+                    &pids.aft_left,
+                    pid_coeffs.p_aft_left,
+                    pid_coeffs.i_aft_left,
+                    0.,
+                    None,
+                    DT_FLIGHT_CTRLS,
+                ).out() + prev_pwr.aft_left
+            }
+            None => 0.
+        };
+
+        let aft_right = match rpm_readings.front_left {
+            Some(reading) => {
+                pid::run(
+                    self.aft_right,
+                    reading,
+                    &pids.aft_right,
+                    pid_coeffs.p_aft_right,
+                    pid_coeffs.i_aft_right,
+                    0.,
+                    None,
+                    DT_FLIGHT_CTRLS,
+                ).out() + prev_pwr.aft_right
+            }
+            None => 0.
+        };
+
+
+        let mut power = MotorPower { front_left, front_right, aft_left, aft_right };
+
+        power.clamp();
         power.set(mapping, timer, arm_status);
 
         *prev_pwr = power;
@@ -392,22 +408,30 @@ impl MotorPower {
         self.aft_right *= scaler;
     }
 
-    /// Clamp rotor speeds to 1.0 max power.
-    pub fn clamp_individual_rotors(&mut self) {
-        if self.front_left > MAX_ROTOR_POWER {
-            self.front_left = MAX_ROTOR_POWER;
+    /// Clamp rotor speeds to 1.0 max power, and 0. min power.
+    pub fn clamp(&mut self) {
+        if self.front_left > PWR_MAX {
+            self.front_left = PWR_MAX;
+        } else if self.front_left < PWR_MIN {
+            self.front_left = PWR_MIN;
         }
 
-        if self.front_right > MAX_ROTOR_POWER {
-            self.front_right = MAX_ROTOR_POWER;
+        if self.front_right > PWR_MAX {
+            self.front_right = PWR_MAX;
+        } else if self.front_right < PWR_MIN {
+            self.front_right = PWR_MIN;
         }
 
-        if self.aft_left > MAX_ROTOR_POWER {
-            self.aft_left = MAX_ROTOR_POWER;
+        if self.aft_left > PWR_MAX {
+            self.aft_left = PWR_MAX;
+        } else if self.aft_left < PWR_MIN {
+            self.aft_left = PWR_MIN;
         }
 
-        if self.aft_right > MAX_ROTOR_POWER {
-            self.aft_right = MAX_ROTOR_POWER;
+        if self.aft_right > PWR_MAX {
+            self.aft_right = PWR_MAX;
+        } else if self.aft_right < PWR_MIN {
+            self.aft_right = PWR_MIN;
         }
     }
 
