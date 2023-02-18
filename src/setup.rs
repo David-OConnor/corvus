@@ -38,7 +38,10 @@ use crate::{
     // flight_ctrls::common::Motor,
     params::Params,
     ppks::{Location, LocationType},
-    protocols::{dshot::{self, Motor}, servo},
+    protocols::{
+        dshot::{self, Motor},
+        servo,
+    },
     system_status::{SensorStatus, SystemStatus},
 };
 

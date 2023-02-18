@@ -1,9 +1,26 @@
 //! This module contains flight control code not specific to an aircraft design category.
 //! It is mostly types.
 
-use crate::util::map_linear;
+use crate::{
+    util::map_linear,
+    safety::ArmStatus,
+    setup::{MotorTimer, ServoTimer},
+    protocols::dshot,
+    flight_ctrls::pid,
+};
+
+use cfg_if::cfg_if;
+
+cfg_if! {
+    if #[cfg(feature = "quad")] {
+        use crate::flight_ctrls::{MotorRpm, MotorPower}
+    } else {
+
+    }
+}
 
 use lin_alg2::f32::Quaternion;
+use crate::protocols::dshot::Motor;
 
 // Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
@@ -79,6 +96,12 @@ pub struct ServoState {
     pub posit_cmd: f32,
 }
 
+// impl ServoState {
+//     pub fn send_to_servo(arm_status: ArmStatus, servo_timer: &mut ServoTimer) {
+//
+//     }
+// }
+
 impl ServoState {
     pub fn clamp(&mut self) {
         if self.posit_cmd < SERVO_MIN {
@@ -106,6 +129,37 @@ pub enum MotorServoRole {
 }
 
 impl MotorServoRole {
+    /// Apply the motor or servo command.
+    // pub fn send_to_motor_servo(&mut self, arm_status: ArmStatus, motor_timer: &mut MotorTimer, servo_timer: &mut ServoTimer) {
+    //     match Self {
+    //         Self::Unused => (),
+    //         Self::RotorFrontLeft(m) => {
+    //             m.cmd.send_to_motor(motor_timer, arm_status);
+    //         }
+    //         Self::RotorFrontRight(m) => {
+    //             m.cmd.send_to_motor(motor_timer, arm_status);
+    //         }
+    //         Self::RotorAftLeft(m) => {
+    //             m.cmd.send_to_motor(motor_timer, arm_status);
+    //         }
+    //         Self::RotorAftRight(m) => {
+    //             m.cmd.send_to_motor(motor_timer, arm_status);
+    //         }
+    //         Self::ThrustMotor1(m) => {
+    //             m.cmd.send_to_motor(motor_timer, arm_status);
+    //         }
+    //         Self::ThrustMotor2(m) => {
+    //             m.cmd.send_to_motor(motor_timer, arm_status);
+    //         }
+    //         Self::ElevonLeft(s) => {
+    //             s.cmd.send_to_servo(servo_timer, arm_status);
+    //         }
+    //         Self::ElevonRight(s) => {
+    //             s.cmd.send_to_servo(servo_timer, arm_status);
+    //         }
+    //     }
+    // }
+
     /// Clamp commanded settings.
     pub fn clamp_cmd(&mut self) {
         match self {
@@ -138,65 +192,216 @@ impl MotorServoRole {
     }
 }
 
+/// Corresponds to pin number. Used to map functions (Such as thrust motor, front-left rotor etc)
+/// to hardware pins.
+#[derive(Clone, Copy)]
+pub enum MotorServoHardware {
+    Pin1,
+    Pin2,
+    Pin3,
+    Pin4,
+    Pin5,
+    Pin6,
+}
+
 /// Describes the function of all motors and servos.  Is based on the pin connections. Each pin
 /// can be a motor or servo. Doesn't directly deliniate quadcopter vice fixed-wing.
 ///
 /// Note: there are some restrictions based on timer-pin mappings, that are different between
 /// G4 and H7.
 /// todo: Rename A/R
+#[cfg(feature = "quad")]
 pub struct MotorServoState {
-    pub ms1: MotorServoRole,
-    pub ms2: MotorServoRole,
-    pub ms3: MotorServoRole,
-    pub ms4: MotorServoRole,
-    pub ms5: MotorServoRole,
-    pub ms6: MotorServoRole,
+    // pub ms1: MotorServoRole,
+    // pub ms2: MotorServoRole,
+    // pub ms3: MotorServoRole,
+    // pub ms4: MotorServoRole,
+    // pub ms5: MotorServoRole,
+    // pub ms6: MotorServoRole,
+
+    pub rotor_front_left_hardware: MotorServoHardware,
+    pub rotor_front_right_hardware: MotorServoHardware,
+    pub rotor_aft_left_hardware: MotorServoHardware,
+    pub rotor_aft_right_hardware: MotorServoHardware,
+    pub servo_aux_1_hardware: Option<MotorServoHardware>,
+    pub servo_aux_2_hardware: Option<MotorServoHardware>,
+
+    pub rotor_front_left: MotorState,
+    pub rotor_front_right: MotorState,
+    pub rotor_aft_left: MotorState,
+    pub rotor_aft_right: MotorState,
+    pub servo_aux_1: Option<ServoState>,
+    pub servo_aux_2: Option<ServoState>,
+}
+
+#[cfg(feature = "fixed-wing")]
+pub struct MotorServoState {
+    pub motor_thrust1_hardware: MotorState,
+    pub motor_thrust2_hardware: Option<MotorState>,
+    pub elevon_left_hardware: ServoState,
+    pub elevon_right_hardware: ServoState,
+    pub rudder_hardware: Option<ServoState>,
+    pub servo_aux_1_hardware: Option<ServoState>,
+    pub servo_aux_2_hardware: Option<ServoState>,
+
+    pub motor_thrust1: MotorState,
+    pub motor_thrust2: Option<MotorState>,
+    pub elevon_left: ServoState,
+    pub elevon_right: ServoState,
+    pub rudder: Option<ServoState>,
+    pub servo_aux_1: Option<ServoState>,
+    pub servo_aux_2: Option<ServoState>,
+    // todo: More A/R, eg ailerons, elevator etc.
 }
 
 impl Default for MotorServoState {
     fn default() -> Self {
         #[cfg(feature = "quad")]
         return Self {
-            ms1: MotorServoRole::RotorFrontLeft(Default::default()),
-            ms2: MotorServoRole::RotorFrontRight(Default::default()),
-            ms3: MotorServoRole::RotorAftLeft(Default::default()),
-            ms4: MotorServoRole::RotorAftRight(Default::default()),
-            ms5: MotorServoRole::Unused,
-            ms6: MotorServoRole::Unused,
+            // ms1: MotorServoRole::RotorFrontLeft(Default::default()),
+            // ms2: MotorServoRole::RotorFrontRight(Default::default()),
+            // ms3: MotorServoRole::RotorAftLeft(Default::default()),
+            // ms4: MotorServoRole::RotorAftRight(Default::default()),
+            // ms5: MotorServoRole::Unused,
+            // ms6: MotorServoRole::Unused,
+            // rotor_front_left: MotorState::default(),
+            // rotor_front_right: MotorState::default(),
+            // rotor_aft_left: MotorState::default(),
+            // rotor_aft_right: MotorState::default(),
+            // servo
+
+            rotor_front_left_hardware: MotorServoHardware,
+            rotor_front_right_hardware: MotorServoHardware,
+            rotor_aft_left_hardware: MotorServoHardware,
+            rotor_aft_right_hardware: MotorServoHardware,
+            servo_aux_1_hardware: None,
+            servo_aux_2_hardware: None,
+
+            rotor_front_left: Default::default(),
+            rotor_front_right: Default::default(),
+            rotor_aft_left: Default::default(),
+            rotor_aft_right: Default::default(),
+            servo_aux_1: None,
+            servo_aux_2: None,
         };
 
         #[cfg(feature = "fixed-wing")]
         return Self {
-            ms1: MotorServoRole::RotorFrontLeft(Default::default()),
-            ms2: MotorServoRole::Unused,
-            ms3: MotorServoRole::ElevonLeft(Default::default()),
-            ms4: MotorServoRole::ElevonRight(Default::default()),
-            ms5: MotorServoRole::Unused,
-            ms6: MotorServoRole::Unused,
+            //     ms1: MotorServoRole::RotorFrontLeft(Default::default()),
+            //     ms2: MotorServoRole::Unused,
+            //     ms3: MotorServoRole::ElevonLeft(Default::default()),
+            //     ms4: MotorServoRole::ElevonRight(Default::default()),
+            //     ms5: MotorServoRole::Unused,
+            //     ms6: MotorServoRole::Unused,
+
+            motor_thrust1_hardware: MotorServoHardware::Pin1,
+            motor_thrust2_hardware: None,
+            elevon_left_hardware: MotorServoHardware::Pin3,
+            elevon_right_hardware: MotorServoHardware::Pin2,
+            rudder_hardware: None,
+            servo_aux_1_hardware: None,
+            servo_aux_2_hardware: None,
+
+            motor_thrust1: Default::default(),
+            motor_thrust2: None,
+            elevon_left: Default::default(),
+            elevon_right: Default::default(),
+            rudder: None,
+            servo_aux_1: None,
+            servo_aux_2: None,
         };
     }
 }
 
 impl MotorServoState {
-    pub fn clamp_cmd(&mut self) {
-        self.ms1.clamp_cmd();
-        self.ms2.clamp_cmd();
-        self.ms3.clamp_cmd();
-        self.ms4.clamp_cmd();
-        self.ms5.clamp_cmd();
-        self.ms6.clamp_cmd();
+//     #[cfg(feature = "quad")]
+//     fn get_front_left(&self) -> &mut MotorServoRole {
+//
+//     }
+
+    /// Populate command state from rotor RPMs.
+    #[cfg(feature = "quad")]
+    pub fn set_cmds_from_rpms(&mut self, rpms: &MotorRpms) {
+        self.rotor_front_left.cmd = MotorCmd::Rpm(rpms.front_left);
+        self.rotor_front_right.cmd = MotorCmd::Rpm(rpms.front_right);
+        self.rotor_aft_left.cmd = MotorCmd::Rpm(rpms.aft_left);
+        self.rotor_aft_right.cmd = MotorCmd::Rpm(rpms.aft_right);
+    }
+
+    /// Populate commands from motor powers.
+    #[cfg(feature = "quad")]
+    pub fn set_cmds_from_power(&mut self, powers: &MotorPower) {
+        self.rotor_front_left.cmd = MotorCmd::Power(powers.front_left);
+        self.rotor_front_right.cmd = MotorCmd::Power(powers.front_right);
+        self.rotor_aft_left.cmd = MotorCmd::Power(powers.aft_left);
+        self.rotor_aft_right.cmd = MotorCmd::Power(powers.aft_right);
+    }
+
+    #[cfg(feature = "quad")]
+    pub fn clamp_cmds(&mut self) {
+        self.rotor_front_left.clamp_cmd();
+        self.rotor_front_right.clamp_cmd();
+        self.rotor_aft_left.clamp_cmd();
+        self.rotor_aft_right.clamp_cmd();
+        // self.ms5.clamp_cmd();
+        // self.ms6.clamp_cmd();
+    }
+
+    /// Send commands to all rotors. This uses a single DSHOT command.
+    #[cfg(feature = "quad")]
+    pub fn send_to_rotors(
+        &self,
+        arm_status: ArmStatus,
+        rpm_readings: &RpmReadings,
+        motor_timer: &mut MotorTimer,
+    ) {
+        // todo: Temp hard-coded mappinsg.
+
+        let cmd_aft_left = match self.rotor_front_left.cmd {
+            MotorCmd::Power(p) => p,
+            MotorCmd::Rpm(r) => {
+                Some(reading) => {
+                    pid::run(
+                        self.aft_left,
+                        reading,
+                        &pids.aft_left,
+                        pid_coeffs.p_aft_left,
+                        pid_coeffs.i_aft_left,
+                        0.,
+                        None,
+                        DT_FLIGHT_CTRLS,
+                    )
+                        .out()
+                        + prev_pwr.aft_left
+                }
+                None => 0.,
+            }
+        };
+
+        match arm_status {
+            ArmStatus::Armed => {
+                dshot::set_power(p1, p2, p3, p4, motor_timer);
+            }
+            ArmStatus::Disarmed => {
+                dshot::stop_all(timer);
+            }
+        }
+    }
+
+    pub fn from_rotor_cmd(&self, rpms: &RotarRpms) {
+
     }
 }
 
-// /// Measurements of RPM. `None` indicates that no reading is available for a given motor.
-// /// todo: Quad-specific, but in `common` due to how we store it in Shared.
-// #[derive(Default)]
-// pub struct RpmReadings {
-//     pub front_left: Option<f32>,
-//     pub front_right: Option<f32>,
-//     pub aft_left: Option<f32>,
-//     pub aft_right: Option<f32>,
-// }
+/// Measurements of RPM. `None` indicates that no reading is available for a given motor.
+/// todo: Quad-specific, but in `common` due to how we store it in Shared.
+#[derive(Default)]
+pub struct RpmReadings {
+    pub front_left: Option<f32>,
+    pub front_right: Option<f32>,
+    pub aft_left: Option<f32>,
+    pub aft_right: Option<f32>,
+}
 
 // pub struct RpmMissingError {}
 
@@ -231,16 +436,6 @@ impl MotorServoState {
 //             aft_right,
 //         })
 //     }
-// }
-
-// /// Holds all 4 RPMs, by position.
-// /// todo: Quad-specific, but in `common` due to how we store it in Shared.
-// #[derive(Default)]
-// pub struct MotorRpm {
-//     pub front_left: f32,
-//     pub front_right: f32,
-//     pub aft_left: f32,
-//     pub aft_right: f32,
 // }
 
 /// Maps manual control inputs (range 0. to 1. or -1. to 1.) to velocities, rotational velocities etc
