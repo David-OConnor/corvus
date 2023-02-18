@@ -363,7 +363,7 @@ fn error_helper(payload: &[u16; REC_BUF_LEN], fault: &mut bool, pole_count: u8) 
 /// Update the motor RPM struct with our buffer data.
 /// We delegate to a sub-function for each motor, so we can propogate motor-specific
 /// statuses.
-pub fn read_rpms(fault: &mut bool, pole_count: u8) -> RpmReadings {
+pub fn rpm_readings_from_bufs(fault: &mut bool, pole_count: u8) -> RpmReadings {
     // todo: Don't hard-code the mapping!
     RpmReadings {
         aft_right: error_helper(&unsafe { dshot::PAYLOAD_REC_1 }, fault, pole_count),

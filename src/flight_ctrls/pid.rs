@@ -91,7 +91,7 @@ impl Default for MotorCoeffs {
         // and we use a khz-order update loop.
         // todo: float precision issues working with numbers of very different OOMs? Seems to be
         // todo find from a Rust Playground test.
-        let p = 0.0000001;
+        let p = 0.00000002;
         let i = 0.00000001;
         Self {
             p_front_left: p,

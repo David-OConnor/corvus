@@ -376,10 +376,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-            // let spi_flash_pac = dp.OCTOSPI1;
-            let spi_flash_pac = dp.QUADSPI;
+        // let spi_flash_pac = dp.OCTOSPI1;
+        let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-            let spi_flash_pac = dp.SPI2;
+        let spi_flash_pac = dp.SPI2;
 
         let (
             mut spi1,
@@ -438,10 +438,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -671,20 +671,20 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-            let motors_reversed = (
+        let motors_reversed = (
             user_cfg.control_mapping.m1_reversed,
             user_cfg.control_mapping.m2_reversed,
             user_cfg.control_mapping.m3_reversed,
@@ -906,7 +906,7 @@ mod app {
                     // Update RPMs here, so we don't have to lock the read ISR.
                     // cx.shared.rotor_rpms.lock(|rotor_rpms| {
                     // let (rpm1_status, rpm2_status, rpm3_status, rpm4_status) = rpm_reception::update_rpms(rpms, &mut rpm_fault, cfg.pole_count);
-                    *rpm_readings = rpm_reception::read_rpms(&mut rpm_fault, cfg.motor_pole_count);
+                    *rpm_readings = rpm_reception::rpm_readings_from_bufs(&mut rpm_fault, cfg.motor_pole_count);
 
                     // match rpm_readings.to_rpms() {
                     //     Ok(r) => {
@@ -943,11 +943,11 @@ mod app {
                                 front_right: target_rpm,
                                 aft_right: target_rpm,
                             };
-
-                            if i % 8000 == 0 {
-                                println!("Rpms- FL: {:?} FR: {}, AL: {}, AR: {}", rpm_readings.front_left, rpm_readings.front_right,
-                                         rpm_readings.aft_left, rpm_readings.aft_right);
-                            }
+                            //
+                            // if i % 8000 == 0 {
+                            //     println!("Rpms- FL: {:?} FR: {}, AL: {}, AR: {}", rpm_readings.front_left, rpm_readings.front_right,
+                            //              rpm_readings.aft_left, rpm_readings.aft_right);
+                            // }
 
                             #[cfg(feature = "quad")]
                             if state_volatile.arm_status == ArmStatus::Armed {
@@ -1000,7 +1000,7 @@ mod app {
                         }
                     };
 
-                    return; // todo temp!
+                    // return; // todo temp!
 
                     // todo: Impl once you've sorted out your control logic.
                     // todo: Delegate this to another module, eg `attitude_ctrls`.
@@ -1058,10 +1058,6 @@ mod app {
                         },
                     };
 
-                    if let OperationMode::Preflight = state_volatile.op_mode {
-                        return;
-                    }
-
                     // todo: These staggered tasks. should probably be after the flight control logic
 
                     // todo: Global const
@@ -1100,6 +1096,9 @@ mod app {
                         state_volatile.batt_v = batt_v;
                         state_volatile.esc_current = esc_current;
                     } else if (i_compensated - 1) % NUM_IMU_LOOP_TASKS == 0 {
+                        if let OperationMode::Preflight = state_volatile.op_mode {
+                            return;
+                        }
 
                         let (controller_arm_status, throttle) = match control_channel_data {
                             Some(ch_data) => (ch_data.arm_status, ch_data.throttle),
@@ -1126,14 +1125,6 @@ mod app {
                         #[cfg(feature = "quad")]
                         if let Some(ch_data) = control_channel_data {
                             flight_ctrls::set_input_mode(ch_data.input_mode, state_volatile, system_status);
-                        }
-
-                        // Update our system status from the `LINK_LOST` atomic, which is updated
-                        // in ISRs.
-                        if safety::LINK_LOST.load(Ordering::Acquire) {
-                            system_status.rf_control_link = SensorStatus::NotConnected;
-                        } else {
-                            system_status.rf_control_link = SensorStatus::Pass;
                         }
                     } else if (i_compensated - 2) % NUM_IMU_LOOP_TASKS == 0 {
                         let osd_data = OsdData {
@@ -1166,6 +1157,9 @@ mod app {
                         // todo: put back
                         // osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH,&osd_data);
                     } else if (i_compensated - 3) % NUM_IMU_LOOP_TASKS == 0 {
+                        if let OperationMode::Preflight = state_volatile.op_mode {
+                            return;
+                        }
                         // println!("D");
                         if let Some(ch_data) = control_channel_data {
                             autopilot_status.set_modes_from_ctrls(ch_data, &params);
@@ -1200,14 +1194,9 @@ mod app {
                         //     return;
                         // }
                     } else if (i_compensated - 4) % NUM_IMU_LOOP_TASKS == 0 {
-                        // println!("E");
-
                         // if *cx.local.update_isr_loop_i % LOGGING_UPDATE_RATIO == 0 {
                         // todo: Eg log params to flash etc.
                         // }
-
-
-                        // todo: Support UART telemetry from ESC.
 
                         // todo: Determine timing for OSD update, and if it should be in this loop,
                         // todo, or slower.
@@ -1315,6 +1304,10 @@ mod app {
 
                     return; // todo TS
 
+                    if let OperationMode::Preflight = state_volatile.op_mode {
+                        return;
+                    }
+
                     cfg_if! {
                         if #[cfg(feature = "quad")] {
                             let (ctrl_mix, rpms_commanded) = ctrl_logic::rotor_rpms_from_att(
@@ -1343,6 +1336,7 @@ mod app {
                             );
 
                             state_volatile.ctrl_mix = ctrl_mix;
+
                             // todo: Dynamics of `current_pwr` for quads, and `ctrl_posits`
                             // todo for fixed-wing. You're saving it, but when is it used?
                             // state_volatile.current_pwr = motor_power;
@@ -1436,6 +1430,7 @@ mod app {
                                 motor_timer,
                                 servo_timer,
                                 rpm_readings,
+                                &state_volatile.current_pwr,
                             );
                         }
                         Err(_) => {

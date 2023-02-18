@@ -18,6 +18,7 @@ use crate::{
     flight_ctrls::{
         common::{AttitudeCommanded, RpmReadings},
         ControlMapping,
+        MotorPower, // todo quad only
     },
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},
     safety::ArmStatus,
@@ -73,7 +74,7 @@ const QUATERNION_SIZE: usize = F32_SIZE * 4;
 // Quaternion attitude + quaternion target + altimeter_baro + altimeter_agl +
 // + option byte for altimeter + voltage reading + current reading.
 
-const PARAMS_SIZE: usize = 2 * QUATERNION_SIZE + 6 * F32_SIZE + 1 + 4 * 3 + 1; //
+const PARAMS_SIZE: usize = 2 * QUATERNION_SIZE + 6 * F32_SIZE + 1 + 4 * 3 + 1 + F32_SIZE * 4; //
 const CONTROLS_SIZE: usize = 19; // Includes first byte as an Option byte.
                                  // const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
 const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
@@ -184,6 +185,7 @@ fn params_to_bytes(
     voltage: f32,
     current: f32,
     rpm_status: &RpmReadings,
+    current_pwr: &MotorPower, // todo: Not on fixed-wing
     aircraft_type: u8,
 ) -> [u8; PARAMS_SIZE] {
     let mut result = [0; PARAMS_SIZE];
@@ -205,6 +207,7 @@ fn params_to_bytes(
     result[53..57].clone_from_slice(&temp_baro.to_be_bytes());
 
     let mut i = 57;
+
     for r in &[
         rpm_status.front_left,
         rpm_status.aft_left,
@@ -218,10 +221,19 @@ fn params_to_bytes(
         }
         i += 3;
     }
-    i -= 3; // undo last +3.
-    i += 1;
 
     result[i] = aircraft_type;
+    i += 1;
+
+    // todo: method on MotorPwr instead of doing this field by field here?
+    result[i..i + 4].clone_from_slice(&current_pwr.front_left.to_be_bytes());
+    i += 4;
+    result[i..i + 4].clone_from_slice(&current_pwr.aft_left.to_be_bytes());
+    i += 4;
+    result[i..i + 4].clone_from_slice(&current_pwr.front_right.to_be_bytes());
+    i += 4;
+    result[i..i + 4].clone_from_slice(&current_pwr.aft_right.to_be_bytes());
+    i += 4;
 
     result
 }
@@ -365,6 +377,7 @@ pub fn handle_rx(
     motor_timer: &mut setup::MotorTimer,
     servo_timer: &mut setup::ServoTimer,
     rpm_status: &RpmReadings,
+    current_pwr: &MotorPower, // todo not on Fixed.
 ) {
     let rx_msg_type: MsgType = match rx_buf[0].try_into() {
         Ok(d) => d,
@@ -423,6 +436,7 @@ pub fn handle_rx(
                 batt_v,
                 esc_current,
                 rpm_status,
+                current_pwr,
                 aircraft_type,
             );
 
