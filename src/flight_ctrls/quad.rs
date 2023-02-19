@@ -180,65 +180,64 @@ pub struct MotorPower {
     pub aft_right: f32,
 }
 
-
 // impl MotorServoState {
 //     /// Spin all four rotors. rotors at the commanded power setting, or RPM.
 //     pub fn send_to_rotors() {}
 // }
 
 impl MotorRpm {
-    // /// Generate power settings for each motor, from RPM commands.
-    // /// Pitch, roll, and yaw are in RPM difference between the sum of each pair.
-    // pub fn from_cmds(mix: &CtrlMix, front_left_dir: RotationDir) -> Self {
-    //     // let baseline_rpm = estimate_rpm_from_pwr(mix.throttle);
-    //     let baseline_rpm = 100.; // todo temp to get to compile!
-    //
-    //     let mut front_left = baseline_rpm;
-    //     let mut front_right = baseline_rpm;
-    //     let mut aft_left = baseline_rpm;
-    //     let mut aft_right = baseline_rpm;
-    //
-    //     // inputs are a differential between opposing rotor pairs.
-    //     let half_pitch = mix.pitch / 2.;
-    //     let half_roll = mix.roll / 2.;
-    //     let half_yaw = mix.yaw / 2.;
-    //
-    //     // Nose down for positive pitch.
-    //     front_left -= half_pitch;
-    //     front_right -= half_pitch;
-    //     aft_left += half_pitch;
-    //     aft_right += half_pitch;
-    //
-    //     // Left side up for positive roll
-    //     front_left += half_roll;
-    //     front_right -= half_roll;
-    //     aft_left += half_roll;
-    //     aft_right -= half_roll;
-    //
-    //     // Assumes positive yaw from the IMU means clockwise.
-    //     // If props rotate in, front-left/aft-right rotors induce a CCW torque on the aircraft.
-    //     // If props rotate out, these same rotors induce a CW torque.
-    //     // This code assumes props rotate inwards towards the front and back ends.
-    //     let yaw = if front_left_dir == RotationDir::Clockwise {
-    //         half_yaw
-    //     } else {
-    //         -half_yaw
-    //     };
-    //
-    //     front_left += yaw;
-    //     front_right -= yaw;
-    //     aft_left -= yaw;
-    //     aft_right += yaw;
-    //
-    //     let mut result = Self {
-    //         front_left,
-    //         front_right,
-    //         aft_left,
-    //         aft_right,
-    //     };
-    //
-    //     result
-    // }
+    /// Generate power settings for each motor, from RPM commands.
+    /// Pitch, roll, and yaw are in RPM difference between the sum of each pair.
+    pub fn from_cmds(mix: &CtrlMix, front_left_dir: RotationDir) -> Self {
+        // let baseline_rpm = estimate_rpm_from_pwr(mix.throttle);
+        let baseline_rpm = 100.; // todo temp to get to compile!
+
+        let mut front_left = baseline_rpm;
+        let mut front_right = baseline_rpm;
+        let mut aft_left = baseline_rpm;
+        let mut aft_right = baseline_rpm;
+
+        // inputs are a differential between opposing rotor pairs.
+        let half_pitch = mix.pitch / 2.;
+        let half_roll = mix.roll / 2.;
+        let half_yaw = mix.yaw / 2.;
+
+        // Nose down for positive pitch.
+        front_left -= half_pitch;
+        front_right -= half_pitch;
+        aft_left += half_pitch;
+        aft_right += half_pitch;
+
+        // Left side up for positive roll
+        front_left += half_roll;
+        front_right -= half_roll;
+        aft_left += half_roll;
+        aft_right -= half_roll;
+
+        // Assumes positive yaw from the IMU means clockwise.
+        // If props rotate in, front-left/aft-right rotors induce a CCW torque on the aircraft.
+        // If props rotate out, these same rotors induce a CW torque.
+        // This code assumes props rotate inwards towards the front and back ends.
+        let yaw = if front_left_dir == RotationDir::Clockwise {
+            half_yaw
+        } else {
+            -half_yaw
+        };
+
+        front_left += yaw;
+        front_right -= yaw;
+        aft_left -= yaw;
+        aft_right += yaw;
+
+        let mut result = Self {
+            front_left,
+            front_right,
+            aft_left,
+            aft_right,
+        };
+
+        result
+    }
     //
     // /// Clamp rotor speeds by an RPM idle.
     // fn clamp_individual_rotors(&mut self) {

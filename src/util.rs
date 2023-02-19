@@ -6,7 +6,11 @@ use cmsis_dsp_sys as dsp_sys;
 
 use crate::{
     control_interface::ChannelData,
-    flight_ctrls::{self, autopilot::AutopilotStatus, common::{RpmReadings, MotorServoState}},
+    flight_ctrls::{
+        self,
+        autopilot::AutopilotStatus,
+        common::{MotorServoState, RpmReadings},
+    },
     params::Params,
     safety::ArmStatus,
     sensors_shared::BattCellCount,

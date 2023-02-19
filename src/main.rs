@@ -39,7 +39,7 @@ use drivers::{
 use filter_imu::ImuFilters;
 use flight_ctrls::{
     autopilot::AutopilotStatus,
-    common::MotorServoState,
+    common::RpmReadings,
     // common::{MotorRpm, RpmReadings},
     // pid::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
@@ -48,7 +48,7 @@ use flight_ctrls::{
     ctrl_logic::{self, PowerMaps},
     filters::FlightCtrlFilters,
     pid::{MotorCoeffs, MotorPidGroup},
-    ControlMapping,
+    // ControlMapping,
 };
 use lin_alg2::f32::Quaternion;
 
@@ -123,7 +123,7 @@ cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         // use flight_ctrls::{autopilot::Orbit, ControlPositions};
     } else {
-        use flight_ctrls::RotationDir;
+        use flight_ctrls::{MotorRpm, common::RotationDir};
     }
 }
 
@@ -685,11 +685,16 @@ mod app {
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
+        // todo: Wrong. You need to do this by number; apply your pin mapping.
         let motors_reversed = (
-            user_cfg.control_mapping.m1_reversed,
-            user_cfg.control_mapping.m2_reversed,
-            user_cfg.control_mapping.m3_reversed,
-            user_cfg.control_mapping.m4_reversed,
+            state_volatile.motor_servo_state.rotor_aft_right.reversed,
+            state_volatile.motor_servo_state.rotor_front_right.reversed,
+            state_volatile.motor_servo_state.rotor_aft_left.reversed,
+            state_volatile.motor_servo_state.rotor_front_left.reversed,
+            // user_cfg.control_mapping.m1_reversed,
+            // user_cfg.control_mapping.m2_reversed,
+            // user_cfg.control_mapping.m3_reversed,
+            // user_cfg.control_mapping.m4_reversed,
         );
 
         #[cfg(feature = "quad")]
@@ -822,8 +827,8 @@ mod app {
     #[task(binds = DMA1_CH2,
     shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timer, servo_timer, state_volatile, system_status],
-    local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle, rpm_readings,
+    motor_timer, servo_timer, state_volatile, system_status, rpm_readings],
+    local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, measurement_timer], priority = 3)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         dma::clear_interrupt(
@@ -938,7 +943,7 @@ mod app {
                             // todo: Temp mapping of throttle settings to RPM
                             let target_rpm = util::map_linear(p, (0., 1.), (300., 6_000.));
 
-                            *rpms_commanded = MotorRpm {
+                            let rpms_commanded = MotorRpm {
                                 front_left: target_rpm,
                                 aft_left: target_rpm,
                                 front_right: target_rpm,
@@ -954,15 +959,14 @@ mod app {
                             if state_volatile.arm_status == ArmStatus::Armed {
                                 // dshot::set_power(p, p, p, p, motor_timer);
 
-                                rpms_commanded.send_to_motors(
-                                    pid_coeffs,
-                                    pid_state,
-                                    &mut state_volatile.current_pwr,
+                                state_volatile.motor_servo_state.set_cmds_from_rpms(
+                                    &rpms_commanded,
                                     rpm_readings,
-                                    &cfg.control_mapping,
-                                    motor_timer,
-                                    state_volatile.arm_status,
+                                    pid_state,
+                                    pid_coeffs,
                                 );
+
+                                state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
 
                             } else {
                                 dshot::stop_all(motor_timer);
@@ -975,22 +979,21 @@ mod app {
                             } else {
                                 let target_rpm = 800.;
 
-                                *rpms_commanded = MotorRpm {
+                                let rpms_commanded = MotorRpm {
                                     front_left: target_rpm,
                                     aft_left: target_rpm,
                                     front_right: target_rpm,
                                     aft_right: target_rpm,
                                 };
 
-                                rpms_commanded.send_to_motors(
-                                    pid_coeffs,
-                                    pid_state,
-                                    &mut state_volatile.current_pwr,
+                                state_volatile.motor_servo_state.set_cmds_from_rpms(
+                                    &rpms_commanded,
                                     rpm_readings,
-                                    &cfg.control_mapping,
-                                    motor_timer,
-                                    ArmStatus::Armed,
+                                    pid_state,
+                                    pid_coeffs,
                                 );
+
+                                state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
                             }
                             if i % 8000 == 0 {
                                 println!("Rpms- FL: {:?} FR: {}, AL: {}, AR: {}", rpm_readings.front_left, rpm_readings.front_right,
@@ -1275,7 +1278,7 @@ mod app {
                                 );
 
                                 let mut yaw_pwr = 0.;
-                                if cfg.control_mapping.frontleft_aftright_dir == RotationDir::Clockwise {
+                                if state_volatile.motor_servo_state.frontleft_aftright_dir == RotationDir::Clockwise {
                                     yaw_pwr *= -1.;
                                 }
                                 state_volatile.power_maps.rpm_to_accel_yaw.log_val(
@@ -1315,7 +1318,7 @@ mod app {
                                 state_volatile.attitude_commanded.quat.unwrap(),
                                 params.attitude_quat,
                                 throttle,
-                                cfg.control_mapping.frontleft_aftright_dir,
+                                state_volatile.motor_servo_state.frontleft_aftright_dir,
                                 params,
                                 cx.local.params_prev,
                                 &cfg.ctrl_coeffs,
@@ -1326,15 +1329,14 @@ mod app {
                                 DT_IMU,
                             );
 
-                            rpms_commanded.send_to_motors(
-                                pid_coeffs,
-                                pid_state,
-                                &mut state_volatile.current_pwr,
+                            state_volatile.motor_servo_state.set_cmds_from_rpms(
+                                &rpms_commanded,
                                 rpm_readings,
-                                &cfg.control_mapping,
-                                motor_timer,
-                                state_volatile.arm_status,
+                                pid_state,
+                                pid_coeffs,
                             );
+
+                            state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
 
                             state_volatile.ctrl_mix = ctrl_mix;
 
@@ -1426,7 +1428,7 @@ mod app {
                                 &user_cfg.waypoints,
                                 system_status,
                                 &mut state_volatile.arm_status,
-                                &mut user_cfg.control_mapping,
+                                // &mut user_cfg.control_mapping,
                                 &mut state_volatile.op_mode,
                                 motor_timer,
                                 servo_timer,

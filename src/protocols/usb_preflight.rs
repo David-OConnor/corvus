@@ -14,11 +14,11 @@ use core::sync::atomic::Ordering;
 
 use crate::{
     control_interface::ChannelData,
-    dshot,
+    dshot::{self, Motor},
     flight_ctrls::{
         // common::{AttitudeCommanded, RpmReadings},
-        common::{AttitudeCommanded, RpmReadings, MotorServoState},
-        ControlMapping,
+        common::{AttitudeCommanded, MotorServoState, RotationDir, RpmReadings},
+        // ControlMapping,
         MotorPower, // todo quad only
     },
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},
@@ -40,9 +40,9 @@ use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
-        use crate::flight_ctrls::ServoWingPosition;
+        // use crate::flight_ctrls::ServoWingPosition;
     } else {
-        use crate::flight_ctrls::{RotorPosition};
+        // use crate::flight_ctrls::{RotorPosition};
     }
 }
 
@@ -291,35 +291,35 @@ impl From<&SystemStatus> for [u8; SYS_STATUS_SIZE] {
     }
 }
 
-#[cfg(feature = "quad")]
-impl From<&mut ControlMapping> for [u8; CONTROL_MAPPING_SIZE] {
-    fn from(p: &mut ControlMapping) -> Self {
-        [
-            // 2 bits each
-            (p.m1 as u8) | ((p.m2 as u8) << 2) | ((p.m3 as u8) << 4) | ((p.m4 as u8) << 6),
-            // 1 bit each
-            p.m1_reversed as u8
-                | ((p.m2_reversed as u8) << 1)
-                | ((p.m3_reversed as u8) << 2)
-                | ((p.m4_reversed as u8) << 3)
-                | ((p.frontleft_aftright_dir as u8) << 4),
-        ]
-    }
-}
+// #[cfg(feature = "quad")]
+// impl From<&mut ControlMapping> for [u8; CONTROL_MAPPING_SIZE] {
+//     fn from(p: &mut ControlMapping) -> Self {
+//         [
+//             // 2 bits each
+//             (p.m1 as u8) | ((p.m2 as u8) << 2) | ((p.m3 as u8) << 4) | ((p.m4 as u8) << 6),
+//             // 1 bit each
+//             p.m1_reversed as u8
+//                 | ((p.m2_reversed as u8) << 1)
+//                 | ((p.m3_reversed as u8) << 2)
+//                 | ((p.m4_reversed as u8) << 3)
+//                 | ((p.frontleft_aftright_dir as u8) << 4),
+//         ]
+//     }
+// }
 
-#[cfg(feature = "fixed-wing")]
-impl From<&mut ControlMapping> for [u8; CONTROL_MAPPING_SIZE] {
-    fn from(p: &mut ControlMapping) -> Self {
-        [
-            // 1 bit each
-            (p.s1 as u8)
-                | ((p.s2 as u8) << 2)
-                | ((p.s1_reversed as u8) << 4)
-                | ((p.s2_reversed as u8) << 6),
-            // todo: `servo_high` etc!
-        ]
-    }
-}
+// #[cfg(feature = "fixed-wing")]
+// impl From<&mut ControlMapping> for [u8; CONTROL_MAPPING_SIZE] {
+//     fn from(p: &mut ControlMapping) -> Self {
+//         [
+//             // 1 bit each
+//             (p.s1 as u8)
+//                 | ((p.s2 as u8) << 2)
+//                 | ((p.s1_reversed as u8) << 4)
+//                 | ((p.s2_reversed as u8) << 6),
+//             // todo: `servo_high` etc!
+//         ]
+//     }
+// }
 
 // impl From<[Option<Location>; MAX_WAYPOINTS]> for [u8; WAYPOINTS_SIZE] {
 /// Standalone fn instead of impl due to a Rust restriction.
@@ -373,7 +373,7 @@ pub fn handle_rx(
     waypoints: &[Option<Location>; MAX_WAYPOINTS],
     sys_status: &SystemStatus,
     arm_status: &mut ArmStatus,
-    control_mapping: &mut ControlMapping,
+    // control_mapping: &mut ControlMapping,
     op_mode: &mut OperationMode,
     motor_timer: &mut setup::MotorTimer,
     servo_timer: &mut setup::ServoTimer,
@@ -471,16 +471,16 @@ pub fn handle_rx(
                     dshot::set_power(0.05, 0., 0., 0., motor_timer);
                 } else {
 
-                    let rotor_position = match rx_buf[1] {
+                    let motor = match rx_buf[1] {
                         // todo: This more robust approach won't work.
                         // RotorPosition::FrontLeft as u8 => RotorPosition::FrontLeft,
                         // RotorPosition::FrontRight as u8 => RotorPosition::FrontRight,
                         // RotorPosition::AftLeft as u8 => RotorPosition::AftLeft,
                         // RotorPosition::AftRight as u8 => RotorPosition::AftRight,
-                        0 => RotorPosition::FrontLeft,
-                        1 => RotorPosition::FrontRight,
-                        2 => RotorPosition::AftLeft,
-                        3 => RotorPosition::AftRight,
+                        0 => Motor::M1,
+                        1 => Motor::M2,
+                        2 => Motor::M3,
+                        3 => Motor::M4,
                         _ => panic!(),
                     };
 
@@ -488,7 +488,7 @@ pub fn handle_rx(
                     let power = 0.05;
 
                     dshot::set_power_single(
-                        control_mapping.motor_from_position(rotor_position),
+                        motor,
                         power,
                         motor_timer,
                     );
@@ -500,16 +500,16 @@ pub fn handle_rx(
                 if #[cfg(feature = "fixed-wing")]{
                     dshot::set_power(0., 0., 0., 0., motor_timer);
                 } else {
-                    let rotor_position = match rx_buf[1] {
-                        0 => RotorPosition::FrontLeft,
-                        1 => RotorPosition::FrontRight,
-                        2 => RotorPosition::AftLeft,
-                        3 => RotorPosition::AftRight,
+                    let motor = match rx_buf[1] {
+                        0 => Motor::M1,
+                        1 => Motor::M2,
+                        2 => Motor::M3,
+                        3 => Motor::M4,
                         _ => panic!(),
                     };
 
                     dshot::set_power_single(
-                        control_mapping.motor_from_position(rotor_position),
+                        motor,
                         0.,
                         motor_timer,
                     );
@@ -552,8 +552,10 @@ pub fn handle_rx(
             send_payload::<{ SYS_AP_STATUS_SIZE + 2 }>(MsgType::SysApStatus, &payload, usb_serial);
         }
         MsgType::SysApStatus => {}
-        MsgType::ReqControlMapping => {
-            let payload: [u8; CONTROL_MAPPING_SIZE] = control_mapping.into();
+        MsgType::ReqControlMapping => { // todo: This message type needs to be replaced by
+            // todo MotorServoState. perhaps
+            // let payload: [u8; CONTROL_MAPPING_SIZE] = control_mapping.into();
+            let payload = [0_u8; 2]; // todo placeholder while we re-set up motorss etc
             send_payload::<{ CONTROL_MAPPING_SIZE + 2 }>(
                 MsgType::ControlMapping,
                 &payload,

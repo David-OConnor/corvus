@@ -70,64 +70,64 @@ pub fn set_elevon_posit(
 
     servo::set_posit(position, range_in, timer, elevon.tim_channel());
 }
-
-/// Equivalent of `Motor` for quadcopters.
-#[derive(Clone, Copy)]
-pub enum ServoWing {
-    S1,
-    S2,
-}
-
-/// Specify the wing associated with a servo. Equivalent of `RotorPosition` for quadcopters.
-/// repr(u8) is for use in Preflight.
-#[derive(Clone, Copy, PartialEq)]
-#[repr(u8)]
-pub enum ServoWingPosition {
-    Left = 0,
-    Right = 1,
-}
-
-/// Maps servos to wing position, and related details.
-pub struct ControlMapping {
-    pub s1: ServoWingPosition,
-    pub s2: ServoWingPosition,
-    /// Reverse direction is somewhat arbitrary.
-    pub s1_reversed: bool,
-    pub s2_reversed: bool,
-    /// These represent full scale deflection of the evelons, on a scale of -1 to +1.
-    /// We don't use full ARR for max high, since that would be full high the whole time.
-    /// Note that the 0 position is fixed; we don't map between these two values; we map between
-    /// 0 and each of these.
-    /// Note: We currently clamp high and low to be on opposite sides of 0. This may not reflect
-    /// control surface reality, but keeps things simple, and should be good enough to start.
-    pub servo_high: f32,
-    // pub servo_low: f32,
-}
-
-impl Default for ControlMapping {
-    fn default() -> Self {
-        Self {
-            s1: ServoWingPosition::Left,
-            s2: ServoWingPosition::Right,
-            s1_reversed: false,
-            s2_reversed: true,
-            servo_high: 0.5,
-            // servo_low: -0.5,
-        }
-    }
-}
-
-impl ControlMapping {
-    pub fn servo_from_position(&self, position: ServoWingPosition) -> ServoWing {
-        // todo: This assumes each servo maps to exactly one position. We probably
-        // todo should have some constraint to enforce this.
-        if self.s1 == position {
-            ServoWing::S1
-        } else {
-            ServoWing::S2
-        }
-    }
-}
+//
+// /// Equivalent of `Motor` for quadcopters.
+// #[derive(Clone, Copy)]
+// pub enum ServoWing {
+//     S1,
+//     S2,
+// }
+//
+// /// Specify the wing associated with a servo. Equivalent of `RotorPosition` for quadcopters.
+// /// repr(u8) is for use in Preflight.
+// #[derive(Clone, Copy, PartialEq)]
+// #[repr(u8)]
+// pub enum ServoWingPosition {
+//     Left = 0,
+//     Right = 1,
+// }
+//
+// /// Maps servos to wing position, and related details.
+// pub struct ControlMapping {
+//     pub s1: ServoWingPosition,
+//     pub s2: ServoWingPosition,
+//     /// Reverse direction is somewhat arbitrary.
+//     pub s1_reversed: bool,
+//     pub s2_reversed: bool,
+//     /// These represent full scale deflection of the evelons, on a scale of -1 to +1.
+//     /// We don't use full ARR for max high, since that would be full high the whole time.
+//     /// Note that the 0 position is fixed; we don't map between these two values; we map between
+//     /// 0 and each of these.
+//     /// Note: We currently clamp high and low to be on opposite sides of 0. This may not reflect
+//     /// control surface reality, but keeps things simple, and should be good enough to start.
+//     pub servo_high: f32,
+//     // pub servo_low: f32,
+// }
+//
+// impl Default for ControlMapping {
+//     fn default() -> Self {
+//         Self {
+//             s1: ServoWingPosition::Left,
+//             s2: ServoWingPosition::Right,
+//             s1_reversed: false,
+//             s2_reversed: true,
+//             servo_high: 0.5,
+//             // servo_low: -0.5,
+//         }
+//     }
+// }
+//
+// impl ControlMapping {
+//     pub fn servo_from_position(&self, position: ServoWingPosition) -> ServoWing {
+//         // todo: This assumes each servo maps to exactly one position. We probably
+//         // todo should have some constraint to enforce this.
+//         if self.s1 == position {
+//             ServoWing::S1
+//         } else {
+//             ServoWing::S2
+//         }
+//     }
+// }
 
 // /// Represents control settings for the motor, and elevons. Equivalent API to `quad::MotorPower`.
 // /// Positive elevon value means pointed up relative to its hinge point.

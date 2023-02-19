@@ -2,11 +2,11 @@
 //! It is mostly types.
 
 use crate::{
-    util::map_linear,
+    flight_ctrls::pid,
+    protocols::dshot,
     safety::ArmStatus,
     setup::{MotorTimer, ServoTimer},
-    protocols::dshot,
-    flight_ctrls::pid,
+    util::map_linear,
     DT_FLIGHT_CTRLS,
 };
 
@@ -14,14 +14,14 @@ use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "quad")] {
-        use crate::flight_ctrls::{MotorRpm, MotorPower}
+        use crate::flight_ctrls::{MotorRpm, MotorPower};
     } else {
 
     }
 }
 
-use lin_alg2::f32::Quaternion;
 use crate::protocols::dshot::Motor;
+use lin_alg2::f32::Quaternion;
 
 // Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
@@ -36,11 +36,17 @@ const MOTOR_RPM_MAX: f32 = 6_000.; // todo: PRobably depends on motors.
 const SERVO_MIN: f32 = 0.;
 const SERVO_MAX: f32 = 1.;
 
-#[derive(Clone, Copy)]
-#[repr(u8)]
+#[derive(Default)]
+pub struct RpmCmd {
+    /// The RPM commanded.
+    pub rpm_cmd: f32,
+    /// The instantaneous power level calculated to achieve this RPM.
+    pub pwr_calculated: f32,
+}
+
 pub enum MotorCmd {
     Power(f32),
-    Rpm(f32),
+    Rpm(RpmCmd),
 }
 
 impl Default for MotorCmd {
@@ -50,6 +56,15 @@ impl Default for MotorCmd {
 }
 
 impl MotorCmd {
+    /// Get the power command; both types have it.
+    pub fn power(&self) -> f32 {
+        match self {
+            Self::Power(p) => *p,
+            Self::Rpm(r) => r.pwr_calculated,
+        }
+    }
+
+    /// Clamp power and/or RPM commands.
     pub fn clamp(&mut self) {
         match self {
             Self::Power(c) => {
@@ -60,14 +75,27 @@ impl MotorCmd {
                 }
             }
             Self::Rpm(c) => {
-                if *c < MOTOR_RPM_MIN {
-                    *c = MOTOR_RPM_MIN;
-                } else if *c > MOTOR_RPM_MAX {
-                    *c = MOTOR_RPM_MAX;
+                if c.rpm_cmd < MOTOR_RPM_MIN {
+                    c.rpm_cmd = MOTOR_RPM_MIN;
+                } else if c.rpm_cmd > MOTOR_RPM_MAX {
+                    c.rpm_cmd = MOTOR_RPM_MAX;
+                }
+                
+                if c.pwr_calculated < MOTOR_CMD_MIN {
+                    c.pwr_calculated = MOTOR_CMD_MIN;
+                } else if c.pwr_calculated > MOTOR_CMD_MAX {
+                    c.pwr_calculated = MOTOR_CMD_MAX;
                 }
             }
         }
     }
+
+    // pub fn inner(&self) -> f32 {
+    //     *match self {
+    //         Self::Power(p) => p,
+    //         Self::Rpm(r) => r,
+    //     }
+    // }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -219,7 +247,6 @@ pub struct MotorServoState {
     // pub ms4: MotorServoRole,
     // pub ms5: MotorServoRole,
     // pub ms6: MotorServoRole,
-
     pub rotor_front_left_hardware: MotorServoHardware,
     pub rotor_front_right_hardware: MotorServoHardware,
     pub rotor_aft_left_hardware: MotorServoHardware,
@@ -272,11 +299,10 @@ impl Default for MotorServoState {
             // rotor_aft_left: MotorState::default(),
             // rotor_aft_right: MotorState::default(),
             // servo
-
-            rotor_front_left_hardware: MotorServoHardware,
-            rotor_front_right_hardware: MotorServoHardware,
-            rotor_aft_left_hardware: MotorServoHardware,
-            rotor_aft_right_hardware: MotorServoHardware,
+            rotor_front_left_hardware: MotorServoHardware::Pin4,
+            rotor_front_right_hardware: MotorServoHardware::Pin2,
+            rotor_aft_left_hardware: MotorServoHardware::Pin3,
+            rotor_aft_right_hardware: MotorServoHardware::Pin1,
             servo_aux_1_hardware: None,
             servo_aux_2_hardware: None,
 
@@ -298,7 +324,6 @@ impl Default for MotorServoState {
             //     ms4: MotorServoRole::ElevonRight(Default::default()),
             //     ms5: MotorServoRole::Unused,
             //     ms6: MotorServoRole::Unused,
-
             motor_thrust1_hardware: MotorServoHardware::Pin1,
             motor_thrust2_hardware: None,
             elevon_left_hardware: MotorServoHardware::Pin3,
@@ -319,18 +344,111 @@ impl Default for MotorServoState {
 }
 
 impl MotorServoState {
-//     #[cfg(feature = "quad")]
-//     fn get_front_left(&self) -> &mut MotorServoRole {
-//
-//     }
+    //     #[cfg(feature = "quad")]
+    //     fn get_front_left(&self) -> &mut MotorServoRole {
+    //
+    //     }
 
-    /// Populate command state from rotor RPMs.
+    /// Populate command state from rotor RPMs. This both marks the target RPM,
+    /// and calculates an instantaneous power level to achieve it.
     #[cfg(feature = "quad")]
-    pub fn set_cmds_from_rpms(&mut self, rpms: &MotorRpms) {
-        self.rotor_front_left.cmd = MotorCmd::Rpm(rpms.front_left);
-        self.rotor_front_right.cmd = MotorCmd::Rpm(rpms.front_right);
-        self.rotor_aft_left.cmd = MotorCmd::Rpm(rpms.aft_left);
-        self.rotor_aft_right.cmd = MotorCmd::Rpm(rpms.aft_right);
+    pub fn set_cmds_from_rpms(
+        &mut self,
+        rpms_commanded: &MotorRpm,
+        rpm_readings: &RpmReadings,
+        pid_group: &pid::MotorPidGroup,
+        pid_coeffs: &pid::MotorCoeffs,
+    ) {
+        // todo: DRY
+        // Calculate target RPMS, using our PID logic.
+        let p_front_left = match rpm_readings.front_left {
+            Some(reading) => {
+                pid::run(
+                    rpms_commanded.front_left,
+                    reading,
+                    &pid_group.front_left,
+                    pid_coeffs.p_front_left,
+                    pid_coeffs.i_front_left,
+                    0.,
+                    None,
+                    DT_FLIGHT_CTRLS,
+                )
+                .out()
+                    + self.rotor_front_left.cmd.power()
+            }
+            None => 0.,
+        };
+
+        let p_front_right = match rpm_readings.front_right {
+            Some(reading) => {
+                pid::run(
+                    rpms_commanded.front_right,
+                    reading,
+                    &pid_group.front_right,
+                    pid_coeffs.p_front_right,
+                    pid_coeffs.i_front_right,
+                    0.,
+                    None,
+                    DT_FLIGHT_CTRLS,
+                )
+                .out()
+                    + self.rotor_front_right.cmd.power()
+            }
+            None => 0.,
+        };
+
+        let p_aft_left = match rpm_readings.aft_left {
+            Some(reading) => {
+                pid::run(
+                    rpms_commanded.aft_left,
+                    reading,
+                    &pid_group.aft_left,
+                    pid_coeffs.p_aft_left,
+                    pid_coeffs.i_aft_left,
+                    0.,
+                    None,
+                    DT_FLIGHT_CTRLS,
+                )
+                .out()
+                    + self.rotor_aft_left.cmd.power()
+            }
+            None => 0.,
+        };
+
+        let p_aft_right = match rpm_readings.aft_right {
+            Some(reading) => {
+                pid::run(
+                    rpms_commanded.aft_right,
+                    reading,
+                    &pid_group.aft_right,
+                    pid_coeffs.p_aft_right,
+                    pid_coeffs.i_aft_right,
+                    0.,
+                    None,
+                    DT_FLIGHT_CTRLS,
+                )
+                .out()
+                    + self.rotor_aft_right.cmd.power()
+            }
+            None => 0.,
+        };
+
+        self.rotor_front_left.cmd = MotorCmd::Rpm(RpmCmd {
+            rpm_cmd: rpms_commanded.front_left,
+            pwr_calculated: p_front_left,
+        });
+        self.rotor_front_right.cmd = MotorCmd::Rpm(RpmCmd {
+            rpm_cmd: rpms_commanded.front_right,
+            pwr_calculated: p_front_right,
+        });
+        self.rotor_aft_left.cmd = MotorCmd::Rpm(RpmCmd {
+            rpm_cmd: rpms_commanded.aft_left,
+            pwr_calculated: p_aft_left,
+        });
+        self.rotor_aft_right.cmd = MotorCmd::Rpm(RpmCmd {
+            rpm_cmd: rpms_commanded.aft_right,
+            pwr_calculated: p_aft_right,
+        });
     }
 
     /// Populate commands from motor powers.
@@ -352,179 +470,84 @@ impl MotorServoState {
         // self.ms6.cmd.clamp();
     }
 
-    /// Send commands to all rotors. This uses a single DSHOT command.
-    /// todo: Note - we don't need PID coeffs adn readings if sending power.
+    /// Send commands to all rotors. This uses a single DSHOT command. Assumes power level
+    /// to achieve the target RPM is already applied.
     #[cfg(feature = "quad")]
-    pub fn send_to_rotors(
-        &self,
-        arm_status: ArmStatus,
-        rpm_readings: &RpmReadings,
-        pid_group: &pid::PidGroup,
-        pid_coeffs: &pid::MotorCoeffs,
-        motor_timer: &mut MotorTimer,
-    ) {
-        // todo: Temp hard-coded mappinsg.
-
-        // todo: Lots of DRY.
-        let cmd_front_left = match self.rotor_front_left.cmd {
-            MotorCmd::Power(p) => p,
-            MotorCmd::Rpm(r) => {
-                match rpm_readings.front_left {
-                    Some(reading) => {
-                        pid::run(
-                            r,
-                            reading,
-                            &pid_group.front_left,
-                            pid_coeffs.p_front_left,
-                            pid_coeffs.i_front_left,
-                            0.,
-                            None,
-                            DT_FLIGHT_CTRLS,
-                        )
-                            .out()
-                            + prev_pwr.front_left
-                    }
-                    None => 0.,
-                }
-            }
-        };
-
-        let cmd_front_right = match self.rotor_front_right.cmd {
-            MotorCmd::Power(p) => p,
-            MotorCmd::Rpm(r) => {
-                match rpm_readings.front_right {
-                    Some(reading) => {
-                        pid::run(
-                            r,
-                            reading,
-                            &pid_group.front_right,
-                            pid_coeffs.p_front_right,
-                            pid_coeffs.i_front_right,
-                            0.,
-                            None,
-                            DT_FLIGHT_CTRLS,
-                        )
-                            .out()
-                            + prev_pwr.front_right
-                    }
-                    None => 0.,
-                }
-            }
-        };
-
-        let cmd_aft_left = match self.rotor_aft_left.cmd {
-            MotorCmd::Power(p) => p,
-            MotorCmd::Rpm(r) => {
-                match rpm_readings.aft_left {
-                    Some(reading) => {
-                        pid::run(
-                            r,
-                            reading,
-                            &pid_group.aft_left,
-                            pid_coeffs.p_aft_left,
-                            pid_coeffs.i_aft_left,
-                            0.,
-                            None,
-                            DT_FLIGHT_CTRLS,
-                        )
-                            .out()
-                            + prev_pwr.aft_left
-                    }
-                    None => 0.,
-                }
-            }
-        };
-
-        let cmd_aft_right = match self.rotor_aft_right.cmd {
-            MotorCmd::Power(p) => p,
-            MotorCmd::Rpm(r) => {
-                match rpm_readings.aft_right {
-                    Some(reading) => {
-                        pid::run(
-                            r,
-                            reading,
-                            &pid_group.aft_right,
-                            pid_coeffs.p_aft_right,
-                            pid_coeffs.i_aft_right,
-                            0.,
-                            None,
-                            DT_FLIGHT_CTRLS,
-                        )
-                            .out()
-                            + prev_pwr.aft_right
-                    }
-                    None => 0.,
-                }
-            }
-        };
-
+    pub fn send_to_rotors(&self, arm_status: ArmStatus, motor_timer: &mut MotorTimer) {
         let mut p1 = 0.;
         let mut p2 = 0.;
         let mut p3 = 0.;
         let mut p4 = 0.;
 
+        let p_fl = self.rotor_front_left.cmd.power();
+        let p_fr = self.rotor_front_right.cmd.power();
+        let p_al = self.rotor_aft_left.cmd.power();
+        let p_ar = self.rotor_aft_right.cmd.power();
+
+
+        // Map from rotor position to motor number.
         // todo DRY
         // todo: This process doesn't elegantly handle mismapped pins.
         match self.rotor_front_left_hardware {
             MotorServoHardware::Pin1 => {
-                p1 = cmd_front_left;
+                p1 = p_fl;
             }
             MotorServoHardware::Pin2 => {
-                p2 = cmd_front_left;
+                p2 = p_fl;
             }
             MotorServoHardware::Pin3 => {
-                p3 = cmd_front_left;
+                p3 = p_fl;
             }
             MotorServoHardware::Pin4 => {
-                p4 = cmd_front_left;
+                p4 = p_fl;
             }
             _ => (), // todo
         }
 
         match self.rotor_front_right_hardware {
             MotorServoHardware::Pin1 => {
-                p1 = cmd_front_right;
+                p1 = p_fr;
             }
             MotorServoHardware::Pin2 => {
-                p2 = cmd_front_right;
+                p2 = p_fr;
             }
             MotorServoHardware::Pin3 => {
-                p3 = cmd_front_right;
+                p3 = p_fr;
             }
             MotorServoHardware::Pin4 => {
-                p4 = cmd_front_right;
+                p4 = p_fr;
             }
             _ => (), // todo
         }
 
         match self.rotor_aft_left_hardware {
             MotorServoHardware::Pin1 => {
-                p1 = cmd_aft_left;
+                p1 = p_al;
             }
             MotorServoHardware::Pin2 => {
-                p2 = cmd_aft_left;
+                p2 = p_al;
             }
             MotorServoHardware::Pin3 => {
-                p3 = cmd_aft_left;
+                p3 = p_al;
             }
             MotorServoHardware::Pin4 => {
-                p4 = cmd_aft_left;
+                p4 = p_al;
             }
             _ => (), // todo
         }
 
         match self.rotor_aft_right_hardware {
             MotorServoHardware::Pin1 => {
-                p1 = cmd_aft_right;
+                p1 = p_ar;
             }
             MotorServoHardware::Pin2 => {
-                p2 = cmd_aft_right;
+                p2 = p_ar;
             }
             MotorServoHardware::Pin3 => {
-                p3 = cmd_aft_right;
+                p3 = p_ar;
             }
             MotorServoHardware::Pin4 => {
-                p4 = cmd_aft_right;
+                p4 = p_ar;
             }
             _ => (), // todo
         }
@@ -534,7 +557,7 @@ impl MotorServoState {
                 dshot::set_power(p1, p2, p3, p4, motor_timer);
             }
             ArmStatus::Disarmed => {
-                dshot::stop_all(timer);
+                dshot::stop_all(motor_timer);
             }
         }
     }
