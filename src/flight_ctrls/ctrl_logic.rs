@@ -4,9 +4,9 @@
 use crate::{control_interface::ChannelData, util::map_linear};
 
 use super::{
-    // common::{CtrlMix, MotorRpm},
-    common::{CtrlMix, MotorServoState, RotationDir},
+    common::CtrlMix,
     filters::FlightCtrlFilters,
+    motor_servo::{MotorServoState, RotationDir},
 };
 
 use lin_alg2::f32::{Quaternion, Vec3};
@@ -20,7 +20,7 @@ use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "quad")] {
-        use super::MotorRpm;
+        use super::motor_servo::MotorRpm;
         // use super::RotationDir;
     } else {
         // use super::ControlPositions;

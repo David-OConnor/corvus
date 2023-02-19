@@ -6,9 +6,10 @@ use crate::{
     control_interface::InputModeSwitch,
     flight_ctrls::{
         autopilot::LandingCfg,
-        common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap, MotorServoState},
+        common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap},
         ctrl_logic::{AccelMap, CtrlCoeffs, DragCoeffs, PowerMaps},
         // ControlMapping,
+        motor_servo::MotorServoState,
     },
     ppks::Location,
     safety::ArmStatus,
@@ -26,7 +27,7 @@ cfg_if! {
 
         use lin_alg2::f32::Vec3;
     } else {
-        use crate::flight_ctrls::{MotorPower, InputMode};
+        use crate::flight_ctrls::{InputMode, motor_servo::MotorPower};
     }
 }
 
@@ -201,9 +202,6 @@ pub struct StateVolatile {
     // connected_to_controller: bool,
     #[cfg(feature = "quad")]
     pub current_pwr: MotorPower,
-    #[cfg(feature = "fixed-wing")]
-    /// Flight control positions
-    pub ctrl_positions: ControlPositions,
     /// Base point - generally takeoff location.
     pub base_point: Location, // todo: user cfg varianit too?
     /// The commanded attitude. Used in attitude mode, and a variant of rate mode.

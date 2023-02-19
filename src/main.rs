@@ -39,7 +39,6 @@ use drivers::{
 use filter_imu::ImuFilters;
 use flight_ctrls::{
     autopilot::AutopilotStatus,
-    common::RpmReadings,
     // common::{MotorRpm, RpmReadings},
     // pid::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
@@ -47,10 +46,14 @@ use flight_ctrls::{
     // },
     ctrl_logic::{self, PowerMaps},
     filters::FlightCtrlFilters,
+    motor_servo::RpmReadings,
     pid::{MotorCoeffs, MotorPidGroup},
     // ControlMapping,
 };
 use lin_alg2::f32::Quaternion;
+
+#[cfg(feature = "quad")]
+use flight_ctrls::motor_servo::MotorPower; // todo Temp
 
 use ppks::{Location, LocationType};
 use protocols::{crsf, dshot, rpm_reception, usb_preflight};
@@ -123,7 +126,7 @@ cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         // use flight_ctrls::{autopilot::Orbit, ControlPositions};
     } else {
-        use flight_ctrls::{MotorRpm, common::RotationDir};
+        use flight_ctrls::{motor_servo::{MotorRpm, RotationDir}};
     }
 }
 
@@ -973,31 +976,44 @@ mod app {
                             }
                         }
                         None => {
-                            // todo testing
-                            if i < 25_000 {
-                                dshot::stop_all(motor_timer);
-                            } else {
-                                let target_rpm = 800.;
 
-                                let rpms_commanded = MotorRpm {
-                                    front_left: target_rpm,
-                                    aft_left: target_rpm,
-                                    front_right: target_rpm,
-                                    aft_right: target_rpm,
-                                };
+                            #[cfg(feature = "quad")]
+                            {
+                                // todo testing
+                                if i < 25_000 {
+                                    dshot::stop_all(motor_timer);
+                                } else {
+                                    let target_rpm = 800.;
 
-                                state_volatile.motor_servo_state.set_cmds_from_rpms(
-                                    &rpms_commanded,
-                                    rpm_readings,
-                                    pid_state,
-                                    pid_coeffs,
-                                );
+                                    let rpms_commanded = MotorRpm {
+                                        front_left: target_rpm,
+                                        aft_left: target_rpm,
+                                        front_right: target_rpm,
+                                        aft_right: target_rpm,
+                                    };
 
-                                state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
-                            }
-                            if i % 8000 == 0 {
-                                println!("Rpms- FL: {:?} FR: {}, AL: {}, AR: {}", rpm_readings.front_left, rpm_readings.front_right,
-                                         rpm_readings.aft_left, rpm_readings.aft_right);
+                                    // state_volatile.motor_servo_state.set_cmds_from_rpms(
+                                    //     &rpms_commanded,
+                                    //     rpm_readings,
+                                    //     pid_state,
+                                    //     pid_coeffs,
+                                    // );
+
+                                    state_volatile.motor_servo_state.set_cmds_from_power(
+                                        &MotorPower {
+                                            front_left: 0.025,
+                                            front_right: 0.025,
+                                            aft_left: 0.025,
+                                            aft_right: 0.025,
+                                        }
+                                    );
+
+                                    state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
+                                }
+                                if i % 8000 == 0 {
+                                    println!("Rpms- FL: {:?} FR: {}, AL: {}, AR: {}", rpm_readings.front_left, rpm_readings.front_right,
+                                             rpm_readings.aft_left, rpm_readings.aft_right);
+                                }
                             }
                             // todo testing
                             // dshot::stop_all(motor_timer);
@@ -1358,10 +1374,10 @@ mod app {
                                 DT_IMU,
                             );
 
-                            control_posits_commanded.set(&cfg.control_mapping, servo_timer, state_volatile.arm_status);
+                            state_volatile.motor_servo_state.send_to_motors(ArmStatus::MotorsControlsArmed, motor_timer);
+                            state_volatile.motor_servo_state.send_to_servos(ArmStatus::MotorsControlsArmed, servo_timer);
 
                             state_volatile.ctrl_mix = ctrl_mix;
-                            state_volatile.ctrl_positions = control_posits_commanded;
                         }
                     }
                 });
@@ -1433,7 +1449,6 @@ mod app {
                                 motor_timer,
                                 servo_timer,
                                 rpm_readings,
-                                &state_volatile.current_pwr,
                             );
                         }
                         Err(_) => {

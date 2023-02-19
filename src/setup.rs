@@ -25,7 +25,7 @@ use stm32_hal2::qspi::Qspi;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
-        use crate::flight_ctrls::{ServoWing, ServoWingPosition};
+        use crate::protocols::servo:ServoWing;
     }
 }
 use crate::{

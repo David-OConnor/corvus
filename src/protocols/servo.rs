@@ -42,6 +42,22 @@ const ARR_MIN_F32: f32 = ARR_MIN as f32;
 const ARR_MID_F32: f32 = ARR_MID as f32;
 const ARR_MAX_F32: f32 = ARR_MAX as f32;
 
+/// Equivalent of `Motor` for quadcopters.
+#[derive(Clone, Copy)]
+pub enum ServoWing {
+    S1,
+    S2,
+}
+
+// /// Specify the wing associated with a servo. Equivalent of `RotorPosition` for quadcopters.
+// /// repr(u8) is for use in Preflight.
+// #[derive(Clone, Copy, PartialEq)]
+// #[repr(u8)]
+// pub enum ServoWingPosition {
+//     Left = 0,
+//     Right = 1,
+// }
+
 pub fn set_posit(posit: f32, range_in: (f32, f32), timer: &mut ServoTimer, channel: TimChannel) {
     let duty_arr = util::map_linear(posit, range_in, (ARR_MIN_F32, ARR_MAX_F32)) as u32;
 

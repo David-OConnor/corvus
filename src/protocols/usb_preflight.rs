@@ -16,10 +16,8 @@ use crate::{
     control_interface::ChannelData,
     dshot::{self, Motor},
     flight_ctrls::{
-        // common::{AttitudeCommanded, RpmReadings},
-        common::{AttitudeCommanded, MotorServoState, RotationDir, RpmReadings},
-        // ControlMapping,
-        MotorPower, // todo quad only
+        common::AttitudeCommanded,
+        motor_servo::{MotorServoState, RotationDir, RpmReadings},
     },
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},
     safety::ArmStatus,
@@ -31,9 +29,6 @@ use crate::{
 
 use defmt::println;
 
-#[cfg(feature = "fixed-wing")]
-use crate::flight_ctrls;
-
 use lin_alg2::f32::Quaternion;
 
 use cfg_if::cfg_if;
@@ -41,8 +36,10 @@ use cfg_if::cfg_if;
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         // use crate::flight_ctrls::ServoWingPosition;
+        use crate::flight_ctrls;
     } else {
         // use crate::flight_ctrls::{RotorPosition};
+        use crate::flight_ctrls::motor_servo::MotorPower;
     }
 }
 
@@ -209,6 +206,7 @@ fn params_to_bytes(
 
     let mut i = 57;
 
+    #[cfg(feature = "quad")]
     for r in &[
         rpm_status.front_left,
         rpm_status.aft_left,
@@ -222,6 +220,19 @@ fn params_to_bytes(
         }
         i += 3;
     }
+
+    #[cfg(feature = "fixed-wing")]
+    for r in &[rpm_status.thrust1, rpm_status.thrust2] {
+        if let Some(rpm) = r {
+            result[i] = 1;
+            result[i + 1..i + 3].clone_from_slice(&(*rpm as u16).to_be_bytes());
+            // otherwise None
+        }
+        i += 3;
+    }
+
+    #[cfg(feature = "fixed-wing")]
+    i += 6; // Since we're only sending 2 RPMs, but keeping data packing intact.
 
     result[i] = aircraft_type;
     i += 1;
@@ -378,7 +389,6 @@ pub fn handle_rx(
     motor_timer: &mut setup::MotorTimer,
     servo_timer: &mut setup::ServoTimer,
     rpm_status: &RpmReadings,
-    current_pwr: &MotorPower, // todo not on Fixed.
 ) {
     let rx_msg_type: MsgType = match rx_buf[0].try_into() {
         Ok(d) => d,
@@ -552,7 +562,8 @@ pub fn handle_rx(
             send_payload::<{ SYS_AP_STATUS_SIZE + 2 }>(MsgType::SysApStatus, &payload, usb_serial);
         }
         MsgType::SysApStatus => {}
-        MsgType::ReqControlMapping => { // todo: This message type needs to be replaced by
+        MsgType::ReqControlMapping => {
+            // todo: This message type needs to be replaced by
             // todo MotorServoState. perhaps
             // let payload: [u8; CONTROL_MAPPING_SIZE] = control_mapping.into();
             let payload = [0_u8; 2]; // todo placeholder while we re-set up motorss etc

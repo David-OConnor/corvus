@@ -59,7 +59,7 @@ use super::dshot::{self, calc_crc, DSHOT_SPEED, REC_BUF_LEN, TIM_CLK};
 
 use num_traits::float::FloatCore; // round
 
-use crate::flight_ctrls::common::RpmReadings;
+use crate::flight_ctrls::motor_servo::RpmReadings;
 
 use defmt::println;
 

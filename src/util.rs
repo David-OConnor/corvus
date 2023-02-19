@@ -9,7 +9,7 @@ use crate::{
     flight_ctrls::{
         self,
         autopilot::AutopilotStatus,
-        common::{MotorServoState, RpmReadings},
+        motor_servo::{MotorServoState, RpmReadings},
     },
     params::Params,
     safety::ArmStatus,
@@ -307,6 +307,7 @@ pub fn print_status(
         );
     }
 
+    #[cfg(feature = "quad")]
     println!(
         "RPMs: FL {}, FR: {}, AL: {}, AR: {}\n",
         // rpms.front_left, rpms.front_right, rpms.aft_left, rpms.aft_right
@@ -314,6 +315,14 @@ pub fn print_status(
         rpm_readings.front_right,
         rpm_readings.aft_left,
         rpm_readings.aft_right
+    );
+
+    #[cfg(feature = "fixed-wing")]
+    println!(
+        "RPMs: Motor 1: {}, Motor 2: {}\n",
+        // rpms.front_left, rpms.front_right, rpms.aft_left, rpms.aft_right
+        rpm_readings.thrust1,
+        rpm_readings.thrust2.unwrap_or(0.),
     );
 
     println!("Alt MSL: {}", params.baro_alt_msl);

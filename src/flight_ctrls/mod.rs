@@ -8,6 +8,7 @@ pub mod autopilot;
 pub mod common;
 pub mod ctrl_logic;
 pub mod filters;
+pub mod motor_servo;
 pub mod pid;
 
 use cfg_if::cfg_if;
