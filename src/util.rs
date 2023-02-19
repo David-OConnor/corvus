@@ -18,6 +18,8 @@ use crate::{
     system_status::{self, SystemStatus},
 };
 
+use num_traits::float::FloatCore;
+
 use defmt::println;
 
 /// Used to satisfy RTIC resource Send requirements.
@@ -332,4 +334,25 @@ pub fn print_status(
     //     "Input mode sw: {:?}",
     //     control_channel_data.input_mode == InputModeSwitch::Acro
     // );
+}
+
+/// Create an order-2 polynomial based on 3 calibration points.
+/// `a` is the ^2 term, `b` is the linear term, `c` is the constant term.
+/// This is a general mathematical function, and can be derived using a system of equations.
+pub fn create_polynomial_terms(
+    pt0: (f32, f32),
+    pt1: (f32, f32),
+    pt2: (f32, f32),
+) -> (f32, f32, f32) {
+    let a_num = pt0.0 * (pt2.0 - pt1.1) + pt1.0 * (pt0.1 - pt2.0) + pt2.0 * (pt1.1 - pt0.1);
+
+    let a_denom = (pt0.0 - pt1.0) * (pt0.0 - pt2.0) * (pt1.0 - pt2.0);
+
+    let a = a_num / a_denom;
+
+    let b = (pt1.1 - pt0.1) / (pt1.0 - pt0.0) - a * (pt0.0 + pt1.0);
+
+    let c = pt0.1 - a * pt0.0.powi(2) - b * pt0.0;
+
+    (a, b, c)
 }

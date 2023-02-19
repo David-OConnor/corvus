@@ -115,9 +115,6 @@ pub struct UserCfg {
     /// The (index of the) waypoint we are currently steering to.
     pub active_waypoint: usize,
     pub landing_cfg: LandingCfg,
-    #[cfg(feature = "fixed-wing")]
-    /// (Alternative is no rudder)
-    pub rudder_used: bool,
     // ///Modify `rate` mode to command an orientation that changes based on rate control inputs.
     // pub attitude_based_rate_mode: bool,
     pub input_map: InputMap,
@@ -173,8 +170,7 @@ impl Default for UserCfg {
             waypoints,
             active_waypoint: 0,
             landing_cfg: Default::default(),
-            #[cfg(feature = "fixed-wing")]
-            rudder_used: false,
+            // #[cfg(feature = "fixed-wing")]
             // attitude_based_rate_mode: true,
             input_map: Default::default(),
             ctrl_coeffs: Default::default(),
@@ -196,10 +192,8 @@ pub struct StateVolatile {
     #[cfg(feature = "quad")]
     pub input_mode: InputMode,
     pub input_mode_switch: InputModeSwitch,
-    // FOr now, we use "link lost" to include never having been connected.
+    // For now, we use "link lost" to include never having been connected.
     // connected_to_controller: bool,
-    #[cfg(feature = "quad")]
-    pub current_pwr: MotorPower,
     /// Base point - generally takeoff location.
     pub base_point: Location, // todo: user cfg varianit too?
     /// The commanded attitude. Used in attitude mode, and a variant of rate mode.
@@ -213,8 +207,8 @@ pub struct StateVolatile {
     pub ctrl_mix: CtrlMix,
     /// We use this to determine if we can unlock the attitude controls from the takeoff attitude.
     pub has_taken_off: bool,
-    /// Power to RPM, and RPM to angular acceleration data. (todo: Should this be stored in cfg?)
-    pub power_maps: PowerMaps,
+    // /// Power to RPM, and RPM to angular acceleration data. (todo: Should this be stored in cfg?)
+    // pub power_maps: PowerMaps,
     /// Angular drag coefficient, continuously updated.
     pub angular_drag_coeff: f32,
     pub batt_v: f32,      // volts

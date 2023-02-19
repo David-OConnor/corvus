@@ -192,12 +192,8 @@ pub enum MotorServoHardware {
 /// todo: Rename A/R
 #[cfg(feature = "quad")]
 pub struct MotorServoState {
-    // pub ms1: MotorServoRole,
-    // pub ms2: MotorServoRole,
-    // pub ms3: MotorServoRole,
-    // pub ms4: MotorServoRole,
-    // pub ms5: MotorServoRole,
-    // pub ms6: MotorServoRole,
+    // todo: Consider hardware presets instead of free fields; would allow to better match
+    // todo timer pin-mapping constraints.
     pub rotor_front_left_hardware: MotorServoHardware,
     pub rotor_front_right_hardware: MotorServoHardware,
     pub rotor_aft_left_hardware: MotorServoHardware,
@@ -227,6 +223,7 @@ pub struct MotorServoState {
 
     pub motor_thrust1: MotorState,
     pub motor_thrust2: Option<MotorState>,
+    /// Elevons are similar to stabilators.
     pub elevon_left: ServoState,
     pub elevon_right: ServoState,
     pub rudder: Option<ServoState>,

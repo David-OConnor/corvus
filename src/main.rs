@@ -1022,8 +1022,6 @@ mod app {
                         }
                     };
 
-                    // return; // todo temp!
-
                     // todo: Impl once you've sorted out your control logic.
                     // todo: Delegate this to another module, eg `attitude_ctrls`.
                     // Update the target attitude based on control inputs
@@ -1182,27 +1180,27 @@ mod app {
                         if let OperationMode::Preflight = state_volatile.op_mode {
                             return;
                         }
-                        // println!("D");
+
                         if let Some(ch_data) = control_channel_data {
                             autopilot_status.set_modes_from_ctrls(ch_data, &params);
                         }
 
-                        #[cfg(feature = "quad")]
-                            let ap_cmds = autopilot_status.apply(
+                        // #[cfg(feature = "quad")]
+                        let ap_cmds = autopilot_status.apply(
                             params,
                             // filters,
                             // coeffs,
                             system_status,
                         );
-
-                        #[cfg(feature = "fixed-wing")]
-                            let ap_cmds = autopilot_status.apply(
-                            params,
-                            // pid_attitude,
-                            // filters,
-                            // coeffs,
-                            system_status,
-                        );
+                        //
+                        // #[cfg(feature = "fixed-wing")]
+                        //     let ap_cmds = autopilot_status.apply(
+                        //     params,
+                        //     // pid_attitude,
+                        //     // filters,
+                        //     // coeffs,
+                        //     system_status,
+                        // );
 
                         // Don't apply autopilot modes if on the ground.
                         if !state_volatile.has_taken_off {
@@ -1223,90 +1221,39 @@ mod app {
                         // todo: Determine timing for OSD update, and if it should be in this loop,
                         // todo, or slower.
 
-
-                        // todo: Put back A/R
-                        // This difference in approach between quad and fixed-wing for the
-                        // control deltas is due to using an intermediate step between control settings
-                        // and accel for quads (RPM), but doing it directly on fixed-wing,being unable
-                        // to measure servo posit directly (which would be the equiv intermediate step)
-                        // cfg_if! {
-                        //     if #[cfg(feature = "quad")] {
-                        //         let pitch_delta = rpms.pitch_delta();
-                        //         let roll_delta = rpms.roll_delta();
-                        //         let yaw_delta = rpms.yaw_delta(cfg.control_mapping.frontleft_aftright_dir);
-                        //
-                        //         let pitch_accel = state_volatile.accel_map.pitch_rpm_to_accel(pitch_delta);
-                        //         let roll_accel = state_volatile.accel_map.roll_rpm_to_accel(roll_delta);
-                        //         let yaw_accel = state_volatile.accel_map.yaw_rpm_to_accel(yaw_delta);
-                        //     } else {
-                        //         let pitch_delta = state_volatile.ctrl_positions.pitch_delta();
-                        //         let roll_delta = state_volatile.ctrl_positions.roll_delta();
-                        //         let yaw_delta = state_volatile.ctrl_positions.yaw_delta();
-                        //
-                        //         let pitch_accel = state_volatile.accel_map.pitch_cmd_to_accel(pitch_delta);
-                        //         let roll_accel = state_volatile.accel_map.roll_cmd_to_accel(roll_delta);
-                        //         let yaw_accel = state_volatile.accel_map.yaw_cmd_to_accel(yaw_delta);
-                        //     }
-                        // }
-                        //
-                        // // Estimate the angular drag coefficient for the current flight regime.
-                        // let drag_coeff_pitch = flight_ctrls::ctrl_logic::calc_drag_coeff(
-                        //     params.v_pitch,
-                        //     params.a_pitch,
-                        //     pitch_accel,
-                        // );
-                        //
-                        // let drag_coeff_roll = flight_ctrls::ctrl_logic::calc_drag_coeff(
-                        //     params.v_roll,
-                        //     params.a_roll,
-                        //     state_volatile.accel_map.roll_rpm_to_accel(roll_delta),
-                        // );
-                        //
-                        // #[cfg(feature = "quad")]
-                        //     let drag_coeff_yaw = flight_ctrls::ctrl_logic::calc_drag_coeff(
-                        //     params.v_yaw,
-                        //     params.a_yaw,
-                        //     state_volatile.accel_map.yaw_rpm_to_accel(yaw_delta),
-                        // );
-                        //
-                        // let (dcp, dcr, dcy) = flight_ctrl_filters.apply(drag_coeff_pitch, drag_coeff_roll, drag_coeff_yaw);
-                        // state_volatile.drag_coeffs.pitch = dcp;
-                        // state_volatile.drag_coeffs.roll = dcr;
-                        // state_volatile.drag_coeffs.yaw = dcy;
-
-
                         // todo: This should probably be delegatd to a fn; get it
                         // todo out here
                         if i % THRUST_LOG_RATIO == 0 {
-                            cfg_if! {
-                            if #[cfg(feature = "quad")] {
-                                state_volatile.power_maps.rpm_to_accel_pitch.log_val(
-                                // todo: Populate this, and consider if you want rpms to be by motor or rotor posit
-                                //     pwr.front_left + pwr.front_right - pwr.aft_left - pwr.aft_right,
-                                    // rpms.m1 + rpms.m2 + rpms.m3 + rpms.m4
-                                    // todo: Motors. Map Motor num to rotor position here.
-                                    // todo: Possibly with helper methods.
-                                    0.,
-                                    0.,
-                                );
+                        //     cfg_if! {
+                        //         if #[cfg(feature = "quad")] {
+                        //             state_volatile.power_maps.rpm_to_accel_pitch.log_val(
+                        //             // todo: Populate this, and consider if you want rpms to be by motor or rotor posit
+                        //             //     pwr.front_left + pwr.front_right - pwr.aft_left - pwr.aft_right,
+                        //                 // rpms.m1 + rpms.m2 + rpms.m3 + rpms.m4
+                        //                 // todo: Motors. Map Motor num to rotor position here.
+                        //                 // todo: Possibly with helper methods.
+                        //                 0.,
+                        //                 0.,
+                        //             );
+                        //
+                        //             state_volatile.power_maps.rpm_to_accel_roll.log_val(
+                        //                 0.,
+                        //                 0.,
+                        //             );
+                        //
+                        //             let mut yaw_pwr = 0.;
+                        //             if state_volatile.motor_servo_state.frontleft_aftright_dir == RotationDir::Clockwise {
+                        //                 yaw_pwr *= -1.;
+                        //             }
+                        //             state_volatile.power_maps.rpm_to_accel_yaw.log_val(
+                        //                 yaw_pwr,
+                        //                 0.,
+                        //             );
+                        //         }
+                        // }
 
-                                state_volatile.power_maps.rpm_to_accel_roll.log_val(
-                                    0.,
-                                    0.,
-                                );
+                            // Log angular accel
 
-                                let mut yaw_pwr = 0.;
-                                if state_volatile.motor_servo_state.frontleft_aftright_dir == RotationDir::Clockwise {
-                                    yaw_pwr *= -1.;
-                                }
-                                state_volatile.power_maps.rpm_to_accel_yaw.log_val(
-                                    yaw_pwr,
-                                    0.,
-                                );
-                            }
-                        }
-                            // Note: We currently don't have a way to measure servo position,
-                            // so we leave the default 1:1 mapping here.
                         }
                     } else if (i_compensated - 5) % NUM_IMU_LOOP_TASKS == 0 {
                         // println!("F");
@@ -1354,6 +1301,7 @@ mod app {
                                 pid_coeffs,
                             );
 
+                            // This is what causes the actual change in motor speed, via DSHOT.
                             state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
 
                             state_volatile.ctrl_mix = ctrl_mix;
@@ -1376,7 +1324,10 @@ mod app {
                                 DT_IMU,
                             );
 
+                            // This is what causes the actual change in motor speed, via DSHOT.
                             state_volatile.motor_servo_state.send_to_motors(ArmStatus::MotorsControlsArmed, motor_timer);
+
+                            // This is what causes the actual change in servo position, via PWM.
                             state_volatile.motor_servo_state.send_to_servos(ArmStatus::MotorsControlsArmed, servo_timer);
 
                             state_volatile.ctrl_mix = ctrl_mix;

@@ -88,7 +88,7 @@ pub const SYS_AP_STATUS_SIZE: usize = SYS_STATUS_SIZE + AP_STATUS_SIZE;
 pub const CONTROL_MAPPING_SIZE: usize = 2; // Packed tightly!
                                            // todo: May need to change to add `servo_high` etc.
 #[cfg(feature = "fixed-wing")]
-pub const CONTROL_MAPPING_SIZE: usize = 1; // Packed tightly!
+pub const CONTROL_MAPPING_SIZE: usize = 2; // Packed tightly! todo?
 
 // const START_BYTE: u8 =
 
@@ -588,6 +588,10 @@ fn send_payload<const N: usize>(
     let payload_size = msg_type.payload_size();
 
     let mut tx_buf = [0; N];
+
+    println!("P S: {:?}", payload_size);
+    println!("MSG TYPE: {:?}", msg_type as u8);
+    println!("PAYLOAD: {:?}", payload);
 
     tx_buf[0] = msg_type as u8;
     tx_buf[1..(payload_size + 1)].copy_from_slice(&payload);
