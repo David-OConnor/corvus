@@ -13,7 +13,7 @@ use crate::{
     util,
 };
 
-use super::common::{CtrlMix, InputMap, Motor};
+use super::common::{CtrlMix, InputMap};
 
 use cfg_if::cfg_if;
 // use defmt::println;
@@ -41,119 +41,5 @@ impl Default for InputMap {
             alt_commanded_offset_msl: (0., 100.),
             alt_commanded_agl: (0.5, 8.),
         }
-    }
-}
-
-impl ControlPositions {
-    /// Apply controls based on pitch, roll, yaw, and throttle. Servo average position controls pitch;
-    /// servo difference controls roll. We don't have a yaw control.
-    /// If a servo exceeds min or max power settings, clamp it.
-    ///
-    /// Positive pitch means nose up. Positive roll means left wing up.
-    ///
-    /// Input deltas as on an abitrary scale based on PID output; they're not in real units like radians/s.
-    pub fn from_cmds(mix: &CtrlMix) -> Self {
-        let mut elevon_left = 0.;
-        let mut elevon_right = 0.;
-        let mut rudder = 0.;
-
-        elevon_left += mix.pitch;
-        elevon_right += mix.pitch;
-
-        // elevon_left += mix.roll * ROLL_COEFF;
-        // elevon_right -= mix.roll * ROLL_COEFF;
-        //
-        // rudder += mix.pitch * YAW_COEFF;
-
-        elevon_left += mix.roll;
-        elevon_right -= mix.roll;
-
-        rudder += mix.pitch;
-
-        let mut result = Self {
-            motor: mix.throttle,
-            elevon_left,
-            elevon_right,
-            rudder,
-        };
-
-        result.clamp();
-
-        result
-    }
-
-    pub fn set(
-        &self,
-        mapping: &ControlMapping,
-        // motor_timer: &mut MotorTimer,
-        servo_timer: &mut ServoTimer,
-        arm_status: ArmStatus,
-    ) {
-        match arm_status {
-            ArmStatus::MotorsControlsArmed => {
-                // dshot::set_power(self.motor, 0., 0., 0., motor_timer);
-
-                // todo: Apply to left and right wing by mapping etc! Here or upstream.
-                set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, servo_timer);
-                set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, servo_timer);
-            }
-            ArmStatus::ControlsArmed => {
-                // dshot::stop_all(motor_timer);
-
-                // todo: Apply to left and right wing by mapping etc! Here or upstream.
-                set_elevon_posit(ServoWing::S1, self.elevon_left, mapping, servo_timer);
-                set_elevon_posit(ServoWing::S2, self.elevon_right, mapping, servo_timer);
-            }
-            ArmStatus::Disarmed => {
-                // dshot::stop_all(motor_timer);
-
-                set_elevon_posit(ServoWing::S1, 0., mapping, servo_timer);
-                set_elevon_posit(ServoWing::S2, 0., mapping, servo_timer);
-            }
-        }
-    }
-
-    /// Clamp motor speed and servo motion. A simple form of dealing with out of limits.
-    pub fn clamp(&mut self) {
-        if self.motor < MIN_MOTOR_POWER {
-            self.motor = MIN_MOTOR_POWER;
-        } else if self.motor > MAX_MOTOR_POWER {
-            self.motor = MAX_MOTOR_POWER;
-        }
-
-        if self.elevon_left < ELEVON_MIN {
-            self.elevon_left = ELEVON_MIN;
-        } else if self.elevon_left > ELEVON_MAX {
-            self.elevon_left = ELEVON_MAX;
-        }
-
-        if self.elevon_right < ELEVON_MIN {
-            self.elevon_right = ELEVON_MIN;
-        } else if self.elevon_right > ELEVON_MAX {
-            self.elevon_right = ELEVON_MAX;
-        }
-
-        if self.rudder < RUDDER_MIN {
-            self.rudder = RUDDER_MIN;
-        } else if self.rudder > RUDDER_MAX {
-            self.rudder = RUDDER_MAX;
-        }
-    }
-
-    /// Maps to angular accel. Positive means nose-up pitching.
-    /// Note: This is located on a non-equiv struct on Quads (RPMs). This is because
-    /// on fixed-wing, we map control commands directly to accel, while
-    pub fn pitch_delta(&self) -> f32 {
-        self.elevon_left + self.elevon_right // todo: QC this
-    }
-
-    /// Maps to angular accel. Positive means left-wing-up.
-    /// (See note on `pitch_delta)`.
-    pub fn roll_delta(&self) -> f32 {
-        self.elevon_right - self.elevon_left
-    }
-
-    pub fn yaw_delta(&self) -> f32 {
-        self.rudder
     }
 }

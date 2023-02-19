@@ -116,10 +116,10 @@ pub struct ServoState {
 
 impl ServoState {
     pub fn clamp(&mut self) {
-        if self.posit_cmd < SERVO_MIN {
-            self.posit_cmd = SERVO_MIN;
-        } else if self.posit_cmd > SERVO_MAX {
-            self.posit_cmd = SERVO_MAX;
+        if self.posit_cmd < SERVO_CMD_MIN {
+            self.posit_cmd = SERVO_CMD_MIN;
+        } else if self.posit_cmd > SERVO_CMD_MAX {
+            self.posit_cmd = SERVO_CMD_MAX;
         }
     }
 }
@@ -217,13 +217,13 @@ pub struct MotorServoState {
 
 #[cfg(feature = "fixed-wing")]
 pub struct MotorServoState {
-    pub motor_thrust1_hardware: MotorState,
-    pub motor_thrust2_hardware: Option<MotorState>,
-    pub elevon_left_hardware: ServoState,
-    pub elevon_right_hardware: ServoState,
-    pub rudder_hardware: Option<ServoState>,
-    pub servo_aux_1_hardware: Option<ServoState>,
-    pub servo_aux_2_hardware: Option<ServoState>,
+    pub motor_thrust1_hardware: MotorServoHardware,
+    pub motor_thrust2_hardware: Option<MotorServoHardware>,
+    pub elevon_left_hardware: MotorServoHardware,
+    pub elevon_right_hardware: MotorServoHardware,
+    pub rudder_hardware: Option<MotorServoHardware>,
+    pub servo_aux_1_hardware: Option<MotorServoHardware>,
+    pub servo_aux_2_hardware: Option<MotorServoHardware>,
 
     pub motor_thrust1: MotorState,
     pub motor_thrust2: Option<MotorState>,
@@ -383,6 +383,8 @@ impl MotorServoState {
             rpm_cmd: rpms_commanded.aft_right,
             pwr_calculated: p_aft_right,
         });
+
+        self.clamp_cmds();
     }
 
     /// Populate commands from motor powers.
@@ -392,6 +394,20 @@ impl MotorServoState {
         self.rotor_front_right.cmd = MotorCmd::Power(powers.front_right);
         self.rotor_aft_left.cmd = MotorCmd::Power(powers.aft_left);
         self.rotor_aft_right.cmd = MotorCmd::Power(powers.aft_right);
+
+        self.clamp_cmds();
+    }
+
+    #[cfg(feature = "fixed-wing")]
+    pub fn set_cmds_from_control_posits(&mut self, posits: &CtrlSfcPosits) {
+        self.elevon_left.posit_cmd = posits.elevon_left;
+        self.elevon_right.posit_cmd = posits.elevon_right;
+
+        if let Some(mut r) = self.rudder {
+            r.posit_cmd = posits.rudder.unwrap_or(0.);
+        }
+
+        self.clamp_cmds();
     }
 
     #[cfg(feature = "quad")]
@@ -402,6 +418,21 @@ impl MotorServoState {
         self.rotor_aft_right.cmd.clamp();
         // self.ms5.cmd.clamp();
         // self.ms6.cmd.clamp();
+    }
+
+    #[cfg(feature = "fixed-wing")]
+    pub fn clamp_cmds(&mut self) {
+        self.motor_thrust1.cmd.clamp();
+        if let Some(m) = &mut self.motor_thrust2 {
+            m.cmd.clamp();
+        }
+
+        self.elevon_left.clamp();
+        self.elevon_right.clamp();
+
+        if let Some(r) = &mut self.rudder {
+            r.clamp();
+        }
     }
 
     /// Send commands to all rotors. This uses a single DSHOT command. Assumes power level
@@ -534,37 +565,35 @@ impl MotorServoState {
             }
         }
 
-        match self.motor_thrust2 {
-            Some(motor_thrust2) => {
-                let p_thrust2 = motor_thrust2.cmd.power();
+        if let Some(motor_thrust2) = &self.motor_thrust2 {
+            let p_thrust2 = motor_thrust2.cmd.power();
 
-                // Note: This unwrap assumes the Some/None is synced between `motor_thrust2` and
-                // `motor_thrust2_hardware`.
-                match self.motor_thrust2_hardware.unwrap() {
-                    MotorServoHardware::Pin1 => {
-                        p1 = p_thrust2;
-                    }
-                    MotorServoHardware::Pin2 => {
-                        p2 = p_thrust2;
-                    }
-                    MotorServoHardware::Pin3 => {
-                        p3 = p_thrust2;
-                    }
-                    MotorServoHardware::Pin4 => {
-                        p4 = p_thrust2;
-                    }
-                    MotorServoHardware::Pin5 => {
-                        p5 = p_thrust2;
-                    }
-                    MotorServoHardware::Pin6 => {
-                        p6 = p_thrust2;
-                    }
+            // Note: This unwrap assumes the Some/None is synced between `motor_thrust2` and
+            // `motor_thrust2_hardware`.
+            match self.motor_thrust2_hardware.unwrap() {
+                MotorServoHardware::Pin1 => {
+                    p1 = p_thrust2;
+                }
+                MotorServoHardware::Pin2 => {
+                    p2 = p_thrust2;
+                }
+                MotorServoHardware::Pin3 => {
+                    p3 = p_thrust2;
+                }
+                MotorServoHardware::Pin4 => {
+                    p4 = p_thrust2;
+                }
+                MotorServoHardware::Pin5 => {
+                    p5 = p_thrust2;
+                }
+                MotorServoHardware::Pin6 => {
+                    p6 = p_thrust2;
                 }
             }
         }
 
         match arm_status {
-            ArmStatus::MotorsServosArmed => {
+            ArmStatus::MotorsControlsArmed => {
                 dshot::set_power(p1, p2, p3, p4, motor_timer);
             }
             _ => {
@@ -597,13 +626,14 @@ impl MotorServoState {
             self.elevon_left.posit_cmd,
             range_in_l,
             servo_timer,
-            elevon.tim_channel(),
+            // todo: 1 v 2 and L v 2
+            servo::ServoWing::S1.tim_channel(),
         );
         servo::set_posit(
             self.elevon_right.posit_cmd,
             range_in_r,
             servo_timer,
-            elevon.tim_channel(),
+            servo::ServoWing::S2.tim_channel(),
         );
     }
 }
@@ -664,6 +694,65 @@ pub struct MotorRpm {
     pub thrust1: f32,
     /// `None` if this motor isn't present.
     pub thrust2: Option<f32>,
+}
+
+#[cfg(feature = "fixed-wing")]
+#[derive(Default)]
+pub struct CtrlSfcPosits {
+    pub elevon_left: f32,
+    /// `None` if the rudder isn't present.
+    pub elevon_right: f32,
+    pub rudder: Option<f32>,
+}
+
+#[cfg(feature = "fixed-wing")]
+impl CtrlSfcPosits {
+    pub fn from_cmds(mix: &CtrlMix) -> Self {
+        let mut elevon_left = 0.;
+        let mut elevon_right = 0.;
+        let mut rudder = 0.;
+
+        elevon_left += mix.pitch;
+        elevon_right += mix.pitch;
+
+        // elevon_left += mix.roll * ROLL_COEFF;
+        // elevon_right -= mix.roll * ROLL_COEFF;
+        //
+        // rudder += mix.pitch * YAW_COEFF;
+
+        elevon_left += mix.roll;
+        elevon_right -= mix.roll;
+
+        rudder += mix.yaw;
+
+        let mut result = Self {
+            elevon_left,
+            elevon_right,
+            rudder: Some(rudder), // todo?
+        };
+
+        result
+    }
+
+    /// Maps to angular accel. Positive means nose-up pitching.
+    /// Note: This is located on a non-equiv struct on Quads (RPMs). This is because
+    /// on fixed-wing, we map control commands directly to accel, while
+    pub fn pitch_delta(&self) -> f32 {
+        self.elevon_left + self.elevon_right
+    }
+
+    /// Maps to angular accel. Positive means left-wing-up.
+    /// (See note on `pitch_delta)`.
+    pub fn roll_delta(&self) -> f32 {
+        self.elevon_right - self.elevon_left
+    }
+
+    pub fn yaw_delta(&self) -> f32 {
+        match self.rudder {
+            Some(r) => r,
+            None => 0.,
+        }
+    }
 }
 
 #[cfg(feature = "quad")]
@@ -744,21 +833,21 @@ impl MotorRpm {
         }
     }
 }
-
-#[cfg(feature = "quad")]
-impl MotorPower {
-    /// Calculates total power. Used to normalize individual rotor powers when setting total
-    /// power, eg from a thrust setting.
-    pub fn _total(&self) -> f32 {
-        self.front_left + self.front_right + self.aft_left + self.aft_right
-    }
-
-    /// Calculates total power. Used to normalize individual rotor powers when setting total
-    /// power, eg from a thrust setting.
-    pub fn _scale_all(&mut self, scaler: f32) {
-        self.front_left *= scaler;
-        self.front_right *= scaler;
-        self.aft_left *= scaler;
-        self.aft_right *= scaler;
-    }
-}
+//
+// #[cfg(feature = "quad")]
+// impl MotorPower {
+//     /// Calculates total power. Used to normalize individual rotor powers when setting total
+//     /// power, eg from a thrust setting.
+//     pub fn _total(&self) -> f32 {
+//         self.front_left + self.front_right + self.aft_left + self.aft_right
+//     }
+//
+//     /// Calculates total power. Used to normalize individual rotor powers when setting total
+//     /// power, eg from a thrust setting.
+//     pub fn _scale_all(&mut self, scaler: f32) {
+//         self.front_left *= scaler;
+//         self.front_right *= scaler;
+//         self.aft_left *= scaler;
+//         self.aft_right *= scaler;
+//     }
+// }

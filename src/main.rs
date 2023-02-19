@@ -46,7 +46,7 @@ use flight_ctrls::{
     // },
     ctrl_logic::{self, PowerMaps},
     filters::FlightCtrlFilters,
-    motor_servo::RpmReadings,
+    motor_servo::{MotorRpm, RpmReadings},
     pid::{MotorCoeffs, MotorPidGroup},
     // ControlMapping,
 };
@@ -124,9 +124,9 @@ cfg_if! {
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
-        // use flight_ctrls::{autopilot::Orbit, ControlPositions};
+        // use flight_ctrls::{autopilot::Orbit, ControlPositions, };
     } else {
-        use flight_ctrls::{motor_servo::{MotorRpm, RotationDir}};
+        use flight_ctrls::{motor_servo::{RotationDir}};
     }
 }
 
@@ -937,42 +937,44 @@ mod app {
 
                     match control_channel_data {
                         Some(ch_data) => {
-                            let mut p = ch_data.throttle;
-
-                            if p < 0.025 {
-                                p = 0.025;
-                            }
-
-                            // todo: Temp mapping of throttle settings to RPM
-                            let target_rpm = util::map_linear(p, (0., 1.), (300., 6_000.));
-
-                            let rpms_commanded = MotorRpm {
-                                front_left: target_rpm,
-                                aft_left: target_rpm,
-                                front_right: target_rpm,
-                                aft_right: target_rpm,
-                            };
-                            //
-                            // if i % 8000 == 0 {
-                            //     println!("Rpms- FL: {:?} FR: {}, AL: {}, AR: {}", rpm_readings.front_left, rpm_readings.front_right,
-                            //              rpm_readings.aft_left, rpm_readings.aft_right);
-                            // }
-
                             #[cfg(feature = "quad")]
-                            if state_volatile.arm_status == ArmStatus::Armed {
-                                // dshot::set_power(p, p, p, p, motor_timer);
+                            {
+                                let mut p = ch_data.throttle;
 
-                                state_volatile.motor_servo_state.set_cmds_from_rpms(
-                                    &rpms_commanded,
-                                    rpm_readings,
-                                    pid_state,
-                                    pid_coeffs,
-                                );
+                                if p < 0.025 {
+                                    p = 0.025;
+                                }
 
-                                state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
+                                // todo: Temp mapping of throttle settings to RPM
+                                let target_rpm = util::map_linear(p, (0., 1.), (300., 6_000.));
 
-                            } else {
-                                dshot::stop_all(motor_timer);
+                                let rpms_commanded = MotorRpm {
+                                    front_left: target_rpm,
+                                    aft_left: target_rpm,
+                                    front_right: target_rpm,
+                                    aft_right: target_rpm,
+                                };
+                                //
+                                // if i % 8000 == 0 {
+                                //     println!("Rpms- FL: {:?} FR: {}, AL: {}, AR: {}", rpm_readings.front_left, rpm_readings.front_right,
+                                //              rpm_readings.aft_left, rpm_readings.aft_right);
+                                // }
+
+                                #[cfg(feature = "quad")]
+                                if state_volatile.arm_status == ArmStatus::Armed {
+                                    // dshot::set_power(p, p, p, p, motor_timer);
+
+                                    state_volatile.motor_servo_state.set_cmds_from_rpms(
+                                        &rpms_commanded,
+                                        rpm_readings,
+                                        pid_state,
+                                        pid_coeffs,
+                                    );
+
+                                    state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
+                                } else {
+                                    dshot::stop_all(motor_timer);
+                                }
                             }
                         }
                         None => {

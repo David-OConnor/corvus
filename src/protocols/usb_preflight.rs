@@ -183,7 +183,6 @@ fn params_to_bytes(
     voltage: f32,
     current: f32,
     rpm_status: &RpmReadings,
-    current_pwr: &MotorPower, // todo: Not on fixed-wing
     aircraft_type: u8,
 ) -> [u8; PARAMS_SIZE] {
     let mut result = [0; PARAMS_SIZE];
@@ -231,21 +230,24 @@ fn params_to_bytes(
         i += 3;
     }
 
-    #[cfg(feature = "fixed-wing")]
-    i += 6; // Since we're only sending 2 RPMs, but keeping data packing intact.
+    cfg_if! {
+        if #[cfg(feature = "fixed-wing")] {
+            i += 6; // Since we're only sending 2 RPMs, but keeping data packing intact.
+        }
+    }
 
     result[i] = aircraft_type;
     i += 1;
 
-    // todo: method on MotorPwr instead of doing this field by field here?
-    result[i..i + 4].clone_from_slice(&current_pwr.front_left.to_be_bytes());
-    i += 4;
-    result[i..i + 4].clone_from_slice(&current_pwr.aft_left.to_be_bytes());
-    i += 4;
-    result[i..i + 4].clone_from_slice(&current_pwr.front_right.to_be_bytes());
-    i += 4;
-    result[i..i + 4].clone_from_slice(&current_pwr.aft_right.to_be_bytes());
-    i += 4;
+    // todo: Update for new system
+    // result[i..i + 4].clone_from_slice(&current_pwr.front_left.to_be_bytes());
+    // i += 4;
+    // result[i..i + 4].clone_from_slice(&current_pwr.aft_left.to_be_bytes());
+    // i += 4;
+    // result[i..i + 4].clone_from_slice(&current_pwr.front_right.to_be_bytes());
+    // i += 4;
+    // result[i..i + 4].clone_from_slice(&current_pwr.aft_right.to_be_bytes());
+    // i += 4;
 
     result
 }
@@ -447,7 +449,6 @@ pub fn handle_rx(
                 batt_v,
                 esc_current,
                 rpm_status,
-                current_pwr,
                 aircraft_type,
             );
 
@@ -537,24 +538,25 @@ pub fn handle_rx(
             let servo = rx_buf[1];
             let value = f32::from_be_bytes(rx_buf[2..6].try_into().unwrap());
 
-            let l = ServoWingPosition::Left as u8;
-            let r = ServoWingPosition::Right as u8;
+            // todo: COme back to this.
+            // let l = ServoWingPosition::Left as u8;
+            // let r = ServoWingPosition::Right as u8;
+            //
+            // let servo_wing = match servo {
+            //     l => ServoWingPosition::Left,
+            //     r => ServoWingPosition::Right,
+            //     _ => {
+            //         println!("Invalid servo requested");
+            //         return;
+            //     }
+            // };
 
-            let servo_wing = match servo {
-                l => ServoWingPosition::Left,
-                r => ServoWingPosition::Right,
-                _ => {
-                    println!("Invalid servo requested");
-                    return;
-                }
-            };
-
-            flight_ctrls::set_elevon_posit(
-                control_mapping.servo_from_position(servo_wing),
-                value,
-                control_mapping,
-                servo_timer,
-            );
+            // flight_ctrls::set_elevon_posit(
+            //     control_mapping.servo_from_position(servo_wing),
+            //     value,
+            //     control_mapping,
+            //     servo_timer,
+            // );
         }
         MsgType::ReqSysApStatus => {
             // todo: Just sys status for now; do AP too.

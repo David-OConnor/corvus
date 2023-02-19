@@ -1,7 +1,7 @@
 //! This module contains code for attitude-based controls. This includes sticks mapping
 //! to attitude, and an internal attitude model with rate-like controls, where attitude is the target.
 
-use crate::{control_interface::ChannelData, util::map_linear};
+use crate::{control_interface::ChannelData, params::Params, util::map_linear};
 
 use super::{
     common::CtrlMix,
@@ -13,7 +13,6 @@ use lin_alg2::f32::{Quaternion, Vec3};
 
 use num_traits::float::Float; // For sqrt.
 
-use crate::params::Params;
 use cfg_if::cfg_if;
 
 // todo: YOu probably need filters.
@@ -23,7 +22,7 @@ cfg_if! {
         use super::motor_servo::MotorRpm;
         // use super::RotationDir;
     } else {
-        // use super::ControlPositions;
+        use super::motor_servo::CtrlSfcPosits;
     }
 }
 
@@ -64,7 +63,7 @@ pub type AccelMap = ServoCmdAccelMap;
 pub struct ServoCmdAccelMap {}
 
 impl ServoCmdAccelMap {
-    /// See `pitch_delta` etc on `fixed_wing::ControlPositions` for how these deltas
+    /// See `pitch_delta` etc on `CtrlSfcPosits` for how these deltas
     /// are calculated.
     pub fn pitch_cmd_to_accel(&self, cmd: f32) -> f32 {
         1.
@@ -502,7 +501,7 @@ pub fn control_posits_from_att(
     accel_map: &AccelMap,
     filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
-) -> (CtrlMix, ControlPositions) {
+) -> (CtrlMix, CtrlSfcPosits) {
     // todo: Modulate based on airspeed.
 
     let rotation_cmd = target_attitude * current_attitude.inverse();
@@ -537,7 +536,7 @@ pub fn control_posits_from_att(
         throttle,
     };
 
-    let posits = ControlPositions::from_cmds(&mix_new);
+    let posits = CtrlSfcPosits::from_cmds(&mix_new);
 
     (mix_new, posits)
 }

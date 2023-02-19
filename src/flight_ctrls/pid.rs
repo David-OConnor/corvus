@@ -16,7 +16,6 @@ use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
-        use crate::flight_ctrls::{ControlPositions};
     } else {
         // use crate::flight_ctrls::{};
     }

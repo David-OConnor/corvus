@@ -363,6 +363,7 @@ fn error_helper(payload: &[u16; REC_BUF_LEN], fault: &mut bool, pole_count: u8) 
 /// Update the motor RPM struct with our buffer data.
 /// We delegate to a sub-function for each motor, so we can propogate motor-specific
 /// statuses.
+#[cfg(feature = "quad")]
 pub fn rpm_readings_from_bufs(fault: &mut bool, pole_count: u8) -> RpmReadings {
     // todo: Don't hard-code the mapping!
     RpmReadings {
@@ -370,5 +371,14 @@ pub fn rpm_readings_from_bufs(fault: &mut bool, pole_count: u8) -> RpmReadings {
         front_right: error_helper(&unsafe { dshot::PAYLOAD_REC_2 }, fault, pole_count),
         aft_left: error_helper(&unsafe { dshot::PAYLOAD_REC_3 }, fault, pole_count),
         front_left: error_helper(&unsafe { dshot::PAYLOAD_REC_4 }, fault, pole_count),
+    }
+}
+
+#[cfg(feature = "fixed-wing")]
+pub fn rpm_readings_from_bufs(fault: &mut bool, pole_count: u8) -> RpmReadings {
+    // todo: Don't hard-code the mapping!
+    RpmReadings {
+        thrust1: error_helper(&unsafe { dshot::PAYLOAD_REC_1 }, fault, pole_count),
+        thrust2: error_helper(&unsafe { dshot::PAYLOAD_REC_2 }, fault, pole_count),
     }
 }
