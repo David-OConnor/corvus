@@ -380,10 +380,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-        // let spi_flash_pac = dp.OCTOSPI1;
-        let spi_flash_pac = dp.QUADSPI;
+            // let spi_flash_pac = dp.OCTOSPI1;
+            let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-        let spi_flash_pac = dp.SPI2;
+            let spi_flash_pac = dp.SPI2;
 
         let (
             mut spi1,
@@ -442,10 +442,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -675,21 +675,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-        // todo: Wrong. You need to do this by number; apply your pin mapping.
-        let motors_reversed = (
+            // todo: Wrong. You need to do this by number; apply your pin mapping.
+            let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -1224,35 +1224,77 @@ mod app {
                         // todo: This should probably be delegatd to a fn; get it
                         // todo out here
                         if i % THRUST_LOG_RATIO == 0 {
-                        //     cfg_if! {
-                        //         if #[cfg(feature = "quad")] {
-                        //             state_volatile.power_maps.rpm_to_accel_pitch.log_val(
-                        //             // todo: Populate this, and consider if you want rpms to be by motor or rotor posit
-                        //             //     pwr.front_left + pwr.front_right - pwr.aft_left - pwr.aft_right,
-                        //                 // rpms.m1 + rpms.m2 + rpms.m3 + rpms.m4
-                        //                 // todo: Motors. Map Motor num to rotor position here.
-                        //                 // todo: Possibly with helper methods.
-                        //                 0.,
-                        //                 0.,
-                        //             );
-                        //
-                        //             state_volatile.power_maps.rpm_to_accel_roll.log_val(
-                        //                 0.,
-                        //                 0.,
-                        //             );
-                        //
-                        //             let mut yaw_pwr = 0.;
-                        //             if state_volatile.motor_servo_state.frontleft_aftright_dir == RotationDir::Clockwise {
-                        //                 yaw_pwr *= -1.;
-                        //             }
-                        //             state_volatile.power_maps.rpm_to_accel_yaw.log_val(
-                        //                 yaw_pwr,
-                        //                 0.,
-                        //             );
-                        //         }
-                        // }
+                            //     cfg_if! {
+                            //         if #[cfg(feature = "quad")] {
+                            //             state_volatile.power_maps.rpm_to_accel_pitch.log_val(
+                            //             // todo: Populate this, and consider if you want rpms to be by motor or rotor posit
+                            //             //     pwr.front_left + pwr.front_right - pwr.aft_left - pwr.aft_right,
+                            //                 // rpms.m1 + rpms.m2 + rpms.m3 + rpms.m4
+                            //                 // todo: Motors. Map Motor num to rotor position here.
+                            //                 // todo: Possibly with helper methods.
+                            //                 0.,
+                            //                 0.,
+                            //             );
+                            //
+                            //             state_volatile.power_maps.rpm_to_accel_roll.log_val(
+                            //                 0.,
+                            //                 0.,
+                            //             );
+                            //
+                            //             let mut yaw_pwr = 0.;
+                            //             if state_volatile.motor_servo_state.frontleft_aftright_dir == RotationDir::Clockwise {
+                            //                 yaw_pwr *= -1.;
+                            //             }
+                            //             state_volatile.power_maps.rpm_to_accel_yaw.log_val(
+                            //                 yaw_pwr,
+                            //                 0.,
+                            //             );
+                            //         }
+                            // }
 
-                            // Log angular accel
+                            // Log angular accel from RPM or servo posit delta.
+                            // Code-shorteners
+                            let m = &state_volatile.motor_servo_state;
+
+                            cfg_if! {
+                                if #[cfg(feature = "quad")] {
+                                    let pt_pitch = ctrl_logic::AccelMapPt {
+                                        rpm_or_servo_delta: m.pitch_delta_rpm(),
+                                        angular_accel: params.a_pitch,
+                                    };
+
+                                    let pt_roll = ctrl_logic::AccelMapPt {
+                                        rpm_or_servo_delta: m.roll_delta_rpm(),
+                                        angular_accel: params.a_roll,
+                                    };
+
+                                    let pt_yaw = ctrl_logic::AccelMapPt {
+                                        rpm_or_servo_delta: m.yaw_delta_rpm(),
+                                        angular_accel: params.a_yaw,
+                                    };
+                                } else {
+                                    let pt_pitch = ctrl_logic::AccelMapPt {
+                                        rpm_or_servo_delta: m.pitch_delta(),
+                                        angular_accel: params.a_pitch,
+                                    };
+
+                                    let pt_roll = ctrl_logic::AccelMapPt {
+                                        rpm_or_servo_delta: m.roll_delta(),
+                                        angular_accel: params.a_roll,
+                                    };
+
+                                    let pt_yaw = ctrl_logic::AccelMapPt {
+                                        rpm_or_servo_delta: m.yaw_delta(),
+                                        angular_accel: params.a_yaw,
+                                    };
+                                }
+                            }
+
+                            state_volatile.accel_map.log_pts(
+                                pt_pitch,
+                                pt_roll,
+                                pt_yaw
+                            );
 
                         }
                     } else if (i_compensated - 5) % NUM_IMU_LOOP_TASKS == 0 {

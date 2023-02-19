@@ -383,6 +383,69 @@ impl MotorServoState {
 
         self.clamp_cmds();
     }
+    
+    #[cfg(feature = "quad")]
+    pub fn pitch_delta_rpm(&self) -> f32 {
+        let rpms = MotorRpm {
+            front_left: self.rotor_front_left.rpm_reading.unwrap_or(0.),
+            front_right: self.rotor_front_right.rpm_reading.unwrap_or(0.),
+            aft_left: self.rotor_aft_left.rpm_reading.unwrap_or(0.),
+            aft_right: self.rotor_aft_right.rpm_reading.unwrap_or(0.),
+        };
+        rpms.pitch_delta()
+    }
+
+        #[cfg(feature = "quad")]
+    pub fn roll_delta_rpm(&self) -> f32 {
+        let rpms = MotorRpm {
+            front_left: self.rotor_front_left.rpm_reading.unwrap_or(0.),
+            front_right: self.rotor_front_right.rpm_reading.unwrap_or(0.),
+            aft_left: self.rotor_aft_left.rpm_reading.unwrap_or(0.),
+            aft_right: self.rotor_aft_right.rpm_reading.unwrap_or(0.),
+        };
+        rpms.roll_delta()
+    }
+
+    #[cfg(feature = "quad")]
+    pub fn yaw_delta_rpm(&self) -> f32 {
+        let rpms = MotorRpm {
+            front_left: self.rotor_front_left.rpm_reading.unwrap_or(0.),
+            front_right: self.rotor_front_right.rpm_reading.unwrap_or(0.),
+            aft_left: self.rotor_aft_left.rpm_reading.unwrap_or(0.),
+            aft_right: self.rotor_aft_right.rpm_reading.unwrap_or(0.),
+        };
+        rpms.yaw_delta()
+    }
+
+    #[cfg(feature = "fixed-wing")]
+    pub fn pitch_delta(&self) -> f32 {
+        let ctrl_posits = CtrlSfcPosits {
+            elevon_left: self.elevon_left.posit_cmd,
+            elevon_right: self.elevon_right.posit_cmd,
+            rudder: None, //todo! And differential thrust between motors A/R.
+        };
+        ctrl_posits.pitch_delta()
+    }
+
+    #[cfg(feature = "fixed-wing")]
+    pub fn roll_delta(&self) -> f32 {
+        let ctrl_posits = CtrlSfcPosits {
+            elevon_left: self.elevon_left.posit_cmd,
+            elevon_right: self.elevon_right.posit_cmd,
+            rudder: None, //todo! And differential thrust between motors A/R.
+        };
+        ctrl_posits.roll_delta()
+    }
+
+    #[cfg(feature = "fixed-wing")]
+    pub fn yaw_delta(&self) -> f32 {
+        let ctrl_posits = CtrlSfcPosits {
+            elevon_left: self.elevon_left.posit_cmd,
+            elevon_right: self.elevon_right.posit_cmd,
+            rudder: None, //todo! And differential thrust between motors A/R.
+        };
+        ctrl_posits.yaw_delta()
+    }
 
     /// Populate commands from motor powers.
     #[cfg(feature = "quad")]
@@ -431,6 +494,8 @@ impl MotorServoState {
             r.clamp();
         }
     }
+    
+    
 
     /// Send commands to all rotors. This uses a single DSHOT command. Assumes power level
     /// to achieve the target RPM is already applied.

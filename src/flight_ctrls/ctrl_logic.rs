@@ -293,8 +293,8 @@ impl Default for AccelMap {
 
 #[derive(Default, Clone, Copy)]
 pub struct AccelMapPt {
-    rpm_or_servo_delta: f32,
-    angular_accel: f32,
+    pub rpm_or_servo_delta: f32,
+    pub angular_accel: f32,
 }
 
 /// This struct contains maps of 0-1 power level to RPM and angular accel.
