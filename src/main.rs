@@ -44,7 +44,7 @@ use flight_ctrls::{
     //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
     //     PID_CONTROL_ADJ_TIMEOUT,
     // },
-    ctrl_logic::{self, PowerMaps},
+    ctrl_logic::{self, AccelMaps},
     filters::FlightCtrlFilters,
     motor_servo::{MotorRpm, RpmReadings},
     pid::{MotorCoeffs, MotorPidGroup},
@@ -251,7 +251,7 @@ mod app {
         // RPM PID.
         imu_calibration: imu_calibration::ImuCalibration,
         ext_sensor_active: ExtSensor,
-        pwr_maps: PowerMaps,
+        pwr_maps: AccelMaps,
         /// Store rotor RPM: (M1, M2, M3, M4). Quad only, but we can't feature gate
         /// shared fields.
         rpm_readings: RpmReadings,
@@ -380,10 +380,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-            // let spi_flash_pac = dp.OCTOSPI1;
-            let spi_flash_pac = dp.QUADSPI;
+        // let spi_flash_pac = dp.OCTOSPI1;
+        let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-            let spi_flash_pac = dp.SPI2;
+        let spi_flash_pac = dp.SPI2;
 
         let (
             mut spi1,
@@ -442,10 +442,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -675,21 +675,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-            // todo: Wrong. You need to do this by number; apply your pin mapping.
-            let motors_reversed = (
+        // todo: Wrong. You need to do this by number; apply your pin mapping.
+        let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -1290,7 +1290,7 @@ mod app {
                                 }
                             }
 
-                            state_volatile.accel_map.log_pts(
+                            state_volatile.accel_maps.log_pt(
                                 pt_pitch,
                                 pt_roll,
                                 pt_yaw
@@ -1330,7 +1330,7 @@ mod app {
                                 cx.local.params_prev,
                                 &cfg.ctrl_coeffs,
                                 &state_volatile.drag_coeffs,
-                                &state_volatile.accel_map,
+                                &state_volatile.accel_maps,
                                 flight_ctrl_filters,
                                 // The DT passed is the IMU rate, since we update params_prev each IMU update.
                                 DT_IMU,
@@ -1361,7 +1361,7 @@ mod app {
                                 // &state_volatile.ctrl_mix,
                                 &cfg.ctrl_coeffs,
                                 &state_volatile.drag_coeffs,
-                                &state_volatile.accel_map,
+                                &state_volatile.accel_maps,
                                 flight_ctrl_filters,
                                 DT_IMU,
                             );
@@ -1443,7 +1443,7 @@ mod app {
                                 &mut state_volatile.op_mode,
                                 motor_timer,
                                 servo_timer,
-                                rpm_readings,
+                                &mut state_volatile.motor_servo_state,
                             );
                         }
                         Err(_) => {

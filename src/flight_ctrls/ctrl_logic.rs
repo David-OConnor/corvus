@@ -26,7 +26,6 @@ use cfg_if::cfg_if;
 cfg_if! {
     if #[cfg(feature = "quad")] {
         use super::motor_servo::MotorRpm;
-        // use super::RotationDir;
     } else {
         use super::motor_servo::CtrlSfcPosits;
     }
@@ -297,10 +296,8 @@ pub struct AccelMapPt {
     pub angular_accel: f32,
 }
 
-/// This struct contains maps of 0-1 power level to RPM and angular accel.
-/// For fixed wing, substitude servo position setting for RPM.
 #[derive(Default)]
-pub struct PowerMaps {
+pub struct AccelMaps {
     pub rpm_to_accel_pitch: AccelMap,
     pub rpm_to_accel_roll: AccelMap,
     pub rpm_to_accel_yaw: AccelMap,
@@ -312,7 +309,7 @@ pub struct PowerMaps {
     pub sample_pts_yaw: [AccelMapPt; NUM_SAMPLE_PTS],
 }
 
-impl PowerMaps {
+impl AccelMaps {
     /// Add a new sample point for each of pitch, roll and yaw. Update coefficients to
     /// incorporate latest 3 points.
     pub fn log_pt(&mut self, pt_pitch: AccelMapPt, pt_roll: AccelMapPt, pt_yaw: AccelMapPt) {
@@ -581,7 +578,7 @@ pub fn rotor_rpms_from_att(
     params_prev: &Params,
     coeffs: &CtrlCoeffs,
     drag_coeffs: &DragCoeffs,
-    accel_map: &AccelMap,
+    accel_maps: &AccelMaps,
     filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
 ) -> (CtrlMix, MotorRpm) {
@@ -591,34 +588,29 @@ pub fn rotor_rpms_from_att(
     // along individual axes.
     let rot_euler = rotation_cmd.to_euler();
 
-    // Measured angular acceleration
-    let ang_accel_pitch = (params.v_pitch - params_prev.v_pitch) / dt;
-    let ang_accel_roll = (params.v_roll - params_prev.v_roll) / dt;
-    let ang_accel_yaw = (params.v_yaw - params_prev.v_yaw) / dt;
-
     let pitch = find_ctrl_setting(
         rot_euler.pitch,
         params.v_pitch,
-        ang_accel_pitch,
+        params.a_pitch,
         coeffs,
         drag_coeffs.pitch,
-        accel_map,
+        &accel_maps.rpm_to_accel_pitch,
     );
     let roll = find_ctrl_setting(
         rot_euler.roll,
         params.v_roll,
-        ang_accel_roll,
+        params.a_roll,
         coeffs,
         drag_coeffs.roll,
-        accel_map,
+        &accel_maps.rpm_to_accel_roll,
     );
     let yaw = find_ctrl_setting(
         rot_euler.yaw,
         params.v_yaw,
-        ang_accel_yaw,
+        params.a_yaw,
         coeffs,
         drag_coeffs.yaw,
-        accel_map,
+        &accel_maps.rpm_to_accel_yaw,
     );
 
     let mix_new = CtrlMix {
@@ -647,7 +639,7 @@ pub fn control_posits_from_att(
     params_prev: &Params,
     coeffs: &CtrlCoeffs,
     drag_coeffs: &DragCoeffs,
-    accel_map: &AccelMap,
+    accel_maps: &AccelMaps,
     filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
 ) -> (CtrlMix, CtrlSfcPosits) {
@@ -656,24 +648,21 @@ pub fn control_posits_from_att(
     let rotation_cmd = target_attitude * current_attitude.inverse();
     let rot_euler = rotation_cmd.to_euler();
 
-    let ang_accel_pitch = (params.v_pitch - params_prev.v_pitch) / dt;
-    let ang_accel_roll = (params.v_roll - params_prev.v_roll) / dt;
-
     let pitch = find_ctrl_setting(
         rot_euler.pitch,
         params.v_pitch,
-        ang_accel_pitch,
+        params.a_pitch,
         coeffs,
         drag_coeffs.pitch,
-        accel_map,
+        &accel_maps.rpm_to_accel_pitch,
     );
     let roll = find_ctrl_setting(
         rot_euler.roll,
         params.v_roll,
-        ang_accel_roll,
+        params.a_roll,
         coeffs,
         drag_coeffs.roll,
-        accel_map,
+        &accel_maps.rpm_to_accel_roll,
     );
 
     let yaw = 0.; // todo?

@@ -97,7 +97,7 @@ pub enum RotationDir {
 pub struct MotorState {
     /// None indicates no reading.
     pub cmd: MotorCmd,
-    pub rpm_reading: Option<f32>,
+    pub rpm_reading: Option<f32>, // todo: This state is repatative with `rpm_readings`.
     // pub dir: RotationDir, // todo: Do we want this?
     /// Reversed is in relation to the 3-wire motor brushless wiring. This software setting
     /// allows the wires to be connected in any order, and compensated for in software. (Eg by
@@ -383,7 +383,7 @@ impl MotorServoState {
 
         self.clamp_cmds();
     }
-    
+
     #[cfg(feature = "quad")]
     pub fn pitch_delta_rpm(&self) -> f32 {
         let rpms = MotorRpm {
@@ -395,7 +395,7 @@ impl MotorServoState {
         rpms.pitch_delta()
     }
 
-        #[cfg(feature = "quad")]
+    #[cfg(feature = "quad")]
     pub fn roll_delta_rpm(&self) -> f32 {
         let rpms = MotorRpm {
             front_left: self.rotor_front_left.rpm_reading.unwrap_or(0.),
@@ -414,7 +414,7 @@ impl MotorServoState {
             aft_left: self.rotor_aft_left.rpm_reading.unwrap_or(0.),
             aft_right: self.rotor_aft_right.rpm_reading.unwrap_or(0.),
         };
-        rpms.yaw_delta()
+        rpms.yaw_delta(self.frontleft_aftright_dir)
     }
 
     #[cfg(feature = "fixed-wing")]
@@ -494,8 +494,6 @@ impl MotorServoState {
             r.clamp();
         }
     }
-    
-    
 
     /// Send commands to all rotors. This uses a single DSHOT command. Assumes power level
     /// to achieve the target RPM is already applied.

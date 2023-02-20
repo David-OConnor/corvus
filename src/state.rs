@@ -7,7 +7,7 @@ use crate::{
     flight_ctrls::{
         autopilot::LandingCfg,
         common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap},
-        ctrl_logic::{AccelMap, CtrlCoeffs, DragCoeffs, PowerMaps},
+        ctrl_logic::{AccelMaps, CtrlCoeffs, DragCoeffs},
         // ControlMapping,
         motor_servo::MotorServoState,
     },
@@ -217,7 +217,7 @@ pub struct StateVolatile {
     pub drag_coeffs: DragCoeffs,
     /// Relates motor pair delta RPM difference to angular acceleration for quads, or servo settings
     /// to angular accel for fixed-wing.
-    pub accel_map: AccelMap,
+    pub accel_maps: AccelMaps,
     /// Atmospheric pressure, in Pa.
     pub pressure_static: f32,
     /// Temperature, in K, measured by the barometer

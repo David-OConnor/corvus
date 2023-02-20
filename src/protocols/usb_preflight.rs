@@ -17,7 +17,7 @@ use crate::{
     dshot::{self, Motor},
     flight_ctrls::{
         common::AttitudeCommanded,
-        motor_servo::{MotorServoState, RotationDir, RpmReadings},
+        motor_servo::{MotorPower, MotorRpm, MotorServoState, RotationDir},
     },
     ppks::{Location, WAYPOINT_MAX_NAME_LEN},
     safety::ArmStatus,
@@ -39,7 +39,6 @@ cfg_if! {
         use crate::flight_ctrls;
     } else {
         // use crate::flight_ctrls::{RotorPosition};
-        use crate::flight_ctrls::motor_servo::MotorPower;
     }
 }
 
@@ -89,6 +88,7 @@ pub const CONTROL_MAPPING_SIZE: usize = 2; // Packed tightly!
                                            // todo: May need to change to add `servo_high` etc.
 #[cfg(feature = "fixed-wing")]
 pub const CONTROL_MAPPING_SIZE: usize = 2; // Packed tightly! todo?
+pub const SET_MOTOR_POWER_SIZE: usize = F32_SIZE * 4;
 
 // const START_BYTE: u8 =
 
@@ -133,6 +133,10 @@ pub enum MsgType {
     SysApStatus = 17,
     ReqControlMapping = 18,
     ControlMapping = 19,
+    /// All 4
+    SetMotorPowers = 20,
+    /// All 4
+    SetMotorRpms = 21,
 }
 
 impl MsgType {
@@ -159,6 +163,8 @@ impl MsgType {
             Self::SysApStatus => SYS_AP_STATUS_SIZE,
             Self::ReqControlMapping => 0,
             Self::ControlMapping => CONTROL_MAPPING_SIZE,
+            Self::SetMotorPowers => SET_MOTOR_POWER_SIZE,
+            Self::SetMotorRpms => SET_MOTOR_POWER_SIZE,
         }
     }
 }
@@ -182,7 +188,8 @@ fn params_to_bytes(
     alt_agl: Option<f32>,
     voltage: f32,
     current: f32,
-    rpm_status: &RpmReadings,
+    // rpm_status: &RpmReadings,
+    motor_servo_state: &MotorServoState,
     aircraft_type: u8,
 ) -> [u8; PARAMS_SIZE] {
     let mut result = [0; PARAMS_SIZE];
@@ -207,10 +214,10 @@ fn params_to_bytes(
 
     #[cfg(feature = "quad")]
     for r in &[
-        rpm_status.front_left,
-        rpm_status.aft_left,
-        rpm_status.front_right,
-        rpm_status.aft_right,
+        motor_servo_state.rotor_front_left.rpm_reading,
+        motor_servo_state.rotor_aft_left.rpm_reading,
+        motor_servo_state.rotor_front_right.rpm_reading,
+        motor_servo_state.rotor_aft_right.rpm_reading,
     ] {
         if let Some(rpm) = r {
             result[i] = 1;
@@ -221,7 +228,10 @@ fn params_to_bytes(
     }
 
     #[cfg(feature = "fixed-wing")]
-    for r in &[rpm_status.thrust1, rpm_status.thrust2] {
+    for r in &[
+        motor_servo_state.motor_thrust1.rpm,
+        motor_servo_state.motor_thrust1.rpm,
+    ] {
         if let Some(rpm) = r {
             result[i] = 1;
             result[i + 1..i + 3].clone_from_slice(&(*rpm as u16).to_be_bytes());
@@ -386,11 +396,11 @@ pub fn handle_rx(
     waypoints: &[Option<Location>; MAX_WAYPOINTS],
     sys_status: &SystemStatus,
     arm_status: &mut ArmStatus,
-    // control_mapping: &mut ControlMapping,
     op_mode: &mut OperationMode,
     motor_timer: &mut setup::MotorTimer,
     servo_timer: &mut setup::ServoTimer,
-    rpm_status: &RpmReadings,
+    // rpm_status: &RpmReadings,
+    motor_servo_state: &mut MotorServoState,
 ) {
     let rx_msg_type: MsgType = match rx_buf[0].try_into() {
         Ok(d) => d,
@@ -448,7 +458,8 @@ pub fn handle_rx(
                 altitude_agl,
                 batt_v,
                 esc_current,
-                rpm_status,
+                // rpm_status,
+                motor_servo_state,
                 aircraft_type,
             );
 
@@ -567,8 +578,28 @@ pub fn handle_rx(
         MsgType::ReqControlMapping => {
             // todo: This message type needs to be replaced by
             // todo MotorServoState. perhaps
-            // let payload: [u8; CONTROL_MAPPING_SIZE] = control_mapping.into();
-            let payload = [0_u8; 2]; // todo placeholder while we re-set up motorss etc
+            // let payload = [0_u8; 2]; // todo placeholder while we re-set up motorss etc
+
+            // todo: Temp ahrdcoded mappings:
+
+            //             rotor_front_left_hardware: MotorServoHardware::Pin4,
+            //             rotor_front_right_hardware: MotorServoHardware::Pin2,
+            //             rotor_aft_left_hardware: MotorServoHardware::Pin3,
+            //             rotor_aft_right_hardware: MotorServoHardware::Pin1,
+
+            let m = &motor_servo_state; // code shortener
+            #[cfg(feature = "quad")]
+            let payload = [
+                // 2 bits each
+                (3) | ((1) << 2) | ((2) << 4) | ((0) << 6),
+                // 1 bit each
+                false as u8
+                    | ((false as u8) << 1)
+                    | ((false as u8) << 2)
+                    | ((false as u8) << 3)
+                    | ((m.frontleft_aftright_dir as u8) << 4),
+            ];
+
             send_payload::<{ CONTROL_MAPPING_SIZE + 2 }>(
                 MsgType::ControlMapping,
                 &payload,
@@ -576,6 +607,33 @@ pub fn handle_rx(
             );
         }
         MsgType::ControlMapping => {}
+        MsgType::SetMotorPowers => {
+            // todo: YOu need a safety rail on this.
+            let power = MotorPower {
+                front_left: f32::from_be_bytes(rx_buf[0..4].try_into().unwrap()),
+                front_right: f32::from_be_bytes(rx_buf[4..8].try_into().unwrap()),
+                aft_left: f32::from_be_bytes(rx_buf[8..12].try_into().unwrap()),
+                aft_right: f32::from_be_bytes(rx_buf[12..16].try_into().unwrap()),
+            };
+            motor_servo_state.set_cmds_from_power(&power);
+        }
+        MsgType::SetMotorRpms => {
+            // todo: YOu need a safety rail on this.
+            let rpms = MotorRpm {
+                front_left: f32::from_be_bytes(rx_buf[0..4].try_into().unwrap()),
+                front_right: f32::from_be_bytes(rx_buf[4..8].try_into().unwrap()),
+                aft_left: f32::from_be_bytes(rx_buf[8..12].try_into().unwrap()),
+                aft_right: f32::from_be_bytes(rx_buf[12..16].try_into().unwrap()),
+            };
+
+            // todo.
+            // motor_servo_state.set_cmds_from_rpms(
+            //     &rpms,
+            //     rpm_readings,
+            //     motor_pid_group,
+            //     motor_pid_coeffs,
+            // );
+        }
     }
 }
 
@@ -588,10 +646,6 @@ fn send_payload<const N: usize>(
     let payload_size = msg_type.payload_size();
 
     let mut tx_buf = [0; N];
-
-    println!("P S: {:?}", payload_size);
-    println!("MSG TYPE: {:?}", msg_type as u8);
-    println!("PAYLOAD: {:?}", payload);
 
     tx_buf[0] = msg_type as u8;
     tx_buf[1..(payload_size + 1)].copy_from_slice(&payload);
