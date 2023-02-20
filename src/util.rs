@@ -191,7 +191,7 @@ pub fn print_status(
     control_channel_data: &Option<ChannelData>,
     state_volatile: &StateVolatile,
     autopilot_status: &AutopilotStatus,
-    rpm_readings: &RpmReadings,
+    // rpm_readings: &RpmReadings,
     motor_servo_state: &MotorServoState,
 ) {
     // todo: Flesh this out, and perhaps make it more like Preflight.

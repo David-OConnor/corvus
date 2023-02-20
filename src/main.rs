@@ -252,9 +252,9 @@ mod app {
         imu_calibration: imu_calibration::ImuCalibration,
         ext_sensor_active: ExtSensor,
         pwr_maps: AccelMaps,
-        /// Store rotor RPM: (M1, M2, M3, M4). Quad only, but we can't feature gate
-        /// shared fields.
-        rpm_readings: RpmReadings,
+        // /// Store rotor RPM: (M1, M2, M3, M4). Quad only, but we can't feature gate
+        // /// shared fields.
+        // rpm_readings: RpmReadings,
         // rpms_commanded: MotorRpm,
         motor_pid_state: MotorPidGroup,
         /// PID motor coefficients
@@ -769,7 +769,7 @@ mod app {
                 pwr_maps: Default::default(),
                 motor_pid_state: Default::default(),
                 motor_pid_coeffs: Default::default(),
-                rpm_readings: Default::default(),
+                // rpm_readings: Default::default(),
                 // rpms_commanded: Default::default(),
             },
             Local {
@@ -830,7 +830,7 @@ mod app {
     #[task(binds = DMA1_CH2,
     shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timer, servo_timer, state_volatile, system_status, rpm_readings],
+    motor_timer, servo_timer, state_volatile, system_statu],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, measurement_timer], priority = 3)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
@@ -862,7 +862,7 @@ mod app {
             cx.shared.state_volatile,
             cx.shared.flight_ctrl_filters,
             cx.shared.system_status,
-            cx.shared.rpm_readings,
+            // cx.shared.rpm_readings,
             // cx.shared.rpms_commanded,
         )
             .lock(
@@ -877,7 +877,7 @@ mod app {
                  state_volatile,
                  flight_ctrl_filters,
                  system_status,
-                 rpm_readings,
+                 // rpm_readings,
                  // rpms_commanded
                 | {
                     let mut imu_data =
@@ -915,7 +915,10 @@ mod app {
                     // Update RPMs here, so we don't have to lock the read ISR.
                     // cx.shared.rotor_rpms.lock(|rotor_rpms| {
                     // let (rpm1_status, rpm2_status, rpm3_status, rpm4_status) = rpm_reception::update_rpms(rpms, &mut rpm_fault, cfg.pole_count);
-                    *rpm_readings = rpm_reception::rpm_readings_from_bufs(&mut rpm_fault, cfg.motor_pole_count);
+                    let rpm_readings = rpm_reception::rpm_readings_from_bufs(&mut rpm_fault, cfg.motor_pole_count);
+
+                    state_volatile.motor_servo_state.update_rpm_readings(&rpm_readings);
+
 
                     // match rpm_readings.to_rpms() {
                     //     Ok(r) => {
@@ -1310,7 +1313,7 @@ mod app {
 
                     #[cfg(feature = "print-status")]
                     if i % PRINT_STATUS_RATIO == 0 {
-                        util::print_status(params, system_status, control_channel_data, state_volatile, autopilot_status, rpm_readings);
+                        util::print_status(params, system_status, control_channel_data, state_volatile, autopilot_status);
                     }
 
                     return; // todo TS
@@ -1338,7 +1341,7 @@ mod app {
 
                             state_volatile.motor_servo_state.set_cmds_from_rpms(
                                 &rpms_commanded,
-                                rpm_readings,
+                                // rpm_readings,
                                 pid_state,
                                 pid_coeffs,
                             );
@@ -1384,7 +1387,7 @@ mod app {
     // #[task(binds = OTG_FS,
     #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, current_params, control_channel_data,
-    link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer, rpm_readings],
+    link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer],
     local = [], priority = 1)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
@@ -1402,7 +1405,7 @@ mod app {
             cx.shared.system_status,
             cx.shared.motor_timer,
             cx.shared.servo_timer,
-            cx.shared.rpm_readings,
+            // cx.shared.rpm_readings,
         )
             .lock(
                 |usb_dev,
@@ -1415,7 +1418,8 @@ mod app {
                  system_status,
                  motor_timer,
                  servo_timer,
-                 rpm_readings| {
+                 // rpm_readings
+                | {
                     if !usb_dev.poll(&mut [usb_serial]) {
                         return;
                     }

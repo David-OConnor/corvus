@@ -97,6 +97,7 @@ pub enum RotationDir {
 pub struct MotorState {
     /// None indicates no reading.
     pub cmd: MotorCmd,
+    // todo: When do we set this??a
     pub rpm_reading: Option<f32>, // todo: This state is repatative with `rpm_readings`.
     // pub dir: RotationDir, // todo: Do we want this?
     /// Reversed is in relation to the 3-wire motor brushless wiring. This software setting
@@ -279,6 +280,15 @@ impl MotorServoState {
     //     fn get_front_left(&self) -> &mut MotorServoRole {
     //
     //     }
+
+    /// Update internal state of RPM readings.
+    pub fn update_rpm_readings(&mut self, readings: &RpmReadings) {
+        self.rotor_front_left.rpm = readings.front_left;
+        self.rotor_front_right.rpm = readings.front_right;
+        self.rotor_aft_left.rpm = readings.aft_left;
+        self.rotor_aft_right.rpm = readings.aft_right;
+
+    }
 
     /// Populate command state from rotor RPMs. This both marks the target RPM,
     /// and calculates an instantaneous power level to achieve it.
