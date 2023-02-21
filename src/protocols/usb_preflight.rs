@@ -118,10 +118,10 @@ pub enum MsgType {
     /// Arm all motors, for testing
     ArmMotors = 8,
     DisarmMotors = 9,
-    /// Start a specific motor
-    StartMotor = 10,
-    /// Stop a specific motor
-    StopMotor = 11,
+    /// Start all motors (Assuming appropriate arm and power settings are set)
+    StartMotors = 10,
+    /// Stop all motors.
+    StopMotors = 11,
     ReqWaypoints = 12,
     Updatewaypoints = 13,
     Waypoints = 14,
@@ -152,8 +152,8 @@ impl MsgType {
             Self::ReqLinkStats => 0,
             Self::ArmMotors => 0,
             Self::DisarmMotors => 0,
-            Self::StartMotor => 1,
-            Self::StopMotor => 1,
+            Self::StartMotors => 0,
+            Self::StopMotors => 0,
             Self::ReqWaypoints => 0,
             Self::Updatewaypoints => 10, // todo?
             Self::Waypoints => WAYPOINTS_SIZE,
@@ -401,6 +401,7 @@ pub fn handle_rx(
     servo_timer: &mut setup::ServoTimer,
     // rpm_status: &RpmReadings,
     motor_servo_state: &mut MotorServoState,
+    preflight_motors_running: &mut bool,
 ) {
     let rx_msg_type: MsgType = match rx_buf[0].try_into() {
         Ok(d) => d,
@@ -487,56 +488,60 @@ pub fn handle_rx(
             *arm_status = ArmStatus::Disarmed;
         }
         // todo: Message type for set arm to arm controls.
-        MsgType::StartMotor => {
-            cfg_if! {
-                if #[cfg(feature = "fixed-wing")]{
-                    dshot::set_power(0.05, 0., 0., 0., motor_timer);
-                } else {
-
-                    let motor = match rx_buf[1] {
-                        // todo: This more robust approach won't work.
-                        // RotorPosition::FrontLeft as u8 => RotorPosition::FrontLeft,
-                        // RotorPosition::FrontRight as u8 => RotorPosition::FrontRight,
-                        // RotorPosition::AftLeft as u8 => RotorPosition::AftLeft,
-                        // RotorPosition::AftRight as u8 => RotorPosition::AftRight,
-                        0 => Motor::M1,
-                        1 => Motor::M2,
-                        2 => Motor::M3,
-                        3 => Motor::M4,
-                        _ => panic!(),
-                    };
-
-                    // todo: Don't hard-code rotor power. Let it be user-selected.
-                    let power = 0.05;
-
-                    dshot::set_power_single(
-                        motor,
-                        power,
-                        motor_timer,
-                    );
-                }
-            }
+        MsgType::StartMotors => {
+            *preflight_motors_running = true;
+            println!("Preflight motors started");
+            // cfg_if! {
+            // if #[cfg(feature = "fixed-wing")]{
+            //     dshot::set_power(0.05, 0., 0., 0., motor_timer);
+            // } else {
+            //
+            //     let motor = match rx_buf[1] {
+            //         // todo: This more robust approach won't work.
+            //         // RotorPosition::FrontLeft as u8 => RotorPosition::FrontLeft,
+            //         // RotorPosition::FrontRight as u8 => RotorPosition::FrontRight,
+            //         // RotorPosition::AftLeft as u8 => RotorPosition::AftLeft,
+            //         // RotorPosition::AftRight as u8 => RotorPosition::AftRight,
+            //         0 => Motor::M1,
+            //         1 => Motor::M2,
+            //         2 => Motor::M3,
+            //         3 => Motor::M4,
+            //         _ => panic!(),
+            //     };
+            //
+            //     // todo: Don't hard-code rotor power. Let it be user-selected.
+            //     let power = 0.05;
+            //
+            //     dshot::set_power_single(
+            //         motor,
+            //         power,
+            //         motor_timer,
+            //     );
+            // }
+            // }
         }
-        MsgType::StopMotor => {
-            cfg_if! {
-                if #[cfg(feature = "fixed-wing")]{
-                    dshot::set_power(0., 0., 0., 0., motor_timer);
-                } else {
-                    let motor = match rx_buf[1] {
-                        0 => Motor::M1,
-                        1 => Motor::M2,
-                        2 => Motor::M3,
-                        3 => Motor::M4,
-                        _ => panic!(),
-                    };
-
-                    dshot::set_power_single(
-                        motor,
-                        0.,
-                        motor_timer,
-                    );
-                }
-            }
+        MsgType::StopMotors => {
+            *preflight_motors_running = false;
+            println!("Preflight motors stopped");
+            // cfg_if! {
+            //     if #[cfg(feature = "fixed-wing")]{
+            //         dshot::set_power(0., 0., 0., 0., motor_timer);
+            //     } else {
+            //         let motor = match rx_buf[1] {
+            //             0 => Motor::M1,
+            //             1 => Motor::M2,
+            //             2 => Motor::M3,
+            //             3 => Motor::M4,
+            //             _ => panic!(),
+            //         };
+            //
+            //         dshot::set_power_single(
+            //             motor,
+            //             0.,
+            //             motor_timer,
+            //         );
+            //     }
+            // }
         }
         MsgType::ReqWaypoints => {
             let payload: [u8; WAYPOINTS_SIZE] = waypoints_to_buf(waypoints);
@@ -608,13 +613,14 @@ pub fn handle_rx(
         }
         MsgType::ControlMapping => {}
         MsgType::SetMotorPowers => {
-            // todo: YOu need a safety rail on this.
             let power = MotorPower {
                 front_left: f32::from_be_bytes(rx_buf[0..4].try_into().unwrap()),
                 front_right: f32::from_be_bytes(rx_buf[4..8].try_into().unwrap()),
                 aft_left: f32::from_be_bytes(rx_buf[8..12].try_into().unwrap()),
                 aft_right: f32::from_be_bytes(rx_buf[12..16].try_into().unwrap()),
             };
+
+            println!("Preflight motor power FL: {}", power.front_left);
             motor_servo_state.set_cmds_from_power(&power);
         }
         MsgType::SetMotorRpms => {

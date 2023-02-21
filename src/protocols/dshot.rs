@@ -24,7 +24,7 @@ use stm32_hal2::{
     timer::{CountDir, OutputCompare, Polarity},
 };
 
-use crate::setup::MotorTimer;
+use crate::setup::{self, MotorTimer};
 
 // todo: Bidirectional: Set timers to active low, set GPIO idle to high, and perhaps set down counting
 // todo if required. Then figure out input capture, and fix in HAL.
@@ -33,8 +33,9 @@ use crate::setup::MotorTimer;
 // Article: https://brushlesswhoop.com/betaflight-rpm-filter/
 // todo: Basically, you set up a notch filter at rotor RPM. (I think; QC this)
 
-use crate::setup;
 use cfg_if::cfg_if;
+
+use defmt::println;
 
 // Enable bidirectional DSHOT, which returns RPM data
 pub const BIDIR_EN: bool = true;
@@ -408,7 +409,7 @@ pub fn receive_payload() {
         } else {
             exti.imr1.modify(|_, w| {
                 w.im6().set_bit();
-                // w.im4().set_bit();  // todo: Put back next revision.
+                w.im4().set_bit();
                 w.im0().set_bit();
                 w.im1().set_bit()
             });
@@ -475,7 +476,7 @@ pub fn set_to_output(timer: &mut MotorTimer) {
 
 /// This function, called in motor line EXTI ISRs, updates a motor's receive
 /// RPM buffer with the current count, from the RPM-receive timer.
-pub fn update_rec_buf(rpm_i: &AtomicUsize, payload_rec: &mut [u16]) {
+pub fn _update_rec_buf(rpm_i: &AtomicUsize, payload_rec: &mut [u16]) {
     let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
 
     let i = rpm_i.fetch_add(1, Ordering::Relaxed);
@@ -483,8 +484,8 @@ pub fn update_rec_buf(rpm_i: &AtomicUsize, payload_rec: &mut [u16]) {
     // This shouldn't come up, but this ensures it won't overflow if it does for whatever
     // reason.
     if i >= REC_BUF_LEN {
-        // todo  ?
-        // rpm_i.store(0, Ordering::Release);
+        println!("Error: RPM I overflow");
+        rpm_i.store(0, Ordering::Release);
     }
 
     unsafe {
@@ -502,6 +503,13 @@ pub fn update_rec_buf_1(rpm_i: &AtomicUsize) {
 
     let i = rpm_i.fetch_add(1, Ordering::Relaxed);
 
+    // This shouldn't come up, but this ensures it won't overflow if it does for whatever
+    // reason.
+    if i >= REC_BUF_LEN {
+        println!("Error: RPM I 1 overflow");
+        rpm_i.store(0, Ordering::Release);
+    }
+
     unsafe {
         // We know the first edge is low, then alternates low, high.
         PAYLOAD_REC_1[i] = count;
@@ -513,8 +521,12 @@ pub fn update_rec_buf_2(rpm_i: &AtomicUsize) {
 
     let i = rpm_i.fetch_add(1, Ordering::Relaxed);
 
+    if i >= REC_BUF_LEN {
+        println!("Error: RPM I 2 overflow");
+        rpm_i.store(0, Ordering::Release);
+    }
+
     unsafe {
-        // We know the first edge is low, then alternates low, high.
         PAYLOAD_REC_2[i] = count;
     }
 }
@@ -524,8 +536,12 @@ pub fn update_rec_buf_3(rpm_i: &AtomicUsize) {
 
     let i = rpm_i.fetch_add(1, Ordering::Relaxed);
 
+    if i >= REC_BUF_LEN {
+        println!("Error: RPM I 3 overflow");
+        rpm_i.store(0, Ordering::Release);
+    }
+
     unsafe {
-        // We know the first edge is low, then alternates low, high.
         PAYLOAD_REC_3[i] = count;
     }
 }
@@ -535,8 +551,12 @@ pub fn update_rec_buf_4(rpm_i: &AtomicUsize) {
 
     let i = rpm_i.fetch_add(1, Ordering::Relaxed);
 
+    if i >= REC_BUF_LEN {
+        println!("Error: RPM I 4 overflow");
+        rpm_i.store(0, Ordering::Release);
+    }
+
     unsafe {
-        // We know the first edge is low, then alternates low, high.
         PAYLOAD_REC_4[i] = count;
     }
 }

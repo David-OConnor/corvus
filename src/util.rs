@@ -192,7 +192,6 @@ pub fn print_status(
     state_volatile: &StateVolatile,
     autopilot_status: &AutopilotStatus,
     // rpm_readings: &RpmReadings,
-    motor_servo_state: &MotorServoState,
 ) {
     // todo: Flesh this out, and perhaps make it more like Preflight.
 
@@ -313,18 +312,24 @@ pub fn print_status(
     println!(
         "RPMs: FL {}, FR: {}, AL: {}, AR: {}\n",
         // rpms.front_left, rpms.front_right, rpms.aft_left, rpms.aft_right
-        rpm_readings.front_left,
-        rpm_readings.front_right,
-        rpm_readings.aft_left,
-        rpm_readings.aft_right
+        state_volatile
+            .motor_servo_state
+            .rotor_front_left
+            .rpm_reading,
+        state_volatile
+            .motor_servo_state
+            .rotor_front_right
+            .rpm_reading,
+        state_volatile.motor_servo_state.rotor_aft_left.rpm_reading,
+        state_volatile.motor_servo_state.rotor_aft_right.rpm_reading,
     );
 
     #[cfg(feature = "fixed-wing")]
     println!(
         "RPMs: Motor 1: {}, Motor 2: {}\n",
         // rpms.front_left, rpms.front_right, rpms.aft_left, rpms.aft_right
-        rpm_readings.thrust1,
-        rpm_readings.thrust2.unwrap_or(0.),
+        state_volatile.motor_servo_state.motor_thrust1.rpm_reading,
+        state_volatile.motor_servo_state.motor_thrust2.rpm_reading,
     );
 
     println!("Alt MSL: {}", params.baro_alt_msl);

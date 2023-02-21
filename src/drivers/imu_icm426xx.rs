@@ -139,10 +139,7 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
     // todo the SPI bus will still not fail if the IMU isn't present. HAL error?
     // todo: Better sanity check than WHOAMI.
 
-    println!("Pre IMU setup");
     let device_id = read_one(Reg::WhoAmI, spi, cs)?;
-
-    println!("IMU id: {}", device_id);
 
     if device_id != DEVICE_ID {
         return Err(ImuError::NotConnected);

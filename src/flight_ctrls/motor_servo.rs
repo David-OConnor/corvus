@@ -174,15 +174,16 @@ impl MotorServoRole {
 }
 
 /// Corresponds to pin number. Used to map functions (Such as thrust motor, front-left rotor etc)
-/// to hardware pins.
+/// to hardware pins. The u8 repr is for Preflight.
 #[derive(Clone, Copy)]
+#[repr(u8)]
 pub enum MotorServoHardware {
-    Pin1,
-    Pin2,
-    Pin3,
-    Pin4,
-    Pin5,
-    Pin6,
+    Pin1 = 1,
+    Pin2 = 2,
+    Pin3 = 3,
+    Pin4 = 4,
+    Pin5 = 5,
+    Pin6 = 6,
 }
 
 /// Describes the function of all motors and servos.  Is based on the pin connections. Each pin
@@ -283,26 +284,26 @@ impl MotorServoState {
 
     /// Update internal state of RPM readings.
     pub fn update_rpm_readings(&mut self, readings: &RpmReadings) {
-        self.rotor_front_left.rpm = readings.front_left;
-        self.rotor_front_right.rpm = readings.front_right;
-        self.rotor_aft_left.rpm = readings.aft_left;
-        self.rotor_aft_right.rpm = readings.aft_right;
-
+        self.rotor_front_left.rpm_reading = readings.front_left;
+        self.rotor_front_right.rpm_reading = readings.front_right;
+        self.rotor_aft_left.rpm_reading = readings.aft_left;
+        self.rotor_aft_right.rpm_reading = readings.aft_right;
     }
 
     /// Populate command state from rotor RPMs. This both marks the target RPM,
     /// and calculates an instantaneous power level to achieve it.
+    ///
+    /// Note that RPMs must already be updated in this instance.
     #[cfg(feature = "quad")]
     pub fn set_cmds_from_rpms(
         &mut self,
         rpms_commanded: &MotorRpm,
-        rpm_readings: &RpmReadings,
         pid_group: &pid::MotorPidGroup,
         pid_coeffs: &pid::MotorCoeffs,
     ) {
         // todo: DRY
         // Calculate target RPMS, using our PID logic.
-        let p_front_left = match rpm_readings.front_left {
+        let p_front_left = match self.rotor_front_left.rpm_reading {
             Some(reading) => {
                 pid::run(
                     rpms_commanded.front_left,
@@ -320,7 +321,7 @@ impl MotorServoState {
             None => 0.,
         };
 
-        let p_front_right = match rpm_readings.front_right {
+        let p_front_right = match self.rotor_front_right.rpm_reading {
             Some(reading) => {
                 pid::run(
                     rpms_commanded.front_right,
@@ -338,7 +339,7 @@ impl MotorServoState {
             None => 0.,
         };
 
-        let p_aft_left = match rpm_readings.aft_left {
+        let p_aft_left = match self.rotor_aft_left.rpm_reading {
             Some(reading) => {
                 pid::run(
                     rpms_commanded.aft_left,
@@ -356,7 +357,7 @@ impl MotorServoState {
             None => 0.,
         };
 
-        let p_aft_right = match rpm_readings.aft_right {
+        let p_aft_right = match self.rotor_aft_right.rpm_reading {
             Some(reading) => {
                 pid::run(
                     rpms_commanded.aft_right,

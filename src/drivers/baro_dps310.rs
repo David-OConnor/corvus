@@ -100,6 +100,7 @@ fn fix_int_sign(val: &mut i32, num_bits: u8) {
 fn read_one(reg: Reg, i2c: &mut I2cBaro) -> Result<u8, BaroNotConnectedError> {
     let mut buf = [0];
     i2c.write_read(ADDR, &[reg as u8], &mut buf)?;
+    // println!("Baro Buf: {:?}", buf);
     Ok(buf[0])
 }
 
@@ -123,6 +124,7 @@ impl HardwareCoeffCal {
         // Read each register value.
 
         let mut buf = [0; 18];
+
         i2c.write_read(ADDR, &[Reg::c0 as u8], &mut buf)?;
 
         let [c0_, c0_c1, c1_, c00_a, c00_b, c00_c10, c10_a, c10_b, c01_a, c01_b, c11_a, c11_b, c20_a, c20_b, c21_a, c21_b, c30_a, c30_b] =
@@ -141,7 +143,7 @@ impl HardwareCoeffCal {
 
         // c0 and c1 are 12 bits. c00 and c10 are 20 bits. The rest are 16.
         // All are 2's complement.
-        println!("C0:{} C1:{}", c0, c1);
+        // println!("C0:{} C1:{}", c0, c1);
         fix_int_sign(&mut c0, 12);
         fix_int_sign(&mut c1, 12);
         // if c0 > ((1<<11)-1) {
@@ -150,7 +152,7 @@ impl HardwareCoeffCal {
         // if c1 > ((1<<11)-1) {
         //     c1 -= (1<<12); // todo TS
         // }
-        println!("fixedC0:{} fixedC1:{}\n", c0, c1);
+        // println!("fixedC0:{} fixedC1:{}\n", c0, c1);
 
         fix_int_sign(&mut c00, 20);
         fix_int_sign(&mut c10, 20);
@@ -191,9 +193,12 @@ impl Altimeter {
     /// Configure settings, including pressure mreasurement rate, and return an instance.
     /// And load calibration data.
     pub fn new(i2c: &mut I2cBaro) -> Result<Self, BaroNotConnectedError> {
+        // println!("Pre baro first write");
+
         if read_one(Reg::ProductId, i2c)? != PRODUCT_ID {
             return Err(BaroNotConnectedError {});
         }
+        // println!("Post bar first write");
 
         // Set 64x oversampling, and 32 measurements per second, for both temp and pres.
         i2c.write(ADDR, &[Reg::PrsCfg as u8, 0b0101_0110])?;

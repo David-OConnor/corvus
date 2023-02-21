@@ -225,4 +225,6 @@ pub struct StateVolatile {
     /// Holds all motor and servo mappings and state.
     /// todo: Mappings are more of a User Cfg functionality
     pub motor_servo_state: MotorServoState,
+    /// Use this, in combination with arm status, and `MotorServoState`.
+    pub preflight_motors_running: bool,
 }

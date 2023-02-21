@@ -174,7 +174,6 @@ pub fn init_sensors(
     //         return result;
     //     }
     // }
-
     let mut altimeter = match baro::Altimeter::new(i2c2) {
         Ok(mut alt) => {
             system_status.baro = SensorStatus::Pass;
@@ -250,7 +249,7 @@ pub fn setup_pins() {
             let alt_servos = 3; // TIM8 (Avail on all channels)
 
             // todo: Let us customize; set motor2 as `alt_servos` if equipped with a rudder etc.
-            let mut motor2 = Pin::new(Port::C, 7, PinMode::Alt(alt_motors)); // Ch
+            let mut motor2 = Pin::new(Port::C, 7, PinMode::Alt(alt_motors)); // Ch2
             let mut motor3 = Pin::new(Port::C, 8, PinMode::Alt(alt_servos)); // Ch3
             let mut motor4 = Pin::new(Port::C, 9, PinMode::Alt(alt_servos)); // Ch4
         } else {
@@ -267,10 +266,8 @@ pub fn setup_pins() {
     // interrupt. This performs some extra setup, then lets us enable and disable the interrupt
     // by masking and unmasking using imr1.
 
-    // todo: Thinking through the flow re sharing an EXTI line on G4 between
-
     motor1.enable_interrupt(Edge::Either);
-    // motor2.enable_interrupt(Edge::Either); // todo: Put back next revision.
+    // motor2.enable_interrupt(Edge::Either); // todo: Put back.
     motor3.enable_interrupt(Edge::Either);
     motor4.enable_interrupt(Edge::Either);
 
@@ -286,7 +283,7 @@ pub fn setup_pins() {
         } else {
             exti.imr1.modify(|_, w| {
                 w.im6().clear_bit();
-                // w.im2().clear_bit(); // todo: Next version
+                w.im4().clear_bit();
                 w.im0().clear_bit();
                 w.im1().clear_bit()
             });
@@ -334,11 +331,6 @@ pub fn setup_pins() {
             let mut miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
             let mut mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
 
-            // todo: Temp config to check radio status
-            // let mut _sck3 = Pin::new(Port::B, 3, PinMode::Alt(6));
-            // let mut _miso3 = Pin::new(Port::B, 4, PinMode::Alt(6));
-            // let mut _mosi3 = Pin::new(Port::B, 5, PinMode::Alt(6));
-
             sck2.output_speed(spi_gpiospeed);
             miso2.output_speed(spi_gpiospeed);
             mosi2.output_speed(spi_gpiospeed);
@@ -375,19 +367,16 @@ pub fn setup_pins() {
     #[cfg(feature = "h7")]
     let mut imu_exti_pin = Pin::new(Port::B, 12, PinMode::Input);
     #[cfg(feature = "g4")]
-    let mut imu_exti_pin = Pin::new(Port::C, 4, PinMode::Input);
-    // let mut imu_exti_pin = Pin::new(Port::C, 13, PinMode::Input); // todo: Next version.
+    let mut imu_exti_pin = Pin::new(Port::C, 13, PinMode::Input);
 
     imu_exti_pin.output_type(OutputType::OpenDrain);
     imu_exti_pin.pull(Pull::Up);
 
     let imu_exti_edge = Edge::Falling;
-
-    // todo: Will this still work? Does a given port need control of the exti line, eg
-    // todo from the SYSCFG setup?
     imu_exti_pin.enable_interrupt(imu_exti_edge);
 
     let i2c_alt = PinMode::Alt(4);
+
     cfg_if! {
         if #[cfg(feature = "h7")] {
             // I2C1 for external sensors, via pads
@@ -406,9 +395,8 @@ pub fn setup_pins() {
         }
     }
 
-    // todo temp on this G4 test!!
-    // scl2.pull(Pull::Up);
-    // sda2.pull(Pull::Up);
+    scl2.pull(Pull::Up);
+    sda2.pull(Pull::Up);
 
     // Note that we use hardware pullups, so don't enable the firmware pullups.
     sda1.output_type(OutputType::OpenDrain);
@@ -442,11 +430,10 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     #[cfg(feature = "g4")]
     dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, DmaInput::Adc2);
 
-    dma::mux(OSD_DMA_PERIPH, OSD_CH, DmaInput::Usart2Tx);
+    dma::mux(OSD_DMA_PERIPH, OSD_CH, DmaInput::Uart4Tx);
 
     dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c2Tx);
-    // dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c1Tx); // todo temp i2c1.
-    dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c1Rx);
+    dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c2Rx);
 
     // todo: Put back!
     // dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_TX_CH, DmaInput::I2c1Tx);
@@ -578,7 +565,7 @@ pub fn setup_busses(
 
     cs_flash.set_high();
 
-    // We use UART2 for the OSD, for DJI, via the MSP protocol.
+    // We use UART4 for the OSD, for DJI, via the MSP protocol.
     // todo: QC baud.
     #[cfg(feature = "h7")]
     let uart_osd = Usart::new(
@@ -619,7 +606,6 @@ pub fn setup_busses(
     // usart_ker_ck_pres/8.
 
     // todo TS
-    // let uart_elrs = Usart::new(uart_elrs_pac, crsf::BAUD, Default::default(), clock_cfg);
     let mut uart_crsf = Usart::new(
         uart_crsf_pac,
         crsf::BAUD,

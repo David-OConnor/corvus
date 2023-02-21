@@ -805,14 +805,13 @@ mod app {
 
     /// Runs when new IMU data is ready. Trigger a DMA read.
     /// High priority since it's important, and quick-to-execute
-    #[task(binds = EXTI4,
-    // #[task(binds = EXTI15_10,
+    #[task(binds = EXTI15_10,
     shared = [spi1], local = [], priority = 7)]
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
         #[cfg(feature = "h7")]
         gpio::clear_exti_interrupt(12); // PB12
         #[cfg(feature = "g4")]
-        gpio::clear_exti_interrupt(4); // todo: Line 13 next revision.
+        gpio::clear_exti_interrupt(13); // PC13
 
         cx.shared.spi1.lock(|spi| {
             imu_shared::read_imu(imu::READINGS_START_ADDR, spi, setup::IMU_DMA_PERIPH);
@@ -830,7 +829,7 @@ mod app {
     #[task(binds = DMA1_CH2,
     shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timer, servo_timer, state_volatile, system_statu],
+    motor_timer, servo_timer, state_volatile, system_status],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, measurement_timer], priority = 3)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
@@ -919,25 +918,42 @@ mod app {
 
                     state_volatile.motor_servo_state.update_rpm_readings(&rpm_readings);
 
+                    system_status.esc_rpm = SensorStatus::Pass;
 
-                    // match rpm_readings.to_rpms() {
-                    //     Ok(r) => {
-                    //         *rpms = r;
-                    //     }
-                    //     // todo: Now what?
-                    //     Err(_e) => {
-                    //     }
-                    // }
+                    // We currently set RPM readings status to fail if any rotor (or motor 1 for fixed-wing)
+                    // RPM is unavailable.
+                    #[cfg(feature = "quad")]
+                    {
+                        if rpm_readings.front_left.is_none() | rpm_readings.front_right.is_none() ||
+                            rpm_readings.aft_left.is_none() || rpm_readings.aft_right.is_none() {
+                            system_status.esc_rpm = SensorStatus::NotConnected;
+                        }
+                    }
 
-                    // });
+                    #[cfg(feature = "fixed-wing")]
+                    {
+                        if rpm_readings.motor_thrust1.is_none() { // todo: Motor 2?
+                            system_status.esc_rpm = SensorStatus::NotConnected;
+                        }
+                    }
+
                     if rpm_fault {
                         system_status::RPM_FAULT.store(true, Ordering::Release);
                     }
 
-                    // todo: Sotr out rpms vs rpm status!!
+                    if let OperationMode::Preflight = state_volatile.op_mode {
+                        // todo: Figure out where this preflight motor-spin up code should be in this ISR.
+                        // todo: Here should be fine, but maybe somewhere else is better.
+                        if state_volatile.preflight_motors_running {
+                            // todo: Use actual arm status!!
+                            // println!("Motor pow fl: {:?}", state_volatile.motor_servo_state.rotor_front_left.cmd.power());
+                            state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
+                        } else {
+                            dshot::stop_all(motor_timer);
+                        }
+                    }
 
                     // todo: Temp debug code.
-
                     match control_channel_data {
                         Some(ch_data) => {
                             #[cfg(feature = "quad")]
@@ -969,7 +985,6 @@ mod app {
 
                                     state_volatile.motor_servo_state.set_cmds_from_rpms(
                                         &rpms_commanded,
-                                        rpm_readings,
                                         pid_state,
                                         pid_coeffs,
                                     );
@@ -1013,17 +1028,18 @@ mod app {
                                         }
                                     );
 
-                                    state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
+                                    // state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
                                 }
-                                if i % 8000 == 0 {
-                                    println!("Rpms- FL: {:?} FR: {}, AL: {}, AR: {}", rpm_readings.front_left, rpm_readings.front_right,
-                                             rpm_readings.aft_left, rpm_readings.aft_right);
-                                }
+                                // if i % 8000 == 0 {
+                                //     println!("Rpms- FL: {:?} FR: {}, AL: {}, AR: {}", rpm_readings.front_left, rpm_readings.front_right,
+                                //              rpm_readings.aft_left, rpm_readings.aft_right);
+                                // }
                             }
                             // todo testing
                             // dshot::stop_all(motor_timer);
                         }
-                    };
+                    }
+                    // todo end temp motor debug code.
 
                     // todo: Impl once you've sorted out your control logic.
                     // todo: Delegate this to another module, eg `attitude_ctrls`.
@@ -1313,7 +1329,13 @@ mod app {
 
                     #[cfg(feature = "print-status")]
                     if i % PRINT_STATUS_RATIO == 0 {
-                        util::print_status(params, system_status, control_channel_data, state_volatile, autopilot_status);
+                        util::print_status(
+                            params,
+                            system_status,
+                            control_channel_data,
+                            state_volatile,
+                            autopilot_status
+                        );
                     }
 
                     return; // todo TS
@@ -1341,7 +1363,6 @@ mod app {
 
                             state_volatile.motor_servo_state.set_cmds_from_rpms(
                                 &rpms_commanded,
-                                // rpm_readings,
                                 pid_state,
                                 pid_coeffs,
                             );
@@ -1448,6 +1469,7 @@ mod app {
                                 motor_timer,
                                 servo_timer,
                                 &mut state_volatile.motor_servo_state,
+                                &mut state_volatile.preflight_motors_running,
                             );
                         }
                         Err(_) => {
@@ -1541,24 +1563,21 @@ mod app {
         }
     }
 
-    // todo: Can we feature-gate the rpm_read_m3[4] ISRs for G4 only?
-    // todo: Probably not with RTIC, but they shouldn't fire on H7, so
-    // todo: not required.
+    #[task(binds = EXTI4, priority = 10)]
+    /// Similar to `rpm_read_m1`, but for M2, on G4 only.
+    fn rpm_read_m2(_cx: rpm_read_m2::Context) {
+        gpio::clear_exti_interrupt(4);
+        // println!("2"); // todo: This is on rapid fire. Why?
 
-    // todo: Use this once you have the new (6-layer) revision.
-    // #[task(binds = EXTI4, priority = 10)]
-    // /// Similar to `rpm_read_m1`, but for M2, on G4 only.
-    // fn rpm_read_m2(_cx: rpm_read_m4::Context) {
-    //     gpio::clear_exti_interrupt(4);
-    //
-    //     // dshot::update_rec_buf(&dshot::M2_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_2 });
-    //     dshot::update_rec_buf_2(&dshot::M2_RPM_I);
-    // }
+        // dshot::update_rec_buf(&dshot::M2_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_2 });
+        dshot::update_rec_buf_2(&dshot::M2_RPM_I);
+    }
 
     #[task(binds = EXTI0, priority = 10)]
     /// Similar to `rpm_read_m1`, but for M3, on G4 only.
     fn rpm_read_m3(_cx: rpm_read_m3::Context) {
         gpio::clear_exti_interrupt(0);
+
         // dshot::update_rec_buf(&dshot::M3_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_3 });
         dshot::update_rec_buf_3(&dshot::M3_RPM_I);
     }
