@@ -33,14 +33,24 @@ cfg_if! {
 // by common hobby servos. They adjust duty cycle, which sets servo position.
 // Calculations, assuming frequency of 500Hz; 500Hz = 2ms.
 // ARR indicates
-const ARR_MIN: u32 = ARR_SERVOS / 2;
-const ARR_MID: u32 = ARR_SERVOS * 3 / 4;
-// Don't us full ARR: there needs to be some signal low time between pulses.
-const ARR_MAX: u32 = ARR_SERVOS - 100;
 
-const ARR_MIN_F32: f32 = ARR_MIN as f32;
+// Time, in seconds for pulses to indicate min and max deflection.
+// 1.5 is mid-deflection, 2.0 is absolute max, and 1.0 is absolute min.
+// These absolute values may exceed control surface limits.]
+const PULSE_TIME_MIN: f32 = 1.3;
+const PULSE_TIME_MAX: f32 = 1.7;
+
+// todo: QC this.
+const ARR_MIN_F32: f32 = (ARR_SERVOS as f32 / 2.) * (PULSE_TIME_MIN / 1.0);
 const ARR_MID_F32: f32 = ARR_MID as f32;
-const ARR_MAX_F32: f32 = ARR_MAX as f32;
+const ARR_MAX_F32: f32 = ARR_SERVOS as f32 * (PULSE_TIME_MAX / 2.0);
+
+const ARR_MIN: u32 = ARR_MIN_F32 as u32;
+const ARR_MID: u32 = ARR_MID_F32 as u32;
+// Don't us full ARR: there needs to be some signal low time between pulses.
+const ARR_MAX: u32 = ARR_MAX_F32 as u32;
+
+
 
 /// Equivalent of `Motor` for quadcopters.
 #[derive(Clone, Copy)]

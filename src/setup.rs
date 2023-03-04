@@ -14,7 +14,7 @@ use stm32_hal2::{
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, SPI2, USART2},
+    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, SPI2, USART2, USART3},
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{OutputCompare, TimChannel, Timer, TimerInterrupt},
     usart::{OverSampling, Usart, UsartConfig},
@@ -107,11 +107,15 @@ cfg_if! {
         pub type UartCrsf = Usart<pac::UART7>;
         pub type UartOsd = Usart<pac::USART2>;
     } else {
-        type UartCrsfRegs = pac::USART2;
+        // todo: USART2 is not working for some reason, at least for CRSF.
+        // todo: Do more testing.
+        // type UartCrsfRegs = pac::USART2;
+        type UartCrsfRegs = pac::USART3;
         type UartOsdRegs = pac::UART4;
         pub type SpiPacFlash = pac::SPI2;
         pub type SpiFlash = Spi2<SpiPacFlash>;
-        pub type UartCrsf = Usart<pac::USART2>;
+        pub type UartCrsf = Usart<pac::USART3>;
+        // pub type UartCrsf = Usart<pac::USART2>;
         pub type UartOsd = Usart4<pac::UART4>;
     }
 }
@@ -344,8 +348,15 @@ pub fn setup_pins() {
             let mut uart_crsf_rx = Pin::new(Port::B, 3, PinMode::Alt(11));
         } else {
             // We use UART 2 for ELRS on G4.
-            let _uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
-            let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
+            // todo: Setting to input to TS ELRS MCU flashing
+            let _uart_crsf_tx2 = Pin::new(Port::B, 3, PinMode::Input);
+            let mut uart_crsf_rx2 = Pin::new(Port::B, 4, PinMode::Input);
+            // let _uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
+            // let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
+
+            // Usart 3 TS
+            let _uart_crsf_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
+            let mut uart_crsf_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
         }
     }
 
@@ -418,7 +429,8 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     #[cfg(feature = "h7")]
     let crsf_dma_ch = DmaInput::Uart7Rx;
     #[cfg(feature = "g4")]
-    let crsf_dma_ch = DmaInput::Usart2Rx;
+    // let crsf_dma_ch = DmaInput::Usart2Rx;
+    let crsf_dma_ch = DmaInput::Usart3Rx;
 
     dma::mux(CRSF_DMA_PERIPH, CRSF_RX_CH, crsf_dma_ch);
 
@@ -527,7 +539,8 @@ pub fn setup_busses(
     // may have fewer line-interference issues)
     let i2c_external_sensors_cfg = I2cConfig {
         // Lower speeds may work better on external runs, hence not 400khz here.
-        speed: I2cSpeed::Standard100K,
+        speed: I2cSpeed::Standard100K, // todo T!
+        // speed: I2cSpeed::Fast400K,
         ..Default::default()
     };
 
@@ -605,7 +618,6 @@ pub fn setup_busses(
     // When oversampling by 8, the baud rate ranges from usart_ker_ck_pres/65535 and
     // usart_ker_ck_pres/8.
 
-    // todo TS
     let mut uart_crsf = Usart::new(
         uart_crsf_pac,
         crsf::BAUD,

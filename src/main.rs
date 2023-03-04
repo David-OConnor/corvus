@@ -111,11 +111,10 @@ cfg_if! {
             qspi::{Qspi},
         };
         // This USART alias is made pub here, so we don't repeat this line in other modules.
-        pub use stm32_hal2::pac::{UART7, ADC1 as ADC};
+        pub use stm32_hal2::pac::{ADC1 as ADC};
     } else if #[cfg(feature = "g4")] {
         use stm32_hal2::{
             usb::{self, UsbBus, UsbBusType},
-            pac::SPI3,
         };
 
         pub use stm32_hal2::pac::{UART4, ADC2 as ADC};
@@ -371,7 +370,7 @@ mod app {
                 let uart_crsf_pac = dp.UART7;
                 let uart_osd_pac = dp.USART2;
             } else {
-                let uart_crsf_pac = dp.USART2;
+                let uart_crsf_pac = dp.USART3;
                 let uart_osd_pac = dp.UART4;
             }
         }
@@ -967,76 +966,45 @@ mod app {
                                 // todo: Temp mapping of throttle settings to RPM
                                 let target_rpm = util::map_linear(p, (0., 1.), (300., 6_000.));
 
+                                let target_rpm = 2_000.;
+
                                 let rpms_commanded = MotorRpm {
                                     front_left: target_rpm,
                                     aft_left: target_rpm,
                                     front_right: target_rpm,
                                     aft_right: target_rpm,
                                 };
-                                //
+
                                 // if i % 8000 == 0 {
                                 //     println!("Rpms- FL: {:?} FR: {}, AL: {}, AR: {}", rpm_readings.front_left, rpm_readings.front_right,
                                 //              rpm_readings.aft_left, rpm_readings.aft_right);
+
+                                    // println!("Ctrl data");
                                 // }
 
+
+
                                 #[cfg(feature = "quad")]
-                                if state_volatile.arm_status == ArmStatus::Armed {
-                                    // dshot::set_power(p, p, p, p, motor_timer);
+                                {
+                                    if ch_data.arm_status == ArmStatus::Armed {
+                                        // dshot::set_power(p, p, p, p, motor_timer);
 
-                                    state_volatile.motor_servo_state.set_cmds_from_rpms(
-                                        &rpms_commanded,
-                                        pid_state,
-                                        pid_coeffs,
-                                    );
+                                        state_volatile.motor_servo_state.set_cmds_from_rpms(
+                                            &rpms_commanded,
+                                            pid_state,
+                                            pid_coeffs,
+                                        );
 
-                                    state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
-                                } else {
-                                    dshot::stop_all(motor_timer);
+                                        // state_volatile.motor_servo_state.send_to_rotors(state_volatile.arm_status, motor_timer);
+                                        state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
+                                    } else {
+                                        dshot::stop_all(motor_timer);
+                                    }
                                 }
                             }
                         }
                         None => {
-
-                            #[cfg(feature = "quad")]
-                            {
-                                // todo testing
-                                if i < 25_000 {
-                                    dshot::stop_all(motor_timer);
-                                } else {
-                                    let target_rpm = 800.;
-
-                                    let rpms_commanded = MotorRpm {
-                                        front_left: target_rpm,
-                                        aft_left: target_rpm,
-                                        front_right: target_rpm,
-                                        aft_right: target_rpm,
-                                    };
-
-                                    // state_volatile.motor_servo_state.set_cmds_from_rpms(
-                                    //     &rpms_commanded,
-                                    //     rpm_readings,
-                                    //     pid_state,
-                                    //     pid_coeffs,
-                                    // );
-
-                                    state_volatile.motor_servo_state.set_cmds_from_power(
-                                        &MotorPower {
-                                            front_left: 0.025,
-                                            front_right: 0.025,
-                                            aft_left: 0.025,
-                                            aft_right: 0.025,
-                                        }
-                                    );
-
-                                    // state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
-                                }
-                                // if i % 8000 == 0 {
-                                //     println!("Rpms- FL: {:?} FR: {}, AL: {}, AR: {}", rpm_readings.front_left, rpm_readings.front_right,
-                                //              rpm_readings.aft_left, rpm_readings.aft_right);
-                                // }
-                            }
-                            // todo testing
-                            // dshot::stop_all(motor_timer);
+                            dshot::stop_all(motor_timer);
                         }
                     }
                     // todo end temp motor debug code.
@@ -1656,8 +1624,8 @@ mod app {
 
     // todo: Evaluate priority.
     // #[task(binds = UART7,
-    #[task(binds = USART2,
-    shared = [control_channel_data, link_stats, rf_limiter_timer,
+    #[task(binds = USART3,
+    shared = [control_channel_data, link_stats, rf_limiter_timer, system_status,
     lost_link_timer], local = [uart_crsf], priority = 4)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
     /// and message ends. For message starts, it begins a DMA transfer. For message ends, it
@@ -1671,7 +1639,7 @@ mod app {
     fn crsf_isr(mut cx: crsf_isr::Context) {
         let uart = &mut cx.local.uart_crsf; // Code shortener
 
-        println!("CRSF");
+        // println!("CRSF");
 
         let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
         let mut rx_fault = false;
@@ -1682,6 +1650,10 @@ mod app {
         // todo: Store link stats and control channel data in an intermediate variable.
         // todo: Don't lock it. At least, you don't want any delay when starting the read,
         // todo although a delay on finishing the read is fine.
+
+        // Stop the DMA read, since it will likely not have filled the buffer, due
+        // to the variable message sizes.
+        dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
 
         // todo: Attempting a software flag vice using interrupt flags, to TS CRSF
         // todo anomolies.
@@ -1705,9 +1677,6 @@ mod app {
             //     limiter_timer.enable();
             // }
 
-            // todo?
-            // dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
-
             unsafe {
                 uart.read_dma(
                     &mut crsf::RX_BUFFER,
@@ -1724,9 +1693,7 @@ mod app {
             crsf::TRANSFER_IN_PROG.store(false, Ordering::Relaxed);
             // Line is idle.
 
-            // Stop the DMA read, since it will likely not have filled the buffer, due
-            // to the variable message sizes.
-            dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
+            // dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
 
             // A `None` value here re-enables the interrupt without changing the char to match.
             uart.enable_interrupt(UsartInterrupt::CharDetect(None));
@@ -1806,6 +1773,10 @@ mod app {
                 {
                     println!("Link re-acquired");
                     // todo: Execute re-acq procedure
+
+                    cx.shared.system_status.lock(|system_status| {
+                        system_status.rf_control_link = SensorStatus::Pass;
+                    });
                 }
             }
         });

@@ -81,9 +81,9 @@ pub enum Reg {
 // oversampling rate.
 const K_P: f32 = 1_040_384.; // 64x oversample
 const K_T: f32 = 1_040_384.; // 64x oversample
-                             // const SCALE_FACTOR: i32 = 2_088_960; // 128x oversample
-                             // todo: 128 times for even more precision?
-                             // todo: Result shift (bit 2 and 3 address 0x09, for use with this setting)
+// const SCALE_FACTOR: i32 = 2_088_960; // 128x oversample
+// todo: 128 times for even more precision?
+// todo: Result shift (bit 2 and 3 address 0x09, for use with this setting)
 
 /// Fix the sign on signed 24 bit integers, represented as `i32`. (Here, we use this for pressure
 /// and temp readings)
@@ -189,16 +189,15 @@ pub struct Altimeter {
     hardware_coeff_cal: HardwareCoeffCal,
 }
 
+use cortex_m::delay::Delay;
+
 impl Altimeter {
     /// Configure settings, including pressure mreasurement rate, and return an instance.
     /// And load calibration data.
     pub fn new(i2c: &mut I2cBaro) -> Result<Self, BaroNotConnectedError> {
-        // println!("Pre baro first write");
-
         if read_one(Reg::ProductId, i2c)? != PRODUCT_ID {
             return Err(BaroNotConnectedError {});
         }
-        // println!("Post bar first write");
 
         // Set 64x oversampling, and 32 measurements per second, for both temp and pres.
         i2c.write(ADDR, &[Reg::PrsCfg as u8, 0b0101_0110])?;
@@ -214,6 +213,8 @@ impl Altimeter {
         // Load calibration data, factory-coded.
         // Wait until the coefficients are ready to read. Also, wait until readings are ready
         // here as well prior to our base point initialization.
+        // Datasheet: It takes a max of 40ms for coefficients to be ready. From a fortuitious bug in
+        // Betaflight, we verify 20ms isn't long enough.
         loop {
             if (read_one(Reg::MeasCfg, i2c)? & 0b1100_0000) == 0b1100_0000 {
                 break;

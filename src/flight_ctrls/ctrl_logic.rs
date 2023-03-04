@@ -316,6 +316,9 @@ impl AccelMaps {
         // todo: Sanity-check and reject as-requird, relying on other points you've logged recently.
         let i = SAMPLE_PT_I.fetch_add(1, Ordering::Relaxed);
 
+        // todo: This needs work! Likely scenario si many points near identitcal are logged in a row,
+        // todo and the square and linear terms become bogus!
+
         if i >= NUM_SAMPLE_PTS - 1 {
             // Loop the atomic index back to the first position. (The retrieved value, `i` is still
             // OK without modification)

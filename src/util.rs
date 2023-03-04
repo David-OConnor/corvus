@@ -15,7 +15,7 @@ use crate::{
     safety::ArmStatus,
     sensors_shared::BattCellCount,
     state::StateVolatile,
-    system_status::{self, SystemStatus},
+    system_status::{self, SystemStatus, SensorStatus},
 };
 
 use num_traits::float::FloatCore;
@@ -184,6 +184,9 @@ pub fn batt_left_from_v(v: f32, cell_count: BattCellCount) -> f32 {
     port_through * (BATT_LUT[i + 1].1 - BATT_LUT[i].1) + BATT_LUT[i].1
 }
 
+// todo t
+use stm32_hal2::pac;
+
 /// Print systems status to the console. Alternative to the `Preflight` PC program.
 pub fn print_status(
     params: &Params,
@@ -307,6 +310,12 @@ pub fn print_status(
             euler.pitch, euler.roll, euler.yaw
         );
     }
+
+    let mut uart_regs = unsafe { &(*pac::USART2::ptr())};
+
+    println!("USart en: {}", uart_regs.cr1.read().ue().bit_is_set());
+    println!("USart SR: {:b}", uart_regs.isr.read().bits());
+
 
     #[cfg(feature = "quad")]
     println!(

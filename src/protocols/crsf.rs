@@ -452,9 +452,7 @@ impl Packet {
 /// Handle an incomming packet. Triggered whenever the line goes idle.
 pub fn handle_packet(
     uart: &mut setup::UartCrsf,
-    // dma: &mut Dma<DMA1>,
     rx_chan: DmaChannel,
-    // tx_chan: DmaChannel,
     rx_fault: &mut bool,
 ) -> Option<PacketData> {
     // Sometimes the buff starts at index 1; not sure why. Identify and compensate.

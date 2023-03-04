@@ -14,6 +14,9 @@ use crate::{imu_shared::_ImuReadingsRaw, setup::SpiImu};
 
 const DEVICE_ID: u8 = 0x47;
 
+// todo: Check this out:
+// https://github.com/betaflight/betaflight/pull/12444/files
+
 #[derive(Clone, Copy)]
 pub enum ImuError {
     NotConnected,
@@ -27,10 +30,12 @@ impl From<spi::SpiError> for ImuError {
 }
 
 /// See Datasheet, Section 13.1 (Note: This doesn't include all regs)
+/// Note that registers are divided into banks.
 #[allow(dead_code)]
 #[derive(Clone, Copy)]
 #[repr(u8)]
-pub enum Reg {
+pub enum RegBank0 {
+    // Bank 0
     DeviceConfig = 0x11,
     DriveConfig = 0x13,
     IntConfig = 0x14,
@@ -70,16 +75,53 @@ pub enum Reg {
 
     SelfTestConfig = 0x70,
     WhoAmI = 0x75,
+    BankSel = 0x76,
+}
 
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+#[repr(u8)]
+pub enum RegBank1 {
+    GyroConfigStatic3 = 0x0c,
+    GyroConfigStatic4 = 0x0d,
+    GyroConfigStatic5 = 0x0e,
     IntfConfig4 = 0x7a,
     IntfConfig5 = 0x7b,
     IntfConfig6 = 0x7c,
 }
 
+/// See Datasheet, Section 13.1 (Note: This doesn't include all regs)
+/// Note that registers are divided into banks.
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+#[repr(u8)]
+pub enum RegBank2 {
+    AccelConfigStatic2 = 0x03,
+    AccelConfigStatic3 = 0x04,
+    AccelConfigStatic4 = 0x05,
+}
+
+#[derive(Clone, Copy)]
+pub enum Reg {
+    Bank0(RegBank0),
+    Bank1(RegBank1),
+    Bank2(RegBank2),
+    // Bank4(RegBank4),
+}
+
+impl Reg {
+    pub fn addr(&self) -> u8 {
+        match self {
+            Self::Bank0(r) => r as u8,
+            Self::Bank1(r) => r as u8,
+        }
+    }
+}
+
 impl Reg {
     /// Get the read address, which has the MSB = 1. Use the `u8` repr for writes.
     pub fn read_addr(&self) -> u8 {
-        0x80 | (*self as u8)
+        0x80 | self.addr()
     }
 }
 
@@ -123,10 +165,22 @@ fn read_one(reg: Reg, spi: &mut SpiImu, cs: &mut Pin) -> Result<u8, ImuError> {
 /// Utility function to write a single byte.
 fn write_one(reg: Reg, word: u8, spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
     cs.set_low();
-    spi.write(&[reg as u8, word])?;
+    spi.write(&[reg.addr(), word])?;
     cs.set_high();
 
     Ok(())
+}
+
+/// Select the bank we are writing to or reading from.
+fn set_bank(bank: Reg, spi: &mut SpiImu, cs: &mut Pin) {
+    let val = match bank {
+        Reg::Bank0(_) => 0,
+        Reg::Bank1(_) => 1,
+        Reg::Bank2(_) => 2,
+        // Reg::Bank4(_) => 4,
+    };
+
+    write_one(Reg(RegBank0::BankSel),val, spi, cs);
 }
 
 use defmt::println;
@@ -139,34 +193,47 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
     // todo the SPI bus will still not fail if the IMU isn't present. HAL error?
     // todo: Better sanity check than WHOAMI.
 
-    let device_id = read_one(Reg::WhoAmI, spi, cs)?;
+    let device_id = read_one(Reg::Bank0(Reg::WhoAmI), spi, cs)?;
 
     if device_id != DEVICE_ID {
         return Err(ImuError::NotConnected);
     }
 
     // An external cyrstal is connected on othe H7 FC, but not the G4.
-    // todo: Put back.
-    // #[cfg(feature = "h7")]
-    // write_one(Reg::IntfConfig5, 0b0000_0100, spi, cs)?;
+    set_bank(Reg::Bank1(RegBank1::GyroConfigStatic3), spi, cs); // todo dummy val
+    #[cfg(feature = "h7")]
+    write_one(Reg::IntfConfig5, 0b0000_0100, spi, cs)?;
+
+    write_one(Reg::Bank1(RegBank1::GyroConfigStatic3), aaf_delt, spi, cs)?;
+    write_one(Reg::Bank1(RegBank1::GyroConfigStatic4), aaf_delt_sqr & 0xff, spi, cs)?;
+    write_one(Reg::Bank1(RegBank1::GyroConfigStatic5), (aaf_delt_sqr >> 8) | (aaf_bitshift << 4), spi, cs)?;
+
+
+    set_bank(Reg::Bank2(RegBank2::AccelConfigStatic2), spi, cs); // todo dummy val
+
+    write_one(Reg::Bank2(RegBank2::AccelConfigStatic2), aaf_delt, spi, cs)?;
+    write_one(Reg::Bank2(RegBank2::AccelConfigStatic3), aaf_delt_sqr & 0xff, spi, cs)?;
+    write_one(Reg::Bank2(RegBank2::AccelConfigStatic4), (aaf_delt_sqr >> 8) | (aaf_bitshift << 4), spi, cs)?;
+
+    set_bank(Reg::Bank0(RegBank0::WhoAmI), spi, cs); // todo dummy val
 
     // Enable gyros and accelerometers in low noise mode.
-    write_one(Reg::PwrMgmt0, 0b0000_1111, spi, cs)?;
+    write_one(Reg::Bank0(RegBank0::PwrMgmt0), 0b0000_1111, spi, cs)?;
 
     // Set gyros and accelerometers to 8kHz update rate, 2000 DPS gyro full scale range,
     // and +-16g accelerometer full scale range.
-    write_one(Reg::GyroConfig0, 0b0000_0011, spi, cs)?;
+    write_one(Reg::Bank0(Reg::GyroConfig0), 0b0000_0011, spi, cs)?;
 
     // "When transitioning from OFF to any of the other modes, do not issue any
     // register writes for 200µs." (Gyro and accel)
     delay.delay_us(200);
 
-    write_one(Reg::AccelConfig0, 0b0000_0011, spi, cs)?;
+    write_one(Reg::Bank0(Reg::AccelConfig0), 0b0000_0011, spi, cs)?;
     delay.delay_us(200);
 
     // Set both the accelerator and gyro filters to the low latency option.
     // todo: This is what BF does. Do we want this?
-    write_one(Reg::GyroAccelConfig0, 14 << 4 | 14, spi, cs)?;
+    write_one(Reg::Bank0(Reg::GyroAccelConfig0), 14 << 4 | 14, spi, cs)?;
 
     // (Leave default INT_CONFIG settings of active low, push pull, pulsed.)
 
