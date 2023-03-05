@@ -1,6 +1,5 @@
 //! This code contains safety-related code, like arming, and lost link procedures.
 
-
 // todo: Don't arm if on the ground, and not in a level attitude.
 
 use core::sync::atomic::{AtomicBool, Ordering};

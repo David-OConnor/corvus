@@ -16,8 +16,6 @@ use crate::{
 
 use stm32_hal2::i2c;
 
-use defmt::println;
-
 // The sensor's address is 0x77 (if SDO pin is left floating or pulled-up to VDDIO) or 0x76 (if the SDO pin is
 // pulled-down to GND).
 pub const ADDR: u8 = 0x77;
@@ -81,9 +79,9 @@ pub enum Reg {
 // oversampling rate.
 const K_P: f32 = 1_040_384.; // 64x oversample
 const K_T: f32 = 1_040_384.; // 64x oversample
-// const SCALE_FACTOR: i32 = 2_088_960; // 128x oversample
-// todo: 128 times for even more precision?
-// todo: Result shift (bit 2 and 3 address 0x09, for use with this setting)
+                             // const SCALE_FACTOR: i32 = 2_088_960; // 128x oversample
+                             // todo: 128 times for even more precision?
+                             // todo: Result shift (bit 2 and 3 address 0x09, for use with this setting)
 
 /// Fix the sign on signed 24 bit integers, represented as `i32`. (Here, we use this for pressure
 /// and temp readings)

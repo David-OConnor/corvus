@@ -112,8 +112,9 @@ pub enum Reg {
 impl Reg {
     pub fn addr(&self) -> u8 {
         match self {
-            Self::Bank0(r) => r as u8,
-            Self::Bank1(r) => r as u8,
+            Self::Bank0(r) => *r as u8,
+            Self::Bank1(r) => *r as u8,
+            Self::Bank2(r) => *r as u8,
         }
     }
 }
@@ -180,10 +181,67 @@ fn set_bank(bank: Reg, spi: &mut SpiImu, cs: &mut Pin) {
         // Reg::Bank4(_) => 4,
     };
 
-    write_one(Reg(RegBank0::BankSel),val, spi, cs);
+    write_one(Reg::Bank0(RegBank0::BankSel), val, spi, cs);
 }
 
 use defmt::println;
+
+/// Set up anti-alias filters. See DS, section 5.3. Reselect Bank 0 once complete.
+fn setup_aa_filters(spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
+    // todo: What should these be?? Currently set to 997Hz.
+    let aaf_delt = 21_u16;
+    let aaf_delt_sqr = 440_u16;
+    let aaf_bitshift = 6_u16;
+    set_bank(Reg::Bank1(RegBank1::GyroConfigStatic3), spi, cs); // todo dummy val
+
+    write_one(
+        Reg::Bank1(RegBank1::GyroConfigStatic3),
+        aaf_delt as u8,
+        spi,
+        cs,
+    )?;
+
+    write_one(
+        Reg::Bank1(RegBank1::GyroConfigStatic4),
+        (aaf_delt_sqr & 0xff) as u8,
+        spi,
+        cs,
+    )?;
+
+    write_one(
+        Reg::Bank1(RegBank1::GyroConfigStatic5),
+        ((aaf_delt_sqr >> 8) | (aaf_bitshift << 4)) as u8,
+        spi,
+        cs,
+    )?;
+
+    set_bank(Reg::Bank2(RegBank2::AccelConfigStatic2), spi, cs); // todo dummy val
+
+    write_one(
+        Reg::Bank2(RegBank2::AccelConfigStatic2),
+        aaf_delt as u8,
+        spi,
+        cs,
+    )?;
+
+    write_one(
+        Reg::Bank2(RegBank2::AccelConfigStatic3),
+        (aaf_delt_sqr & 0xff) as u8,
+        spi,
+        cs,
+    )?;
+
+    write_one(
+        Reg::Bank2(RegBank2::AccelConfigStatic4),
+        ((aaf_delt_sqr >> 8) | (aaf_bitshift << 4)) as u8,
+        spi,
+        cs,
+    )?;
+
+    set_bank(Reg::Bank0(RegBank0::WhoAmI), spi, cs); // todo dummy val
+
+    Ok(())
+}
 
 /// Configure the device.
 pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), ImuError> {
@@ -193,7 +251,7 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
     // todo the SPI bus will still not fail if the IMU isn't present. HAL error?
     // todo: Better sanity check than WHOAMI.
 
-    let device_id = read_one(Reg::Bank0(Reg::WhoAmI), spi, cs)?;
+    let device_id = read_one(Reg::Bank0(RegBank0::WhoAmI), spi, cs)?;
 
     if device_id != DEVICE_ID {
         return Err(ImuError::NotConnected);
@@ -203,37 +261,28 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
     set_bank(Reg::Bank1(RegBank1::GyroConfigStatic3), spi, cs); // todo dummy val
     #[cfg(feature = "h7")]
     write_one(Reg::IntfConfig5, 0b0000_0100, spi, cs)?;
+    // (Bank 0 set by AA filter setup fn);
 
-    write_one(Reg::Bank1(RegBank1::GyroConfigStatic3), aaf_delt, spi, cs)?;
-    write_one(Reg::Bank1(RegBank1::GyroConfigStatic4), aaf_delt_sqr & 0xff, spi, cs)?;
-    write_one(Reg::Bank1(RegBank1::GyroConfigStatic5), (aaf_delt_sqr >> 8) | (aaf_bitshift << 4), spi, cs)?;
-
-
-    set_bank(Reg::Bank2(RegBank2::AccelConfigStatic2), spi, cs); // todo dummy val
-
-    write_one(Reg::Bank2(RegBank2::AccelConfigStatic2), aaf_delt, spi, cs)?;
-    write_one(Reg::Bank2(RegBank2::AccelConfigStatic3), aaf_delt_sqr & 0xff, spi, cs)?;
-    write_one(Reg::Bank2(RegBank2::AccelConfigStatic4), (aaf_delt_sqr >> 8) | (aaf_bitshift << 4), spi, cs)?;
-
-    set_bank(Reg::Bank0(RegBank0::WhoAmI), spi, cs); // todo dummy val
+    setup_aa_filters(spi, cs)?;
 
     // Enable gyros and accelerometers in low noise mode.
+    // Do this after setting up the AA filters.
     write_one(Reg::Bank0(RegBank0::PwrMgmt0), 0b0000_1111, spi, cs)?;
 
     // Set gyros and accelerometers to 8kHz update rate, 2000 DPS gyro full scale range,
     // and +-16g accelerometer full scale range.
-    write_one(Reg::Bank0(Reg::GyroConfig0), 0b0000_0011, spi, cs)?;
+    write_one(Reg::Bank0(RegBank0::GyroConfig0), 0b0000_0011, spi, cs)?;
 
     // "When transitioning from OFF to any of the other modes, do not issue any
     // register writes for 200µs." (Gyro and accel)
     delay.delay_us(200);
 
-    write_one(Reg::Bank0(Reg::AccelConfig0), 0b0000_0011, spi, cs)?;
+    write_one(Reg::Bank0(RegBank0::AccelConfig0), 0b0000_0011, spi, cs)?;
     delay.delay_us(200);
 
     // Set both the accelerator and gyro filters to the low latency option.
     // todo: This is what BF does. Do we want this?
-    write_one(Reg::Bank0(Reg::GyroAccelConfig0), 14 << 4 | 14, spi, cs)?;
+    write_one(Reg::Bank0(RegBank0::GyroAccelConfig0), 14 << 4 | 14, spi, cs)?;
 
     // (Leave default INT_CONFIG settings of active low, push pull, pulsed.)
 
@@ -243,13 +292,13 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
     // 4kHz."
     // "For register INT_CONFIG1 (bank 0 register 0x64) bit 4 INT_ASYNC_RESET, user should change
     // setting to 0 from default setting of 1 for proper INT1 and INT2 pin operation."
-    write_one(Reg::IntConfig1, 0b0110_0000, spi, cs)?;
+    write_one(Reg::Bank0(RegBank0::IntConfig1), 0b0110_0000, spi, cs)?;
 
     // todo Temp TS. BF uses this, but I think that only applies to latched from DS.
     // write_one(Reg::IntConfig0, 0b0011_0000, spi, cs);
 
     // Enable UI data ready interrupt routed to the INT1 pin.
-    write_one(Reg::IntSource0, 0b0000_1000, spi, cs)?;
+    write_one(Reg::Bank0(RegBank0::IntSource0), 0b0000_1000, spi, cs)?;
 
     // todo: Set filters?
 
@@ -265,8 +314,8 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
 
 /// Read temperature.
 pub fn _read_temp(spi: &mut SpiImu, cs: &mut Pin) -> Result<f32, ImuError> {
-    let upper_byte = read_one(Reg::TempData1, spi, cs)?;
-    let lower_byte = read_one(Reg::TempData0, spi, cs)?;
+    let upper_byte = read_one(Reg::Bank0(RegBank0::TempData1), spi, cs)?;
+    let lower_byte = read_one(Reg::Bank0(RegBank0::TempData0), spi, cs)?;
 
     // Temperature in Degrees Centigrade = (TEMP_DATA / 132.48) + 25
     let temp_data = ((upper_byte as u16) << 8) | (lower_byte as u16);
@@ -275,19 +324,19 @@ pub fn _read_temp(spi: &mut SpiImu, cs: &mut Pin) -> Result<f32, ImuError> {
 
 /// Read all data, in blocking fashion. Deprecated in favor of DMA.
 pub fn _read_all(spi: &mut SpiImu, cs: &mut Pin) -> Result<_ImuReadingsRaw, ImuError> {
-    let accel_x_upper = read_one(Reg::AccelDataX1, spi, cs)?;
-    let accel_x_lower = read_one(Reg::AccelDataX0, spi, cs)?;
-    let accel_y_upper = read_one(Reg::AccelDataY1, spi, cs)?;
-    let accel_y_lower = read_one(Reg::AccelDataY0, spi, cs)?;
-    let accel_z_upper = read_one(Reg::AccelDataZ1, spi, cs)?;
-    let accel_z_lower = read_one(Reg::AccelDataZ0, spi, cs)?;
+    let accel_x_upper = read_one(Reg::Bank0(RegBank0::AccelDataX1), spi, cs)?;
+    let accel_x_lower = read_one(Reg::Bank0(RegBank0::AccelDataX0), spi, cs)?;
+    let accel_y_upper = read_one(Reg::Bank0(RegBank0::AccelDataY1), spi, cs)?;
+    let accel_y_lower = read_one(Reg::Bank0(RegBank0::AccelDataY0), spi, cs)?;
+    let accel_z_upper = read_one(Reg::Bank0(RegBank0::AccelDataZ1), spi, cs)?;
+    let accel_z_lower = read_one(Reg::Bank0(RegBank0::AccelDataZ0), spi, cs)?;
 
-    let gyro_x_upper = read_one(Reg::GyroDataX1, spi, cs)?;
-    let gyro_x_lower = read_one(Reg::GyroDataX0, spi, cs)?;
-    let gyro_y_upper = read_one(Reg::GyroDataY1, spi, cs)?;
-    let gyro_y_lower = read_one(Reg::GyroDataY0, spi, cs)?;
-    let gyro_z_upper = read_one(Reg::GyroDataZ1, spi, cs)?;
-    let gyro_z_lower = read_one(Reg::GyroDataZ0, spi, cs)?;
+    let gyro_x_upper = read_one(Reg::Bank0(RegBank0::GyroDataX1), spi, cs)?;
+    let gyro_x_lower = read_one(Reg::Bank0(RegBank0::GyroDataX0), spi, cs)?;
+    let gyro_y_upper = read_one(Reg::Bank0(RegBank0::GyroDataY1), spi, cs)?;
+    let gyro_y_lower = read_one(Reg::Bank0(RegBank0::GyroDataY0), spi, cs)?;
+    let gyro_z_upper = read_one(Reg::Bank0(RegBank0::GyroDataZ1), spi, cs)?;
+    let gyro_z_lower = read_one(Reg::Bank0(RegBank0::GyroDataZ0), spi, cs)?;
 
     let a_x = i16::from_be_bytes([accel_x_upper, accel_x_lower]);
     let a_y = i16::from_be_bytes([accel_y_upper, accel_y_lower]);

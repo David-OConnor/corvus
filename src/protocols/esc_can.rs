@@ -14,7 +14,6 @@
 // 5. Use as few pins as possible.
 // 6. Must support short traces/cables and long cables.  e.g. brushless whoops, 3-7" FPV style, X-class style.
 
-
 // 1) Auto-discovery of ESC capabilities and metadata, such as:
 // a) Maximum motor data rate.
 // b) Maximum hardware speed (e.g. max frequency of FDCAN/CAN.
@@ -52,9 +51,7 @@
 const TELEM_SIZE: usize = 69; // todo
 
 #[derive(Default)]
-pub struct RpmData {
-
-}
+pub struct RpmData {}
 
 /// ESC configuration data. Contains ESC capabilities.
 pub struct EscConfig {

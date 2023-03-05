@@ -7,7 +7,8 @@ use crate::{
     flight_ctrls::{
         autopilot::LandingCfg,
         common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap},
-        ctrl_logic::{AccelMaps, CtrlCoeffs, DragCoeffs},
+        ctrl_effect_est::AccelMaps,
+        ctrl_logic::{CtrlCoeffs, DragCoeffs},
         // ControlMapping,
         motor_servo::MotorServoState,
     },

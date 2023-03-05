@@ -17,3 +17,9 @@ target = "thumbv7em-none-eabihf"
 rb = "run --bin"
 rrb = "run --release --bin"
 rr = "run --release"
+
+# todo: These aliases are not working
+#rgq = "run --release --features g4 quad print-status"
+#rhq = "run --release --features h7 quad print-status"
+#rgf = "run --release --features g4 fixed-wing print-status"
+#rhf = "run --release --features h7 fixed-wing print-status"

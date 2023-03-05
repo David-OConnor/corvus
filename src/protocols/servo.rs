@@ -42,15 +42,13 @@ const PULSE_TIME_MAX: f32 = 1.7;
 
 // todo: QC this.
 const ARR_MIN_F32: f32 = (ARR_SERVOS as f32 / 2.) * (PULSE_TIME_MIN / 1.0);
-const ARR_MID_F32: f32 = ARR_MID as f32;
 const ARR_MAX_F32: f32 = ARR_SERVOS as f32 * (PULSE_TIME_MAX / 2.0);
+const ARR_MID_F32: f32 = (ARR_MAX_F32 + ARR_MIN_F32) / 2.;
 
 const ARR_MIN: u32 = ARR_MIN_F32 as u32;
 const ARR_MID: u32 = ARR_MID_F32 as u32;
 // Don't us full ARR: there needs to be some signal low time between pulses.
 const ARR_MAX: u32 = ARR_MAX_F32 as u32;
-
-
 
 /// Equivalent of `Motor` for quadcopters.
 #[derive(Clone, Copy)]

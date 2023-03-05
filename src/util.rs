@@ -15,7 +15,7 @@ use crate::{
     safety::ArmStatus,
     sensors_shared::BattCellCount,
     state::StateVolatile,
-    system_status::{self, SystemStatus, SensorStatus},
+    system_status::{self, SensorStatus, SystemStatus},
 };
 
 use num_traits::float::FloatCore;
@@ -204,6 +204,11 @@ pub fn print_status(
     // println!("DSHOT4: {:?}", unsafe { dshot::PAYLOAD_REC_4 });
 
     println!(
+        "Status, timestamp {} ms",
+        crate::TIME_SINCE_START_MS.load(Ordering::Acquire)
+    );
+
+    println!(
         "\n\nFaults. Rx: {}. RPM: {}",
         system_status::RX_FAULT.load(Ordering::Acquire),
         system_status::RPM_FAULT.load(Ordering::Acquire),
@@ -311,11 +316,10 @@ pub fn print_status(
         );
     }
 
-    let mut uart_regs = unsafe { &(*pac::USART2::ptr())};
+    let mut uart_regs = unsafe { &(*pac::USART2::ptr()) };
 
     println!("USart en: {}", uart_regs.cr1.read().ue().bit_is_set());
     println!("USart SR: {:b}", uart_regs.isr.read().bits());
-
 
     #[cfg(feature = "quad")]
     println!(

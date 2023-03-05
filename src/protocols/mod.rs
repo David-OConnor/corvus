@@ -8,4 +8,3 @@ pub mod msp_defines;
 pub mod rpm_reception;
 pub mod servo;
 pub mod usb_preflight;
-

@@ -6,6 +6,7 @@
 
 pub mod autopilot;
 pub mod common;
+pub mod ctrl_effect_est;
 pub mod ctrl_logic;
 pub mod filters;
 pub mod motor_servo;

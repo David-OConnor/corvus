@@ -20,7 +20,7 @@
 // todo: Movable camera that moves with head motion.
 // - Ir cam to find or avoid people
 
-use core::sync::atomic::Ordering;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use ahrs_fusion::Ahrs;
 use cfg_if::cfg_if;
@@ -39,29 +39,14 @@ use drivers::{
 use filter_imu::ImuFilters;
 use flight_ctrls::{
     autopilot::AutopilotStatus,
-    // common::{MotorRpm, RpmReadings},
-    // pid::{
-    //     self, CtrlCoeffGroup, PidDerivFilters, PidGroup, PID_CONTROL_ADJ_AMT,
-    //     PID_CONTROL_ADJ_TIMEOUT,
-    // },
-    ctrl_logic::{self, AccelMaps},
+    ctrl_effect_est::{AccelMapPt, AccelMaps},
+    ctrl_logic,
     filters::FlightCtrlFilters,
     motor_servo::{MotorRpm, RpmReadings},
     pid::{MotorCoeffs, MotorPidGroup},
-    // ControlMapping,
 };
 use lin_alg2::f32::Quaternion;
 
-#[cfg(feature = "quad")]
-use flight_ctrls::motor_servo::MotorPower; // todo Temp
-
-use ppks::{Location, LocationType};
-use protocols::{crsf, dshot, rpm_reception, usb_preflight};
-use safety::ArmStatus;
-use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
-use state::{OperationMode, StateVolatile, UserCfg};
-
-use params::Params;
 use stm32_hal2::{
     self,
     adc::{self, Adc, AdcConfig, AdcDevice},
@@ -99,6 +84,16 @@ mod state;
 mod system_status;
 mod util;
 
+#[cfg(feature = "quad")]
+use flight_ctrls::motor_servo::MotorPower; // todo Temp
+
+use params::Params;
+use ppks::{Location, LocationType};
+use protocols::{crsf, dshot, rpm_reception, usb_preflight};
+use safety::ArmStatus;
+use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
+use state::{OperationMode, StateVolatile, UserCfg};
+
 cfg_if! {
     if #[cfg(feature = "h7")] {
         use stm32_hal2::{
@@ -128,6 +123,8 @@ cfg_if! {
         use flight_ctrls::{motor_servo::{RotationDir}};
     }
 }
+
+static TIME_SINCE_START_MS: AtomicUsize = AtomicUsize::new(0);
 
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.
@@ -830,7 +827,7 @@ mod app {
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
-    arm_signals_received, disarm_signals_received, batt_curr_adc, measurement_timer], priority = 3)]
+    arm_signals_received, disarm_signals_received, batt_curr_adc, measurement_timer], priority = 4)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         dma::clear_interrupt(
             setup::IMU_DMA_PERIPH,
@@ -1245,32 +1242,32 @@ mod app {
 
                             cfg_if! {
                                 if #[cfg(feature = "quad")] {
-                                    let pt_pitch = ctrl_logic::AccelMapPt {
+                                    let pt_pitch = AccelMapPt {
                                         rpm_or_servo_delta: m.pitch_delta_rpm(),
                                         angular_accel: params.a_pitch,
                                     };
 
-                                    let pt_roll = ctrl_logic::AccelMapPt {
+                                    let pt_roll = AccelMapPt {
                                         rpm_or_servo_delta: m.roll_delta_rpm(),
                                         angular_accel: params.a_roll,
                                     };
 
-                                    let pt_yaw = ctrl_logic::AccelMapPt {
+                                    let pt_yaw = AccelMapPt {
                                         rpm_or_servo_delta: m.yaw_delta_rpm(),
                                         angular_accel: params.a_yaw,
                                     };
                                 } else {
-                                    let pt_pitch = ctrl_logic::AccelMapPt {
+                                    let pt_pitch = AccelMapPt {
                                         rpm_or_servo_delta: m.pitch_delta(),
                                         angular_accel: params.a_pitch,
                                     };
 
-                                    let pt_roll = ctrl_logic::AccelMapPt {
+                                    let pt_roll = AccelMapPt {
                                         rpm_or_servo_delta: m.roll_delta(),
                                         angular_accel: params.a_roll,
                                     };
 
-                                    let pt_yaw = ctrl_logic::AccelMapPt {
+                                    let pt_yaw = AccelMapPt {
                                         rpm_or_servo_delta: m.yaw_delta(),
                                         angular_accel: params.a_yaw,
                                     };
@@ -1377,7 +1374,7 @@ mod app {
     #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, current_params, control_channel_data,
     link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer],
-    local = [], priority = 1)]
+    local = [], priority = 2)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application.
     fn usb_isr(cx: usb_isr::Context) {
@@ -1788,7 +1785,7 @@ mod app {
     // #[task(binds = TIM17,
     #[task(binds = TIM1_TRG_COM,
     shared = [lost_link_timer, state_volatile, autopilot_status,
-    current_params, system_status, control_channel_data], priority = 1)]
+    current_params, system_status, control_channel_data], priority = 2)]
     fn lost_link_isr(mut cx: lost_link_isr::Context) {
         println!("Lost the link!");
 
@@ -1824,7 +1821,7 @@ mod app {
 
     // #[task(binds = TIM16,
     #[task(binds = TIM1_UP_TIM16,
-    shared = [rf_limiter_timer], priority = 1)]
+    shared = [rf_limiter_timer], priority = 2)]
     fn rf_limiter_isr(mut cx: rf_limiter_isr::Context) {
         // println!("RF limiter ISR");
         cx.shared.rf_limiter_timer.lock(|timer| {
@@ -1862,7 +1859,7 @@ mod app {
 
     // #[task(binds = DMA2_STR2,
     #[task(binds = DMA2_CH2,
-    shared = [altimeter, current_params, state_volatile], priority = 2)]
+    shared = [altimeter, current_params, state_volatile], priority = 3)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(cx: baro_read_tc_isr::Context) {
         dma::clear_interrupt(
@@ -1894,7 +1891,7 @@ mod app {
 
     // #[task(binds = DMA2_STR3,
     #[task(binds = DMA2_CH3,
-    shared = [i2c1, ext_sensor_active], priority = 1)]
+    shared = [i2c1, ext_sensor_active], priority = 2)]
     /// External sensors write complete; start external sensors read.
     fn ext_sensors_write_tc_isr(cx: ext_sensors_write_tc_isr::Context) {
         dma::clear_interrupt(
@@ -1945,7 +1942,7 @@ mod app {
 
     // #[task(binds = DMA2_STR4,
     #[task(binds = DMA2_CH4,
-    shared = [i2c1, ext_sensor_active], priority = 1)]
+    shared = [i2c1, ext_sensor_active], priority = 2)]
     /// Baro write complete; start baro read.
     fn ext_sensors_read_tc_isr(cx: ext_sensors_read_tc_isr::Context) {
         dma::clear_interrupt(
@@ -1993,6 +1990,15 @@ mod app {
                 }
             }
         });
+    }
+
+    /// Systick time keeper, since program start, in ms. Could alternatively use the RTC instead.
+    /// Lowest priority.
+    // #[task(binds = SYST, priority = 1)]
+    #[task(binds = SysTick, priority = 1)]
+    // fn systick_isr(_cx: systick_isr::Context) {
+    fn systick_isr(_cx: systick_isr::Context) {
+        TIME_SINCE_START_MS.fetch_add(1, Ordering::Relaxed);
     }
 }
 
