@@ -160,17 +160,6 @@ pub fn takeoff_speed(height: f32, max_v: f32) -> f32 {
     (height / 4. + 0.01).max(max_v)
 }
 
-pub struct UnsuitableParams {}
-
-// /// Execute a profile designed to test PID and motor gain coefficients; update them.
-// pub fn calibrate_coeffs(params: &Params) -> Result<(), UnsuitableParams> {
-//     if params.tof_alt.unwrap_or(0.) < MIN_CAL_ALT {
-//         return Err(UnsuitableParams {});
-//     }
-//
-//     Ok(())
-// }
-
 pub fn set_input_mode(
     input_mode_control: InputModeSwitch,
     state_volatile: &mut StateVolatile,

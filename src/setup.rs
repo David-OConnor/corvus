@@ -109,13 +109,13 @@ cfg_if! {
     } else {
         // todo: USART2 is not working for some reason, at least for CRSF.
         // todo: Do more testing.
-        // type UartCrsfRegs = pac::USART2;
-        type UartCrsfRegs = pac::USART3;
+        type UartCrsfRegs = pac::USART2;
+        // type UartCrsfRegs = pac::USART3;
         type UartOsdRegs = pac::UART4;
         pub type SpiPacFlash = pac::SPI2;
         pub type SpiFlash = Spi2<SpiPacFlash>;
-        pub type UartCrsf = Usart<pac::USART3>;
-        // pub type UartCrsf = Usart<pac::USART2>;
+        // pub type UartCrsf = Usart<pac::USART3>;
+        pub type UartCrsf = Usart<pac::USART2>;
         pub type UartOsd = Usart4<pac::UART4>;
     }
 }
@@ -271,7 +271,7 @@ pub fn setup_pins() {
     // by masking and unmasking using imr1.
 
     motor1.enable_interrupt(Edge::Either);
-    // motor2.enable_interrupt(Edge::Either); // todo: Put back.
+    motor2.enable_interrupt(Edge::Either); // todo: Put back.
     motor3.enable_interrupt(Edge::Either);
     motor4.enable_interrupt(Edge::Either);
 
@@ -348,15 +348,12 @@ pub fn setup_pins() {
             let mut uart_crsf_rx = Pin::new(Port::B, 3, PinMode::Alt(11));
         } else {
             // We use UART 2 for ELRS on G4.
-            // todo: Setting to input to TS ELRS MCU flashing
-            let _uart_crsf_tx2 = Pin::new(Port::B, 3, PinMode::Input);
-            let mut uart_crsf_rx2 = Pin::new(Port::B, 4, PinMode::Input);
-            // let _uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
-            // let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
+            let _uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
+            let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
 
             // Usart 3 TS
-            let _uart_crsf_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
-            let mut uart_crsf_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
+            // let _uart_crsf_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
+            // let mut uart_crsf_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
         }
     }
 
@@ -429,8 +426,8 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     #[cfg(feature = "h7")]
     let crsf_dma_ch = DmaInput::Uart7Rx;
     #[cfg(feature = "g4")]
-    // let crsf_dma_ch = DmaInput::Usart2Rx;
-    let crsf_dma_ch = DmaInput::Usart3Rx;
+    let crsf_dma_ch = DmaInput::Usart2Rx;
+    // let crsf_dma_ch = DmaInput::Usart3Rx;
 
     dma::mux(CRSF_DMA_PERIPH, CRSF_RX_CH, crsf_dma_ch);
 
@@ -455,15 +452,9 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     // we trigger the attitude-rates PID loop.
     dma.enable_interrupt(IMU_RX_CH, DmaInterrupt::TransferComplete);
 
-    // todo: It appears the timer `DmaUpdate`, interrupt, enabled in DSHOT setup code, will
-    // todo auto-enable the transfer complete interrupts; that interrupt is required for
-    // todo timer burst DMA to work. There's therefore no purpose in enabling TC explicitly here.
-    // It seems that enabling these is not explicitly required; teh TC ISr still fires
-    // once per burst command, even without enabling these!
-    // We use Dshot transfer-complete interrupts to disable the timer.
-    // dma.enable_interrupt(Motor::M1.dma_channel(), DmaInterrupt::TransferComplete);
-    // #[cfg(not(feature = "h7"))]
-    // dma.enable_interrupt(Motor::M3.dma_channel(), DmaInterrupt::TransferComplete);
+    // It appears the timer `DmaUpdate`, interrupt, enabled in DSHOT setup code, will
+    // auto-enable the transfer complete interrupts; that interrupt is required for
+    // timer burst DMA to work. There's therefore no purpose in enabling TC explicitly here.
 
     // Enable TC interrupts for all I2C sections; we use this to sequence readings,
     // and store reading data.

@@ -204,12 +204,12 @@ pub fn print_status(
     // println!("DSHOT4: {:?}", unsafe { dshot::PAYLOAD_REC_4 });
 
     println!(
-        "Status, timestamp {} ms",
+        "\n\nStatus, timestamp {} ms",
         crate::TIME_SINCE_START_MS.load(Ordering::Acquire)
     );
 
     println!(
-        "\n\nFaults. Rx: {}. RPM: {}",
+        "Faults. Rx: {}. RPM: {}",
         system_status::RX_FAULT.load(Ordering::Acquire),
         system_status::RPM_FAULT.load(Ordering::Acquire),
     );

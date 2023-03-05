@@ -26,6 +26,7 @@ use ahrs_fusion::Ahrs;
 use cfg_if::cfg_if;
 use control_interface::{ChannelData, LinkStats};
 use cortex_m::{self, asm, delay::Delay};
+use cortex_m_rt::exception;
 
 use defmt::println;
 use defmt_rtt as _;
@@ -367,7 +368,8 @@ mod app {
                 let uart_crsf_pac = dp.UART7;
                 let uart_osd_pac = dp.USART2;
             } else {
-                let uart_crsf_pac = dp.USART3;
+                // let uart_crsf_pac = dp.USART3;
+                let uart_crsf_pac = dp.USART2;
                 let uart_osd_pac = dp.UART4;
             }
         }
@@ -705,18 +707,6 @@ mod app {
         // update_timer.enable();
         adc_timer.enable();
 
-        // todo: Once back from Argentina, if you have trouble, check this.
-        // Start out IMU-driven loop
-        // todo: This is an awk way; Already set up /configured like this in `setup`, albeit with
-        // todo opendrain and pullup set, and without enabling interrupt.
-        // #[cfg(feature = "h7")]
-        // let mut imu_exti_pin = Pin::new(Port::B, 12, gpio::PinMode::Input);
-        // #[cfg(feature = "g4")]
-        // let mut imu_exti_pin = Pin::new(Port::C, 4, gpio::PinMode::Input);
-
-        // // todo: On G4, sort out if you need to set Rising and falling, for M2 RPM reception.
-        // imu_exti_pin.enable_interrupt(Edge::Falling);
-
         unsafe {
             uart_crsf.read_dma(
                 &mut crsf::RX_BUFFER,
@@ -732,6 +722,10 @@ mod app {
         }
 
         println!("Init complete; starting main loops");
+
+        // Unmask the Systick interrupt here; doesn't appear to be handled by RTIC the same was
+        // as for STM32 peripherals. (Systick is a Cortex-M peripheral)
+        // unsafe { cortex_m::peripheral::NVIC::unmask(cortex_m::peripheral::syst); }
 
         (
             // todo: Make these local as able.
@@ -1498,31 +1492,26 @@ mod app {
                 // Don't use if/else, in case multiple fire simultaneously, which seems likely.
                 if pr.pr6().bit_is_set() {
                     gpio::clear_exti_interrupt(6);
-                    // dshot::update_rec_buf(&dshot::M1_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_1 });
                     dshot::update_rec_buf_1(&dshot::M1_RPM_I);
                 }
 
                 if pr.pr7().bit_is_set() {
                     gpio::clear_exti_interrupt(7);
-                    // dshot::update_rec_buf(&dshot::M2_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_2 });
                     dshot::update_rec_buf_2(&dshot::M2_RPM_I);
                 }
 
                 if pr.pr8().bit_is_set() {
                     gpio::clear_exti_interrupt(8);
-                    // dshot::update_rec_buf(&dshot::M3_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_3 });
                     dshot::update_rec_buf_3(&dshot::M3_RPM_I);
                 }
 
                 if pr.pr9().bit_is_set() {
                     gpio::clear_exti_interrupt(9);
-                    // dshot::update_rec_buf(&dshot::M4_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_4 });
                     dshot::update_rec_buf_4(&dshot::M4_RPM_I);
                 }
             } else {
                 // On G4, this is only for Motor 1.
                 gpio::clear_exti_interrupt(6);
-                // dshot::update_rec_buf(&dshot::M1_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_1 });
                 dshot::update_rec_buf_1(&dshot::M1_RPM_I);
             }
         }
@@ -1534,7 +1523,6 @@ mod app {
         gpio::clear_exti_interrupt(4);
         // println!("2"); // todo: This is on rapid fire. Why?
 
-        // dshot::update_rec_buf(&dshot::M2_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_2 });
         dshot::update_rec_buf_2(&dshot::M2_RPM_I);
     }
 
@@ -1543,7 +1531,6 @@ mod app {
     fn rpm_read_m3(_cx: rpm_read_m3::Context) {
         gpio::clear_exti_interrupt(0);
 
-        // dshot::update_rec_buf(&dshot::M3_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_3 });
         dshot::update_rec_buf_3(&dshot::M3_RPM_I);
     }
 
@@ -1552,7 +1539,6 @@ mod app {
     fn rpm_read_m4(_cx: rpm_read_m4::Context) {
         gpio::clear_exti_interrupt(1);
 
-        // dshot::update_rec_buf(&dshot::M4_RPM_I, &mut unsafe { dshot::PAYLOAD_REC_4 });
         dshot::update_rec_buf_4(&dshot::M4_RPM_I);
     }
 
@@ -1579,7 +1565,7 @@ mod app {
             } else {
                 exti.imr1.modify(|_, w| {
                     w.im6().clear_bit();
-                    // EXTI 4 is shared with the IMU; leave enabled.
+                    w.im4().clear_bit();
                     w.im0().clear_bit();
                     w.im1().clear_bit()
                 });
@@ -1616,12 +1602,13 @@ mod app {
                 }
             }
         }
-        // todo: Interpret data here? Or maybe in main loop.
+        // We interpret data in the main loop; hot here.
     }
 
     // todo: Evaluate priority.
     // #[task(binds = UART7,
-    #[task(binds = USART3,
+    // #[task(binds = USART3,
+    #[task(binds = USART2,
     shared = [control_channel_data, link_stats, rf_limiter_timer, system_status,
     lost_link_timer], local = [uart_crsf], priority = 4)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
@@ -1636,7 +1623,7 @@ mod app {
     fn crsf_isr(mut cx: crsf_isr::Context) {
         let uart = &mut cx.local.uart_crsf; // Code shortener
 
-        // println!("CRSF");
+        println!("CRSF");
 
         let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
         let mut rx_fault = false;
@@ -1992,15 +1979,24 @@ mod app {
         });
     }
 
-    /// Systick time keeper, since program start, in ms. Could alternatively use the RTC instead.
-    /// Lowest priority.
-    // #[task(binds = SYST, priority = 1)]
-    #[task(binds = SysTick, priority = 1)]
+    // /// Systick time keeper, since program start, in ms. Could alternatively use the RTC instead.
+    // /// Lowest priority.
+    // #[task(binds = SysTick, priority = 1)]
     // fn systick_isr(_cx: systick_isr::Context) {
-    fn systick_isr(_cx: systick_isr::Context) {
-        TIME_SINCE_START_MS.fetch_add(1, Ordering::Relaxed);
-    }
+    //     println!("TICK");
+    //     TIME_SINCE_START_MS.fetch_add(1, Ordering::Relaxed);
+    // }
 }
+
+    #[exception]
+    fn SysTick() {
+        println!("tick");
+    }
+
+    // #[exception]
+    // unsafe fn DefaultHandler(irqn: i16) {
+    //     println!("IRQn = {}", irqn);
+    // }
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message
 // this prevents the panic message being printed *twice* when `defmt::panic` is invoked

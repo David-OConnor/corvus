@@ -173,7 +173,7 @@ fn write_one(reg: Reg, word: u8, spi: &mut SpiImu, cs: &mut Pin) -> Result<(), I
 }
 
 /// Select the bank we are writing to or reading from.
-fn set_bank(bank: Reg, spi: &mut SpiImu, cs: &mut Pin) {
+fn set_bank(bank: Reg, spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
     let val = match bank {
         Reg::Bank0(_) => 0,
         Reg::Bank1(_) => 1,
@@ -181,7 +181,7 @@ fn set_bank(bank: Reg, spi: &mut SpiImu, cs: &mut Pin) {
         // Reg::Bank4(_) => 4,
     };
 
-    write_one(Reg::Bank0(RegBank0::BankSel), val, spi, cs);
+    write_one(Reg::Bank0(RegBank0::BankSel), val, spi, cs)
 }
 
 use defmt::println;
@@ -192,7 +192,7 @@ fn setup_aa_filters(spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
     let aaf_delt = 21_u16;
     let aaf_delt_sqr = 440_u16;
     let aaf_bitshift = 6_u16;
-    set_bank(Reg::Bank1(RegBank1::GyroConfigStatic3), spi, cs); // todo dummy val
+    set_bank(Reg::Bank1(RegBank1::GyroConfigStatic3), spi, cs)?; // todo dummy val
 
     write_one(
         Reg::Bank1(RegBank1::GyroConfigStatic3),
@@ -215,7 +215,7 @@ fn setup_aa_filters(spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
         cs,
     )?;
 
-    set_bank(Reg::Bank2(RegBank2::AccelConfigStatic2), spi, cs); // todo dummy val
+    set_bank(Reg::Bank2(RegBank2::AccelConfigStatic2), spi, cs)?; // todo dummy val
 
     write_one(
         Reg::Bank2(RegBank2::AccelConfigStatic2),
@@ -238,7 +238,7 @@ fn setup_aa_filters(spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
         cs,
     )?;
 
-    set_bank(Reg::Bank0(RegBank0::WhoAmI), spi, cs); // todo dummy val
+    set_bank(Reg::Bank0(RegBank0::WhoAmI), spi, cs)?; // todo dummy val
 
     Ok(())
 }
@@ -258,7 +258,7 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
     }
 
     // An external cyrstal is connected on othe H7 FC, but not the G4.
-    set_bank(Reg::Bank1(RegBank1::GyroConfigStatic3), spi, cs); // todo dummy val
+    set_bank(Reg::Bank1(RegBank1::GyroConfigStatic3), spi, cs)?; // todo dummy val
     #[cfg(feature = "h7")]
     write_one(Reg::IntfConfig5, 0b0000_0100, spi, cs)?;
     // (Bank 0 set by AA filter setup fn);

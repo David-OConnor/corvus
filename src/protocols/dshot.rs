@@ -106,6 +106,7 @@ pub static M3_RPM_I: AtomicUsize = AtomicUsize::new(0);
 pub static M4_RPM_I: AtomicUsize = AtomicUsize::new(0);
 
 pub const REC_BUF_LEN: usize = 26; // More than we need
+
 pub static mut PAYLOAD_REC_1: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_2: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
 pub static mut PAYLOAD_REC_3: [u16; REC_BUF_LEN] = [0; REC_BUF_LEN];
@@ -451,13 +452,6 @@ pub fn set_bidirectional(enabled: bool, timer: &mut MotorTimer) {
 
 /// Set the timer(s) to output mode. This only runs on init.
 pub fn set_to_output(timer: &mut MotorTimer) {
-    // todo: The code below may be removed if using bitbang receive
-
-    // todo: Awk place for this.
-    // Point the EXTI0 interrupt to the C port for RPM reception.
-    // let syscfg = unsafe { &(*pac::SYSCFG::ptr()) };
-    // syscfg.exticr1.modify(|_, w| unsafe { w.exti1().bits(1) }); // Points to port B.
-
     let oc = OutputCompare::Pwm1;
 
     timer.set_auto_reload(ARR_DSHOT as u32);
@@ -501,13 +495,14 @@ pub fn _update_rec_buf(rpm_i: &AtomicUsize, payload_rec: &mut [u16]) {
 pub fn update_rec_buf_1(rpm_i: &AtomicUsize) {
     let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
 
-    let i = rpm_i.fetch_add(1, Ordering::Relaxed);
+    let mut i = rpm_i.fetch_add(1, Ordering::Relaxed);
 
     // This shouldn't come up, but this ensures it won't overflow if it does for whatever
     // reason.
     if i >= REC_BUF_LEN {
         println!("Error: RPM I 1 overflow");
         rpm_i.store(0, Ordering::Release);
+        i = 0;
     }
 
     unsafe {
@@ -519,11 +514,12 @@ pub fn update_rec_buf_1(rpm_i: &AtomicUsize) {
 pub fn update_rec_buf_2(rpm_i: &AtomicUsize) {
     let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
 
-    let i = rpm_i.fetch_add(1, Ordering::Relaxed);
+    let mut i = rpm_i.fetch_add(1, Ordering::Relaxed);
 
     if i >= REC_BUF_LEN {
         println!("Error: RPM I 2 overflow");
         rpm_i.store(0, Ordering::Release);
+        i = 0;
     }
 
     unsafe {
@@ -534,11 +530,12 @@ pub fn update_rec_buf_2(rpm_i: &AtomicUsize) {
 pub fn update_rec_buf_3(rpm_i: &AtomicUsize) {
     let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
 
-    let i = rpm_i.fetch_add(1, Ordering::Relaxed);
+    let mut i = rpm_i.fetch_add(1, Ordering::Relaxed);
 
     if i >= REC_BUF_LEN {
         println!("Error: RPM I 3 overflow");
         rpm_i.store(0, Ordering::Release);
+        i = 0;
     }
 
     unsafe {
@@ -549,11 +546,12 @@ pub fn update_rec_buf_3(rpm_i: &AtomicUsize) {
 pub fn update_rec_buf_4(rpm_i: &AtomicUsize) {
     let count = unsafe { (*pac::TIM2::ptr()).cnt.read().bits() as u16 };
 
-    let i = rpm_i.fetch_add(1, Ordering::Relaxed);
+    let mut i = rpm_i.fetch_add(1, Ordering::Relaxed);
 
     if i >= REC_BUF_LEN {
         println!("Error: RPM I 4 overflow");
         rpm_i.store(0, Ordering::Release);
+        i = 0;
     }
 
     unsafe {
