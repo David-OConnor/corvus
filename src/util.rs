@@ -354,7 +354,7 @@ pub fn print_status(
     // );
 }
 
-/// Create an order-2 polynomial based on 3 calibration points.
+/// Create an order-2 polynomial based on 3 points. (1D: pts are (input, output).
 /// `a` is the ^2 term, `b` is the linear term, `c` is the constant term.
 /// This is a general mathematical function, and can be derived using a system of equations.
 pub fn create_polynomial_terms(
@@ -362,7 +362,7 @@ pub fn create_polynomial_terms(
     pt1: (f32, f32),
     pt2: (f32, f32),
 ) -> (f32, f32, f32) {
-    let a_num = pt0.0 * (pt2.0 - pt1.1) + pt1.0 * (pt0.1 - pt2.0) + pt2.0 * (pt1.1 - pt0.1);
+    let a_num = pt0.0 * (pt2.1 - pt1.1) + pt1.0 * (pt0.1 - pt2.1) + pt2.0 * (pt1.1 - pt0.1);
 
     let a_denom = (pt0.0 - pt1.0) * (pt0.0 - pt2.0) * (pt1.0 - pt2.0);
 

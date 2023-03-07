@@ -109,13 +109,13 @@ cfg_if! {
     } else {
         // todo: USART2 is not working for some reason, at least for CRSF.
         // todo: Do more testing.
-        type UartCrsfRegs = pac::USART2;
-        // type UartCrsfRegs = pac::USART3;
+        // type UartCrsfRegs = pac::USART2;
+        type UartCrsfRegs = pac::USART3;
         type UartOsdRegs = pac::UART4;
         pub type SpiPacFlash = pac::SPI2;
         pub type SpiFlash = Spi2<SpiPacFlash>;
-        // pub type UartCrsf = Usart<pac::USART3>;
-        pub type UartCrsf = Usart<pac::USART2>;
+        pub type UartCrsf = Usart<pac::USART3>;
+        // pub type UartCrsf = Usart<pac::USART2>;
         pub type UartOsd = Usart4<pac::UART4>;
     }
 }
@@ -426,8 +426,8 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     #[cfg(feature = "h7")]
     let crsf_dma_ch = DmaInput::Uart7Rx;
     #[cfg(feature = "g4")]
-    let crsf_dma_ch = DmaInput::Usart2Rx;
-    // let crsf_dma_ch = DmaInput::Usart3Rx;
+    // let crsf_dma_ch = DmaInput::Usart2Rx;
+    let crsf_dma_ch = DmaInput::Usart3Rx;
 
     dma::mux(CRSF_DMA_PERIPH, CRSF_RX_CH, crsf_dma_ch);
 

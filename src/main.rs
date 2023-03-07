@@ -217,6 +217,7 @@ mod app {
     use super::*;
     use crate::flight_ctrls::pid;
     use stm32_hal2::dma::DmaChannel;
+    use crate::flight_ctrls::common::CtrlMix;
 
     #[shared]
     struct Shared {
@@ -334,10 +335,7 @@ mod app {
             }
         }
 
-        println!("Pre clocks setup");
         clock_cfg.setup().unwrap();
-
-        println!("Clocks setup ");
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
 
@@ -368,8 +366,8 @@ mod app {
                 let uart_crsf_pac = dp.UART7;
                 let uart_osd_pac = dp.USART2;
             } else {
-                // let uart_crsf_pac = dp.USART3;
-                let uart_crsf_pac = dp.USART2;
+                let uart_crsf_pac = dp.USART3;
+                // let uart_crsf_pac = dp.USART2;
                 let uart_osd_pac = dp.UART4;
             }
         }
@@ -378,10 +376,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-        // let spi_flash_pac = dp.OCTOSPI1;
-        let spi_flash_pac = dp.QUADSPI;
+            // let spi_flash_pac = dp.OCTOSPI1;
+            let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-        let spi_flash_pac = dp.SPI2;
+            let spi_flash_pac = dp.SPI2;
 
         let (
             mut spi1,
@@ -440,10 +438,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -477,18 +475,6 @@ mod app {
             Default::default(),
             &clock_cfg,
         );
-
-        // todo: Testing ELRS MCU flashing
-        // Pull up the CRSF RX line. Without this, our idle interrupt fires spuratically in
-        // some conditions, like when touching the (even outside) of the wires if an Rx
-        // module isn't connected.
-        // let mut uart_crsf_tx = Pin::new(Port::B, 3, gpio::PinMode::Input);
-        // let mut uart_crsf_rx = Pin::new(Port::B, 4, gpio::PinMode::Input);
-        // // uart_crsf_rx.pull(gpio::Pull::Up);
-        // // uart_crsf_tx.pull(gpio::Pull::Up);
-        //
-        // println!("ELRS test loop");
-        // loop {}
 
         rf_limiter_timer.enable_interrupt(TimerInterrupt::Update);
 
@@ -673,21 +659,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-        // todo: Wrong. You need to do this by number; apply your pin mapping.
-        let motors_reversed = (
+            // todo: Wrong. You need to do this by number; apply your pin mapping.
+            let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -966,19 +952,23 @@ mod app {
                                     aft_right: target_rpm,
                                 };
 
-                                // if i % 8000 == 0 {
-                                //     println!("Rpms- FL: {:?} FR: {}, AL: {}, AR: {}", rpm_readings.front_left, rpm_readings.front_right,
-                                //              rpm_readings.aft_left, rpm_readings.aft_right);
-
-                                    // println!("Ctrl data");
-                                // }
-
-
 
                                 #[cfg(feature = "quad")]
                                 {
                                     if ch_data.arm_status == ArmStatus::Armed {
                                         // dshot::set_power(p, p, p, p, motor_timer);
+
+
+                                        // todo: Attempting a setup where ctrl axes command a ctrl mix direction,
+                                        // todo to assist debugging.
+                                        let mix = CtrlMix {
+                                            pitch: ch_data.pitch,
+                                            roll: ch_data.roll,
+                                            yaw: ch_data.yaw,
+                                            throttle: ch_data.throttle,
+                                        };
+
+                                        let rpms_commanded = MotorRpm::from_mix(&mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
 
                                         state_volatile.motor_servo_state.set_cmds_from_rpms(
                                             &rpms_commanded,
@@ -1303,9 +1293,11 @@ mod app {
                         return;
                     }
 
+                    // todo: Should this be before the optional sections? Probably.
+
                     cfg_if! {
                         if #[cfg(feature = "quad")] {
-                            let (ctrl_mix, rpms_commanded) = ctrl_logic::rotor_rpms_from_att(
+                            let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
                                 state_volatile.attitude_commanded.quat.unwrap(),
                                 params.attitude_quat,
                                 throttle,
@@ -1320,6 +1312,10 @@ mod app {
                                 DT_IMU,
                             );
 
+                            state_volatile.ctrl_mix = ctrl_mix;
+
+                            let rpms_commanded = MotorRpm::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
+
                             state_volatile.motor_servo_state.set_cmds_from_rpms(
                                 &rpms_commanded,
                                 pid_state,
@@ -1328,14 +1324,8 @@ mod app {
 
                             // This is what causes the actual change in motor speed, via DSHOT.
                             state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
-
-                            state_volatile.ctrl_mix = ctrl_mix;
-
-                            // todo: Dynamics of `current_pwr` for quads, and `ctrl_posits`
-                            // todo for fixed-wing. You're saving it, but when is it used?
-                            // state_volatile.current_pwr = motor_power;
                         } else {
-                            let (ctrl_mix, control_posits_commanded) = ctrl_logic::control_posits_from_att(
+                            let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
                                 state_volatile.attitude_commanded.quat.unwrap(),
                                 params.attitude_quat,
                                 throttle,
@@ -1349,13 +1339,21 @@ mod app {
                                 DT_IMU,
                             );
 
+                            state_volatile.ctrl_mix = ctrl_mix;
+
+                            let ctrl_sfc_posits = CtrlSfcPosits::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
+
+                            state_volatile.motor_servo_state.set_cmds_from_control_posits(
+                                &ctrl_sfc_posits,
+                                pid_state,
+                                pid_coeffs,
+                            );
+
                             // This is what causes the actual change in motor speed, via DSHOT.
                             state_volatile.motor_servo_state.send_to_motors(ArmStatus::MotorsControlsArmed, motor_timer);
 
                             // This is what causes the actual change in servo position, via PWM.
                             state_volatile.motor_servo_state.send_to_servos(ArmStatus::MotorsControlsArmed, servo_timer);
-
-                            state_volatile.ctrl_mix = ctrl_mix;
                         }
                     }
                 });
@@ -1607,8 +1605,8 @@ mod app {
 
     // todo: Evaluate priority.
     // #[task(binds = UART7,
-    // #[task(binds = USART3,
-    #[task(binds = USART2,
+    #[task(binds = USART3,
+    // #[task(binds = USART2,
     shared = [control_channel_data, link_stats, rf_limiter_timer, system_status,
     lost_link_timer], local = [uart_crsf], priority = 4)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
@@ -1988,15 +1986,15 @@ mod app {
     // }
 }
 
-    #[exception]
-    fn SysTick() {
-        println!("tick");
-    }
+#[exception]
+fn SysTick() {
+    println!("tick");
+}
 
-    // #[exception]
-    // unsafe fn DefaultHandler(irqn: i16) {
-    //     println!("IRQn = {}", irqn);
-    // }
+// #[exception]
+// unsafe fn DefaultHandler(irqn: i16) {
+//     println!("IRQn = {}", irqn);
+// }
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message
 // this prevents the panic message being printed *twice* when `defmt::panic` is invoked

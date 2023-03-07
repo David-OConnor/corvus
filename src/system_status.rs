@@ -35,7 +35,7 @@ pub struct SystemStatus {
 #[repr(u8)] // for USB ser
 pub enum SensorStatus {
     Pass = 0,
-    Fail = 1,
+    Fault = 1,
     /// Either an external sensor not plugged in, or a complete failture, werein it's not recognized.
     NotConnected = 2,
 }

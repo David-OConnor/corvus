@@ -10,7 +10,7 @@ use crate::util;
 
 static SAMPLE_PT_I: AtomicUsize = AtomicUsize::new(0);
 
-pub const NUM_SAMPLE_PTS: usize = 100;
+pub const NUM_SAMPLE_PTS: usize = 30;
 
 // todo: Leaning towards this: Store a collection of pitch, roll, and yaw angular accels, as well
 // todo as corresponding servo settings (fixed) or motor RPMs (quad). Also store altitude and time-of-measurement.
@@ -81,6 +81,12 @@ impl AccelMap {
         self.square = square;
         self.lin = lin;
         self.constant = constant;
+    }
+
+    /// Fit a least-squares approximation from logged points.
+    pub fn update_from_logged_pts(&mut self, pts: &[AccelMapPt]) {
+        // todo: Do we need to take into account different ranges that may not be in the recent
+        // todo data?
     }
 
     /// Given a target angular acceleration, calculate a polynomial-fit RPM delta or servo position.

@@ -778,7 +778,7 @@ pub struct CtrlSfcPosits {
 
 #[cfg(feature = "fixed-wing")]
 impl CtrlSfcPosits {
-    pub fn from_cmds(mix: &CtrlMix) -> Self {
+    pub fn from_mix(mix: &CtrlMix) -> Self {
         let mut elevon_left = 0.;
         let mut elevon_right = 0.;
         let mut rudder = 0.;
@@ -828,11 +828,11 @@ impl CtrlSfcPosits {
 
 #[cfg(feature = "quad")]
 impl MotorRpm {
-    /// Generate power settings for each motor, from RPM commands.
+    /// Generate RPMs for each motor, from a control mix.
     /// Pitch, roll, and yaw are in RPM difference between the sum of each pair.
-    pub fn from_cmds(mix: &CtrlMix, front_left_dir: RotationDir) -> Self {
+    pub fn from_mix(mix: &CtrlMix, front_left_dir: RotationDir) -> Self {
         // let baseline_rpm = estimate_rpm_from_pwr(mix.throttle);
-        let baseline_rpm = 100.; // todo temp to get to compile!
+        let baseline_rpm = mix.throttle; // todo temp
 
         let mut front_left = baseline_rpm;
         let mut front_right = baseline_rpm;
@@ -871,14 +871,12 @@ impl MotorRpm {
         aft_left -= yaw;
         aft_right += yaw;
 
-        let mut result = Self {
+        Self {
             front_left,
             front_right,
             aft_left,
             aft_right,
-        };
-
-        result
+        }
     }
 
     /// Motor pair delta. Maps to angular accel. Positive means nose-up pitching.

@@ -240,7 +240,7 @@ fn find_ctrl_setting(
 /// for control application: It generates motor powers (in 2 formats) based on the
 /// parameters, and commands.
 /// The DT passed is the IMU rate, since we update params_prev each IMU update.
-pub fn rotor_rpms_from_att(
+pub fn ctrl_mix_from_att(
     target_attitude: Quaternion,
     current_attitude: Quaternion,
     throttle: f32,
@@ -253,7 +253,7 @@ pub fn rotor_rpms_from_att(
     accel_maps: &AccelMaps,
     filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
-) -> (CtrlMix, MotorRpm) {
+) -> CtrlMix {
     // This is the rotation we need to create to arrive at the target attitude.
     let rotation_cmd = target_attitude * current_attitude.inverse();
     // Split the rotation into 3 euler angles. We do this due to our controls acting primarily
@@ -285,24 +285,19 @@ pub fn rotor_rpms_from_att(
         &accel_maps.rpm_to_accel_yaw,
     );
 
-    let mix_new = CtrlMix {
+    CtrlMix {
         pitch,
         roll,
         yaw,
         throttle,
-    };
-
-    let power = MotorRpm::from_cmds(&mix_new, front_left_dir);
-
-    // Examine if our current control settings are appropriately effecting the change we want.
-    (mix_new, power)
+    }
 }
 
 #[cfg(feature = "fixed-wing")]
 /// Similar to the above fn on quads. Note that we do not handle yaw command using this. Yaw
 /// is treated as coupled to pitch and roll, with yaw controls used to counter adverse-yaw.
 /// Yaw is to maintain coordinated flight, or deviate from it.
-pub fn control_posits_from_att(
+pub fn ctrl_mix_from_att(
     target_attitude: Quaternion,
     current_attitude: Quaternion,
     throttle: f32,
@@ -314,7 +309,7 @@ pub fn control_posits_from_att(
     accel_maps: &AccelMaps,
     filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
-) -> (CtrlMix, CtrlSfcPosits) {
+) -> CtrlMix {
     // todo: Modulate based on airspeed.
 
     let rotation_cmd = target_attitude * current_attitude.inverse();
@@ -339,16 +334,12 @@ pub fn control_posits_from_att(
 
     let yaw = 0.; // todo?
 
-    let mix_new = CtrlMix {
+    CtrlMix {
         pitch,
         roll,
         yaw,
         throttle,
-    };
-
-    let posits = CtrlSfcPosits::from_cmds(&mix_new);
-
-    (mix_new, posits)
+    }
 }
 
 /// Modify our attitude commanded from rate-based user inputs. `ctrl_crates` are in radians/s, and `dt` is in s.

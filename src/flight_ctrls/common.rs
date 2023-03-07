@@ -89,7 +89,6 @@ pub enum AltType {
 /// but without the options, and for a different use.
 ///
 /// For quads, pitch, roll, and yaw are in RPM difference between the sum of each pair.
-/// todo: For now, throttle is an absolute power setting on quads.
 /// For fixed-wing, they're in arbitrary units, due to being unable to measure servo position.
 pub struct CtrlMix {
     pub pitch: f32,
