@@ -958,7 +958,6 @@ mod app {
                                     if ch_data.arm_status == ArmStatus::Armed {
                                         // dshot::set_power(p, p, p, p, motor_timer);
 
-
                                         // todo: Attempting a setup where ctrl axes command a ctrl mix direction,
                                         // todo to assist debugging.
                                         let mix = CtrlMix {

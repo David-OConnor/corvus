@@ -40,30 +40,34 @@ pub enum MsgType {
     Error = 0x21, // aka !
 }
 
-/// A MSP v2 packet
-pub struct Packet {
+/// A MSP packet (V1 or V2)
+pub struct Packet<'a> {
     /// Request, response, or error
     pub message_type: MsgType,
     /// (little endian). 0 - 255 is the same function as V1 for backwards compatibility
     pub function: Function,
     /// (little endian) Payload size in bytes. (8-bits for V1)
     pub payload_size: u16,
-    // We don't store payload here, since it varies in size. (up to 65535 bytes)
+    /// The payload.
+    pub payload: &'a[u8],
+    // // We don't store payload here, since it varies in size. (up to 65535 bytes)
 }
 
-impl Packet {
-    pub fn new(message_type: MsgType, function: Function, payload_size: usize) -> Self {
+impl<'a> Packet<'a> {
+    pub fn new(message_type: MsgType, function: Function, payload_size: usize, payload: &'a[u8]) -> Self {
         Self {
             message_type,
             function,
             payload_size: payload_size as u16,
+            payload,
         }
     }
 
     /// Convert this payload to a buffer in MSP V2 format, modifying the argument
     /// `buf` in place. Payload is passed here instead of as a struct field
     /// due to its variable size.
-    pub fn to_buf(&self, payload: &[u8], buf: &mut [u8]) {
+    // pub fn to_buf(&self, payload: &[u8], buf: &mut [u8]) {
+    pub fn to_buf(&self, buf: &mut [u8]) {
         // The first two bytes are a hard-set preamble.
         buf[0] = PREAMBLE_0;
         buf[1] = PREAMBLE_1_V2;
@@ -73,7 +77,7 @@ impl Packet {
         buf[5..6].clone_from_slice(&self.payload_size.to_le_bytes());
 
         for i in 0..self.payload_size as usize {
-            buf[i + METADATA_SIZE - 1] = payload[i];
+            buf[i + METADATA_SIZE - 1] = self.payload[i];
         }
 
         // The CRC includes the payload size, frame ID, and payload.
@@ -85,7 +89,8 @@ impl Packet {
 
     /// Convert this payload to a buffer in MSP V1 format. See `to_buf` for
     /// a description and comments.
-    pub fn to_buf_v1(&self, payload: &[u8], buf: &mut [u8]) {
+    // pub fn to_buf_v1(&self, payload: &[u8], buf: &mut [u8]) {
+    pub fn to_buf_v1(&self, buf: &mut [u8]) {
         buf[0] = PREAMBLE_0;
         buf[1] = PREAMBLE_1_V1;
         buf[2] = self.message_type as u8;
@@ -94,7 +99,7 @@ impl Packet {
         buf[4] = self.function as u16 as u8;
 
         for i in 0..self.payload_size as usize {
-            buf[i + METADATA_SIZE_V1 - 1] = payload[i];
+            buf[i + METADATA_SIZE_V1 - 1] = self.payload[i];
         }
 
         let mut crc = self.payload_size as u8 ^ (self.function as u16 as u8);
@@ -112,10 +117,11 @@ pub fn _send_packet(
     uart: &mut Usart<USART2>,
     dma_chan: DmaChannel,
     packet: &Packet,
-    payload: &[u8],
+    // payload: &[u8],
     buf: &mut [u8],
 ) {
-    packet.to_buf(payload, buf);
+    // packet.to_buf(payload, buf);
+    packet.to_buf(buf);
     unsafe { uart.write_dma(&buf, dma_chan, Default::default(), setup::OSD_DMA_PERIPH) };
 }
 
@@ -128,6 +134,7 @@ pub fn _send_packet_v1(
     buf: &mut [u8],
 ) {
     // todo: DRY with `send_packet`.
-    packet.to_buf_v1(payload, buf);
+    // packet.to_buf_v1(payload, buf);
+    packet.to_buf_v1(buf);
     unsafe { uart.write_dma(&buf, dma_chan, Default::default(), setup::OSD_DMA_PERIPH) };
 }

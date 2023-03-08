@@ -363,9 +363,10 @@ fn add_to_buf(
     buf: &mut [u8],
     buf_i: &mut usize,
 ) {
-    let packet = Packet::new(MsgType::Request, function, payload_size);
+    let packet = Packet::new(MsgType::Request, function, payload_size, payload);
 
-    packet.to_buf_v1(payload, buf);
+    // packet.to_buf_v1(payload, buf);
+    packet.to_buf_v1(buf);
 
     let buf_size = payload_size + METADATA_SIZE_V1;
 
