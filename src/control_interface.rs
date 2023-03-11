@@ -1,32 +1,23 @@
 //! This module handles mapping control inputs from the ELRS radio controller to program functions.
-//! It is not based on the ELRS spec; it's an interface layer between that, and the rest of this program.
+//! It is not based on the ELRS or CRSF spec; it's an interface layer between that, and the rest of this program.
+//! Interfaces in this module is specific to this program.
 //!
-//! https://www.expresslrs.org/2.0/software/switch-config/
+//! https://www.expresslrs.org/3.0/software/switch-config/
 
-// /// Represents data from a channel, including what channel it is, and the data passed.
-// /// [ELRS FAQ](https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support)
-// /// Assumes "Wide hybrid mode", as described in the FAQ.
-// enum Channel {
-//     /// Channels 1-4 are 10-bit channels.
-//     Ch1(u16),
-//     Ch2(u16),
-//     Ch3(u16),
-//     Ch4(u16),
-//     /// Aux 1 is 2-positions, and must be used for arming. AKA "Channel 5"
-//     Aux1(crate::ArmStatus),
-//     /// Aux 2-8 are 64 or 128-position channels. (6 or 7 bit)
-//     Aux2(u8),
-//     Aux3(u8),
-//     Aux4(u8),
-//     Aux5(u8),
-//     Aux6(u8),
-//     Aux7(u8),
-//     Aux8(u8),
-// }
-
+use crate::{
+    protocols::crsf::{self, ChannelDataCrsf, LinkStats, TxPower},
+    util,
+};
 use num_enum::TryFromPrimitive; // Enum from integer
 
 use crate::safety::ArmStatus;
+
+use cfg_if::cfg_if;
+
+const CONTROL_VAL_MIN: f32 = -1.;
+// todo: Note that if you support 0-centering throttles, make this -1 as well.
+const CONTROL_VAL_MIN_THROTTLE: f32 = 0.;
+const CONTROL_VAL_MAX: f32 = 1.;
 
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)]
@@ -139,47 +130,24 @@ impl Default for InputModeSwitch {
     }
 }
 
-/// Represents data from all ELRS channels, including what channel it is, and the data passed.
-/// [ELRS FAQ](https://www.expresslrs.org/2.0/faq/#how-many-channels-does-elrs-support)
-/// Assumes "Wide hybrid mode", as described in the FAQ.
-#[derive(Default)]
-pub struct _ElrsChannelData {
-    /// Channels 1-4 are 10-bit channels.
-    pub channel_1: u16,
-    pub channel_2: u16,
-    pub channel_3: u16,
-    pub channel_4: u16,
-    /// Aux 1 is 2-positions, and must be used for arming. AKA "Channel 5"
-    pub aux1: ArmStatus,
-    /// Aux 2-8 are 64 or 128-position channels. (6 or 7 bit)
-    pub aux_2: InputModeSwitch,
-    pub aux_3: AltHoldSwitch,
-    pub aux_4: AutopilotSwitchA,
-    pub aux_5: AutopilotSwitchB,
-    pub aux_6: SteerpointCycleActuation,
-    pub aux_7: PidTuneMode,
-    pub aux_8: PidTuneActuation,
-}
+/// Map a raw CRSF channel value to a useful value.
+fn channel_to_val(mut chan_val: u16, is_throttle: bool) -> f32 {
+    if chan_val < crsf::CHANNEL_VAL_MIN {
+        chan_val = crsf::CHANNEL_VAL_MIN
+    } else if chan_val > crsf::CHANNEL_VAL_MAX {
+        chan_val = crsf::CHANNEL_VAL_MAX
+    }
 
-/// Represents CRSF channel data
-#[derive(Default)]
-pub struct _CrsfChannelData {
-    pub channel_1: u16,
-    pub channel_2: u16,
-    pub channel_3: u16,
-    pub channel_4: u16,
-    pub aux_1: u16,
-    pub aux_2: u16,
-    pub aux_3: u16,
-    pub aux_4: u16,
-    pub aux_5: u16,
-    pub aux_6: u16,
-    pub aux_7: u16,
-    pub aux_8: u16,
-    pub aux_9: u16,
-    pub aux_10: u16,
-    pub aux_11: u16,
-    pub aux_12: u16,
+    let control_val_min = if is_throttle {
+        CONTROL_VAL_MIN_THROTTLE
+    } else {
+        CONTROL_VAL_MIN
+    };
+    util::map_linear(
+        chan_val as f32,
+        (crsf::CHANNEL_VAL_MIN_F32, crsf::CHANNEL_VAL_MAX_F32),
+        (control_val_min, CONTROL_VAL_MAX),
+    )
 }
 
 /// Represents channel data in our end-use format. This is not constrained by
@@ -216,56 +184,105 @@ pub struct ChannelData {
     pub level_attitude_commanded: bool,
 }
 
-/// ELRS Transmit power. `u8` is the value reported over CRSF in the uplink tx power field.
-/// Note that you must use `Wide hybrid mode`, configured on the transmitter LUA to receive Tx power.
-#[repr(u8)]
-#[derive(Clone, Copy, Eq, PartialEq, TryFromPrimitive)]
-pub enum ElrsTxPower {
-    /// 10mW
-    P10 = 1,
-    /// 25mW
-    P25 = 2,
-    /// 50mW
-    P50 = 8,
-    /// 100mW
-    P100 = 3,
-    /// 250mW
-    P250 = 7,
-}
+impl ChannelData {
+    pub fn from_crsf(crsf_data: &ChannelDataCrsf) -> Self {
+        // https://www.expresslrs.org/3.0/software/switch-config/:
+        // "WARNING: Put your arm switch on AUX1, and set it as ~1000 is disarmed, ~2000 is armed."
+        // todo: On fixed wing, you want this to be a 3-pos switch, but this may not be
+        // todo possible with ELRS, with this channel hard-coded as a 2-pos arm sw?
+        let motors_armed = match crsf_data.aux_1 {
+            0..=1_500 => false,
+            // 0..=1_500 => ArmStatus::Disarmed,
+            _ => true,
+            // _ => motors_armed,
+        };
+        let input_mode = match crsf_data.aux_2 {
+            0..=1_000 => InputModeSwitch::Acro,
+            _ => InputModeSwitch::AttitudeCommand,
+        };
+        let alt_hold = match crsf_data.aux_3 {
+            0..=667 => AltHoldSwitch::Disabled,
+            668..=1_333 => AltHoldSwitch::EnabledMsl,
+            _ => AltHoldSwitch::EnabledAgl,
+        };
 
-impl Default for ElrsTxPower {
-    fn default() -> Self {
-        Self::P10
+        let autopilot_a = match crsf_data.aux_4 {
+            0..=667 => AutopilotSwitchA::Disabled,
+            668..=1_333 => AutopilotSwitchA::LoiterOrbit,
+            _ => AutopilotSwitchA::DirectToPoint,
+        };
+
+        let autopilot_b = match crsf_data.aux_5 {
+            0..=667 => AutopilotSwitchB::Disabled,
+            668..=1_333 => AutopilotSwitchB::HdgHold,
+            _ => AutopilotSwitchB::Land,
+        };
+
+        let steerpoint_cycle = match crsf_data.aux_6 {
+            0..=667 => SteerpointCycleActuation::Decrease,
+            668..=1_333 => SteerpointCycleActuation::Neutral,
+            _ => SteerpointCycleActuation::Increase,
+        };
+
+        let pid_tune_mode = match crsf_data.aux_7 {
+            0..=511 => PidTuneMode::Disabled,
+            512..=1_023 => PidTuneMode::P,
+            1_024..=1533 => PidTuneMode::I,
+            _ => PidTuneMode::D,
+        };
+
+        let pid_tune_actuation = match crsf_data.aux_8 {
+            0..=667 => PidTuneActuation::Decrease,
+            668..=1_333 => PidTuneActuation::Neutral,
+            _ => PidTuneActuation::Increase,
+        };
+
+        let level_attitude_commanded = match crsf_data.aux_9 {
+            0..=1_000 => false,
+            _ => true,
+        };
+
+        // todo: Ideally, this would be on the same channel as motor arm in a 3-pos
+        // todo switch, but ELRS hard codes is
+        #[cfg(feature = "fixed-wing")]
+        let controls_armed = match crsf_data.aux_10 {
+            0..=1_000 => false,
+            _ => true,
+        };
+
+        cfg_if! {
+            if #[cfg(feature = "quad")] {
+                let arm_status = if motors_armed { ArmStatus::Armed } else {ArmStatus::Disarmed };
+            } else {
+                let arm_status = if motors_armed {
+                    // Implicitly here, if the motor switch armed and control isn't, arm
+                    // controls.
+                    ArmStatus::MotorsControlsArmed
+                } else if controls_armed {
+                    ArmStatus::ControlsArmed
+                } else {
+                    ArmStatus::Disarmed
+                };
+            }
+        }
+
+        // Note that we could map to CRSF channels (Or to their ELRS-mapped origins), but this is
+        // currently set up to map directly to how we use the controls.
+        ChannelData {
+            // Clamp, and map CRSF data to a scale between -1. and 1.  or 0. to +1.
+            roll: channel_to_val(crsf_data.channel_1, false),
+            pitch: channel_to_val(crsf_data.channel_2, false),
+            throttle: channel_to_val(crsf_data.channel_3, true),
+            yaw: channel_to_val(crsf_data.channel_4, false),
+            arm_status,
+            input_mode,
+            alt_hold,
+            autopilot_a,
+            autopilot_b,
+            steerpoint_cycle,
+            pid_tune_mode,
+            pid_tune_actuation,
+            level_attitude_commanded,
+        }
     }
-}
-
-#[derive(Default)]
-/// https://www.expresslrs.org/3.0/info/signal-health/
-pub struct LinkStats {
-    /// Timestamp these stats were recorded. (TBD format; processed locally; not part of packet from tx).
-    pub timestamp: u32,
-    /// Uplink - received signal strength antenna 1 (RSSI). RSSI dBm as reported by the RX. Values
-    /// vary depending on mode, antenna quality, output power and distance. Ranges from -128 to 0.
-    pub uplink_rssi_1: u8,
-    /// Uplink - received signal strength antenna 2 (RSSI). Second antenna RSSI, used in diversity mode
-    /// (Same range as rssi_1)
-    pub uplink_rssi_2: u8,
-    /// Uplink - link quality (valid packets). The number of successful packets out of the last
-    /// 100 from TX → RX
-    pub uplink_link_quality: u8,
-    /// Uplink - signal-to-noise ratio. SNR reported by the RX. Value varies mostly by radio chip
-    /// and gets lower with distance (once the agc hits its limit)
-    pub uplink_snr: i8,
-    /// Active antenna for diversity RX (0 - 1)
-    pub active_antenna: u8,
-    pub rf_mode: u8,
-    /// Uplink - transmitting power. See the `ElrsTxPower` enum and its docs for details.
-    pub uplink_tx_power: ElrsTxPower,
-    /// Downlink - received signal strength (RSSI). RSSI dBm of telemetry packets received by TX.
-    pub downlink_rssi: u8,
-    /// Downlink - link quality (valid packets). An LQ indicator of telemetry packets received RX → TX
-    /// (0 - 100)
-    pub downlink_link_quality: u8,
-    /// Downlink - signal-to-noise ratio. SNR reported by the TX for telemetry packets
-    pub downlink_snr: i8,
 }

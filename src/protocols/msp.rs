@@ -49,12 +49,17 @@ pub struct Packet<'a> {
     /// (little endian) Payload size in bytes. (8-bits for V1)
     pub payload_size: u16,
     /// The payload.
-    pub payload: &'a[u8],
+    pub payload: &'a [u8],
     // // We don't store payload here, since it varies in size. (up to 65535 bytes)
 }
 
 impl<'a> Packet<'a> {
-    pub fn new(message_type: MsgType, function: Function, payload_size: usize, payload: &'a[u8]) -> Self {
+    pub fn new(
+        message_type: MsgType,
+        function: Function,
+        payload_size: usize,
+        payload: &'a [u8],
+    ) -> Self {
         Self {
             message_type,
             function,

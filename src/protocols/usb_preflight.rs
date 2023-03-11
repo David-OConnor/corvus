@@ -24,7 +24,7 @@ use crate::{
     setup,
     state::{OperationMode, MAX_WAYPOINTS},
     system_status::{self, SystemStatus},
-    util, LinkStats,
+    util,
 };
 
 use defmt::println;
@@ -58,6 +58,7 @@ cfg_if! {
 
 use usbd_serial::SerialPort;
 
+use crate::protocols::crsf::LinkStats;
 use num_enum::TryFromPrimitive; // Enum from integer
 
 const CRC_POLY: u8 = 0xab;

@@ -6,7 +6,6 @@
 //!
 //! 24 MHz max SPI frequency
 
-
 // todo: Robust fault detection: regularly check IMU's fault registers, and put that in the init
 // todo script. Use the `Fault` status etc as required.
 
@@ -286,7 +285,12 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
 
     // Set both the accelerator and gyro filters to the low latency option.
     // todo: This is what BF does. Do we want this?
-    write_one(Reg::Bank0(RegBank0::GyroAccelConfig0), 14 << 4 | 14, spi, cs)?;
+    write_one(
+        Reg::Bank0(RegBank0::GyroAccelConfig0),
+        14 << 4 | 14,
+        spi,
+        cs,
+    )?;
 
     // (Leave default INT_CONFIG settings of active low, push pull, pulsed.)
 

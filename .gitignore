@@ -1,11 +1,3 @@
-# Standard Python ignores. They don't affect code usability.
-*/__pycache__/
-*/Thumbs.db
-*.egg-info/
-*.pyc
-
-__pypackages__/
-
 */*.iws
 */workspace.xml
 

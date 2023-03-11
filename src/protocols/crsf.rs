@@ -33,7 +33,7 @@ use stm32_hal2::{dma::DmaChannel, usart::UsartInterrupt};
 
 use crate::{
     control_interface::{
-        AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData, InputModeSwitch, LinkStats,
+        AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData, InputModeSwitch,
         PidTuneActuation, PidTuneMode, SteerpointCycleActuation,
     },
     safety::ArmStatus,
@@ -52,16 +52,11 @@ const MAX_BUF_SHIFT: usize = 10;
 const CRC_POLY: u8 = 0xd5;
 const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
 
-const CHANNEL_VAL_MIN: u16 = 172;
-const CHANNEL_VAL_MAX: u16 = 1_811;
-const CHANNEL_VAL_MIN_F32: f32 = 172.;
-const CHANNEL_VAL_MAX_F32: f32 = 1_811.;
+pub const CHANNEL_VAL_MIN: u16 = 172;
+pub const CHANNEL_VAL_MAX: u16 = 1_811;
+pub const CHANNEL_VAL_MIN_F32: f32 = 172.;
+pub const CHANNEL_VAL_MAX_F32: f32 = 1_811.;
 // const CHANNEL_VAL_SPAN: u16 = CHANNEL_VAL_MAX - CHANNEL_VAL_MIN;
-
-const CONTROL_VAL_MIN: f32 = -1.;
-// todo: Note that if you support 0-centering throttles, make this -1 as well.
-const CONTROL_VAL_MIN_THROTTLE: f32 = 0.;
-const CONTROL_VAL_MAX: f32 = 1.;
 
 // Used both both TX and RX buffers. Includes payload, and other data words.
 // Note that for receiving channel data, we use 26 bytes total (22 of which are channel data).
@@ -88,6 +83,81 @@ pub static TRANSFER_IN_PROG: AtomicBool = AtomicBool::new(false);
 /// Invalid packet, etc.
 struct DecodeError {}
 // struct CrcError {} todo?
+
+/// Represents CRSF channel data
+#[derive(Default)]
+pub struct ChannelDataCrsf {
+    pub channel_1: u16,
+    pub channel_2: u16,
+    pub channel_3: u16,
+    pub channel_4: u16,
+    pub aux_1: u16,
+    pub aux_2: u16,
+    pub aux_3: u16,
+    pub aux_4: u16,
+    pub aux_5: u16,
+    pub aux_6: u16,
+    pub aux_7: u16,
+    pub aux_8: u16,
+    pub aux_9: u16,
+    pub aux_10: u16,
+    pub aux_11: u16,
+    pub aux_12: u16,
+}
+
+#[derive(Default)]
+/// https://www.expresslrs.org/3.0/info/signal-health/
+pub struct LinkStats {
+    /// Timestamp these stats were recorded. (TBD format; processed locally; not part of packet from tx).
+    pub timestamp: u32,
+    /// Uplink - received signal strength antenna 1 (RSSI). RSSI dBm as reported by the RX. Values
+    /// vary depending on mode, antenna quality, output power and distance. Ranges from -128 to 0.
+    pub uplink_rssi_1: u8,
+    /// Uplink - received signal strength antenna 2 (RSSI). Second antenna RSSI, used in diversity mode
+    /// (Same range as rssi_1)
+    pub uplink_rssi_2: u8,
+    /// Uplink - link quality (valid packets). The number of successful packets out of the last
+    /// 100 from TX → RX
+    pub uplink_link_quality: u8,
+    /// Uplink - signal-to-noise ratio. SNR reported by the RX. Value varies mostly by radio chip
+    /// and gets lower with distance (once the agc hits its limit)
+    pub uplink_snr: i8,
+    /// Active antenna for diversity RX (0 - 1)
+    pub active_antenna: u8,
+    pub rf_mode: u8,
+    /// Uplink - transmitting power. See the `ElrsTxPower` enum and its docs for details.
+    pub uplink_tx_power: TxPower,
+    /// Downlink - received signal strength (RSSI). RSSI dBm of telemetry packets received by TX.
+    pub downlink_rssi: u8,
+    /// Downlink - link quality (valid packets). An LQ indicator of telemetry packets received RX → TX
+    /// (0 - 100)
+    pub downlink_link_quality: u8,
+    /// Downlink - signal-to-noise ratio. SNR reported by the TX for telemetry packets
+    pub downlink_snr: i8,
+}
+
+/// ELRS Transmit power. `u8` is the value reported over CRSF in the uplink tx power field.
+/// Note that you must use `Wide hybrid mode`, configured on the transmitter LUA to receive Tx power.
+#[repr(u8)]
+#[derive(Clone, Copy, Eq, PartialEq, TryFromPrimitive)]
+pub enum TxPower {
+    /// 10mW
+    P10 = 1,
+    /// 25mW
+    P25 = 2,
+    /// 50mW
+    P50 = 8,
+    /// 100mW
+    P100 = 3,
+    /// 250mW
+    P250 = 7,
+}
+
+impl Default for TxPower {
+    fn default() -> Self {
+        Self::P10
+    }
+}
 
 #[derive(Clone, Copy, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
@@ -147,7 +217,7 @@ enum FrameType {
 /// Used to pass packet data to the main program, returned by the handler triggered in the UART-idle
 /// interrupt.
 pub enum PacketData {
-    ChannelData(ChannelData),
+    ChannelData(ChannelDataCrsf),
     LinkStats(LinkStats),
 }
 
@@ -179,26 +249,6 @@ struct Packet {
     pub extended_src: Option<DestAddr>,
     pub payload: [u8; MAX_PAYLOAD_SIZE],
     pub crc: u8,
-}
-
-/// Map a raw CRSF channel value to a useful value.
-fn channel_to_val(mut chan_val: u16, is_throttle: bool) -> f32 {
-    if chan_val < CHANNEL_VAL_MIN {
-        chan_val = CHANNEL_VAL_MIN
-    } else if chan_val > CHANNEL_VAL_MAX {
-        chan_val = CHANNEL_VAL_MAX
-    }
-
-    let control_val_min = if is_throttle {
-        CONTROL_VAL_MIN_THROTTLE
-    } else {
-        CONTROL_VAL_MIN
-    };
-    util::map_linear(
-        chan_val as f32,
-        (CHANNEL_VAL_MIN_F32, CHANNEL_VAL_MAX_F32),
-        (control_val_min, CONTROL_VAL_MAX),
-    )
 }
 
 impl Packet {
@@ -286,13 +336,16 @@ impl Packet {
         buf[3 + payload_len] = self.crc;
     }
 
-    /// Interpret a CRSF packet as ELRS channel data.
+    /// Unpack the payload as channel data.
     /// https://github.com/chris1seto/OzarkRiver/blob/4channel/FlightComputerFirmware/Src/Crsf.c#L148
-    pub fn to_channel_data(&self) -> ChannelData {
+    pub fn to_channel_data(&self) -> ChannelDataCrsf {
         let mut data = [0; MAX_PAYLOAD_SIZE];
         for i in 0..MAX_PAYLOAD_SIZE {
             data[i] = self.payload[i] as u16;
         }
+
+        // todo: Consider having this export CrsfChData, then convert that to our own
+        // format in a separate fn.
 
         #[cfg(feature = "quad")]
         let motors_armed = ArmStatus::Armed;
@@ -303,128 +356,23 @@ impl Packet {
         // and comment or uncomment the unpacking lines below, up to 16.
         let mut raw_channels = [0_u16; 14];
 
-        // Decode channel data
-        raw_channels[0] = (data[0] | data[1] << 8) & 0x07FF;
-        raw_channels[1] = (data[1] >> 3 | data[2] << 5) & 0x07FF;
-        raw_channels[2] = (data[2] >> 6 | data[3] << 2 | data[4] << 10) & 0x07FF;
-        raw_channels[3] = (data[4] >> 1 | data[5] << 7) & 0x07FF;
-        raw_channels[4] = (data[5] >> 4 | data[6] << 4) & 0x07FF;
-        raw_channels[5] = (data[6] >> 7 | data[7] << 1 | data[8] << 9) & 0x07FF;
-        raw_channels[6] = (data[8] >> 2 | data[9] << 6) & 0x07FF;
-        raw_channels[7] = (data[9] >> 5 | data[10] << 3) & 0x07FF;
-        raw_channels[8] = (data[11] | data[12] << 8) & 0x07FF;
-        raw_channels[9] = (data[12] >> 3 | data[13] << 5) & 0x07FF;
-        raw_channels[10] = (data[13] >> 6 | data[14] << 2 | data[15] << 10) & 0x07FF;
-        raw_channels[11] = (data[15] >> 1 | data[16] << 7) & 0x07FF;
-        raw_channels[12] = (data[16] >> 4 | data[17] << 4) & 0x07FF;
-
-        cfg_if! {
-            if #[cfg(feature = "fixed-wing")] {
-                // A normal cfg block doesn't work with index assignment.
-                raw_channels[13] = (data[17] >> 7 | data[18] << 1 | data[19] << 9) & 0x07FF;
-            }
-        }
-
-        // raw_channels[14] = (data[19] >> 2 | data[20] << 6) & 0x07FF;
-        // raw_channels[15] = (data[20] >> 5 | data[21] << 3) & 0x07FF;
-
-        // https://www.expresslrs.org/2.0/software/switch-config/:
-        // "WARNING: Put your arm switch on AUX1, and set it as ~1000 is disarmed, ~2000 is armed."
-        // todo: On fixed wing, you want this to be a 3-pos switch, but this may not be
-        // todo possible with ELRS, with this channel hard-coded as a 2-pos arm sw?
-        let motors_armed = match raw_channels[4] {
-            0..=1_500 => false,
-            // 0..=1_500 => ArmStatus::Disarmed,
-            _ => true,
-            // _ => motors_armed,
-        };
-        let input_mode = match raw_channels[5] {
-            0..=1_000 => InputModeSwitch::Acro,
-            _ => InputModeSwitch::AttitudeCommand,
-        };
-        let alt_hold = match raw_channels[6] {
-            0..=667 => AltHoldSwitch::Disabled,
-            668..=1_333 => AltHoldSwitch::EnabledMsl,
-            _ => AltHoldSwitch::EnabledAgl,
-        };
-
-        let autopilot_a = match raw_channels[7] {
-            0..=667 => AutopilotSwitchA::Disabled,
-            668..=1_333 => AutopilotSwitchA::LoiterOrbit,
-            _ => AutopilotSwitchA::DirectToPoint,
-        };
-
-        let autopilot_b = match raw_channels[8] {
-            0..=667 => AutopilotSwitchB::Disabled,
-            668..=1_333 => AutopilotSwitchB::HdgHold,
-            _ => AutopilotSwitchB::Land,
-        };
-
-        let steerpoint_cycle = match raw_channels[9] {
-            0..=667 => SteerpointCycleActuation::Decrease,
-            668..=1_333 => SteerpointCycleActuation::Neutral,
-            _ => SteerpointCycleActuation::Increase,
-        };
-
-        let pid_tune_mode = match raw_channels[10] {
-            0..=511 => PidTuneMode::Disabled,
-            512..=1_023 => PidTuneMode::P,
-            1_024..=1533 => PidTuneMode::I,
-            _ => PidTuneMode::D,
-        };
-
-        let pid_tune_actuation = match raw_channels[11] {
-            0..=667 => PidTuneActuation::Decrease,
-            668..=1_333 => PidTuneActuation::Neutral,
-            _ => PidTuneActuation::Increase,
-        };
-
-        let level_attitude_commanded = match raw_channels[12] {
-            0..=1_000 => false,
-            _ => true,
-        };
-
-        // todo: Ideally, this would be on the same channel as motor arm in a 3-pos
-        // todo switch, but ELRS hard codes is
-        #[cfg(feature = "fixed-wing")]
-        let controls_armed = match raw_channels[13] {
-            0..=1_000 => false,
-            _ => true,
-        };
-
-        cfg_if! {
-            if #[cfg(feature = "quad")] {
-                let arm_status = if motors_armed { ArmStatus::Armed } else {ArmStatus::Disarmed };
-            } else {
-                let arm_status = if motors_armed {
-                    // Implicitly here, if the motor switch armed and control isn't, arm
-                    // controls.
-                    ArmStatus::MotorsControlsArmed
-                } else if controls_armed {
-                    ArmStatus::ControlsArmed
-                } else {
-                    ArmStatus::Disarmed
-                };
-            }
-        }
-
-        // Note that we could map to CRSF channels (Or to their ELRS-mapped origins), but this is
-        // currently set up to map directly to how we use the controls.
-        ChannelData {
-            // Clamp, and map CRSF data to a scale between -1. and 1.  or 0. to +1.
-            roll: channel_to_val(raw_channels[0], false),
-            pitch: channel_to_val(raw_channels[1], false),
-            throttle: channel_to_val(raw_channels[2], true),
-            yaw: channel_to_val(raw_channels[3], false),
-            arm_status,
-            input_mode,
-            alt_hold,
-            autopilot_a,
-            autopilot_b,
-            steerpoint_cycle,
-            pid_tune_mode,
-            pid_tune_actuation,
-            level_attitude_commanded,
+        ChannelDataCrsf {
+            channel_1: (data[0] | data[1] << 8) & 0x07FF,
+            channel_2: (data[1] >> 3 | data[2] << 5) & 0x07FF,
+            channel_3: (data[2] >> 6 | data[3] << 2 | data[4] << 10) & 0x07FF,
+            channel_4: (data[4] >> 1 | data[5] << 7) & 0x07FF,
+            aux_1: (data[5] >> 4 | data[6] << 4) & 0x07FF,
+            aux_2: (data[6] >> 7 | data[7] << 1 | data[8] << 9) & 0x07FF,
+            aux_3: (data[8] >> 2 | data[9] << 6) & 0x07FF,
+            aux_4: (data[9] >> 5 | data[10] << 3) & 0x07FF,
+            aux_5: (data[11] | data[12] << 8) & 0x07FF,
+            aux_6: (data[12] >> 3 | data[13] << 5) & 0x07FF,
+            aux_7: (data[13] >> 6 | data[14] << 2 | data[15] << 10) & 0x07FF,
+            aux_8: (data[15] >> 1 | data[16] << 7) & 0x07FF,
+            aux_9: (data[16] >> 4 | data[17] << 4) & 0x07FF,
+            aux_10: (data[17] >> 7 | data[18] << 1 | data[19] << 9) & 0x07FF,
+            aux_11: (data[19] >> 2 | data[20] << 6) & 0x07FF,
+            aux_12: (data[20] >> 5 | data[21] << 3) & 0x07FF,
         }
     }
 

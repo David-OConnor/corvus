@@ -140,7 +140,6 @@ pub struct AccelMaps {
 impl Default for AccelMaps {
     /// Long sizes of `AccelMapPt` are blocked from a Deafult derive, evidently.
     fn default() -> Self {
-
         let pts = [AccelMapPt::default(); NUM_SAMPLE_PTS];
 
         Self {

@@ -731,6 +731,8 @@ pub enum Feature {
 //     flag: i8, // 0xa5 = last, otherwise set to 0
 // }
 
+/// todo: Where is this protocol defined, including its serialization?
+/// todo: Is it specific to DJI? Vista/Air unit only, or also O3?
 #[derive(Default)]
 pub struct OsdConfig {
     pub osdflags: u8,
@@ -843,6 +845,7 @@ impl OsdConfig {
         // todo: You must fill this in.
 
         // todo: We only include values we use.
+        // todo: See note about: Where is this protocol defined, and is it DJI-specific?
         result[0] = self.osdflags;
         result[1] = self.video_system;
         result[2] = self.units;

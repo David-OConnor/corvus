@@ -24,7 +24,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use ahrs_fusion::Ahrs;
 use cfg_if::cfg_if;
-use control_interface::{ChannelData, LinkStats};
+use control_interface::ChannelData;
 use cortex_m::{self, asm, delay::Delay};
 use cortex_m_rt::exception;
 
@@ -90,6 +90,7 @@ use flight_ctrls::motor_servo::MotorPower; // todo Temp
 
 use params::Params;
 use ppks::{Location, LocationType};
+use protocols::crsf::LinkStats;
 use protocols::{crsf, dshot, rpm_reception, usb_preflight};
 use safety::ArmStatus;
 use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
@@ -215,9 +216,9 @@ const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 #[rtic::app(device = pac, peripherals = false, dispatchers= [])]
 mod app {
     use super::*;
+    use crate::flight_ctrls::common::CtrlMix;
     use crate::flight_ctrls::pid;
     use stm32_hal2::dma::DmaChannel;
-    use crate::flight_ctrls::common::CtrlMix;
 
     #[shared]
     struct Shared {
@@ -376,10 +377,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-            // let spi_flash_pac = dp.OCTOSPI1;
-            let spi_flash_pac = dp.QUADSPI;
+        // let spi_flash_pac = dp.OCTOSPI1;
+        let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-            let spi_flash_pac = dp.SPI2;
+        let spi_flash_pac = dp.SPI2;
 
         let (
             mut spi1,
@@ -438,10 +439,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -659,21 +660,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-            // todo: Wrong. You need to do this by number; apply your pin mapping.
-            let motors_reversed = (
+        // todo: Wrong. You need to do this by number; apply your pin mapping.
+        let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -1681,9 +1682,9 @@ mod app {
 
             if let Some(crsf_data) = crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault) {
                 match crsf_data {
-                    crsf::PacketData::ChannelData(data) => {
+                    crsf::PacketData::ChannelData(data_crsf) => {
                         cx.shared.control_channel_data.lock(|ch_data| {
-                            *ch_data = Some(data);
+                            *ch_data = Some(ChannelData::from_crsf(&data_crsf));
                         });
 
                         recieved_ch_data = true;
