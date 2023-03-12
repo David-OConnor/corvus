@@ -27,19 +27,11 @@ use core::sync::atomic::AtomicBool;
 
 use num_enum::TryFromPrimitive; // Enum from integer
 
-use defmt::println;
-
 use stm32_hal2::{dma::DmaChannel, usart::UsartInterrupt};
 
-use crate::{
-    control_interface::{
-        AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData, InputModeSwitch,
-        PidTuneActuation, PidTuneMode, SteerpointCycleActuation,
-    },
-    safety::ArmStatus,
-    setup, util,
-};
+use crate::util;
 
+use defmt::println;
 use cfg_if::cfg_if;
 
 // For the receiver, 420k baud is hard set.
@@ -223,7 +215,7 @@ pub enum PacketData {
 
 /// Configure the Idle interrupt, and start the circular DMA transfer. Run this once, on initial
 /// firmware setup.
-pub fn setup(uart: &mut setup::UartCrsf) {
+pub fn setup(uart: &mut crate::setup::UartCrsf) {
     // We alternate between char matching the flight controller destination address, and
     // line idle, to indicate we're received, or stopped receiving a message respectively.
     uart.enable_interrupt(UsartInterrupt::CharDetect(Some(
@@ -344,18 +336,6 @@ impl Packet {
             data[i] = self.payload[i] as u16;
         }
 
-        // todo: Consider having this export CrsfChData, then convert that to our own
-        // format in a separate fn.
-
-        #[cfg(feature = "quad")]
-        let motors_armed = ArmStatus::Armed;
-        #[cfg(feature = "fixed-wing")]
-        let motors_armed = ArmStatus::MotorsControlsArmed;
-
-        // As you change the number of channels used, increase the `raw_channels` size,
-        // and comment or uncomment the unpacking lines below, up to 16.
-        let mut raw_channels = [0_u16; 14];
-
         ChannelDataCrsf {
             channel_1: (data[0] | data[1] << 8) & 0x07FF,
             channel_2: (data[1] >> 3 | data[2] << 5) & 0x07FF,
@@ -399,7 +379,7 @@ impl Packet {
 
 /// Handle an incomming packet. Triggered whenever the line goes idle.
 pub fn handle_packet(
-    uart: &mut setup::UartCrsf,
+    uart: &mut crate::setup::UartCrsf,
     rx_chan: DmaChannel,
     rx_fault: &mut bool,
 ) -> Option<PacketData> {

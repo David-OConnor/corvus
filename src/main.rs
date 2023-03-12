@@ -21,6 +21,7 @@
 // - Ir cam to find or avoid people
 
 use core::sync::atomic::{AtomicUsize, Ordering};
+use core::num::{NonZeroU16, NonZeroU8}; // for CAN?
 
 use ahrs_fusion::Ahrs;
 use cfg_if::cfg_if;
@@ -51,6 +52,7 @@ use lin_alg2::f32::Quaternion;
 use stm32_hal2::{
     self,
     adc::{self, Adc, AdcConfig, AdcDevice},
+    can::Can,
     clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
     dma::{self, ChannelCfg, Dma, DmaInterrupt, DmaPeriph},
     flash::{Bank, Flash},
@@ -99,6 +101,7 @@ use state::{OperationMode, StateVolatile, UserCfg};
 cfg_if! {
     if #[cfg(feature = "h7")] {
         use stm32_hal2::{
+            can::{self, Can},
             clocks::{PllCfg, VosRange},
             // todo: USB1 on H723; USB2 on H743.
             // usb::{Usb1, UsbBus, Usb1BusType as UsbBusType},
@@ -117,6 +120,14 @@ cfg_if! {
         pub use stm32_hal2::pac::{UART4, ADC2 as ADC};
     }
 }
+
+use fdcan::{
+    FdCan,
+    filter::{StandardFilter, StandardFilterSlot},
+    frame::{FrameFormat, TxFrameHeader},
+    id::{Id, StandardId},
+    config as can_config,
+};
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
@@ -377,10 +388,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-        // let spi_flash_pac = dp.OCTOSPI1;
-        let spi_flash_pac = dp.QUADSPI;
+            // let spi_flash_pac = dp.OCTOSPI1;
+            let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-        let spi_flash_pac = dp.SPI2;
+            let spi_flash_pac = dp.SPI2;
 
         let (
             mut spi1,
@@ -401,7 +412,98 @@ mod app {
             &clock_cfg,
         );
 
-        // todo end SPI test loop.
+
+        // todo: Temp CAN test code.
+
+        {
+            // todo: CAN clock cfg
+            // let mut can_ = Can::new(dp.FDCAN);
+            let mut can = FdCan::new(Can::new(dp.FDCAN)).into_config_mode();
+            // can.enable_itnerrupt(can::Interrupt::TxEmpty);
+
+            // Kernel Clock 32MHz, Bit rate: 500kBit/s, Sample Point 87.5%
+            // Value was calculated with http://www.bittiming.can-wiki.info/
+            // TODO: use the can_bit_timings crate
+            // Kernel Clock 32MHz, Bit rate: 500kBit/s, Sample Point 87.5%
+            // Value was calculated with http://www.bittiming.can-wiki.info/
+            // TODO: use the can_bit_timings crate
+            let nominal_bit_timing = can_config::NominalBitTiming {
+                prescaler: NonZeroU16::new(4).unwrap(),
+                seg1: NonZeroU8::new(13).unwrap(),
+                seg2: NonZeroU8::new(2).unwrap(),
+                sync_jump_width: NonZeroU8::new(1).unwrap(),
+            };
+
+            // Kernel Clock 32MHz, Bit rate: 1MBit/s, Sample Point 87.5%
+            // Value was calculated with http://www.bittiming.can-wiki.info/
+            // TODO: use the can_bit_timings crate
+            let data_bit_timing = can_config::DataBitTiming {
+                prescaler: NonZeroU8::new(2).unwrap(),
+                seg1: NonZeroU8::new(13).unwrap(),
+                seg2: NonZeroU8::new(2).unwrap(),
+                sync_jump_width: NonZeroU8::new(1).unwrap(),
+                transceiver_delay_compensation: true,
+            };
+
+            can.set_protocol_exception_handling(false);
+            can.set_nominal_bit_timing(nominal_bit_timing);
+            can.set_data_bit_timing(data_bit_timing);
+            can.set_standard_filter(
+                StandardFilterSlot::_0,
+                StandardFilter::accept_all_into_fifo0(),
+            );
+
+            // // https://docs.rs/fdcan/latest/fdcan/config/struct.FdCanConfig.html
+            // let can_cfg = can_config::FdCanConfig {
+            //     nbtr: can_config::NominalBitTiming::NonZeroU16,
+            //     dbtr: can_config::DataBitTiming {
+            //         transceiver_delay_compensation: bool,
+            //         prescaler: NonZeroU8,
+            //         seg1: NonZeroU8,
+            //         seg2: NonZeroU8,
+            //        sync_jump_width: NonZeroU8,
+            //     },
+            //     automatic_retransmit: false,
+            //     transmit_pause: false,
+            //     frame_transmit: can_config::FrameTransmissionConfig::AllowFdCanAndBrs,
+            //     non_iso_mode: false,
+            //     edge_filtering: false,
+            //     protocol_exception_handling: false,
+            //     clock_divider: can_config::ClockDivider::_4, // todo
+            //     interrupt_line_config: Interrupts,
+            //     timestamp_source: can_config::TimestampSource,
+            //     global_filter: can_config::GlobalFilter,
+            // };
+
+            let can_cfg = can
+                .get_config()
+                .set_frame_transmit(can_config::FrameTransmissionConfig::AllowFdCanAndBRS);
+
+            can.apply_config(can_cfg);
+
+            // let mut can = can.into_external_loopback();
+            let mut can = can.into_normal();
+
+
+            let mut buf = [0; 16];
+            let mut rx_result = can.receive0(&mut buf);
+
+
+            loop {
+                if let Ok(rxheader) = can.receive0(&mut buf) {
+                    // if let Ok(rxheader) = block!(can.receive0(&mut buffer)) {
+                    // println!("Received Header: {:?}", rxheader); // todo: Not able to format for now.
+                    println!("received data: {:?}", &buf);
+                    //
+                    // delay.delay_ms(1);
+                    // // block!(can.transmit(rxheader.unwrap().to_tx_header(None), &buffer))
+                    // //     .unwrap();
+                    // can.transmit(rxheader.unwrap().to_tx_header(None), &buffer).unwrap();
+                    // println!("Transmit: {:?}", buffer);
+                }
+            }
+        }
+        // todo: End CAN test code
 
         // todo start I2c test
         // println!("Starting I2c/SPI test loop");
@@ -439,10 +541,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -660,21 +762,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-        // todo: Wrong. You need to do this by number; apply your pin mapping.
-        let motors_reversed = (
+            // todo: Wrong. You need to do this by number; apply your pin mapping.
+            let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,

@@ -34,15 +34,19 @@ synopsys-usb-otg = { version = "^0.3.0", optional = true}
 usb-device = "^0.2.9"
 usbd-serial = "^0.1.1"
 
+#fdcan = { version = "0.1.2", optional = true }
+fdcan = { version = "0.1.2" }
+
 # To parse enums from their integer repr
 num_enum = { version = "^0.5.7", default_features = false }
 
 # Use these features to specify GPIO mapping, and which peripherals to use.
 [features]
-g4 = ["stm32-hal2/g4rt", "stm32-hal2/g473", "stm32-hal2/usb", "stm32-usbd"]
-# todo: H7 HS vs FS USB.
-#h7 = ["stm32-hal2/h7rt", "stm32-hal2/h735", "stm32-hal2/usbotg_hs", "synopsys-usb-otg"]
-h7 = ["stm32-hal2/h7rt", "stm32-hal2/h743v", "stm32-hal2/usbotg_hs", "synopsys-usb-otg"]
+g4 = ["stm32-hal2/g4rt", "stm32-hal2/g473", "stm32-hal2/usb", "stm32-hal2/can_fd_g", "stm32-usbd", ]
+#g4 = ["stm32-hal2/g4rt", "stm32-hal2/g473", "stm32-hal2/usb", "stm32-usbd", "fdcan/fdcan_g0_g4_l5"]
+h7 = ["stm32-hal2/h7rt", "stm32-hal2/h743v", "stm32-hal2/can_fd_h", "stm32-hal2/usbotg_hs", "stm32-hal2/can_fd_h", "synopsys-usb-otg", ]
+#h7 = ["stm32-hal2/h7rt", "stm32-hal2/h743v", "stm32-hal2/can_fd_h", "stm32-hal2/usbotg_hs", "synopsys-usb-otg", "fdcan/fdcan_h7"]
+
 quad = [] # For quadcopter aircraft
 fixed-wing = [] # For fixed-wing aircraft
 # Periodically print the status of various sytems and sensor data to console. For debugging.

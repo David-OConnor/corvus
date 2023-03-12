@@ -411,6 +411,17 @@ pub fn setup_pins() {
     scl1.output_type(OutputType::OpenDrain);
     sda2.output_type(OutputType::OpenDrain);
     scl2.output_type(OutputType::OpenDrain);
+
+    // Configure CAN pins. Currently on the H7 board uses CAN.
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            let mut can_rx = Pin::new(Port::D, 0, PinMode::alt(9));
+            let mut can_tx = Pin::new(Port::D, 1, PinMode::alt(9));
+
+            can_tx.output_speed(OutputSpeed::VeryHigh);
+            can_rx.output_speed(OutputSpeed::VeryHigh);
+        }
+    }
 }
 
 /// Assign DMA channels to peripherals.
@@ -609,7 +620,7 @@ pub fn setup_busses(
     // When oversampling by 8, the baud rate ranges from usart_ker_ck_pres/65535 and
     // usart_ker_ck_pres/8.
 
-    let mut uart_crsf = Usart::new(
+    let uart_crsf = Usart::new(
         uart_crsf_pac,
         crsf::BAUD,
         UsartConfig {
