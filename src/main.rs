@@ -732,20 +732,6 @@ mod app {
         // update_timer.enable();
         adc_timer.enable();
 
-        // unsafe {
-        //     uart_crsf.read_dma(
-        //         &mut crsf::RX_BUFFER,
-        //         setup::CRSF_RX_CH,
-        //         ChannelCfg {
-        //             // Take precedence over the ADC, but not motors.
-        //             priority: dma::Priority::Medium,
-        //             // circular: dma::Circular::Enabled, //todo temp
-        //             ..Default::default()
-        //         },
-        //         setup::CRSF_DMA_PERIPH,
-        //     );
-        // }
-
         println!("Init complete; starting main loops");
 
         // Unmask the Systick interrupt here; doesn't appear to be handled by RTIC the same was
@@ -1646,8 +1632,7 @@ mod app {
     #[task(binds = USART3,
     // #[task(binds = USART2,
     shared = [control_channel_data, link_stats, rf_limiter_timer, system_status,
-    lost_link_timer], local = [uart_crsf], priority = 12)]
-    // todo: evaluate pri. Probably lower.  Currently high to TS.
+    lost_link_timer], local = [uart_crsf], priority = 4)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
     /// and message ends. For message starts, it begins a DMA transfer. For message ends, it
     /// processes the radio data, passing it into shared resources for control channel data,
@@ -1660,15 +1645,11 @@ mod app {
     fn crsf_isr(mut cx: crsf_isr::Context) {
         let uart = &mut cx.local.uart_crsf; // Code shortener
 
-        println!("CRSF");
-
         let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
         let mut rx_fault = false;
 
         uart.clear_interrupt(UsartInterrupt::CharDetect(None));
         uart.clear_interrupt(UsartInterrupt::Idle);
-
-        uart.clear_interrupt(UsartInterrupt::Overrun); // todo temp
 
         // todo: Store link stats and control channel data in an intermediate variable.
         // todo: Don't lock it. At least, you don't want any delay when starting the read,

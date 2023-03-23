@@ -362,12 +362,12 @@ pub fn setup_pins() {
             let mut uart_crsf_rx = Pin::new(Port::B, 3, PinMode::Alt(11));
         } else {
             // We use UART 2 for ELRS on G4.
-            let _uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
-            let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
+            // let _uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
+            // let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
 
             // Usart 3 TS
-            // let _uart_crsf_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
-            // let mut uart_crsf_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
+            let _uart_crsf_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
+            let mut uart_crsf_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
         }
     }
 

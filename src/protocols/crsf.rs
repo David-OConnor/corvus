@@ -216,7 +216,6 @@ pub enum PacketData {
 /// Configure the Idle interrupt, and start the circular DMA transfer. Run this once, on initial
 /// firmware setup.
 pub fn setup(uart: &mut crate::setup::UartCrsf) {
-
     // todo: UART FIFO??
 
     // We alternate between char matching the flight controller destination address, and
@@ -224,16 +223,6 @@ pub fn setup(uart: &mut crate::setup::UartCrsf) {
     uart.enable_interrupt(UsartInterrupt::CharDetect(Some(
         DestAddr::FlightController as u8,
     )));
-    println!("Setup");
-
-    // (2022-11-13) If we start the FC without the Rx being connected and this interrupt
-    // is enabled
-    // Don't enable the idle interrupt on init, to prevent a spurious interrupt after boot.
-    uart.enable_interrupt(UsartInterrupt::Idle);
-
-    // todo: Not sure why we're getting overruns, but unless we clear them, they prevent data
-    // todo from being read.
-    // uart.enable_interrupt(UsartInterrupt::Overrun);
 }
 
 struct Packet {
