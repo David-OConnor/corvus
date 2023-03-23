@@ -21,7 +21,6 @@
 // - Ir cam to find or avoid people
 
 use core::sync::atomic::{AtomicUsize, Ordering};
-use core::num::{NonZeroU16, NonZeroU8}; // for CAN?
 
 use ahrs_fusion::Ahrs;
 use cfg_if::cfg_if;
@@ -121,13 +120,6 @@ cfg_if! {
     }
 }
 
-use fdcan::{
-    FdCan,
-    filter::{StandardFilter, StandardFilterSlot},
-    frame::{FrameFormat, TxFrameHeader},
-    id::{Id, StandardId},
-    config as can_config,
-};
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
@@ -413,96 +405,40 @@ mod app {
         );
 
 
+        // todo: Put can back. getting CREL issues.
         // todo: Temp CAN test code.
-
-        {
-            // todo: CAN clock cfg
-            // let mut can_ = Can::new(dp.FDCAN);
-            let mut can = FdCan::new(Can::new(dp.FDCAN)).into_config_mode();
-            // can.enable_itnerrupt(can::Interrupt::TxEmpty);
-
-            // Kernel Clock 32MHz, Bit rate: 500kBit/s, Sample Point 87.5%
-            // Value was calculated with http://www.bittiming.can-wiki.info/
-            // TODO: use the can_bit_timings crate
-            // Kernel Clock 32MHz, Bit rate: 500kBit/s, Sample Point 87.5%
-            // Value was calculated with http://www.bittiming.can-wiki.info/
-            // TODO: use the can_bit_timings crate
-            let nominal_bit_timing = can_config::NominalBitTiming {
-                prescaler: NonZeroU16::new(4).unwrap(),
-                seg1: NonZeroU8::new(13).unwrap(),
-                seg2: NonZeroU8::new(2).unwrap(),
-                sync_jump_width: NonZeroU8::new(1).unwrap(),
-            };
-
-            // Kernel Clock 32MHz, Bit rate: 1MBit/s, Sample Point 87.5%
-            // Value was calculated with http://www.bittiming.can-wiki.info/
-            // TODO: use the can_bit_timings crate
-            let data_bit_timing = can_config::DataBitTiming {
-                prescaler: NonZeroU8::new(2).unwrap(),
-                seg1: NonZeroU8::new(13).unwrap(),
-                seg2: NonZeroU8::new(2).unwrap(),
-                sync_jump_width: NonZeroU8::new(1).unwrap(),
-                transceiver_delay_compensation: true,
-            };
-
-            can.set_protocol_exception_handling(false);
-            can.set_nominal_bit_timing(nominal_bit_timing);
-            can.set_data_bit_timing(data_bit_timing);
-            can.set_standard_filter(
-                StandardFilterSlot::_0,
-                StandardFilter::accept_all_into_fifo0(),
-            );
-
-            // // https://docs.rs/fdcan/latest/fdcan/config/struct.FdCanConfig.html
-            // let can_cfg = can_config::FdCanConfig {
-            //     nbtr: can_config::NominalBitTiming::NonZeroU16,
-            //     dbtr: can_config::DataBitTiming {
-            //         transceiver_delay_compensation: bool,
-            //         prescaler: NonZeroU8,
-            //         seg1: NonZeroU8,
-            //         seg2: NonZeroU8,
-            //        sync_jump_width: NonZeroU8,
-            //     },
-            //     automatic_retransmit: false,
-            //     transmit_pause: false,
-            //     frame_transmit: can_config::FrameTransmissionConfig::AllowFdCanAndBrs,
-            //     non_iso_mode: false,
-            //     edge_filtering: false,
-            //     protocol_exception_handling: false,
-            //     clock_divider: can_config::ClockDivider::_4, // todo
-            //     interrupt_line_config: Interrupts,
-            //     timestamp_source: can_config::TimestampSource,
-            //     global_filter: can_config::GlobalFilter,
-            // };
-
-            let can_cfg = can
-                .get_config()
-                .set_frame_transmit(can_config::FrameTransmissionConfig::AllowFdCanAndBRS);
-
-            can.apply_config(can_cfg);
-
-            // let mut can = can.into_external_loopback();
-            let mut can = can.into_normal();
-
-
-            let mut buf = [0; 16];
-            let mut rx_result = can.receive0(&mut buf);
-
-
-            loop {
-                if let Ok(rxheader) = can.receive0(&mut buf) {
-                    // if let Ok(rxheader) = block!(can.receive0(&mut buffer)) {
-                    // println!("Received Header: {:?}", rxheader); // todo: Not able to format for now.
-                    println!("received data: {:?}", &buf);
-                    //
-                    // delay.delay_ms(1);
-                    // // block!(can.transmit(rxheader.unwrap().to_tx_header(None), &buffer))
-                    // //     .unwrap();
-                    // can.transmit(rxheader.unwrap().to_tx_header(None), &buffer).unwrap();
-                    // println!("Transmit: {:?}", buffer);
-                }
-            }
-        }
+        //
+        // let rcc = unsafe { &*pac::RCC::ptr() };
+        // rcc.apb1enr1.modify(|_, w| w.fdcanen().set_bit());
+        // rcc.apb1rstr1.modify(|_, w| w.fdcanrst().set_bit());
+        // rcc.apb1rstr1.modify(|_, w| w.fdcanrst().clear_bit());
+        //
+        // unsafe {
+        //
+        //     println!("Can rel: {:?}", (*pac::FDCAN::ptr()).crel.read().bits());
+        // }
+        //
+        // {
+        //     let mut can = setup::setup_can(dp.FDCAN);
+        //
+        //     let mut buf = [0; 16];
+        //     let mut rx_result = can.receive0(&mut buf);
+        //
+        //
+        //     loop {
+        //         if let Ok(rxheader) = can.receive0(&mut buf) {
+        //             // if let Ok(rxheader) = block!(can.receive0(&mut buffer)) {
+        //             // println!("Received Header: {:?}", rxheader); // todo: Not able to format for now.
+        //             println!("received data: {:?}", &buf);
+        //             //
+        //             // delay.delay_ms(1);
+        //             // // block!(can.transmit(rxheader.unwrap().to_tx_header(None), &buffer))
+        //             // //     .unwrap();
+        //             // can.transmit(rxheader.unwrap().to_tx_header(None), &buffer).unwrap();
+        //             // println!("Transmit: {:?}", buffer);
+        //         }
+        //     }
+        // }
         // todo: End CAN test code
 
         // todo start I2c test
@@ -796,19 +732,19 @@ mod app {
         // update_timer.enable();
         adc_timer.enable();
 
-        unsafe {
-            uart_crsf.read_dma(
-                &mut crsf::RX_BUFFER,
-                setup::CRSF_RX_CH,
-                ChannelCfg {
-                    // Take precedence over the ADC, but not motors.
-                    priority: dma::Priority::Medium,
-                    circular: dma::Circular::Enabled, //todo temp
-                    ..Default::default()
-                },
-                setup::CRSF_DMA_PERIPH,
-            );
-        }
+        // unsafe {
+        //     uart_crsf.read_dma(
+        //         &mut crsf::RX_BUFFER,
+        //         setup::CRSF_RX_CH,
+        //         ChannelCfg {
+        //             // Take precedence over the ADC, but not motors.
+        //             priority: dma::Priority::Medium,
+        //             // circular: dma::Circular::Enabled, //todo temp
+        //             ..Default::default()
+        //         },
+        //         setup::CRSF_DMA_PERIPH,
+        //     );
+        // }
 
         println!("Init complete; starting main loops");
 
@@ -1710,7 +1646,8 @@ mod app {
     #[task(binds = USART3,
     // #[task(binds = USART2,
     shared = [control_channel_data, link_stats, rf_limiter_timer, system_status,
-    lost_link_timer], local = [uart_crsf], priority = 4)]
+    lost_link_timer], local = [uart_crsf], priority = 12)]
+    // todo: evaluate pri. Probably lower.  Currently high to TS.
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
     /// and message ends. For message starts, it begins a DMA transfer. For message ends, it
     /// processes the radio data, passing it into shared resources for control channel data,
@@ -1730,6 +1667,8 @@ mod app {
 
         uart.clear_interrupt(UsartInterrupt::CharDetect(None));
         uart.clear_interrupt(UsartInterrupt::Idle);
+
+        uart.clear_interrupt(UsartInterrupt::Overrun); // todo temp
 
         // todo: Store link stats and control channel data in an intermediate variable.
         // todo: Don't lock it. At least, you don't want any delay when starting the read,

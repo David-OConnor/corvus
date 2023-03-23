@@ -1,28 +1,15 @@
-/* STM32G473 */
-
-
-MEMORY
-{
-  FLASH  : ORIGIN = 0x08000000, LENGTH = 512K
-  RAM (xrw)         : ORIGIN = 0x20000000, LENGTH = 124K
-  CCM (xrw)         : ORIGIN = 0x2001F000, LENGTH = 4K
-}
-
-
-
 /* STM32H743ZI2 */
 
 /* https://github.com/stm32-rs/stm32h7xx-hal/blob/master/memory.x */
 /* Note: Do you need names like SRAM1 etc to make this work with rust? */
 /* See also: ITCM vice ITCMRAM */
 
-/*
 MEMORY
 {
   FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 2M
   RAM (xrw)  : ORIGIN = 0x24000000, LENGTH = 512K
 }
-/*
+
 
 /* For H743. Nested comments appear not to work properly. */
 /*

@@ -11,6 +11,7 @@ use cortex_m::delay::Delay;
 
 use stm32_hal2::{
     clocks::Clocks,
+    can::Can,
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
@@ -19,6 +20,16 @@ use stm32_hal2::{
     timer::{OutputCompare, TimChannel, Timer, TimerInterrupt},
     usart::{OverSampling, Usart, UsartConfig},
 };
+
+use fdcan::{
+    FdCan, NormalOperationMode,
+    filter::{StandardFilter, StandardFilterSlot},
+    frame::{FrameFormat, TxFrameHeader},
+    id::{Id, StandardId},
+    config as can_config,
+};
+
+use core::num::{NonZeroU16, NonZeroU8}; // for CAN
 
 #[cfg(feature = "h7")]
 use stm32_hal2::qspi::Qspi;
@@ -83,6 +94,9 @@ pub const EXT_SENSORS_RX_CH: DmaChannel = DmaChannel::C4;
 pub const OSD_CH: DmaChannel = DmaChannel::C5;
 
 pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
+
+// Code shortener to isolate typestate syntax.
+pub type Can_ = FdCan<Can, NormalOperationMode>;
 
 /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, and is incremented
 /// automatically when we set burst len = 4 in the DMA write and read.
@@ -430,28 +444,28 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
     dma::mux(IMU_DMA_PERIPH, IMU_TX_CH, DmaInput::Spi1Tx);
     dma::mux(IMU_DMA_PERIPH, IMU_RX_CH, DmaInput::Spi1Rx);
 
-    // DSHOT, motors 1 and 2 (all 4 for H7)
+    // DSHOT, all 4 motors.
     dma::mux(MOTORS_DMA_PERIPH, MOTOR_CH, MOTORS_DMA_INPUT);
 
-    // CRSF (onboard ELRS)
-    #[cfg(feature = "h7")]
-    let crsf_dma_ch = DmaInput::Uart7Rx;
-    #[cfg(feature = "g4")]
-    // let crsf_dma_ch = DmaInput::Usart2Rx;
-    let crsf_dma_ch = DmaInput::Usart3Rx;
+    // todo: This matrix is perhaps better suited to go with the consts at the top of this module.
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            let adc_dma_ip = DmaInput::Adc1;
+            let crsf_dma_ip = DmaInput::Uart7Rx;
+            let osd_dma_ip = DmaInput::Uart2Tx;
+        } else {
+            let crsf_dma_ip = DmaInput::Usart3Rx;
+            // let crsf_dma_ip = DmaInput::Usart2Rx;
+            let adc_dma_ip = DmaInput::Adc2;
+            let osd_dma_ip = DmaInput::Uart4Tx;
+        }
+    }
 
-    dma::mux(CRSF_DMA_PERIPH, CRSF_RX_CH, crsf_dma_ch);
-
+    dma::mux(CRSF_DMA_PERIPH, CRSF_RX_CH, crsf_dma_ip);
     // CRSF TX is currently unused.
     // dma::mux(CRSF_DMA_PERIPH, CRSF_TX_CH, DmaInput::Usart2Tx);
-
-    #[cfg(feature = "h7")]
-    dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, DmaInput::Adc1);
-    #[cfg(feature = "g4")]
-    dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, DmaInput::Adc2);
-
-    dma::mux(OSD_DMA_PERIPH, OSD_CH, DmaInput::Uart4Tx);
-
+    dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, adc_dma_ip);
+    dma::mux(OSD_DMA_PERIPH, OSD_CH, osd_dma_ip);
     dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c2Tx);
     dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c2Rx);
 
@@ -683,4 +697,80 @@ pub fn setup_motor_timers(motor_timer: &mut MotorTimer, servo_timer: &mut ServoT
             servo_timer.enable();
         }
     }
+}
+
+pub fn setup_can(can_pac: pac::FDCAN) -> Can_ {
+    // todo: CAN clock cfg. Can be on PCLK1 (170Mhz), orPLLQ. (Should be able to
+    // todo get a custom speed there)
+    let mut can = FdCan::new(Can::new(can_pac)).into_config_mode();
+
+    // What bit rate to use? Maybe start with 1Mbit/s
+
+    // Kernel Clock 170MHz, Bit rate: 1MBit/s, Sample Point 87.5%
+    // Value was calculated with http://www.bittiming.can-wiki.info/
+    // Some values from https://dronecan.github.io/Specification/8._Hardware_design_recommendations/
+    // TODO: use the can_bit_timings crate
+    let nominal_bit_timing = can_config::NominalBitTiming {
+        prescaler: NonZeroU16::new(10).unwrap(),
+        // number of time quanta: 17
+        seg1: NonZeroU8::new(14).unwrap(),
+        seg2: NonZeroU8::new(2).unwrap(),
+        sync_jump_width: NonZeroU8::new(1).unwrap(),
+    };
+
+    // todo: How do we configure the clock.
+    // todo: Tmw, look up STM32 clock tree for FDCAN source
+
+    // todo: Nominal vs data.
+
+    // Kernel Clock 170MHz, Bit rate: 1MBit/s, Sample Point 87.5%
+    // Value was calculated with http://www.bittiming.can-wiki.info/
+    // TODO: use the can_bit_timings crate
+    let data_bit_timing = can_config::DataBitTiming {
+        prescaler: NonZeroU8::new(10).unwrap(),
+        seg1: NonZeroU8::new(14).unwrap(),
+        seg2: NonZeroU8::new(2).unwrap(),
+        sync_jump_width: NonZeroU8::new(1).unwrap(),
+        transceiver_delay_compensation: true,
+    };
+
+    can.set_protocol_exception_handling(false);
+    can.set_nominal_bit_timing(nominal_bit_timing);
+    can.set_data_bit_timing(data_bit_timing);
+
+    can.set_standard_filter(
+        StandardFilterSlot::_0,
+        StandardFilter::accept_all_into_fifo0(),
+    );
+
+    // // https://docs.rs/fdcan/latest/fdcan/config/struct.FdCanConfig.html
+    // let can_cfg = can_config::FdCanConfig {
+    //     nbtr: can_config::NominalBitTiming::NonZeroU16,
+    //     dbtr: can_config::DataBitTiming {
+    //         transceiver_delay_compensation: bool,
+    //         prescaler: NonZeroU8,
+    //         seg1: NonZeroU8,
+    //         seg2: NonZeroU8,
+    //        sync_jump_width: NonZeroU8,
+    //     },
+    //     automatic_retransmit: false,
+    //     transmit_pause: false,
+    //     frame_transmit: can_config::FrameTransmissionConfig::AllowFdCanAndBrs,
+    //     non_iso_mode: false,
+    //     edge_filtering: false,
+    //     protocol_exception_handling: false,
+    //     clock_divider: can_config::ClockDivider::_4, // todo
+    //     interrupt_line_config: Interrupts,
+    //     timestamp_source: can_config::TimestampSource,
+    //     global_filter: can_config::GlobalFilter,
+    // };
+
+    let can_cfg = can
+        .get_config()
+        .set_frame_transmit(can_config::FrameTransmissionConfig::AllowFdCanAndBRS);
+
+    can.apply_config(can_cfg);
+
+    can.into_normal()
+    // can.into_external_loopback();
 }
