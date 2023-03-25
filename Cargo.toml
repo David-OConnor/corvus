@@ -1,7 +1,7 @@
 [package]
 name = "anyleaf_corvus"
 version = "0.1.0"
-authors = ["David O'Connor <david.alan.oconnor@gmail.com>"]
+authors = ["David O'Connor <the_alchemist@fastmail.com>"]
 edition = "2021"
 
 [dependencies]
@@ -51,8 +51,6 @@ quad = [] # For quadcopter aircraft
 fixed-wing = [] # For fixed-wing aircraft
 # Periodically print the status of various sytems and sensor data to console. For debugging.
 print-status = []
-
-#default = ["g4"]
 
 # cargo build/run
 [profile.dev]

@@ -263,7 +263,7 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
     // An external cyrstal is connected on othe H7 FC, but not the G4.
     set_bank(Reg::Bank1(RegBank1::GyroConfigStatic3), spi, cs)?; // todo dummy val
     #[cfg(feature = "h7")]
-    write_one(Reg::IntfConfig5, 0b0000_0100, spi, cs)?;
+    write_one(Reg::Bank1(RegBank1::IntfConfig5), 0b0000_0100, spi, cs)?;
     // (Bank 0 set by AA filter setup fn);
 
     setup_aa_filters(spi, cs)?;

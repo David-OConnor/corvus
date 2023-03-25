@@ -223,6 +223,8 @@ pub fn setup(uart: &mut crate::setup::UartCrsf) {
     uart.enable_interrupt(UsartInterrupt::CharDetect(Some(
         DestAddr::FlightController as u8,
     )));
+
+    uart.enable_interrupt(UsartInterrupt::Idle);
 }
 
 struct Packet {

@@ -429,8 +429,8 @@ pub fn setup_pins() {
     // Configure CAN pins. Currently on the H7 board uses CAN.
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            let mut can_rx = Pin::new(Port::D, 0, PinMode::alt(9));
-            let mut can_tx = Pin::new(Port::D, 1, PinMode::alt(9));
+            let mut can_rx = Pin::new(Port::D, 0, PinMode::Alt(9));
+            let mut can_tx = Pin::new(Port::D, 1, PinMode::Alt(9));
 
             can_tx.output_speed(OutputSpeed::VeryHigh);
             can_rx.output_speed(OutputSpeed::VeryHigh);
@@ -452,7 +452,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
         if #[cfg(feature = "h7")] {
             let adc_dma_ip = DmaInput::Adc1;
             let crsf_dma_ip = DmaInput::Uart7Rx;
-            let osd_dma_ip = DmaInput::Uart2Tx;
+            let osd_dma_ip = DmaInput::Usart2Tx;
         } else {
             let crsf_dma_ip = DmaInput::Usart3Rx;
             // let crsf_dma_ip = DmaInput::Usart2Rx;
@@ -699,40 +699,65 @@ pub fn setup_motor_timers(motor_timer: &mut MotorTimer, servo_timer: &mut ServoT
     }
 }
 
-pub fn setup_can(can_pac: pac::FDCAN) -> Can_ {
+pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
     // todo: CAN clock cfg. Can be on PCLK1 (170Mhz), orPLLQ. (Should be able to
     // todo get a custom speed there)
     let mut can = FdCan::new(Can::new(can_pac)).into_config_mode();
 
     // What bit rate to use? Maybe start with 1Mbit/s
 
-    // Kernel Clock 170MHz, Bit rate: 1MBit/s, Sample Point 87.5%
-    // Value was calculated with http://www.bittiming.can-wiki.info/
-    // Some values from https://dronecan.github.io/Specification/8._Hardware_design_recommendations/
-    // TODO: use the can_bit_timings crate
-    let nominal_bit_timing = can_config::NominalBitTiming {
-        prescaler: NonZeroU16::new(10).unwrap(),
-        // number of time quanta: 17
-        seg1: NonZeroU8::new(14).unwrap(),
-        seg2: NonZeroU8::new(2).unwrap(),
-        sync_jump_width: NonZeroU8::new(1).unwrap(),
-    };
+    cfg_if! {
+        if #[cfg(feature = "h7")] {
+            // 120Mhz
+            // todo: Currently set for 100Mhz while troublehsooting clock issues on h7.
+            let nominal_bit_timing = can_config::NominalBitTiming {
+                prescaler: NonZeroU16::new(10).unwrap(),
+                // number of time quanta: 17
+                seg1: NonZeroU8::new(8).unwrap(),
+                seg2: NonZeroU8::new(1).unwrap(),
+                sync_jump_width: NonZeroU8::new(1).unwrap(),
+            };
+
+            // Kernel Clock 120MHz, Bit rate: 1MBit/s, Sample Point 87.5%
+            // Value was calculated with http://www.bittiming.can-wiki.info/
+            // TODO: use the can_bit_timings crate
+            let data_bit_timing = can_config::DataBitTiming {
+                prescaler: NonZeroU8::new(10).unwrap(),
+                seg1: NonZeroU8::new(8).unwrap(),
+                seg2: NonZeroU8::new(1).unwrap(),
+                sync_jump_width: NonZeroU8::new(1).unwrap(),
+                transceiver_delay_compensation: true,
+            };
+        } else {
+            // Kernel Clock 170MHz, Bit rate: 1MBit/s, Sample Point 87.5%
+            // Value was calculated with http://www.bittiming.can-wiki.info/
+            // Some values from https://dronecan.github.io/Specification/8._Hardware_design_recommendations/
+            // TODO: use the can_bit_timings crate
+            let nominal_bit_timing = can_config::NominalBitTiming {
+                prescaler: NonZeroU16::new(10).unwrap(),
+                // number of time quanta: 17
+                seg1: NonZeroU8::new(14).unwrap(),
+                seg2: NonZeroU8::new(2).unwrap(),
+                sync_jump_width: NonZeroU8::new(1).unwrap(),
+            };
+
+            // Kernel Clock 170MHz, Bit rate: 1MBit/s, Sample Point 87.5%
+            // Value was calculated with http://www.bittiming.can-wiki.info/
+            // TODO: use the can_bit_timings crate
+            let data_bit_timing = can_config::DataBitTiming {
+                prescaler: NonZeroU8::new(10).unwrap(),
+                seg1: NonZeroU8::new(14).unwrap(),
+                seg2: NonZeroU8::new(2).unwrap(),
+                sync_jump_width: NonZeroU8::new(1).unwrap(),
+                transceiver_delay_compensation: true,
+            };
+        }
+    }
 
     // todo: How do we configure the clock.
     // todo: Tmw, look up STM32 clock tree for FDCAN source
 
     // todo: Nominal vs data.
-
-    // Kernel Clock 170MHz, Bit rate: 1MBit/s, Sample Point 87.5%
-    // Value was calculated with http://www.bittiming.can-wiki.info/
-    // TODO: use the can_bit_timings crate
-    let data_bit_timing = can_config::DataBitTiming {
-        prescaler: NonZeroU8::new(10).unwrap(),
-        seg1: NonZeroU8::new(14).unwrap(),
-        seg2: NonZeroU8::new(2).unwrap(),
-        sync_jump_width: NonZeroU8::new(1).unwrap(),
-        transceiver_delay_compensation: true,
-    };
 
     can.set_protocol_exception_handling(false);
     can.set_nominal_bit_timing(nominal_bit_timing);
@@ -768,6 +793,7 @@ pub fn setup_can(can_pac: pac::FDCAN) -> Can_ {
     let can_cfg = can
         .get_config()
         .set_frame_transmit(can_config::FrameTransmissionConfig::AllowFdCanAndBRS);
+
 
     can.apply_config(can_cfg);
 
