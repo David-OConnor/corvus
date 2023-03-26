@@ -21,13 +21,7 @@ use stm32_hal2::{
     usart::{OverSampling, Usart, UsartConfig},
 };
 
-use fdcan::{
-    FdCan, NormalOperationMode,
-    filter::{StandardFilter, StandardFilterSlot},
-    frame::{FrameFormat, TxFrameHeader},
-    id::{Id, StandardId},
-    config as can_config,
-};
+use fdcan::{FdCan, NormalOperationMode, filter::{StandardFilter, StandardFilterSlot, ExtendedFilter, ExtendedFilterSlot}, frame::{FrameFormat, TxFrameHeader}, id::{Id, StandardId}, config as can_config, ExternalLoopbackMode};
 
 use core::num::{NonZeroU16, NonZeroU8}; // for CAN
 
@@ -96,7 +90,8 @@ pub const OSD_CH: DmaChannel = DmaChannel::C5;
 pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
 
 // Code shortener to isolate typestate syntax.
-pub type Can_ = FdCan<Can, NormalOperationMode>;
+// pub type Can_ = FdCan<Can, NormalOperationMode>;
+pub type Can_ = FdCan<Can, ExternalLoopbackMode>;
 
 /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, and is incremented
 /// automatically when we set burst len = 4 in the DMA write and read.
@@ -709,10 +704,11 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
     cfg_if! {
         if #[cfg(feature = "h7")] {
             // 120Mhz
-            // todo: Currently set for 100Mhz while troublehsooting clock issues on h7.
+            // todo: Currently set for 50Mhz while troublehsooting clock issues on h7.
             let nominal_bit_timing = can_config::NominalBitTiming {
-                prescaler: NonZeroU16::new(10).unwrap(),
-                // number of time quanta: 17
+                // prescaler: NonZeroU16::new(10).unwrap(),
+                prescaler: NonZeroU16::new(5).unwrap(),
+                // number of time quanta: 10 (50Mhz
                 seg1: NonZeroU8::new(8).unwrap(),
                 seg2: NonZeroU8::new(1).unwrap(),
                 sync_jump_width: NonZeroU8::new(1).unwrap(),
@@ -722,7 +718,8 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
             // Value was calculated with http://www.bittiming.can-wiki.info/
             // TODO: use the can_bit_timings crate
             let data_bit_timing = can_config::DataBitTiming {
-                prescaler: NonZeroU8::new(10).unwrap(),
+                // prescaler: NonZeroU8::new(10).unwrap(),
+                prescaler: NonZeroU8::new(5).unwrap(),
                 seg1: NonZeroU8::new(8).unwrap(),
                 seg2: NonZeroU8::new(1).unwrap(),
                 sync_jump_width: NonZeroU8::new(1).unwrap(),
@@ -754,11 +751,6 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
         }
     }
 
-    // todo: How do we configure the clock.
-    // todo: Tmw, look up STM32 clock tree for FDCAN source
-
-    // todo: Nominal vs data.
-
     can.set_protocol_exception_handling(false);
     can.set_nominal_bit_timing(nominal_bit_timing);
     can.set_data_bit_timing(data_bit_timing);
@@ -766,6 +758,11 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
     can.set_standard_filter(
         StandardFilterSlot::_0,
         StandardFilter::accept_all_into_fifo0(),
+    );
+
+    can.set_extended_filter(
+        ExtendedFilterSlot::_0,
+        ExtendedFilter::accept_all_into_fifo0(),
     );
 
     // // https://docs.rs/fdcan/latest/fdcan/config/struct.FdCanConfig.html
@@ -797,6 +794,6 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
 
     can.apply_config(can_cfg);
 
-    can.into_normal()
-    // can.into_external_loopback();
+    // can.into_normal()
+    can.into_external_loopback() // todo T
 }

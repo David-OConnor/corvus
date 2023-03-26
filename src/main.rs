@@ -39,6 +39,7 @@ use drivers::{
 };
 use filter_imu::ImuFilters;
 use flight_ctrls::{
+    common::CtrlMix,
     autopilot::AutopilotStatus,
     ctrl_effect_est::{AccelMapPt, AccelMaps},
     ctrl_logic,
@@ -214,13 +215,13 @@ const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 
 // todo: Bit flags that display as diff colored LEDs, and OSD items
 
+// todo T
+use stm32_hal2::gpio::{Port, PinMode};
+
 // todo: dispatchers are temp
 #[rtic::app(device = pac, peripherals = false, dispatchers= [])]
 mod app {
     use super::*;
-    use crate::flight_ctrls::common::CtrlMix;
-    use crate::flight_ctrls::pid;
-    use stm32_hal2::dma::DmaChannel;
 
     #[shared]
     struct Shared {
@@ -316,9 +317,11 @@ mod app {
                     // CPUFREQ_BOOST option byte in the FLASH_OPTSR2_PRG register."
 
                     pll_src: PllSrc::Hse(16_000_000),
+                    // pll_src: PllSrc::Hse(8_000_000), // todo t!!!
                     pll1: PllCfg {
-                        divn: 200, // todo t. What's up with the crashes? 350 is ok. 400 crashes
+                        divn: 200, // todo t. What's up with the crashes? 380 is ok. 400 crashes
                         divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
+                        // divm: 4, // todo t, for 8Mhz HSE!
                         pllq_en: true, // PLLQ for Spi1 and CAN clocks. Its default div of 8 is fine.
                         // divn: 275, // For 550Mhz H723 with freq boost enabled.
                         ..Default::default()
@@ -376,6 +379,11 @@ mod app {
         }
         let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
 
+        // loop {
+        //     println!("test");
+        //     delay.delay_ms(1000);
+        // }
+
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
@@ -386,26 +394,52 @@ mod app {
 
 
         // todo: Start CAN test code
+
+        // let mut can_rx = Pin::new(Port::D, 0, PinMode::Output);
+        // let mut can_tx = Pin::new(Port::D, 1, PinMode::Output);
+        //
+        // can_rx.set_high();
+        // can_tx.set_low();
+        //
+        // loop {
+        //     can_rx.toggle();
+        //     can_tx.toggle();
+        //     delay.delay_ms(500);
+        // }
+
         {
             let mut can = setup::setup_can(dp.FDCAN1);
 
+
             let mut buf = [0; 16];
-            let mut rx_result = can.receive0(&mut buf);
+            // let mut rx_result = can.receive0(&mut buf);
 
             println!("Starting CAN loop");
 
             loop {
-                if let Ok(rxheader) = can.receive0(&mut buf) {
-                    // if let Ok(rxheader) = block!(can.receive0(&mut buffer)) {
-                    // println!("Received Header: {:?}", rxheader); // todo: Not able to format for now.
-                    println!("received data: {:?}", &buf);
-                    //
-                    // delay.delay_ms(1);
-                    // // block!(can.transmit(rxheader.unwrap().to_tx_header(None), &buffer))
-                    // //     .unwrap();
-                    // can.transmit(rxheader.unwrap().to_tx_header(None), &buffer).unwrap();
-                    // println!("Transmit: {:?}", buffer);
+                let rx_result = can.receive0(&mut buf);
+
+                match rx_result {
+                    Ok(r) => {
+                        println!("Ok");
+                    }
+                    Err(e) => {
+                        // println!("error");
+                    }
                 }
+
+                //
+                // if let Ok(rxheader) = can.receive0(&mut buf) {
+                //     // if let Ok(rxheader) = block!(can.receive0(&mut buffer)) {
+                //     // println!("Received Header: {:?}", rxheader); // todo: Not able to format for now.
+                //     println!("received data: {:?}", &buf);
+                //     //
+                //     // delay.delay_ms(1);
+                //     // // block!(can.transmit(rxheader.unwrap().to_tx_header(None), &buffer))
+                //     // //     .unwrap();
+                //     // can.transmit(rxheader.unwrap().to_tx_header(None), &buffer).unwrap();
+                //     // println!("Transmit: {:?}", buffer);
+                // }
             }
         }
         // todo: End CAN test code
