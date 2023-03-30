@@ -10,8 +10,8 @@ use cfg_if::cfg_if;
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
+    can::{self, Can},
     clocks::Clocks,
-    can::Can,
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
@@ -21,7 +21,13 @@ use stm32_hal2::{
     usart::{OverSampling, Usart, UsartConfig},
 };
 
-use fdcan::{FdCan, NormalOperationMode, filter::{StandardFilter, StandardFilterSlot, ExtendedFilter, ExtendedFilterSlot}, frame::{FrameFormat, TxFrameHeader}, id::{Id, StandardId}, config as can_config, ExternalLoopbackMode};
+use fdcan::{
+    config as can_config,
+    filter::{ExtendedFilter, ExtendedFilterSlot},
+    frame::{FrameFormat, TxFrameHeader},
+    id::{Id, StandardId},
+    ExternalLoopbackMode, FdCan, NormalOperationMode,
+};
 
 use core::num::{NonZeroU16, NonZeroU8}; // for CAN
 
@@ -90,8 +96,7 @@ pub const OSD_CH: DmaChannel = DmaChannel::C5;
 pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
 
 // Code shortener to isolate typestate syntax.
-// pub type Can_ = FdCan<Can, NormalOperationMode>;
-pub type Can_ = FdCan<Can, ExternalLoopbackMode>;
+pub type Can_ = FdCan<Can, NormalOperationMode>;
 
 /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, and is incremented
 /// automatically when we set burst len = 4 in the DMA write and read.
@@ -545,7 +550,7 @@ pub fn setup_busses(
 
     // We use I2C1 for the GPS, magnetometer, and TOF sensor. Some details:
     // The U-BLOX GPS' max speed is 400kHz.
-    // The LIS3MDL altimeter's max speed is 400kHz.
+    // The LIS3MDL magnetometer's max speed is 400kHz.
     // 100kHz, vice 400k, due to the connection being external. (Lower freqs
     // may have fewer line-interference issues)
     let i2c_external_sensors_cfg = I2cConfig {
@@ -695,9 +700,10 @@ pub fn setup_motor_timers(motor_timer: &mut MotorTimer, servo_timer: &mut ServoT
 }
 
 pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
-    // todo: CAN clock cfg. Can be on PCLK1 (170Mhz), orPLLQ. (Should be able to
-    // todo get a custom speed there)
     let mut can = FdCan::new(Can::new(can_pac)).into_config_mode();
+
+    #[cfg(feature = "h7")]
+    can::set_message_ram_layout(); // Must be called explicitly; for H7.
 
     // What bit rate to use? Maybe start with 1Mbit/s
 
@@ -755,45 +761,15 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
     can.set_nominal_bit_timing(nominal_bit_timing);
     can.set_data_bit_timing(data_bit_timing);
 
-    can.set_standard_filter(
-        StandardFilterSlot::_0,
-        StandardFilter::accept_all_into_fifo0(),
-    );
-
     can.set_extended_filter(
         ExtendedFilterSlot::_0,
         ExtendedFilter::accept_all_into_fifo0(),
     );
-
-    // // https://docs.rs/fdcan/latest/fdcan/config/struct.FdCanConfig.html
-    // let can_cfg = can_config::FdCanConfig {
-    //     nbtr: can_config::NominalBitTiming::NonZeroU16,
-    //     dbtr: can_config::DataBitTiming {
-    //         transceiver_delay_compensation: bool,
-    //         prescaler: NonZeroU8,
-    //         seg1: NonZeroU8,
-    //         seg2: NonZeroU8,
-    //        sync_jump_width: NonZeroU8,
-    //     },
-    //     automatic_retransmit: false,
-    //     transmit_pause: false,
-    //     frame_transmit: can_config::FrameTransmissionConfig::AllowFdCanAndBrs,
-    //     non_iso_mode: false,
-    //     edge_filtering: false,
-    //     protocol_exception_handling: false,
-    //     clock_divider: can_config::ClockDivider::_4, // todo
-    //     interrupt_line_config: Interrupts,
-    //     timestamp_source: can_config::TimestampSource,
-    //     global_filter: can_config::GlobalFilter,
-    // };
-
     let can_cfg = can
         .get_config()
         .set_frame_transmit(can_config::FrameTransmissionConfig::AllowFdCanAndBRS);
 
-
     can.apply_config(can_cfg);
 
-    // can.into_normal()
-    can.into_external_loopback() // todo T
+    can.into_normal()
 }

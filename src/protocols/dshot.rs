@@ -38,7 +38,7 @@ use cfg_if::cfg_if;
 use defmt::println;
 
 // Enable bidirectional DSHOT, which returns RPM data
-pub const BIDIR_EN: bool = true;
+pub const BIDIR_EN: bool = false;
 
 // Timer prescaler for rotor PWM. We leave this, and ARR constant, and explicitly defined,
 // so we can set duty cycle appropriately for DSHOT.

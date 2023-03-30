@@ -39,8 +39,8 @@ use drivers::{
 };
 use filter_imu::ImuFilters;
 use flight_ctrls::{
-    common::CtrlMix,
     autopilot::AutopilotStatus,
+    common::CtrlMix,
     ctrl_effect_est::{AccelMapPt, AccelMaps},
     ctrl_logic,
     filters::FlightCtrlFilters,
@@ -119,7 +119,6 @@ cfg_if! {
         pub use stm32_hal2::pac::{UART4, ADC2 as ADC};
     }
 }
-
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
@@ -216,10 +215,16 @@ const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 // todo: Bit flags that display as diff colored LEDs, and OSD items
 
 // todo T
-use stm32_hal2::gpio::{Port, PinMode};
+use stm32_hal2::gpio::{PinMode, Port};
 
-// todo: dispatchers are temp
-#[rtic::app(device = pac, peripherals = false, dispatchers= [])]
+// todo t:
+use fdcan::{
+    frame::{FrameFormat, TxFrameHeader},
+    id::{ExtendedId, Id, StandardId},
+    FdCan,
+};
+
+#[rtic::app(device = pac, peripherals = false)]
 mod app {
     use super::*;
 
@@ -317,13 +322,10 @@ mod app {
                     // CPUFREQ_BOOST option byte in the FLASH_OPTSR2_PRG register."
 
                     pll_src: PllSrc::Hse(16_000_000),
-                    // pll_src: PllSrc::Hse(8_000_000), // todo t!!!
                     pll1: PllCfg {
                         divn: 200, // todo t. What's up with the crashes? 380 is ok. 400 crashes
                         divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
-                        // divm: 4, // todo t, for 8Mhz HSE!
                         pllq_en: true, // PLLQ for Spi1 and CAN clocks. Its default div of 8 is fine.
-                        // divn: 275, // For 550Mhz H723 with freq boost enabled.
                         ..Default::default()
                     },
                     hsi48_on: true,
@@ -387,59 +389,29 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-            // let spi_flash_pac = dp.OCTOSPI1;
-            let spi_flash_pac = dp.QUADSPI;
+        // let spi_flash_pac = dp.OCTOSPI1;
+        let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-            let spi_flash_pac = dp.SPI2;
-
+        let spi_flash_pac = dp.SPI2;
 
         // todo: Start CAN test code
-
-        // let mut can_rx = Pin::new(Port::D, 0, PinMode::Output);
-        // let mut can_tx = Pin::new(Port::D, 1, PinMode::Output);
-        //
-        // can_rx.set_high();
-        // can_tx.set_low();
-        //
-        // loop {
-        //     can_rx.toggle();
-        //     can_tx.toggle();
-        //     delay.delay_ms(500);
-        // }
-
+        #[cfg(feature = "h7")]
         {
             let mut can = setup::setup_can(dp.FDCAN1);
-
-
-            let mut buf = [0; 16];
-            // let mut rx_result = can.receive0(&mut buf);
-
-            println!("Starting CAN loop");
+            let mut rx_buf: [u8; 24] = [0; 24];
 
             loop {
-                let rx_result = can.receive0(&mut buf);
+                let rx_result = can.receive0(&mut rx_buf);
 
                 match rx_result {
                     Ok(r) => {
                         println!("Ok");
+                        println!("Rx buf: {:?}", rx_buf);
                     }
                     Err(e) => {
                         // println!("error");
                     }
                 }
-
-                //
-                // if let Ok(rxheader) = can.receive0(&mut buf) {
-                //     // if let Ok(rxheader) = block!(can.receive0(&mut buffer)) {
-                //     // println!("Received Header: {:?}", rxheader); // todo: Not able to format for now.
-                //     println!("received data: {:?}", &buf);
-                //     //
-                //     // delay.delay_ms(1);
-                //     // // block!(can.transmit(rxheader.unwrap().to_tx_header(None), &buffer))
-                //     // //     .unwrap();
-                //     // can.transmit(rxheader.unwrap().to_tx_header(None), &buffer).unwrap();
-                //     // println!("Transmit: {:?}", buffer);
-                // }
             }
         }
         // todo: End CAN test code
@@ -499,10 +471,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -720,21 +692,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-            // todo: Wrong. You need to do this by number; apply your pin mapping.
-            let motors_reversed = (
+        // todo: Wrong. You need to do this by number; apply your pin mapping.
+        let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -848,8 +820,8 @@ mod app {
     /// Certain tasks, like reading IMU measurements and filtering are run each time this function runs.
     /// Flight control logic is run once every several runs. Other tasks are run even less,
     /// sequenced among each other.
-    #[task(binds = DMA1_STR2,
-    // #[task(binds = DMA1_CH2,
+    // #[task(binds = DMA1_STR2,
+    #[task(binds = DMA1_CH2,
     shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status],
@@ -991,20 +963,23 @@ mod app {
                                 let target_rpm = util::map_linear(p, (0., 1.), (300., 6_000.));
 
                                 let target_rpm = 2_000.;
+                                let target_pwr = 0.06;
 
-                                let rpms_commanded = MotorRpm {
-                                    front_left: target_rpm,
-                                    aft_left: target_rpm,
-                                    front_right: target_rpm,
-                                    aft_right: target_rpm,
+                                // let rpms_commanded = MotorRpm {
+                                //     front_left: target_rpm,
+                                //     aft_left: target_rpm,
+                                //     front_right: target_rpm,
+                                //     aft_right: target_rpm,
+                                // };
+                                let power_commanded = MotorPower {
+                                    front_left: target_pwr,
+                                    aft_left: target_pwr,
+                                    front_right: target_pwr,
+                                    aft_right: target_pwr,
                                 };
 
-
-                                #[cfg(feature = "quad")]
                                 {
                                     if ch_data.arm_status == ArmStatus::Armed {
-                                        // dshot::set_power(p, p, p, p, motor_timer);
-
                                         // todo: Attempting a setup where ctrl axes command a ctrl mix direction,
                                         // todo to assist debugging.
                                         let mix = CtrlMix {
@@ -1014,13 +989,16 @@ mod app {
                                             throttle: ch_data.throttle,
                                         };
 
-                                        let rpms_commanded = MotorRpm::from_mix(&mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
+                                        // let rpms_commanded = MotorRpm::from_mix(&mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
+                                        let power_commanded = MotorPower::from_mix(&mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
 
-                                        state_volatile.motor_servo_state.set_cmds_from_rpms(
-                                            &rpms_commanded,
-                                            pid_state,
-                                            pid_coeffs,
-                                        );
+                                        // state_volatile.motor_servo_state.set_cmds_from_rpms(
+                                        //     &rpms_commanded,
+                                        //     pid_state,
+                                        //     pid_coeffs,
+                                        // );
+
+                                        state_volatile.motor_servo_state.set_cmds_from_power(&power_commanded);
 
                                         // state_volatile.motor_servo_state.send_to_rotors(state_volatile.arm_status, motor_timer);
                                         state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
@@ -1407,9 +1385,9 @@ mod app {
 
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
-    #[task(binds = OTG_HS,
+    // #[task(binds = OTG_HS,
     // #[task(binds = OTG_FS,
-    // #[task(binds = USB_LP,
+    #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, current_params, control_channel_data,
     link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer],
     local = [], priority = 2)]
@@ -1483,8 +1461,8 @@ mod app {
             )
     }
 
-    #[task(binds = DMA1_STR3,
-    // #[task(binds = DMA1_CH3,
+    // #[task(binds = DMA1_STR3,
+    #[task(binds = DMA1_CH3,
     shared = [motor_timer], priority = 6)]
     /// We use this ISR to initialize the RPM reception procedures upon completion of the dshot
     /// power setting transmission to the ESC.
@@ -1650,8 +1628,8 @@ mod app {
     }
 
     // todo: Evaluate priority.
-    #[task(binds = UART7,
-    // #[task(binds = USART3,
+    // #[task(binds = UART7,
+    #[task(binds = USART3,
     // #[task(binds = USART2,
     shared = [control_channel_data, link_stats, rf_limiter_timer, system_status,
     lost_link_timer], local = [uart_crsf], priority = 12)]
@@ -1666,7 +1644,7 @@ mod app {
     /// Must be a higher priority than the IMU TC isr.
     fn crsf_isr(mut cx: crsf_isr::Context) {
         let uart = &mut cx.local.uart_crsf; // Code shortener
-        // println!("CRSF");
+                                            // println!("CRSF");
         let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
         let mut rx_fault = false;
 
@@ -1811,8 +1789,8 @@ mod app {
     /// If this triggers, it means we've received no radio control signals for a significant
     ///period of time; we treat this as a lost-link situation.
     /// (Note that this is for TIM17 on both variants)
-    #[task(binds = TIM17,
-    // #[task(binds = TIM1_TRG_COM,
+    // #[task(binds = TIM17,
+    #[task(binds = TIM1_TRG_COM,
     shared = [lost_link_timer, state_volatile, autopilot_status,
     current_params, system_status, control_channel_data], priority = 2)]
     fn lost_link_isr(mut cx: lost_link_isr::Context) {
@@ -1848,8 +1826,8 @@ mod app {
             });
     }
 
-    #[task(binds = TIM16,
-    // #[task(binds = TIM1_UP_TIM16,
+    // #[task(binds = TIM16,
+    #[task(binds = TIM1_UP_TIM16,
     shared = [rf_limiter_timer], priority = 2)]
     fn rf_limiter_isr(mut cx: rf_limiter_isr::Context) {
         // println!("RF limiter ISR");
@@ -1860,8 +1838,8 @@ mod app {
         });
     }
 
-    #[task(binds = DMA2_STR1,
-    // #[task(binds = DMA2_CH1,
+    // #[task(binds = DMA2_STR1,
+    #[task(binds = DMA2_CH1,
     shared = [i2c2], priority = 2)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
@@ -1886,8 +1864,8 @@ mod app {
 
     // todo: For now, we start new transfers in the main loop.
 
-    #[task(binds = DMA2_STR2,
-    // #[task(binds = DMA2_CH2,
+    // #[task(binds = DMA2_STR2,
+    #[task(binds = DMA2_CH2,
     shared = [altimeter, current_params, state_volatile], priority = 3)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(cx: baro_read_tc_isr::Context) {
@@ -1918,8 +1896,8 @@ mod app {
             });
     }
 
-    #[task(binds = DMA2_STR3,
-    // #[task(binds = DMA2_CH3,
+    // #[task(binds = DMA2_STR3,
+    #[task(binds = DMA2_CH3,
     shared = [i2c1, ext_sensor_active], priority = 2)]
     /// External sensors write complete; start external sensors read.
     fn ext_sensors_write_tc_isr(cx: ext_sensors_write_tc_isr::Context) {
@@ -1969,8 +1947,8 @@ mod app {
         });
     }
 
-    #[task(binds = DMA2_STR4,
-    // #[task(binds = DMA2_CH4,
+    // #[task(binds = DMA2_STR4,
+    #[task(binds = DMA2_CH4,
     shared = [i2c1, ext_sensor_active], priority = 2)]
     /// Baro write complete; start baro read.
     fn ext_sensors_read_tc_isr(cx: ext_sensors_read_tc_isr::Context) {
