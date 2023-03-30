@@ -54,6 +54,14 @@ pub const NUM_SAMPLE_PTS: usize = 30;
 //     }
 // }
 
+pub struct AccepMapPt {
+    /// In radians-per-second
+    pub angular_accel: f32,
+    /// This could be servo command, servo measured position, RPM delta, or rotor power delta
+    pub ctrl_cmd: f32,
+    pub timestamp: u32, // todo?
+}
+
 /// Polynomial coefficients that map angular acceleration to either RPM, or servo positions.
 pub struct AccelMap {
     /// AKA A
@@ -64,10 +72,15 @@ pub struct AccelMap {
     pub constant: f32,
 }
 
+// todo: Here next (Apr 2023). Using this collection of points, create a linear map. Probably least-suqres.
+// todo: You need a way to get timestamps.
+
 impl AccelMap {
     /// Pts are (angular accel, RPM or servo posit delta) // todo: Do you want it the other way?
-    pub fn new(pt0: (f32, f32), pt1: (f32, f32), pt2: (f32, f32)) -> Self {
-        let (square, lin, constant) = util::create_polynomial_terms(pt0, pt1, pt2);
+    pub fn new(pt0: AccepMapPt, pt1: AccepMapPt, pt2: AccepMapPt) -> Self {
+        // let (square, lin, constant) = util::create_polynomial_terms(pt0, pt1, pt2);
+        let (square, lin, constant) = (0., 0., 0.);
+
         Self {
             square,
             lin,
@@ -76,7 +89,8 @@ impl AccelMap {
     }
 
     pub fn update_coeffs(&mut self, pt0: (f32, f32), pt1: (f32, f32), pt2: (f32, f32)) {
-        let (square, lin, constant) = util::create_polynomial_terms(pt0, pt1, pt2);
+        // let (square, lin, constant) = util::create_polynomial_terms(pt0, pt1, pt2);
+        let (square, lin, constant) = (0., 0., 0.);
 
         self.square = square;
         self.lin = lin;

@@ -18,6 +18,8 @@ use crate::{
     system_status::{self, SensorStatus, SystemStatus},
 };
 
+use stm32_hal2::{pac::TIM5, timer::Timer};
+
 use num_traits::float::FloatCore;
 
 use defmt::println;
@@ -185,6 +187,12 @@ pub fn batt_left_from_v(v: f32, cell_count: BattCellCount) -> f32 {
 // todo t
 use stm32_hal2::pac;
 
+/// Example use, to get seconds since start: `tick_count_fm_overflows_s() +
+/// tick_timer.time_elapsed().as_secs()`
+pub fn tick_count_fm_overflows_s() -> f32 {
+    crate::TICK_OVERFLOW_COUNT.load(Ordering::Acquire) as f32 * crate::TICK_TIMER_PERIOD
+}
+
 /// Print systems status to the console. Alternative to the `Preflight` PC program.
 pub fn print_status(
     params: &Params,
@@ -192,6 +200,7 @@ pub fn print_status(
     control_channel_data: &Option<ChannelData>,
     state_volatile: &StateVolatile,
     autopilot_status: &AutopilotStatus,
+    tick_timer: &mut Timer<TIM5>,
     // rpm_readings: &RpmReadings,
 ) {
     // todo: Flesh this out, and perhaps make it more like Preflight.
@@ -202,8 +211,9 @@ pub fn print_status(
     // println!("DSHOT4: {:?}", unsafe { dshot::PAYLOAD_REC_4 });
 
     println!(
-        "\n\nStatus, timestamp {} ms",
-        crate::TIME_SINCE_START_MS.load(Ordering::Acquire)
+        "\n\nStatus, timestamp {} seconds",
+        // crate::TIME_SINCE_START_MS.load(Ordering::Acquire)
+        tick_count_fm_overflows_s() + tick_timer.time_elapsed().as_secs()
     );
 
     println!(

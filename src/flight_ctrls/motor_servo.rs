@@ -11,7 +11,7 @@ use crate::{
 
 use super::{common::CtrlMix, pid};
 
-const MOTOR_CMD_MIN: f32 = 0.;
+const MOTOR_CMD_MIN: f32 = 0.03; //  An idle.
 const MOTOR_CMD_MAX: f32 = 1.;
 const MOTOR_RPM_MIN: f32 = 500.;
 const MOTOR_RPM_MAX: f32 = 6_000.; // todo: PRobably depends on motors.

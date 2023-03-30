@@ -20,7 +20,7 @@
 // todo: Movable camera that moves with head motion.
 // - Ir cam to find or avoid people
 
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use ahrs_fusion::Ahrs;
 use cfg_if::cfg_if;
@@ -128,7 +128,7 @@ cfg_if! {
     }
 }
 
-static TIME_SINCE_START_MS: AtomicUsize = AtomicUsize::new(0);
+// static TIME_SINCE_START_MS: AtomicUsize = AtomicUsize::new(0);
 
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.
@@ -209,6 +209,11 @@ const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500
 const CTRL_COEFF_ADJ_TIMEOUT: f32 = 0.3; // seconds
 const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 
+// We use a hardware counter to measure relative system time. This is the number of times
+// it has overflowed. (timer expired)
+const TICK_TIMER_PERIOD: f32 = 0.5; // in seconds. Decrease for higher measurement precision.
+pub static TICK_OVERFLOW_COUNT: AtomicU32 = AtomicU32::new(0);
+
 //// The time, in ms, to wait during initializing to allow the ESC and RX to power up and initialize.
 // const WARMUP_TIME: u32 = 100;
 
@@ -266,6 +271,7 @@ mod app {
         motor_pid_state: MotorPidGroup,
         /// PID motor coefficients
         motor_pid_coeffs: MotorCoeffs,
+        tick_timer: Timer<TIM5>,
     }
 
     #[local]
@@ -283,7 +289,6 @@ mod app {
         ctrl_coeff_adj_timer: Timer<TIM1>,
         uart_osd: setup::UartOsd, // for our DJI OSD, via MSP protocol
         time_with_high_throttle: f32,
-        measurement_timer: Timer<TIM5>,
         ahrs: Ahrs,
         dshot_read_timer: Timer<TIM2>,
         cs_imu: Pin,
@@ -511,10 +516,17 @@ mod app {
 
         rf_limiter_timer.enable_interrupt(TimerInterrupt::Update);
 
-        // We use this measurement timer to count things, like time between IMU updates.
-        // The effective period (1/freq) must be greater than the time we wish to measure.
-        let mut measurement_timer =
-            Timer::new_tim5(dp.TIM5, 2_000., Default::default(), &clock_cfg);
+        // We use this timer to maintain a time since bootup.
+        // A shorter timeout period will allow higher resolution measurements, while a longer one
+        // will command an interrupt less often. (The interrupt only increments an atomic overflow counter).
+        let mut tick_timer = Timer::new_tim5(
+            dp.TIM5,
+            1. / TICK_TIMER_PERIOD,
+            Default::default(),
+            &clock_cfg,
+        );
+        // todo: Maybe manually set ARR and PSC, since ARR is what controls precision?
+        tick_timer.enable_interrupt(TimerInterrupt::Update);
 
         // We use this PID adjustment timer to indicate the interval for updating PID from a controller
         // while the switch or button is held. (Equivalently, the min allowed time between actuations)
@@ -725,6 +737,7 @@ mod app {
         // Start our main loop
         // update_timer.enable();
         adc_timer.enable();
+        tick_timer.enable();
 
         println!("Init complete; starting main loops");
 
@@ -766,6 +779,7 @@ mod app {
                 motor_pid_coeffs: Default::default(),
                 // rpm_readings: Default::default(),
                 // rpms_commanded: Default::default(),
+                tick_timer,
             },
             Local {
                 // update_timer,
@@ -779,7 +793,6 @@ mod app {
                 ctrl_coeff_adj_timer,
                 uart_osd,
                 time_with_high_throttle: 0.,
-                measurement_timer,
                 ahrs,
                 dshot_read_timer,
                 cs_imu,
@@ -824,9 +837,9 @@ mod app {
     #[task(binds = DMA1_CH2,
     shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timer, servo_timer, state_volatile, system_status],
+    motor_timer, servo_timer, state_volatile, system_status, tick_timer],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
-    arm_signals_received, disarm_signals_received, batt_curr_adc, measurement_timer], priority = 4)]
+    arm_signals_received, disarm_signals_received, batt_curr_adc], priority = 4)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         dma::clear_interrupt(
             setup::IMU_DMA_PERIPH,
@@ -1300,16 +1313,19 @@ mod app {
                         println!("No task");
                     }
 
-                    #[cfg(feature = "print-status")]
-                    if i % PRINT_STATUS_RATIO == 0 {
-                        util::print_status(
-                            params,
-                            system_status,
-                            control_channel_data,
-                            state_volatile,
-                            autopilot_status
-                        );
-                    }
+                    cx.shared.tick_timer.lock(|tick_timer| {
+                        #[cfg(feature = "print-status")]
+                        if i % PRINT_STATUS_RATIO == 0 {
+                            util::print_status(
+                                params,
+                                system_status,
+                                control_channel_data,
+                                state_volatile,
+                                autopilot_status,
+                                tick_timer,
+                            );
+                        }
+                    });
 
                     return; // todo TS
 
@@ -1824,6 +1840,18 @@ mod app {
                     &state_volatile.base_point,
                 );
             });
+    }
+
+    #[task(binds = TIM5, shared = [tick_timer], local = [], priority = 1)]
+    /// Increments the tick overflow.
+    fn tick_isr(mut cx: tick_isr::Context) {
+        cx.shared.tick_timer.lock(|timer| {
+            // todo: Do this without locking.
+            timer.clear_interrupt(TimerInterrupt::Update);
+        });
+        // (*pac::TIM5::ptr())
+
+        TICK_OVERFLOW_COUNT.fetch_add(1, Ordering::Relaxed);
     }
 
     // #[task(binds = TIM16,
