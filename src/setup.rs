@@ -15,7 +15,7 @@ use stm32_hal2::{
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, SPI2, USART2, USART3},
+    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, SPI2, USART1, USART2, USART3},
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{OutputCompare, TimChannel, Timer, TimerInterrupt},
     usart::{OverSampling, Usart, UsartConfig},
@@ -97,6 +97,7 @@ pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
 
 // Code shortener to isolate typestate syntax.
 pub type Can_ = FdCan<Can, NormalOperationMode>;
+pub type Can_ = FdCan<Can, NormalOperationMode>;
 
 /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, and is incremented
 /// automatically when we set burst len = 4 in the DMA write and read.
@@ -110,6 +111,7 @@ pub type MotorTimer = Timer<pac::TIM3>;
 pub type ServoTimer = Timer<pac::TIM8>; // Valid for H7 on all channels. Valid for G4 on Ch 1, 3, 4.
 pub type SpiImu = Spi<SPI1>;
 pub type I2cBaro = I2c<I2C2>;
+pub type UartGnss = Usart<USART1>;
 
 cfg_if! {
     if #[cfg(feature = "h7")] {

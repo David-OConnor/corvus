@@ -128,8 +128,6 @@ cfg_if! {
     }
 }
 
-// static TIME_SINCE_START_MS: AtomicUsize = AtomicUsize::new(0);
-
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.
 static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
@@ -146,7 +144,7 @@ static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 const FLIGHT_CTRL_IMU_RATIO: usize = 4; // Likely values: 1, 2, 4, 8.
 
 #[cfg(feature = "fixed-wing")]
-const FLIGHT_CTRL_IMU_RATIO: usize = 8; // Likely values: 1, 2, 4.
+const FLIGHT_CTRL_IMU_RATIO: usize = 8; // Likely values: 4, 8, 16.
 
 const UPDATE_RATE_IMU: f32 = 8_000.;
 const DT_IMU: f32 = 1. / UPDATE_RATE_IMU;
@@ -2026,25 +2024,7 @@ mod app {
             }
         });
     }
-
-    // /// Systick time keeper, since program start, in ms. Could alternatively use the RTC instead.
-    // /// Lowest priority.
-    // #[task(binds = SysTick, priority = 1)]
-    // fn systick_isr(_cx: systick_isr::Context) {
-    //     println!("TICK");
-    //     TIME_SINCE_START_MS.fetch_add(1, Ordering::Relaxed);
-    // }
 }
-
-#[exception]
-fn SysTick() {
-    println!("tick");
-}
-
-// #[exception]
-// unsafe fn DefaultHandler(irqn: i16) {
-//     println!("IRQn = {}", irqn);
-// }
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message
 // this prevents the panic message being printed *twice* when `defmt::panic` is invoked
