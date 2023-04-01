@@ -97,7 +97,6 @@ pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
 
 // Code shortener to isolate typestate syntax.
 pub type Can_ = FdCan<Can, NormalOperationMode>;
-pub type Can_ = FdCan<Can, NormalOperationMode>;
 
 /// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, and is incremented
 /// automatically when we set burst len = 4 in the DMA write and read.
@@ -205,25 +204,26 @@ pub fn init_sensors(
         }
     };
 
-    let fix = gps::get_fix(i2c1);
-    match fix {
-        Ok(f) => {
-            params.lon = f.lon;
-            params.lat = f.lat;
-            params.baro_alt_msl = f.alt_msl;
+    // let fix = gps::get_fix(uart1);
+    // match fix {
+    //     Ok(f) => {
+    //         params.lon = f.lon;
+    //         params.lat = f.lat;
+    //         params.baro_alt_msl = f.alt_msl;
+    //
+    //         *base_pt = Location::new(LocationType::LatLon, f.lat, f.lon, f.alt_msl);
+    //
+    //         if system_status.baro == SensorStatus::Pass {
+    //             altimeter.calibrate_from_gps(Some(f.alt_msl), i2c2).ok();
+    //         }
+    //     }
+    //     Err(_) => {
+    //         if system_status.baro == SensorStatus::Pass {
+    //             altimeter.calibrate_from_gps(None, i2c2).ok();
+    //         }
+    //     }
+    // }
 
-            *base_pt = Location::new(LocationType::LatLon, f.lat, f.lon, f.alt_msl);
-
-            if system_status.baro == SensorStatus::Pass {
-                altimeter.calibrate_from_gps(Some(f.alt_msl), i2c2).ok();
-            }
-        }
-        Err(_) => {
-            if system_status.baro == SensorStatus::Pass {
-                altimeter.calibrate_from_gps(None, i2c2).ok();
-            }
-        }
-    }
     println!("Setup compl");
     // todo: Use Rel0 location type if unable to get fix.
     (system_status, altimeter)

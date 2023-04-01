@@ -1939,44 +1939,44 @@ mod app {
         (cx.shared.i2c1, cx.shared.ext_sensor_active).lock(|i2c1, ext_sensor_active| {
             // todo: Skip sensors if marked as not connected?
 
-            unsafe {
-                match ext_sensor_active {
-                    ExtSensor::Mag => {
-                        i2c1.read_dma(
-                            mag::ADDR,
-                            &mut sensors_shared::MAG_READINGS,
-                            setup::EXT_SENSORS_RX_CH,
-                            Default::default(),
-                            setup::EXT_SENSORS_DMA_PERIPH,
-                        );
-                    }
-                    ExtSensor::Gps => {
-                        i2c1.read_dma(
-                            gps::ADDR,
-                            &mut sensors_shared::GPS_READINGS,
-                            setup::EXT_SENSORS_RX_CH,
-                            Default::default(),
-                            setup::EXT_SENSORS_DMA_PERIPH,
-                        );
-                    }
-                    ExtSensor::Tof => {
-                        i2c1.read_dma(
-                            tof::ADDR,
-                            &mut sensors_shared::TOF_READINGS,
-                            setup::EXT_SENSORS_RX_CH,
-                            Default::default(),
-                            setup::EXT_SENSORS_DMA_PERIPH,
-                        );
-                    }
-                }
-            }
+            // unsafe {
+            //     match ext_sensor_active {
+            //         ExtSensor::Mag => {
+            //             i2c1.read_dma(
+            //                 mag::ADDR,
+            //                 &mut sensors_shared::MAG_READINGS,
+            //                 setup::EXT_SENSORS_RX_CH,
+            //                 Default::default(),
+            //                 setup::EXT_SENSORS_DMA_PERIPH,
+            //             );
+            //         }
+            //         ExtSensor::Gps => {
+            //             i2c1.read_dma(
+            //                 gps::ADDR,
+            //                 &mut sensors_shared::GPS_READINGS,
+            //                 setup::EXT_SENSORS_RX_CH,
+            //                 Default::default(),
+            //                 setup::EXT_SENSORS_DMA_PERIPH,
+            //             );
+            //         }
+            //         ExtSensor::Tof => {
+            //             i2c1.read_dma(
+            //                 tof::ADDR,
+            //                 &mut sensors_shared::TOF_READINGS,
+            //                 setup::EXT_SENSORS_RX_CH,
+            //                 Default::default(),
+            //                 setup::EXT_SENSORS_DMA_PERIPH,
+            //             );
+            //         }
+            //     }
+            // }
         });
     }
 
     // #[task(binds = DMA2_STR4,
     #[task(binds = DMA2_CH4,
     shared = [i2c1, ext_sensor_active], priority = 2)]
-    /// Baro write complete; start baro read.
+    /// Ext sensors write complete; start read of the next sensor in sequence.
     fn ext_sensors_read_tc_isr(cx: ext_sensors_read_tc_isr::Context) {
         dma::clear_interrupt(
             setup::EXT_SENSORS_DMA_PERIPH,
@@ -1992,36 +1992,36 @@ mod app {
 
             // todo: Interp data, and place data into its apt struct here.
 
-            unsafe {
-                match ext_sensor_active {
-                    ExtSensor::Mag => {
-                        i2c1.write_dma(
-                            gps::ADDR,
-                            &mut sensors_shared::WRITE_BUF_GPS,
-                            false,
-                            setup::EXT_SENSORS_RX_CH,
-                            Default::default(),
-                            setup::EXT_SENSORS_DMA_PERIPH,
-                        );
-                        *ext_sensor_active = ExtSensor::Gps;
-                    }
-                    ExtSensor::Gps => {
-                        i2c1.write_dma(
-                            tof::ADDR,
-                            &mut sensors_shared::WRITE_BUF_TOF,
-                            false,
-                            setup::EXT_SENSORS_RX_CH,
-                            Default::default(),
-                            setup::EXT_SENSORS_DMA_PERIPH,
-                        );
-                        *ext_sensor_active = ExtSensor::Tof;
-                    }
-                    ExtSensor::Tof => {
-                        *ext_sensor_active = ExtSensor::Mag;
-                        // End of sequence; don't start a new transfer.
-                    }
-                }
-            }
+            // unsafe {
+            // match ext_sensor_active {
+            // ExtSensor::Mag => {
+            //     i2c1.write_dma(
+            //         gps::ADDR,
+            //         &mut sensors_shared::WRITE_BUF_GPS,
+            //         false,
+            //         setup::EXT_SENSORS_RX_CH,
+            //         Default::default(),
+            //         setup::EXT_SENSORS_DMA_PERIPH,
+            //     );
+            //     *ext_sensor_active = ExtSensor::Gps;
+            // }
+            // ExtSensor::Gps => {
+            //     i2c1.write_dma(
+            //         tof::ADDR,
+            //         &mut sensors_shared::WRITE_BUF_TOF,
+            //         false,
+            //         setup::EXT_SENSORS_RX_CH,
+            //         Default::default(),
+            //         setup::EXT_SENSORS_DMA_PERIPH,
+            //     );
+            //     *ext_sensor_active = ExtSensor::Tof;
+            // }
+            // ExtSensor::Tof => {
+            //     *ext_sensor_active = ExtSensor::Mag;
+            //     // End of sequence; don't start a new transfer.
+            // }
+            // }
+            // }
         });
     }
 }
