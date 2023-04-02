@@ -213,13 +213,11 @@ pub enum PacketData {
     LinkStats(LinkStats),
 }
 
-/// Configure the Idle interrupt, and start the circular DMA transfer. Run this once, on initial
-/// firmware setup.
+/// Configure the Char match and idle interrupts, which will allow the initial UART ISR to run
+/// upon receiving data. Run this once, on initial firmware setup.
+/// We alternate between char matching the flight controller destination address, and
+/// line idle, to indicate we're received, or stopped receiving a message respectively.
 pub fn setup(uart: &mut crate::setup::UartCrsf) {
-    // todo: UART FIFO??
-
-    // We alternate between char matching the flight controller destination address, and
-    // line idle, to indicate we're received, or stopped receiving a message respectively.
     uart.enable_interrupt(UsartInterrupt::CharDetect(Some(
         DestAddr::FlightController as u8,
     )));

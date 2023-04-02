@@ -71,6 +71,7 @@ pub const BATT_CURR_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
 pub const BARO_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 pub const EXT_SENSORS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 pub const OSD_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
+pub const GNSS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 
 // DMA 1
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
@@ -94,6 +95,9 @@ pub const EXT_SENSORS_RX_CH: DmaChannel = DmaChannel::C4;
 pub const OSD_CH: DmaChannel = DmaChannel::C5;
 
 pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
+
+pub const GNSS_TX_CH: DmaChannel = DmaChannel::C6;
+pub const GNSS_RX_CH: DmaChannel = DmaChannel::C7;
 
 // Code shortener to isolate typestate syntax.
 pub type Can_ = FdCan<Can, NormalOperationMode>;

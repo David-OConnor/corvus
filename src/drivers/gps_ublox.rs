@@ -4,11 +4,16 @@
 //!
 //! See the Ublox M10 interface manual for how this is set up.
 
-use num_enum::TryFromPrimitive;
-use stm32_hal2::usart;
+use core::sync::atomic::AtomicBool;
 
-use crate::ppks::LocationType;
-use crate::{ppks::Location, setup::UartGnss};
+use num_enum::TryFromPrimitive;
+
+use stm32_hal2::usart::{self, UsartInterrupt};
+
+use crate::{
+    ppks::{Location, LocationType},
+    setup::{UartGnss, GNSS_DMA_PERIPH, GNSS_RX_CH, GNSS_TX_CH},
+};
 
 // UBX messages always start with these 2 preamble characters.
 const PREAMBLE_1: u8 = 0xb5;
@@ -23,7 +28,17 @@ pub const BAUD: u32 = 9_600;
 const MSG_SIZE_WITHOUT_PAYLOAD: usize = 8;
 
 // Position, velocity, time data payload side: UBX-NAV-PvT.
-const PAYlOAD_LEN_PVT: usize = 92;
+const PAYLOAD_LEN_PVT: usize = 92;
+// Payload length for an acknowledgement message.
+const PAYLOAD_LEN_ACK_NAK: usize = 2;
+
+// We use this max length for our DMA read buffer.
+const MAX_BUF_LEN: usize = PAYLOAD_LEN_PVT + MSG_SIZE_WITHOUT_PAYLOAD + 10;
+
+pub static mut RX_BUFFER: [u8; MAX_BUF_LEN] = [0; MAX_BUF_LEN];
+// static mut TX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
+
+pub static TRANSFER_IN_PROG: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
@@ -47,7 +62,7 @@ pub struct Fix {
     pub heading: Option<f32>, // only when valid.
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 /// See Interface manual, section 3.8: UBX messages overview
 ///
 /// todo: Class enum, and id-per-class enum?
@@ -302,6 +317,8 @@ pub enum GnssError {
     Fix,
     Crc,
     MsgType,
+    /// Received Nak, or did not receive Ack.
+    NoAck,
 }
 
 impl From<usart::Error> for GnssError {
@@ -373,8 +390,6 @@ impl<'a> Message<'a> {
 
         let mut result = Self {
             class_id,
-            // class: .try_into().unwrap(),
-            // id: buf[3],
             payload_len,
             payload: &buf[6..payload_end],
         };
@@ -410,79 +425,130 @@ impl Reg {
 }
 
 fn _setup_cfg_payload(payload: &mut [u8], item_id: u16, group_id: u8, storage_size: u8) {
-    let key_id = (item_id.to_le_bytes() & 0xfff) as u32
-        | (group_id as u32) << 16
-        | ((storage_size & 0b111) as u32) << 28;
+    let key_id =
+        (item_id & 0xfff) as u32 | (group_id as u32) << 16 | ((storage_size & 0b111) as u32) << 28;
 }
 
-/// Configure the GPS; run this at init.
+/// Configure the UART interrupts, and GNSS configuration settings.
+/// Configure the Char match and idle interrupts, which will allow the initial UART ISR to run
+/// upon receiving data. Run this once, on initial firmware setup.
+/// We alternate between char matching the flight controller destination address, and
+/// line idle, to indicate we're received, or stopped receiving a message respectively.
+
+/// Additionally, configure several settings on the GNSS module itself.
+/// After this is run, the module will periodically transmit Position, Velocity, and Time (PVT)
+/// packets.
 pub fn setup(uart: &mut UartGnss) -> Result<(), GnssError> {
     // todo: You should enable sensor fusion mode, eg to get heading?
     // todo: Enable dead-recoking.
 
-    let key_id_baud: u32 = 0x4052_0001;
-    let val_baud: u32 = BAUD;
+    uart.enable_interrupt(UsartInterrupt::CharDetect(Some(PREAMBLE_1)));
 
-    // todo: input protocol
+    uart.enable_interrupt(UsartInterrupt::Idle);
+
+    // Note: Fix mode defaults to auto, which allows fixes from multiple constellations.
+
+    let key_id_baud: u32 = 0x4052_0001;
+    // let val_baud: u32 = BAUD;
+    let val_baud: u32 = 9_600;
+
+    // Output rate of the UBX-NAV-PVT message on
+    // port UART1. By default, no fix messages are automatically output.
+    let key_id_pvt_rate: u32 = 0x2091_0007;
+    let val_pvt_rate: u8 = 1;
+
+    let key_fix_mode: u32 = 0x20110011;
 
     // "Configuration data is the binary representation of a list of Key ID and Value pairs. It is formed by
     // concatenating keys (U4 values) and values (variable type) without any padding. This format is used
     // in the UBX-CFG-VALSET and UBX-CFG-VALGET messages."
 
-    const PAYLOAD_LEN: u16 = 8;
+    const PAYLOAD_LEN_CFG: u16 = 12; // todo: Adjust this based on which settings you configure.
 
-    let mut cfg1_payload = [0; PAYLOAD_LEN as usize];
-    cfg1_payload[0..4].clone_from_slice(&key_id_baud.to_le_bytes());
-    cfg1_payload[4..8].clone_from_slice(kval_baud.to_le_bytes());
+    let mut cfg_payload = [0; PAYLOAD_LEN_CFG as usize];
+    cfg_payload[0..4].clone_from_slice(&key_id_baud.to_le_bytes());
+    cfg_payload[4..8].clone_from_slice(&val_baud.to_le_bytes());
 
-    // setup_cfg_payload(&mut cfg1_payload, 0, 0, 0);
+    cfg_payload[8..12].clone_from_slice(&key_fix_mode.to_le_bytes());
+    cfg_payload[12] = val_pvt_rate;
 
-    let cfg1_msg = Message {
+    let cfg_msg = Message {
         class_id: MsgClassId::CfgValSet,
-        payload_len: PAYLOAD_LEN,
-        payload: &cfg1_payload,
+        payload_len: PAYLOAD_LEN_CFG,
+        payload: &cfg_payload,
     };
 
-    const CFG_BUF_SIZE: usize = MSG_SIZE_WITHOUT_PAYLOAD + PAYLOAD_LEN as usize;
+    const CFG_BUF_SIZE: usize = MSG_SIZE_WITHOUT_PAYLOAD + PAYLOAD_LEN_CFG as usize;
 
-    let mut cfg1_buf = [0; CFG_BUF_SIZE];
-    cfg1_msg.to_buf(&mut cfg1_buf);
+    let mut cfg_write_buf = [0; CFG_BUF_SIZE];
+    cfg_msg.to_buf(&mut cfg_write_buf);
 
-    uart.write(&cfg1_buf);
+    uart.write(&cfg_write_buf);
 
-    // todo: read Ack?
+    // We've written the configuration: Now check for an acknolwedgement from the device.
+    let mut read_buf = [0; MSG_SIZE_WITHOUT_PAYLOAD + PAYLOAD_LEN_ACK_NAK];
+
+    // todo: loop/timeout?
+    // "Output upon processing of an input message. A UBX-ACK-ACK is sent as soon as possible but at
+    // least within one second."
+    uart.read(&mut read_buf);
+
+    let msg = Message::from_buf(&read_buf)?;
+
+    let (cfg_class, cfg_id) = MsgClassId::CfgValSet.to_vals();
+
+    if msg.class_id != MsgClassId::AckAck || msg.payload[0] != cfg_class || msg.payload[1] != cfg_id
+    {
+        return Err(GnssError::NoAck);
+    }
 
     Ok(())
 }
 
-/// Get position, velocity, and time data.
-pub fn get_fix(uart: &mut UartGnss) -> Result<Option<Fix>, GnssError> {
-    let write_payload = [];
+// /// Get position, velocity, and time data.
+// pub fn get_fix(uart: &mut UartGnss) -> Result<Option<Fix>, GnssError> {
+//     // let write_payload = [];
+//     //
+//     // // todo: Ack.
+//     //
+//     // let write_msg = Message {
+//     //     // Get position, velocity, and time together.
+//     //     class_id: MsgClassId::NavPvt,
+//     //     payload_len: 0,
+//     //     payload: &write_payload,
+//     // };
+//     //
+//     // let mut write_buf = [0; 69];
+//     // write_msg.to_buf(&mut write_buf);
+//     //
+//     //
+//     //
+//     // // todo: DMA
+//     //  uart.write(&write_buf);
+//
+//     // unsafe {
+//     //     uart.write_dma(&write_buf, GNSS_TX_CH, Default::default(), GNSS_DMA_PERIPH);
+//     // }
+//
+//     let mut read_buf = [0; MSG_SIZE_WITHOUT_PAYLOAD + PAYLOAD_LEN_PVT];
+//     uart.read(&mut read_buf);
+//
+//     // unsafe {
+//         // uart.read_dma(&mut read_buf, GNSS_RX_CH, Default::default(), GNSS_DMA_PERIPH);
+//     // }
+//
+//     fix_pvt_from_buf(&read_buf)
+// }
 
-    // todo: Ack.
+/// Get position, velocity, and time data, assuming it has already been transsferred into the reception
+/// buffer. Run this after a packet has been completedly received, eg as indicated by the UART idle
+/// interrupt.
+pub fn fix_pvt_from_buf() -> Result<Option<Fix>, GnssError> {
+    let buf = unsafe { &RX_BUFFER };
 
-    let write_msg = Message {
-        // Get position, velocity, and time together.
-        class_id: MsgClassId::NavPvt,
-        payload_len: 0,
-        payload: &write_payload,
-    };
+    let msg = Message::from_buf(buf)?;
 
-    let mut write_buf = [0; 69];
-    write_msg.to_buf(&mut write_buf);
-
-    uart.write(&write_buf);
-
-    // todo: Enable dead-recoking.
-
-    // todo: DMA!
-    let mut read_buf = [0; PAYlOAD_LEN_PVT];
-    uart.read(&mut read_buf);
-
-    let payload_len = u16::from_le_bytes(read_buf[4..6].try_into().unwrap());
-    let payload = &read_buf[6..6 + payload_len as usize];
-
-    let flags = payload[21];
+    let flags = msg.payload[21];
     let fix_ok = (flags & 1) != 0;
     let heading_valid = (flags & 0b10_0000) != 0;
 
@@ -490,27 +556,27 @@ pub fn get_fix(uart: &mut UartGnss) -> Result<Option<Fix>, GnssError> {
         return Ok(None); // todo: Error, or this?
     }
 
-    let lat_e7 = i32::from_le_bytes(payload[28..32].try_into().unwrap());
-    let lon_e7 = i32::from_le_bytes(payload[24..28].try_into().unwrap());
+    let lat_e7 = i32::from_le_bytes(msg.payload[28..32].try_into().unwrap());
+    let lon_e7 = i32::from_le_bytes(msg.payload[24..28].try_into().unwrap());
 
     // todo: This is a big risk for precision loss. QC this.
     let lat = lat_e7 as f64 / 10_000_000.;
     let lon = lon_e7 as f64 / 10_000_000.;
 
     let heading = if heading_valid {
-        Some(i16::from_le_bytes(payload[84..88].try_into().unwrap()) as f32)
+        Some(i16::from_le_bytes(msg.payload[84..88].try_into().unwrap()) as f32)
     } else {
         None
     };
 
     // `UBX-NAV-PVT`.
     let mut result = Fix {
-        type_: read_buf[20].try_into().unwrap(),
+        type_: buf[20].try_into().unwrap(),
         lat,
         lon,
-        elevation_hae: i16::from_le_bytes(payload[32..36].try_into().unwrap()) as f32 / 1_000.,
-        elevation_msl: i16::from_le_bytes(payload[36..30].try_into().unwrap()) as f32 / 1_000.,
-        ground_speed: i16::from_le_bytes(payload[60..64].try_into().unwrap()) as f32 / 1_000.,
+        elevation_hae: i16::from_le_bytes(msg.payload[32..36].try_into().unwrap()) as f32 / 1_000.,
+        elevation_msl: i16::from_le_bytes(msg.payload[36..30].try_into().unwrap()) as f32 / 1_000.,
+        ground_speed: i16::from_le_bytes(msg.payload[60..64].try_into().unwrap()) as f32 / 1_000.,
         heading,
     };
 

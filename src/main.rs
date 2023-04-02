@@ -1646,7 +1646,7 @@ mod app {
     #[task(binds = USART3,
     // #[task(binds = USART2,
     shared = [control_channel_data, link_stats, rf_limiter_timer, system_status,
-    lost_link_timer], local = [uart_crsf], priority = 12)]
+    lost_link_timer], local = [uart_crsf], priority = 8)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
     /// and message ends. For message starts, it begins a DMA transfer. For message ends, it
     /// processes the radio data, passing it into shared resources for control channel data,
@@ -1710,8 +1710,6 @@ mod app {
         } else {
             crsf::TRANSFER_IN_PROG.store(false, Ordering::Relaxed);
             // Line is idle.
-
-            // dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
 
             // A `None` value here re-enables the interrupt without changing the char to match.
             uart.enable_interrupt(UsartInterrupt::CharDetect(None));
