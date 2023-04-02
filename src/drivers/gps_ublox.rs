@@ -4,8 +4,6 @@
 //!
 //! See the Ublox M10 interface manual for how this is set up.
 
-use num_enum::TryFromPrimitive;
-
 use stm32_hal2::usart;
 
 use crate::{ppks::Location, setup::UartGnss};
@@ -14,7 +12,7 @@ use crate::{ppks::Location, setup::UartGnss};
 const PREAMBLE_1: u8 = 0xb5;
 const PREAMBLE_2: u8 = 0x62;
 
-#[derive(Clone, Copy, Eq, PartialEq, TryFromPrimitive)]
+#[derive(Clone, Copy)]
 /// See Interface manual, section 3.8: UBX messages overview
 ///
 /// todo: Class enum, and id-per-class enum?
@@ -184,13 +182,91 @@ impl MsgClassId {
         }
     }
 
-    pub fn from_vals(vals: (u8, u8)) -> Self {}
+    pub fn from_vals(vals: (u8, u8)) -> Result<Self, GnssError> {
+        Ok(match vals {
+            (0x05, 0x01) => Self::AckAck,
+            (0x05, 0x00) => Self::AckNak,
+            (0x06, 0x09) => Self::CfgCfg,
+            (0x06, 0x04) => Self::CfgRst,
+            (0x06, 0x8c) => Self::CfgValDel,
+            (0x06, 0x8b) => Self::CfgValGet,
+            (0x06, 0x8a) => Self::CfgValSet,
+            (0x04, 0x04) => Self::InfDebug,
+            (0x04, 0x00) => Self::InfError,
+            (0x04, 0x02) => Self::InfNotice,
+            (0x04, 0x03) => Self::InfTest,
+            (0x04, 0x01) => Self::InfWarning,
+            (0x21, 0x11) => Self::LogBatch,
+            (0x21, 0x10) => Self::LogRetrieveBath,
+            (0x13, 0x60) => Self::MgaAck,
+            (0x13, 0x20) => Self::MgaAno,
+            (0x13, 0x03) => Self::MgaBds,
+            (0x13, 0x80) => Self::MgaDbd,
+            (0x13, 0x02) => Self::MgaGal,
+            (0x13, 0x06) => Self::MgaGlo,
+            (0x13, 0x00) => Self::MgaGps,
+            (0x13, 0x40) => Self::MgaIni,
+            (0x13, 0x05) => Self::MgaQzss,
+            (0x0a, 0x32) => Self::MonBatch,
+            (0x0a, 0x36) => Self::MonComms,
+            (0x0a, 0x28) => Self::MonGnss,
+            (0x0a, 0x37) => Self::MonHw3,
+            (0x0a, 0x27) => Self::MonPatch,
+            (0x0a, 0x38) => Self::MonRf,
+            (0x0a, 0x21) => Self::MonRxr,
+            (0x0a, 0x31) => Self::MonSpan,
+            (0x0a, 0x04) => Self::MonVer,
+            (0x01, 0x60) => Self::NavAopstatus,
+            (0x01, 0x22) => Self::NavClock,
+            (0x01, 0x36) => Self::NavCov,
+            (0x01, 0x04) => Self::NavDop,
+            (0x01, 0x61) => Self::NavEoe,
+            (0x01, 0x09) => Self::NavOdo,
+            (0x01, 0x34) => Self::NavOrb,
+            (0x01, 0x62) => Self::NavPl,
+            (0x01, 0x01) => Self::NavPosecef,
+            (0x01, 0x02) => Self::NavPosllh,
+            (0x01, 0x07) => Self::NavPvt,
+            (0x01, 0x10) => Self::NavResetOdo,
+            (0x01, 0x35) => Self::NavSat,
+            (0x01, 0x32) => Self::NavSbas,
+            (0x01, 0x43) => Self::NavSig,
+            (0x01, 0x42) => Self::NavSlas,
+            (0x01, 0x03) => Self::NavStatus,
+            (0x01, 0x24) => Self::NavTimeBds,
+            (0x01, 0x25) => Self::NavTimeGal,
+            (0x01, 0x23) => Self::NavTimeGlo,
+            (0x01, 0x20) => Self::NavTimeGps,
+            (0x01, 0x26) => Self::NavTimeLs,
+            (0x01, 0x27) => Self::NavTimeQzss,
+            (0x01, 0x21) => Self::NavTimeUtc,
+            (0x01, 0x11) => Self::NavVelecef,
+            (0x01, 0x12) => Self::NavVelned,
+            (0x02, 0x84) => Self::RxmMeas20,
+            (0x02, 0x86) => Self::RxmMeas50,
+            (0x02, 0x82) => Self::RxmMeasc12,
+            (0x02, 0x80) => Self::RxmMeasd12,
+            (0x02, 0x14) => Self::RxmMeasx,
+            (0x02, 0x41) => Self::RxmPmreq,
+            (0x02, 0x59) => Self::RxmRlm,
+            (0x02, 0x13) => Self::RxmSfrbx,
+            (0x27, 0x03) => Self::SecUniqid,
+            (0x0d, 0x03) => Self::TimTm2,
+            (0x0d, 0x001) => Self::TimTp,
+            (0xd0, 0x06) => Self::TimVrfy,
+            (0x09, 0x14) => Self::UpdSos,
+            _ => {
+                return Err(GnssError::MsgType);
+            },
+        })
+    }
 }
 
 pub enum GnssError {
     Bus,
     Fix,
     Crc,
+    MsgType,
 }
 
 pub struct GnssNotConnectedError {}
@@ -261,7 +337,7 @@ impl<'a> Payload<'a> {
 
         let class = buf[2];
         let id = buf[3];
-        let class_id = MsgClassId.from_vals(class, id);
+        let class_id = MsgClassId::from_vals((class, id))?;
 
         let mut result = Self {
             class_id,
