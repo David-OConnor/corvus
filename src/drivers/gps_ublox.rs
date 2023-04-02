@@ -17,7 +17,10 @@ const PREAMBLE_2: u8 = 0x62;
 // Max Baud, per DS, is 921, 600
 // pub const BAUD: u16 = 800_000; // todo: Set once you implement customizable baud. For now,
 // todo we'll use the default of 9600.
-pub const BAUD: u16 = 9_600;
+pub const BAUD: u32 = 9_600;
+
+// Includes start bytes, class, id, payload length, and CRC.
+const MSG_SIZE_WITHOUT_PAYLOAD: usize = 8;
 
 // Position, velocity, time data payload side: UBX-NAV-PvT.
 const PAYlOAD_LEN_PVT: usize = 92;
@@ -406,22 +409,48 @@ impl Reg {
     }
 }
 
+fn _setup_cfg_payload(payload: &mut [u8], item_id: u16, group_id: u8, storage_size: u8) {
+    let key_id = (item_id.to_le_bytes() & 0xfff) as u32
+        | (group_id as u32) << 16
+        | ((storage_size & 0b111) as u32) << 28;
+}
+
 /// Configure the GPS; run this at init.
 pub fn setup(uart: &mut UartGnss) -> Result<(), GnssError> {
-    // todo: You should enable sensor fusion mode, eg to get heading.
+    // todo: You should enable sensor fusion mode, eg to get heading?
     // todo: Enable dead-recoking.
 
-    let cfg1_payload = [0; 65];
+    let key_id_baud: u32 = 0x4052_0001;
+    let val_baud: u32 = BAUD;
+
+    // todo: input protocol
+
+    // "Configuration data is the binary representation of a list of Key ID and Value pairs. It is formed by
+    // concatenating keys (U4 values) and values (variable type) without any padding. This format is used
+    // in the UBX-CFG-VALSET and UBX-CFG-VALGET messages."
+
+    const PAYLOAD_LEN: u16 = 8;
+
+    let mut cfg1_payload = [0; PAYLOAD_LEN as usize];
+    cfg1_payload[0..4].clone_from_slice(&key_id_baud.to_le_bytes());
+    cfg1_payload[4..8].clone_from_slice(kval_baud.to_le_bytes());
+
+    // setup_cfg_payload(&mut cfg1_payload, 0, 0, 0);
+
     let cfg1_msg = Message {
         class_id: MsgClassId::CfgValSet,
-        payload_len: 69,
+        payload_len: PAYLOAD_LEN,
         payload: &cfg1_payload,
     };
 
-    let mut cfg1_buf = [0; 69];
+    const CFG_BUF_SIZE: usize = MSG_SIZE_WITHOUT_PAYLOAD + PAYLOAD_LEN as usize;
+
+    let mut cfg1_buf = [0; CFG_BUF_SIZE];
     cfg1_msg.to_buf(&mut cfg1_buf);
 
     uart.write(&cfg1_buf);
+
+    // todo: read Ack?
 
     Ok(())
 }
@@ -429,6 +458,8 @@ pub fn setup(uart: &mut UartGnss) -> Result<(), GnssError> {
 /// Get position, velocity, and time data.
 pub fn get_fix(uart: &mut UartGnss) -> Result<Option<Fix>, GnssError> {
     let write_payload = [];
+
+    // todo: Ack.
 
     let write_msg = Message {
         // Get position, velocity, and time together.
@@ -442,7 +473,6 @@ pub fn get_fix(uart: &mut UartGnss) -> Result<Option<Fix>, GnssError> {
 
     uart.write(&write_buf);
 
-    // todo: You should enable sensor fusion mode, eg to get heading.
     // todo: Enable dead-recoking.
 
     // todo: DMA!
