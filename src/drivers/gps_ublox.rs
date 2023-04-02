@@ -4,13 +4,45 @@
 //!
 //! See the Ublox M10 interface manual for how this is set up.
 
+use num_enum::TryFromPrimitive;
 use stm32_hal2::usart;
 
+use crate::ppks::LocationType;
 use crate::{ppks::Location, setup::UartGnss};
 
 // UBX messages always start with these 2 preamble characters.
 const PREAMBLE_1: u8 = 0xb5;
 const PREAMBLE_2: u8 = 0x62;
+
+// Max Baud, per DS, is 921, 600
+// pub const BAUD: u16 = 800_000; // todo: Set once you implement customizable baud. For now,
+// todo we'll use the default of 9600.
+pub const BAUD: u16 = 9_600;
+
+// Position, velocity, time data payload side: UBX-NAV-PvT.
+const PAYlOAD_LEN_PVT: usize = 92;
+
+#[derive(Clone, Copy, Eq, PartialEq, TryFromPrimitive)]
+#[repr(u8)]
+pub enum FixType {
+    // These values are from the UBLOX protocol.
+    NoFix = 0,
+    DeadReckoning = 1,
+    _2d = 2,
+    _3d = 3,
+    Combined = 4,
+    TimeOnly = 5,
+}
+
+pub struct Fix {
+    pub type_: FixType,
+    pub lat: f64,
+    pub lon: f64,
+    pub elevation_hae: f32,
+    pub elevation_msl: f32,
+    pub ground_speed: f32,
+    pub heading: Option<f32>, // only when valid.
+}
 
 #[derive(Clone, Copy)]
 /// See Interface manual, section 3.8: UBX messages overview
@@ -252,12 +284,12 @@ impl MsgClassId {
             (0x02, 0x13) => Self::RxmSfrbx,
             (0x27, 0x03) => Self::SecUniqid,
             (0x0d, 0x03) => Self::TimTm2,
-            (0x0d, 0x001) => Self::TimTp,
+            (0x0d, 0x01) => Self::TimTp,
             (0xd0, 0x06) => Self::TimVrfy,
             (0x09, 0x14) => Self::UpdSos,
             _ => {
                 return Err(GnssError::MsgType);
-            },
+            }
         })
     }
 }
@@ -269,16 +301,13 @@ pub enum GnssError {
     MsgType,
 }
 
-pub struct GnssNotConnectedError {}
-pub struct GnssFixError {}
-
 impl From<usart::Error> for GnssError {
     fn from(_e: usart::Error) -> Self {
         Self::Bus
     }
 }
 
-struct Payload<'a> {
+struct Message<'a> {
     /// A 1-byte message class field follows. A class is a group of messages that are related to each
     /// other.
     /// A 1-byte message ID field defines the message that is to follow.
@@ -311,7 +340,7 @@ fn calc_checksum(buffer: &[u8]) -> (u8, u8) {
     (ck_a, ck_b)
 }
 
-impl<'a> Payload<'a> {
+impl<'a> Message<'a> {
     pub fn to_buf(&self, buf: &mut [u8]) {
         let payload_end = 6 + self.payload_len as usize;
         let (class, id) = self.class_id.to_vals();
@@ -378,13 +407,82 @@ impl Reg {
 }
 
 /// Configure the GPS; run this at init.
-pub fn setup(uart: &mut UartGnss) -> Result<(), GnssNotConnectedError> {
-    // let mut buf = [0x01, 0x02, 0, 0, 0, 0, 0, 0];
-    // i2c.read(ADDR, &mut buf)?;
+pub fn setup(uart: &mut UartGnss) -> Result<(), GnssError> {
+    // todo: You should enable sensor fusion mode, eg to get heading.
+    // todo: Enable dead-recoking.
+
+    let cfg1_payload = [0; 65];
+    let cfg1_msg = Message {
+        class_id: MsgClassId::CfgValSet,
+        payload_len: 69,
+        payload: &cfg1_payload,
+    };
+
+    let mut cfg1_buf = [0; 69];
+    cfg1_msg.to_buf(&mut cfg1_buf);
+
+    uart.write(&cfg1_buf);
 
     Ok(())
 }
 
-pub fn get_fix(uart: &mut UartGnss) -> Result<Location, GnssFixError> {
-    Err(GnssFixError {})
+/// Get position, velocity, and time data.
+pub fn get_fix(uart: &mut UartGnss) -> Result<Option<Fix>, GnssError> {
+    let write_payload = [];
+
+    let write_msg = Message {
+        // Get position, velocity, and time together.
+        class_id: MsgClassId::NavPvt,
+        payload_len: 0,
+        payload: &write_payload,
+    };
+
+    let mut write_buf = [0; 69];
+    write_msg.to_buf(&mut write_buf);
+
+    uart.write(&write_buf);
+
+    // todo: You should enable sensor fusion mode, eg to get heading.
+    // todo: Enable dead-recoking.
+
+    // todo: DMA!
+    let mut read_buf = [0; PAYlOAD_LEN_PVT];
+    uart.read(&mut read_buf);
+
+    let payload_len = u16::from_le_bytes(read_buf[4..6].try_into().unwrap());
+    let payload = &read_buf[6..6 + payload_len as usize];
+
+    let flags = payload[21];
+    let fix_ok = (flags & 1) != 0;
+    let heading_valid = (flags & 0b10_0000) != 0;
+
+    if !fix_ok {
+        return Ok(None); // todo: Error, or this?
+    }
+
+    let lat_e7 = i32::from_le_bytes(payload[28..32].try_into().unwrap());
+    let lon_e7 = i32::from_le_bytes(payload[24..28].try_into().unwrap());
+
+    // todo: This is a big risk for precision loss. QC this.
+    let lat = lat_e7 as f64 / 10_000_000.;
+    let lon = lon_e7 as f64 / 10_000_000.;
+
+    let heading = if heading_valid {
+        Some(i16::from_le_bytes(payload[84..88].try_into().unwrap()) as f32)
+    } else {
+        None
+    };
+
+    // `UBX-NAV-PVT`.
+    let mut result = Fix {
+        type_: read_buf[20].try_into().unwrap(),
+        lat,
+        lon,
+        elevation_hae: i16::from_le_bytes(payload[32..36].try_into().unwrap()) as f32 / 1_000.,
+        elevation_msl: i16::from_le_bytes(payload[36..30].try_into().unwrap()) as f32 / 1_000.,
+        ground_speed: i16::from_le_bytes(payload[60..64].try_into().unwrap()) as f32 / 1_000.,
+        heading,
+    };
+
+    Ok(Some(result))
 }
