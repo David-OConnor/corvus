@@ -411,7 +411,7 @@ impl MotorServoState {
         MotorPower {
             front_left: self.rotor_front_left.power_setting,
             front_right: self.rotor_front_right.power_setting,
-            aft_left: self.rotor_aft_left.cmd.power_setting,
+            aft_left: self.rotor_aft_left.power_setting,
             aft_right: self.rotor_aft_right.power_setting,
         }
     }

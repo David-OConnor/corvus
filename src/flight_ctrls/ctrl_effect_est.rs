@@ -54,6 +54,7 @@ pub const NUM_SAMPLE_PTS: usize = 30;
 //     }
 // }
 
+#[derive(Default, Clone, Copy)] // `Copy` for use in array init.
 pub struct AccelMapPt {
     /// In radians-per-second
     pub angular_accel: f32,
@@ -192,48 +193,21 @@ impl AccelMaps {
         let active_pt_yaw_2 = self.sample_pts_yaw[i % NUM_SAMPLE_PTS];
 
         self.rpm_to_accel_pitch.update_coeffs(
-            (
-                active_pt_pitch_0.angular_accel,
-                active_pt_pitch_0.rpm_or_servo_delta,
-            ),
-            (
-                active_pt_pitch_1.angular_accel,
-                active_pt_pitch_1.rpm_or_servo_delta,
-            ),
-            (
-                active_pt_pitch_2.angular_accel,
-                active_pt_pitch_2.rpm_or_servo_delta,
-            ),
+            (active_pt_pitch_0.angular_accel, active_pt_pitch_0.ctrl_cmd),
+            (active_pt_pitch_1.angular_accel, active_pt_pitch_1.ctrl_cmd),
+            (active_pt_pitch_2.angular_accel, active_pt_pitch_2.ctrl_cmd),
         );
 
         self.rpm_to_accel_roll.update_coeffs(
-            (
-                active_pt_roll_0.angular_accel,
-                active_pt_roll_0.rpm_or_servo_delta,
-            ),
-            (
-                active_pt_roll_1.angular_accel,
-                active_pt_roll_1.rpm_or_servo_delta,
-            ),
-            (
-                active_pt_roll_2.angular_accel,
-                active_pt_roll_2.rpm_or_servo_delta,
-            ),
+            (active_pt_roll_0.angular_accel, active_pt_roll_0.ctrl_cmd),
+            (active_pt_roll_1.angular_accel, active_pt_roll_1.ctrl_cmd),
+            (active_pt_roll_2.angular_accel, active_pt_roll_2.ctrl_cmd),
         );
 
         self.rpm_to_accel_yaw.update_coeffs(
-            (
-                active_pt_yaw_0.angular_accel,
-                active_pt_yaw_0.rpm_or_servo_delta,
-            ),
-            (
-                active_pt_yaw_1.angular_accel,
-                active_pt_yaw_1.rpm_or_servo_delta,
-            ),
-            (
-                active_pt_yaw_2.angular_accel,
-                active_pt_yaw_2.rpm_or_servo_delta,
-            ),
+            (active_pt_yaw_0.angular_accel, active_pt_yaw_0.ctrl_cmd),
+            (active_pt_yaw_1.angular_accel, active_pt_yaw_1.ctrl_cmd),
+            (active_pt_yaw_2.angular_accel, active_pt_yaw_2.ctrl_cmd),
         );
     }
 }

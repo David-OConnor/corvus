@@ -13,6 +13,7 @@ use stm32_hal2::usart::{self, UsartInterrupt};
 use crate::{
     ppks::{Location, LocationType},
     setup::{UartGnss, GNSS_DMA_PERIPH, GNSS_RX_CH, GNSS_TX_CH},
+    util,
 };
 
 // UBX messages always start with these 2 preamble characters.
@@ -46,20 +47,35 @@ pub enum FixType {
     // These values are from the UBLOX protocol.
     NoFix = 0,
     DeadReckoning = 1,
-    _2d = 2,
-    _3d = 3,
+    Fix2d = 2,
+    Fix3d = 3,
+    /// GNSS + dead reckoning combined
     Combined = 4,
     TimeOnly = 5,
 }
 
 pub struct Fix {
+    /// Seconds since start.
+    pub timestamp: f32,
+    pub timestamp_gnss: i8,
     pub type_: FixType,
+    /// Degrees
     pub lat: f64,
+    /// Degrees
     pub lon: f64,
+    /// Meters
     pub elevation_hae: f32,
+    /// Meters
     pub elevation_msl: f32,
+    /// Meters per second (?)
     pub ground_speed: f32,
+    /// North, east, down velocity; in that order. In M/s.
+    pub ned_velocity: [f32; 3],
+    /// Degrees
     pub heading: Option<f32>, // only when valid.
+    pub sats_used: u8,
+    /// Position dilution of precision
+    pub pdop: f32,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -523,7 +539,9 @@ pub fn setup(uart: &mut UartGnss) -> Result<(), GnssError> {
 /// Get position, velocity, and time data, assuming it has already been transsferred into the reception
 /// buffer. Run this after a packet has been completedly received, eg as indicated by the UART idle
 /// interrupt.
-pub fn fix_pvt_from_buf() -> Result<Option<Fix>, GnssError> {
+///
+/// Timestamp is seconds since program start.
+pub fn fix_pvt_from_buf(timestamp: f32) -> Result<Option<Fix>, GnssError> {
     let buf = unsafe { &RX_BUFFER };
 
     let msg = Message::from_buf(buf)?;
@@ -544,20 +562,29 @@ pub fn fix_pvt_from_buf() -> Result<Option<Fix>, GnssError> {
     let lon = lon_e7 as f64 / 10_000_000.;
 
     let heading = if heading_valid {
-        Some(i16::from_le_bytes(msg.payload[84..88].try_into().unwrap()) as f32)
+        Some(i32::from_le_bytes(msg.payload[84..88].try_into().unwrap()) as f32)
     } else {
         None
     };
 
     // `UBX-NAV-PVT`.
     let mut result = Fix {
+        timestamp,
+        timestamp_gnss: 0, // todo!
         type_: buf[20].try_into().unwrap(),
         lat,
         lon,
-        elevation_hae: i16::from_le_bytes(msg.payload[32..36].try_into().unwrap()) as f32 / 1_000.,
-        elevation_msl: i16::from_le_bytes(msg.payload[36..30].try_into().unwrap()) as f32 / 1_000.,
-        ground_speed: i16::from_le_bytes(msg.payload[60..64].try_into().unwrap()) as f32 / 1_000.,
+        elevation_hae: i32::from_le_bytes(msg.payload[32..36].try_into().unwrap()) as f32 / 1_000.,
+        elevation_msl: i32::from_le_bytes(msg.payload[36..50].try_into().unwrap()) as f32 / 1_000.,
+        ground_speed: i32::from_le_bytes(msg.payload[60..64].try_into().unwrap()) as f32 / 1_000.,
+        ned_velocity: [
+            i32::from_le_bytes(msg.payload[48..52].try_into().unwrap()) as f32 / 1_000.,
+            i32::from_le_bytes(msg.payload[52..56].try_into().unwrap()) as f32 / 1_000.,
+            i32::from_le_bytes(msg.payload[56..60].try_into().unwrap()) as f32 / 1_000.,
+        ],
         heading,
+        sats_used: msg.payload[23],
+        pdop: i16::from_le_bytes(msg.payload[76..78].try_into().unwrap()) as f32 / 100.,
     };
 
     Ok(Some(result))

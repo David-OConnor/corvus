@@ -16,9 +16,7 @@
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08oOLBVYYIwwN_nvuyUqEjrj
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pQBgjxYFXSsODEF3Jqmm-y
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pFBqgd_6Bi7msgkWFKL33b
-//
-// todo: Movable camera that moves with head motion.
-// - Ir cam to find or avoid people
+
 
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
@@ -1227,7 +1225,12 @@ mod app {
                         // todo: This should probably be delegatd to a fn; get it
                         // todo out here
                         if i % THRUST_LOG_RATIO == 0 {
-                            let timestamp = util::tick_count_fm_overflows_s() + tick_timer.time_elapsed().as_secs();
+
+                            let elapsed = cx.shared.tick_timer.lock(|tick_timer| {
+                                tick_timer.time_elapsed().as_secs()
+                            });
+
+                            let timestamp = util::tick_count_fm_overflows_s() + elapsed;
                             // Log angular accel from RPM or servo posit delta.
                             // Code-shorteners
                             #[cfg(feature = "quad")]
