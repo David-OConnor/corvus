@@ -19,7 +19,7 @@ use crate::{
 const PREAMBLE_1: u8 = 0xb5;
 const PREAMBLE_2: u8 = 0x62;
 
-// Max Baud, per DS, is 921, 600
+// Max Baud, per DS, is 921,600
 // pub const BAUD: u16 = 800_000; // todo: Set once you implement customizable baud. For now,
 // todo we'll use the default of 9600.
 pub const BAUD: u32 = 9_600;
@@ -27,7 +27,7 @@ pub const BAUD: u32 = 9_600;
 // Includes start bytes, class, id, payload length, and CRC.
 const MSG_SIZE_WITHOUT_PAYLOAD: usize = 8;
 
-// Position, velocity, time data payload side: UBX-NAV-PvT.
+// Position, velocity, time data payload side: UBX-NAV-PVT.
 const PAYLOAD_LEN_PVT: usize = 92;
 // Payload length for an acknowledgement message.
 const PAYLOAD_LEN_ACK_NAK: usize = 2;
@@ -232,6 +232,7 @@ impl MsgClassId {
         }
     }
 
+    /// Construct a message given (class, id) numerical values.
     pub fn from_vals(vals: (u8, u8)) -> Result<Self, GnssError> {
         Ok(match vals {
             (0x05, 0x01) => Self::AckAck,
@@ -315,6 +316,7 @@ impl MsgClassId {
 pub enum GnssError {
     Bus,
     Fix,
+    /// CRC validation failed for a recieved message.
     Crc,
     MsgType,
     /// Received Nak, or did not receive Ack.
@@ -332,7 +334,6 @@ struct Message<'a> {
     /// other.
     /// A 1-byte message ID field defines the message that is to follow.
     pub class_id: MsgClassId,
-    // pub id: u8,
     /// A 2-byte length field follows. The length is defined as being that of the payload only. It does not
     /// include the preamble, message class, message ID, length, or UBX checksum fields. The number
     /// format of the length field is an unsigned little-endian 16-bit integer (a "U2" in UBX data types).
@@ -404,26 +405,6 @@ impl<'a> Message<'a> {
     }
 }
 
-/// See Datasheet, Section 13.1 (Note: This doesn't include all regs)
-#[allow(dead_code)]
-#[derive(Clone, Copy)]
-pub enum Reg {
-    NavStatus,
-    PositLatLon,
-    SatInfo,
-}
-
-impl Reg {
-    /// Return the 2 register values
-    pub fn vals(&self) -> (u8, u8) {
-        match self {
-            Self::NavStatus => (0x01, 0x03),
-            Self::PositLatLon => (0x01, 0x02),
-            Self::SatInfo => (0x01, 0x35),
-        }
-    }
-}
-
 fn _setup_cfg_payload(payload: &mut [u8], item_id: u16, group_id: u8, storage_size: u8) {
     let key_id =
         (item_id & 0xfff) as u32 | (group_id as u32) << 16 | ((storage_size & 0b111) as u32) << 28;
@@ -443,7 +424,6 @@ pub fn setup(uart: &mut UartGnss) -> Result<(), GnssError> {
     // todo: Enable dead-recoking.
 
     uart.enable_interrupt(UsartInterrupt::CharDetect(Some(PREAMBLE_1)));
-
     uart.enable_interrupt(UsartInterrupt::Idle);
 
     // Note: Fix mode defaults to auto, which allows fixes from multiple constellations.
@@ -457,7 +437,7 @@ pub fn setup(uart: &mut UartGnss) -> Result<(), GnssError> {
     let key_id_pvt_rate: u32 = 0x2091_0007;
     let val_pvt_rate: u8 = 1;
 
-    let key_fix_mode: u32 = 0x20110011;
+    // let key_id_fix_mode: u32 = 0x20110011;
 
     // "Configuration data is the binary representation of a list of Key ID and Value pairs. It is formed by
     // concatenating keys (U4 values) and values (variable type) without any padding. This format is used
@@ -469,7 +449,7 @@ pub fn setup(uart: &mut UartGnss) -> Result<(), GnssError> {
     cfg_payload[0..4].clone_from_slice(&key_id_baud.to_le_bytes());
     cfg_payload[4..8].clone_from_slice(&val_baud.to_le_bytes());
 
-    cfg_payload[8..12].clone_from_slice(&key_fix_mode.to_le_bytes());
+    cfg_payload[8..12].clone_from_slice(&key_id_pvt_rate.to_le_bytes());
     cfg_payload[12] = val_pvt_rate;
 
     let cfg_msg = Message {

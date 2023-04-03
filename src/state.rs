@@ -208,14 +208,14 @@ pub struct StateVolatile {
     pub ctrl_mix: CtrlMix,
     /// We use this to determine if we can unlock the attitude controls from the takeoff attitude.
     pub has_taken_off: bool,
-    // /// Power to RPM, and RPM to angular acceleration data. (todo: Should this be stored in cfg?)
-    // pub power_maps: PowerMaps,
     /// Angular drag coefficient, continuously updated.
     pub angular_drag_coeff: f32,
     pub batt_v: f32,      // volts
     pub esc_current: f32, // amps
     /// Drag calculated drag coefficients from flight params.
     pub drag_coeffs: DragCoeffs,
+    /// We log angular acceleration vice control data (RPM deltas, or servo commands/positions) as part
+    /// of the control-effect model in our flight-controls system
     /// Relates motor pair delta RPM difference to angular acceleration for quads, or servo settings
     /// to angular accel for fixed-wing.
     pub accel_maps: AccelMaps,

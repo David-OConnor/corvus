@@ -1227,76 +1227,35 @@ mod app {
                         // todo: This should probably be delegatd to a fn; get it
                         // todo out here
                         if i % THRUST_LOG_RATIO == 0 {
-                            //     cfg_if! {
-                            //         if #[cfg(feature = "quad")] {
-                            //             state_volatile.power_maps.rpm_to_accel_pitch.log_val(
-                            //             // todo: Populate this, and consider if you want rpms to be by motor or rotor posit
-                            //             //     pwr.front_left + pwr.front_right - pwr.aft_left - pwr.aft_right,
-                            //                 // rpms.m1 + rpms.m2 + rpms.m3 + rpms.m4
-                            //                 // todo: Motors. Map Motor num to rotor position here.
-                            //                 // todo: Possibly with helper methods.
-                            //                 0.,
-                            //                 0.,
-                            //             );
-                            //
-                            //             state_volatile.power_maps.rpm_to_accel_roll.log_val(
-                            //                 0.,
-                            //                 0.,
-                            //             );
-                            //
-                            //             let mut yaw_pwr = 0.;
-                            //             if state_volatile.motor_servo_state.frontleft_aftright_dir == RotationDir::Clockwise {
-                            //                 yaw_pwr *= -1.;
-                            //             }
-                            //             state_volatile.power_maps.rpm_to_accel_yaw.log_val(
-                            //                 yaw_pwr,
-                            //                 0.,
-                            //             );
-                            //         }
-                            // }
-
+                            let timestamp = util::tick_count_fm_overflows_s() + tick_timer.time_elapsed().as_secs();
                             // Log angular accel from RPM or servo posit delta.
                             // Code-shorteners
-                            let m = &state_volatile.motor_servo_state;
+                            #[cfg(feature = "quad")]
+                            let ctrl_cmds = state_volatile.motor_servo_state.get_power_settings();
+                            #[cfg(feature = "fixed-wing")]
+                            let ctrl_cmds = state_volatile.motor_servo_state.get_ctrl_positions();
 
-                            cfg_if! {
-                                if #[cfg(feature = "quad")] {
-                                    let pt_pitch = AccelMapPt {
-                                        rpm_or_servo_delta: m.pitch_delta_rpm(),
-                                        angular_accel: params.a_pitch,
-                                    };
 
-                                    let pt_roll = AccelMapPt {
-                                        rpm_or_servo_delta: m.roll_delta_rpm(),
-                                        angular_accel: params.a_roll,
-                                    };
-
-                                    let pt_yaw = AccelMapPt {
-                                        rpm_or_servo_delta: m.yaw_delta_rpm(),
-                                        angular_accel: params.a_yaw,
-                                    };
-                                } else {
-                                    let pt_pitch = AccelMapPt {
-                                        rpm_or_servo_delta: m.pitch_delta(),
-                                        angular_accel: params.a_pitch,
-                                    };
-
-                                    let pt_roll = AccelMapPt {
-                                        rpm_or_servo_delta: m.roll_delta(),
-                                        angular_accel: params.a_roll,
-                                    };
-
-                                    let pt_yaw = AccelMapPt {
-                                        rpm_or_servo_delta: m.yaw_delta(),
-                                        angular_accel: params.a_yaw,
-                                    };
-                                }
-                            }
 
                             state_volatile.accel_maps.log_pt(
-                                pt_pitch,
-                                pt_roll,
-                                pt_yaw
+                                AccelMapPt {
+                                    angular_accel: params.a_pitch,
+                                    ctrl_cmd: ctrl_cmds.pitch_delta(),
+                                    timestamp,
+                                },
+                                AccelMapPt {
+                                    angular_accel: params.a_roll,
+                                    ctrl_cmd: ctrl_cmds.roll_delta(),
+                                    timestamp,
+                                },
+                                AccelMapPt {
+                                    angular_accel: params.a_yaw,
+                                    #[cfg(feature = "quad")]
+                                    ctrl_cmd: ctrl_cmds.yaw_delta(state_volatile.motor_servo_state.frontleft_aftright_dir),
+                                    #[cfg(feature = "fixed-wing")]
+                                    ctrl_cmd: ctrl_cmds.yaw_delta(),
+                                    timestamp,
+                                },
                             );
 
                         }
@@ -1673,8 +1632,6 @@ mod app {
         // to the variable message sizes.
         dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
 
-        // todo: Attempting a software flag vice using interrupt flags, to TS CRSF
-        // todo anomolies.
         if !crsf::TRANSFER_IN_PROG.load(Ordering::Relaxed) {
             crsf::TRANSFER_IN_PROG.store(true, Ordering::Relaxed);
 

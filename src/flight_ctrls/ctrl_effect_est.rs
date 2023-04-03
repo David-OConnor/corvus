@@ -54,12 +54,13 @@ pub const NUM_SAMPLE_PTS: usize = 30;
 //     }
 // }
 
-pub struct AccepMapPt {
+pub struct AccelMapPt {
     /// In radians-per-second
     pub angular_accel: f32,
     /// This could be servo command, servo measured position, RPM delta, or rotor power delta
     pub ctrl_cmd: f32,
-    pub timestamp: u32, // todo?
+    /// In seconds.
+    pub timestamp: f32,
 }
 
 /// Polynomial coefficients that map angular acceleration to either RPM, or servo positions.
@@ -77,7 +78,7 @@ pub struct AccelMap {
 
 impl AccelMap {
     /// Pts are (angular accel, RPM or servo posit delta) // todo: Do you want it the other way?
-    pub fn new(pt0: AccepMapPt, pt1: AccepMapPt, pt2: AccepMapPt) -> Self {
+    pub fn new(pt0: AccelMapPt, pt1: AccelMapPt, pt2: AccelMapPt) -> Self {
         // let (square, lin, constant) = util::create_polynomial_terms(pt0, pt1, pt2);
         let (square, lin, constant) = (0., 0., 0.);
 
@@ -128,15 +129,6 @@ impl Default for AccelMap {
             constant: 0.,
         };
     }
-}
-
-/// A logged mapping point, for one axis.
-/// todo: timestamp?
-#[derive(Default, Clone, Copy)]
-pub struct AccelMapPt {
-    pub rpm_or_servo_delta: f32,
-    pub angular_accel: f32,
-    // pub timestamp: usize, // todo: maybe
 }
 
 pub struct AccelMaps {

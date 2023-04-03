@@ -97,6 +97,7 @@ pub enum RotationDir {
 pub struct MotorState {
     /// None indicates no reading.
     pub cmd: MotorCmd,
+    pub power_setting: f32,
     // todo: When do we set this??a
     pub rpm_reading: Option<f32>, // todo: This state is repatative with `rpm_readings`.
     // pub dir: RotationDir, // todo: Do we want this?
@@ -396,66 +397,32 @@ impl MotorServoState {
     }
 
     #[cfg(feature = "quad")]
-    pub fn pitch_delta_rpm(&self) -> f32 {
-        let rpms = MotorRpm {
+    pub fn get_rpm_readings(&self) -> MotorRpm {
+        MotorRpm {
             front_left: self.rotor_front_left.rpm_reading.unwrap_or(0.),
             front_right: self.rotor_front_right.rpm_reading.unwrap_or(0.),
             aft_left: self.rotor_aft_left.rpm_reading.unwrap_or(0.),
             aft_right: self.rotor_aft_right.rpm_reading.unwrap_or(0.),
-        };
-        rpms.pitch_delta()
+        }
     }
 
     #[cfg(feature = "quad")]
-    pub fn roll_delta_rpm(&self) -> f32 {
-        let rpms = MotorRpm {
-            front_left: self.rotor_front_left.rpm_reading.unwrap_or(0.),
-            front_right: self.rotor_front_right.rpm_reading.unwrap_or(0.),
-            aft_left: self.rotor_aft_left.rpm_reading.unwrap_or(0.),
-            aft_right: self.rotor_aft_right.rpm_reading.unwrap_or(0.),
-        };
-        rpms.roll_delta()
-    }
-
-    #[cfg(feature = "quad")]
-    pub fn yaw_delta_rpm(&self) -> f32 {
-        let rpms = MotorRpm {
-            front_left: self.rotor_front_left.rpm_reading.unwrap_or(0.),
-            front_right: self.rotor_front_right.rpm_reading.unwrap_or(0.),
-            aft_left: self.rotor_aft_left.rpm_reading.unwrap_or(0.),
-            aft_right: self.rotor_aft_right.rpm_reading.unwrap_or(0.),
-        };
-        rpms.yaw_delta(self.frontleft_aftright_dir)
+    pub fn get_power_settings(&self) -> MotorPower {
+        MotorPower {
+            front_left: self.rotor_front_left.power_setting,
+            front_right: self.rotor_front_right.power_setting,
+            aft_left: self.rotor_aft_left.cmd.power_setting,
+            aft_right: self.rotor_aft_right.power_setting,
+        }
     }
 
     #[cfg(feature = "fixed-wing")]
-    pub fn pitch_delta(&self) -> f32 {
-        let ctrl_posits = CtrlSfcPosits {
+    pub fn get_ctrl_positions(&self) -> CtrlSfcPosits {
+        CtrlSfcPosits {
             elevon_left: self.elevon_left.posit_cmd,
             elevon_right: self.elevon_right.posit_cmd,
             rudder: None, //todo! And differential thrust between motors A/R.
-        };
-        ctrl_posits.pitch_delta()
-    }
-
-    #[cfg(feature = "fixed-wing")]
-    pub fn roll_delta(&self) -> f32 {
-        let ctrl_posits = CtrlSfcPosits {
-            elevon_left: self.elevon_left.posit_cmd,
-            elevon_right: self.elevon_right.posit_cmd,
-            rudder: None, //todo! And differential thrust between motors A/R.
-        };
-        ctrl_posits.roll_delta()
-    }
-
-    #[cfg(feature = "fixed-wing")]
-    pub fn yaw_delta(&self) -> f32 {
-        let ctrl_posits = CtrlSfcPosits {
-            elevon_left: self.elevon_left.posit_cmd,
-            elevon_right: self.elevon_right.posit_cmd,
-            rudder: None, //todo! And differential thrust between motors A/R.
-        };
-        ctrl_posits.yaw_delta()
+        }
     }
 
     /// Populate commands from motor powers.
@@ -590,9 +557,19 @@ impl MotorServoState {
         match arm_status {
             ArmStatus::Armed => {
                 dshot::set_power(p1, p2, p3, p4, motor_timer);
+
+                self.rotor_front_left.power_setting = p_fl;
+                self.rotor_front_right.power_setting = p_fr;
+                self.rotor_aft_left.power_setting = p_al;
+                self.rotor_aft_right.power_setting = p_ar;
             }
             ArmStatus::Disarmed => {
                 dshot::stop_all(motor_timer);
+
+                self.rotor_front_left.power_setting = 0.;
+                self.rotor_front_right.power_setting = 0.;
+                self.rotor_aft_left.power_setting = 0.;
+                self.rotor_aft_right.power_setting = 0.;
             }
         }
     }
@@ -904,7 +881,6 @@ impl MotorRpm {
 }
 
 #[cfg(feature = "quad")]
-
 impl MotorPower {
     /// Generate power for each motor, from a control mix.
     /// Pitch, roll, and yaw are in RPM difference between the sum of each pair.
@@ -958,21 +934,43 @@ impl MotorPower {
     }
 }
 
-//
-// #[cfg(feature = "quad")]
-// impl MotorPower {
-//     /// Calculates total power. Used to normalize individual rotor powers when setting total
-//     /// power, eg from a thrust setting.
-//     pub fn _total(&self) -> f32 {
-//         self.front_left + self.front_right + self.aft_left + self.aft_right
-//     }
-//
-//     /// Calculates total power. Used to normalize individual rotor powers when setting total
-//     /// power, eg from a thrust setting.
-//     pub fn _scale_all(&mut self, scaler: f32) {
-//         self.front_left *= scaler;
-//         self.front_right *= scaler;
-//         self.aft_left *= scaler;
-//         self.aft_right *= scaler;
-//     }
-// }
+#[cfg(feature = "quad")]
+impl MotorPower {
+    /// Motor pair delta. Maps to angular accel. Positive means nose-up pitching.
+    pub fn pitch_delta(&self) -> f32 {
+        self.front_left + self.front_right - self.aft_left - self.aft_right
+    }
+
+    /// Motor pair delta. Maps to angular accel. Positive means left-wing-up.
+    pub fn roll_delta(&self) -> f32 {
+        self.front_left + self.aft_left - self.front_right - self.aft_right
+    }
+
+    /// Motor pair delta. Maps to angular accel. Positive means rotate clockwise when
+    /// looking down from above.
+    pub fn yaw_delta(&self, frontleft_aftright_dir: RotationDir) -> f32 {
+        match frontleft_aftright_dir {
+            RotationDir::Clockwise => {
+                self.front_right + self.aft_left - self.front_left - self.aft_right
+            }
+            RotationDir::CounterClockwise => {
+                self.front_left + self.aft_right - self.front_right - self.aft_left
+            }
+        }
+    }
+
+    /// Calculates total power. Used to normalize individual rotor powers when setting total
+    /// power, eg from a thrust setting.
+    pub fn _total(&self) -> f32 {
+        self.front_left + self.front_right + self.aft_left + self.aft_right
+    }
+
+    /// Calculates total power. Used to normalize individual rotor powers when setting total
+    /// power, eg from a thrust setting.
+    pub fn _scale_all(&mut self, scaler: f32) {
+        self.front_left *= scaler;
+        self.front_right *= scaler;
+        self.aft_left *= scaler;
+        self.aft_right *= scaler;
+    }
+}
