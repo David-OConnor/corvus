@@ -274,8 +274,6 @@ impl Default for DerivFilters {
     }
 }
 
-use defmt::println;
-
 /// Calculate the PID error given flight parameters, and a flight
 /// command.
 /// Example: https://github.com/pms67/PID/blob/master/PID.c

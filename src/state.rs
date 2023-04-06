@@ -33,7 +33,7 @@ cfg_if! {
 // The maximum number of waypoints available.
 pub const MAX_WAYPOINTS: usize = 30; // todo: Consider raising this.
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum OperationMode {
     /// Eg flying
     Normal,

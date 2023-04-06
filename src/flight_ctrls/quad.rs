@@ -9,17 +9,13 @@ use core::f32::consts::TAU;
 
 use crate::{
     control_interface::InputModeSwitch,
-    dshot,
-    safety::ArmStatus,
-    setup::MotorTimer,
     state::StateVolatile,
     system_status::{SensorStatus, SystemStatus},
-    util, DT_FLIGHT_CTRLS,
+    util,
 };
 
 use super::{
     common::{CtrlMix, InputMap},
-    motor_servo::{MotorServoState, RotationDir},
     pid,
 };
 

@@ -31,7 +31,6 @@ use stm32_hal2::{dma::DmaChannel, usart::UsartInterrupt};
 
 use crate::util;
 
-use cfg_if::cfg_if;
 use defmt::println;
 
 // For the receiver, 420k baud is hard set.

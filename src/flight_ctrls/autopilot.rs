@@ -268,7 +268,7 @@ impl AutopilotStatus {
         // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
         // either MSL or AGL.
         if self.takeoff {
-            let to_speed = match params.tof_alt {
+            let to_speed = match params.tof_alt_agl {
                 Some(alt) => alt,
                 None => params.baro_alt_msl, // todo temp?
             };
@@ -308,7 +308,7 @@ impl AutopilotStatus {
                 // Set a vertical velocity for the inner loop to maintain, based on distance
                 let dist = match alt_type {
                     AltType::Msl => alt_commanded - params.baro_alt_msl,
-                    AltType::Agl => alt_commanded - params.tof_alt.unwrap_or(0.),
+                    AltType::Agl => alt_commanded - params.tof_alt_agl.unwrap_or(0.),
                 };
 
                 // todo: Instead of a PID, consider something simpler.
@@ -430,7 +430,7 @@ impl AutopilotStatus {
                 // Set a vertical velocity for the inner loop to maintain, based on distance
                 let dist = match alt_type {
                     AltType::Msl => alt_commanded - params.baro_alt_msl,
-                    AltType::Agl => alt_commanded - params.tof_alt.unwrap_or(0.),
+                    AltType::Agl => alt_commanded - params.tof_alt_agl.unwrap_or(0.),
                 };
 
                 // todo replacement for this and quad.
@@ -471,7 +471,7 @@ impl AutopilotStatus {
         match control_channel_data.alt_hold {
             AltHoldSwitch::Disabled => self.alt_hold = None,
             AltHoldSwitch::EnabledAgl => {
-                self.alt_hold = Some((AltType::Agl, params.tof_alt.unwrap_or(20.)))
+                self.alt_hold = Some((AltType::Agl, params.tof_alt_agl.unwrap_or(20.)))
             }
             AltHoldSwitch::EnabledMsl => self.alt_hold = Some((AltType::Msl, params.baro_alt_msl)),
         }

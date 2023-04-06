@@ -22,6 +22,8 @@ use cfg_if::cfg_if;
 
 // todo: YOu probably need filters.
 
+use defmt::println;
+
 cfg_if! {
     if #[cfg(feature = "quad")] {
         use super::motor_servo::MotorRpm;
@@ -232,6 +234,8 @@ fn find_ctrl_setting(
     // `cmd` is the unit we use for ctrl inputs. Not sure what (if any?) units it has.
     // α_target /= ctrl_effectiveness;
 
+    // println!("α_target: {}", α_target);
+
     accel_map.interpolate(α_target)
 }
 
@@ -260,13 +264,18 @@ pub fn ctrl_mix_from_att(
     // along individual axes.
     let rot_euler = rotation_cmd.to_euler();
 
+    println!(
+        "Pitch. Tgt: {} Curr: {}, rot_cmd:{} {} {}",
+        target_attitude.x, current_attitude.x, rot_euler.pitch, rot_euler.roll, rot_euler.yaw
+    );
+
     let pitch = find_ctrl_setting(
         rot_euler.pitch,
         params.v_pitch,
         params.a_pitch,
         coeffs,
         drag_coeffs.pitch,
-        &accel_maps.rpm_to_accel_pitch,
+        &accel_maps.map_pitch,
     );
     let roll = find_ctrl_setting(
         rot_euler.roll,
@@ -274,7 +283,7 @@ pub fn ctrl_mix_from_att(
         params.a_roll,
         coeffs,
         drag_coeffs.roll,
-        &accel_maps.rpm_to_accel_roll,
+        &accel_maps.map_roll,
     );
     let yaw = find_ctrl_setting(
         rot_euler.yaw,
@@ -282,7 +291,7 @@ pub fn ctrl_mix_from_att(
         params.a_yaw,
         coeffs,
         drag_coeffs.yaw,
-        &accel_maps.rpm_to_accel_yaw,
+        &accel_maps.map_yaw,
     );
 
     CtrlMix {
@@ -321,7 +330,7 @@ pub fn ctrl_mix_from_att(
         params.a_pitch,
         coeffs,
         drag_coeffs.pitch,
-        &accel_maps.rpm_to_accel_pitch,
+        &accel_maps.map_pitch,
     );
     let roll = find_ctrl_setting(
         rot_euler.roll,
@@ -329,7 +338,7 @@ pub fn ctrl_mix_from_att(
         params.a_roll,
         coeffs,
         drag_coeffs.roll,
-        &accel_maps.rpm_to_accel_roll,
+        &accel_maps.map_roll,
     );
 
     let yaw = 0.; // todo?

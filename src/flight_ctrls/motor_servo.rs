@@ -476,7 +476,7 @@ impl MotorServoState {
     /// Send commands to all rotors. This uses a single DSHOT command. Assumes power level
     /// to achieve the target RPM is already applied.
     #[cfg(feature = "quad")]
-    pub fn send_to_rotors(&self, arm_status: ArmStatus, motor_timer: &mut MotorTimer) {
+    pub fn send_to_rotors(&mut self, arm_status: ArmStatus, motor_timer: &mut MotorTimer) {
         let mut p1 = 0.;
         let mut p2 = 0.;
         let mut p3 = 0.;

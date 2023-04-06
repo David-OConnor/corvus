@@ -205,15 +205,25 @@ pub fn print_status(
 ) {
     // todo: Flesh this out, and perhaps make it more like Preflight.
 
-    // println!("DSHOT1: {:?}", unsafe { dshot::PAYLOAD_REC_1 });
-    // println!("DSHOT2: {:?}", unsafe { dshot::PAYLOAD_REC_2 });
-    // println!("DSHOT3: {:?}", unsafe { dshot::PAYLOAD_REC_3 });
-    // println!("DSHOT4: {:?}", unsafe { dshot::PAYLOAD_REC_4 });
-
     println!(
         "\n\nStatus, timestamp {} seconds",
-        // crate::TIME_SINCE_START_MS.load(Ordering::Acquire)
         tick_count_fm_overflows_s() + tick_timer.time_elapsed().as_secs()
+    );
+
+    let log_pts = state_volatile.accel_maps.sample_pts_pitch;
+
+    println!("\n\nLogged pts");
+    for i in 0..10 {
+        println!(
+            "A: {} Cmd: {}, t: {}",
+            log_pts[i].angular_accel, log_pts[i].ctrl_cmd, log_pts[i].timestamp
+        );
+    }
+    println!(
+        "Fit. A: {}, B: {}, C: {}",
+        state_volatile.accel_maps.map_pitch.square,
+        state_volatile.accel_maps.map_pitch.lin,
+        state_volatile.accel_maps.map_pitch.constant
     );
 
     println!(
@@ -374,7 +384,15 @@ pub fn create_polynomial_terms(
 
     let a_denom = (pt0.0 - pt1.0) * (pt0.0 - pt2.0) * (pt1.0 - pt2.0);
 
+    if a_denom < 0.0000001 {
+        return (0., 0., 0.);
+    }
+
     let a = a_num / a_denom;
+
+    if (pt1.0 - pt0.0) < 0.0000001 {
+        return (0., 0., 0.);
+    }
 
     let b = (pt1.1 - pt0.1) / (pt1.0 - pt0.0) - a * (pt0.0 + pt1.0);
 

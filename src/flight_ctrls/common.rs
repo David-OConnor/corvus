@@ -1,14 +1,7 @@
 //! This module contains flight control code not specific to an aircraft design category.
 //! It is mostly types.
 
-use crate::{
-    flight_ctrls::pid,
-    protocols::dshot,
-    safety::ArmStatus,
-    setup::{MotorTimer, ServoTimer},
-    util::map_linear,
-    DT_FLIGHT_CTRLS,
-};
+use crate::util::map_linear;
 
 use crate::protocols::dshot::Motor;
 use lin_alg2::f32::Quaternion;

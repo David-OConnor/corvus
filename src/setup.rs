@@ -10,7 +10,7 @@ use cfg_if::cfg_if;
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
-    can::{self, Can},
+    can::Can,
     clocks::Clocks,
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},

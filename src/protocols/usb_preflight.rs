@@ -42,8 +42,6 @@ cfg_if! {
     }
 }
 
-// use stm32_hal2::{adc::Adc, pac};
-
 cfg_if! {
     if #[cfg(feature = "h7")] {
         // todo: USB2 on H743; USB1 on H723.

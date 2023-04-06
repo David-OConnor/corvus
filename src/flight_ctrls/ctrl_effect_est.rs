@@ -8,9 +8,18 @@ use num_traits::float::Float;
 
 use crate::util;
 
+use defmt::println;
+
 static SAMPLE_PT_I: AtomicUsize = AtomicUsize::new(0);
 
 pub const NUM_SAMPLE_PTS: usize = 30;
+
+// This point of 0 command, 0 acceleration, is an anchor.
+const PT_0: AccelMapPt = AccelMapPt {
+    angular_accel: 0.,
+    ctrl_cmd: 0.,
+    timestamp: 0.,
+};
 
 // todo: Leaning towards this: Store a collection of pitch, roll, and yaw angular accels, as well
 // todo as corresponding servo settings (fixed) or motor RPMs (quad). Also store altitude and time-of-measurement.
@@ -78,36 +87,49 @@ pub struct AccelMap {
 // todo: You need a way to get timestamps.
 
 impl AccelMap {
-    /// Pts are (angular accel, RPM or servo posit delta) // todo: Do you want it the other way?
-    pub fn new(pt0: AccelMapPt, pt1: AccelMapPt, pt2: AccelMapPt) -> Self {
-        // let (square, lin, constant) = util::create_polynomial_terms(pt0, pt1, pt2);
-        let (square, lin, constant) = (0., 0., 0.);
+    // /// Pts are (angular accel, RPM or servo posit delta) // todo: Do you want it the other way?
+    // pub fn new(pt0: AccelMapPt, pt1: AccelMapPt, pt2: AccelMapPt) -> Self {
+    //     // let (square, lin, constant) = util::create_polynomial_terms(pt0, pt1, pt2);
+    //     let (square, lin, constant) = (0., 0., 0.);
+    //
+    //     Self {
+    //         square,
+    //         lin,
+    //         constant,
+    //     }
+    // }
 
-        Self {
-            square,
-            lin,
-            constant,
-        }
-    }
+    /// Fit a least-squares approximation from logged points.
+    pub fn update_coeffs(&mut self, pts: &[AccelMapPt]) {
+        // todo: Do we need to take into account different ranges that may not be in the recent
+        // todo data?
 
-    pub fn update_coeffs(&mut self, pt0: (f32, f32), pt1: (f32, f32), pt2: (f32, f32)) {
-        // let (square, lin, constant) = util::create_polynomial_terms(pt0, pt1, pt2);
-        let (square, lin, constant) = (0., 0., 0.);
+        // todo: Sloppy estimation here with only 3 pts.
+        let (square, lin, constant) = util::create_polynomial_terms(
+            (
+                pts[NUM_SAMPLE_PTS - 1].angular_accel,
+                pts[NUM_SAMPLE_PTS - 1].ctrl_cmd,
+            ),
+            (
+                pts[NUM_SAMPLE_PTS - 5].angular_accel,
+                pts[NUM_SAMPLE_PTS - 5].ctrl_cmd,
+            ),
+            (0., 0.),
+        );
+
+        // let constant = 0.;
+        // let squares = 0.;
+        // let lin = (pts[pts.len()].ctrl_cmd / pts[pts.len()].angular_accel);
 
         self.square = square;
         self.lin = lin;
         self.constant = constant;
     }
 
-    /// Fit a least-squares approximation from logged points.
-    pub fn update_from_logged_pts(&mut self, pts: &[AccelMapPt]) {
-        // todo: Do we need to take into account different ranges that may not be in the recent
-        // todo data?
-    }
-
     /// Given a target angular acceleration, calculate a polynomial-fit RPM delta or servo position.
     /// This is called by flight control logic to determine how to set the control mix.
     pub fn interpolate(&self, target_accel: f32) -> f32 {
+        // println!("sq: {}, lin: {}, const: {}", self.square, self.lin, self.constant);
         self.square * target_accel.powi(2) + self.lin * target_accel + self.constant
     }
 }
@@ -133,9 +155,9 @@ impl Default for AccelMap {
 }
 
 pub struct AccelMaps {
-    pub rpm_to_accel_pitch: AccelMap,
-    pub rpm_to_accel_roll: AccelMap,
-    pub rpm_to_accel_yaw: AccelMap,
+    pub map_pitch: AccelMap,
+    pub map_roll: AccelMap,
+    pub map_yaw: AccelMap,
 
     /// A buffer of sample points. More than required (3) for now.
     /// Format is (angular accel, RPM or servo posit delta).
@@ -150,9 +172,9 @@ impl Default for AccelMaps {
         let pts = [AccelMapPt::default(); NUM_SAMPLE_PTS];
 
         Self {
-            rpm_to_accel_pitch: Default::default(),
-            rpm_to_accel_roll: Default::default(),
-            rpm_to_accel_yaw: Default::default(),
+            map_pitch: Default::default(),
+            map_roll: Default::default(),
+            map_yaw: Default::default(),
             sample_pts_pitch: pts,
             sample_pts_roll: pts,
             sample_pts_yaw: pts,
@@ -180,34 +202,9 @@ impl AccelMaps {
         self.sample_pts_roll[i] = pt_roll;
         self.sample_pts_yaw[i] = pt_yaw;
 
-        let active_pt_pitch_0 = self.sample_pts_pitch[(i - 2) % NUM_SAMPLE_PTS];
-        let active_pt_pitch_1 = self.sample_pts_pitch[(i - 1) % NUM_SAMPLE_PTS];
-        let active_pt_pitch_2 = self.sample_pts_pitch[i % NUM_SAMPLE_PTS];
-
-        let active_pt_roll_0 = self.sample_pts_roll[(i - 2) % NUM_SAMPLE_PTS];
-        let active_pt_roll_1 = self.sample_pts_roll[(i - 1) % NUM_SAMPLE_PTS];
-        let active_pt_roll_2 = self.sample_pts_roll[i % NUM_SAMPLE_PTS];
-
-        let active_pt_yaw_0 = self.sample_pts_yaw[(i - 2) % NUM_SAMPLE_PTS];
-        let active_pt_yaw_1 = self.sample_pts_yaw[(i - 1) % NUM_SAMPLE_PTS];
-        let active_pt_yaw_2 = self.sample_pts_yaw[i % NUM_SAMPLE_PTS];
-
-        self.rpm_to_accel_pitch.update_coeffs(
-            (active_pt_pitch_0.angular_accel, active_pt_pitch_0.ctrl_cmd),
-            (active_pt_pitch_1.angular_accel, active_pt_pitch_1.ctrl_cmd),
-            (active_pt_pitch_2.angular_accel, active_pt_pitch_2.ctrl_cmd),
-        );
-
-        self.rpm_to_accel_roll.update_coeffs(
-            (active_pt_roll_0.angular_accel, active_pt_roll_0.ctrl_cmd),
-            (active_pt_roll_1.angular_accel, active_pt_roll_1.ctrl_cmd),
-            (active_pt_roll_2.angular_accel, active_pt_roll_2.ctrl_cmd),
-        );
-
-        self.rpm_to_accel_yaw.update_coeffs(
-            (active_pt_yaw_0.angular_accel, active_pt_yaw_0.ctrl_cmd),
-            (active_pt_yaw_1.angular_accel, active_pt_yaw_1.ctrl_cmd),
-            (active_pt_yaw_2.angular_accel, active_pt_yaw_2.ctrl_cmd),
-        );
+        // todo: Slice these from i!
+        self.map_pitch.update_coeffs(&self.sample_pts_pitch);
+        self.map_roll.update_coeffs(&self.sample_pts_roll);
+        self.map_yaw.update_coeffs(&self.sample_pts_yaw);
     }
 }

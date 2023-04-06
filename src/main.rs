@@ -17,7 +17,6 @@
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pQBgjxYFXSsODEF3Jqmm-y
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pFBqgd_6Bi7msgkWFKL33b
 
-
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use ahrs_fusion::Ahrs;
@@ -958,69 +957,69 @@ mod app {
                     }
 
                     // todo: Temp debug code.
-                    match control_channel_data {
-                        Some(ch_data) => {
-                            #[cfg(feature = "quad")]
-                            {
-                                let mut p = ch_data.throttle;
-
-                                if p < 0.025 {
-                                    p = 0.025;
-                                }
-
-                                // todo: Temp mapping of throttle settings to RPM
-                                let target_rpm = util::map_linear(p, (0., 1.), (300., 6_000.));
-
-                                let target_rpm = 2_000.;
-                                let target_pwr = 0.06;
-
-                                // let rpms_commanded = MotorRpm {
-                                //     front_left: target_rpm,
-                                //     aft_left: target_rpm,
-                                //     front_right: target_rpm,
-                                //     aft_right: target_rpm,
-                                // };
-                                let power_commanded = MotorPower {
-                                    front_left: target_pwr,
-                                    aft_left: target_pwr,
-                                    front_right: target_pwr,
-                                    aft_right: target_pwr,
-                                };
-
-                                {
-                                    if ch_data.arm_status == ArmStatus::Armed {
-                                        // todo: Attempting a setup where ctrl axes command a ctrl mix direction,
-                                        // todo to assist debugging.
-                                        let mix = CtrlMix {
-                                            pitch: ch_data.pitch,
-                                            roll: ch_data.roll,
-                                            yaw: ch_data.yaw,
-                                            throttle: ch_data.throttle,
-                                        };
-
-                                        // let rpms_commanded = MotorRpm::from_mix(&mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
-                                        let power_commanded = MotorPower::from_mix(&mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
-
-                                        // state_volatile.motor_servo_state.set_cmds_from_rpms(
-                                        //     &rpms_commanded,
-                                        //     pid_state,
-                                        //     pid_coeffs,
-                                        // );
-
-                                        state_volatile.motor_servo_state.set_cmds_from_power(&power_commanded);
-
-                                        // state_volatile.motor_servo_state.send_to_rotors(state_volatile.arm_status, motor_timer);
-                                        state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
-                                    } else {
-                                        dshot::stop_all(motor_timer);
-                                    }
-                                }
-                            }
-                        }
-                        None => {
-                            dshot::stop_all(motor_timer);
-                        }
-                    }
+                    // match control_channel_data {
+                    //     Some(ch_data) => {
+                    //         #[cfg(feature = "quad")]
+                    //         {
+                    //             let mut p = ch_data.throttle;
+                    //
+                    //             if p < 0.025 {
+                    //                 p = 0.025;
+                    //             }
+                    //
+                    //             // todo: Temp mapping of throttle settings to RPM
+                    //             let target_rpm = util::map_linear(p, (0., 1.), (300., 6_000.));
+                    //
+                    //             let target_rpm = 2_000.;
+                    //             let target_pwr = 0.06;
+                    //
+                    //             // let rpms_commanded = MotorRpm {
+                    //             //     front_left: target_rpm,
+                    //             //     aft_left: target_rpm,
+                    //             //     front_right: target_rpm,
+                    //             //     aft_right: target_rpm,
+                    //             // };
+                    //             let power_commanded = MotorPower {
+                    //                 front_left: target_pwr,
+                    //                 aft_left: target_pwr,
+                    //                 front_right: target_pwr,
+                    //                 aft_right: target_pwr,
+                    //             };
+                    //
+                    //             {
+                    //                 if ch_data.arm_status == ArmStatus::Armed {
+                    //                     // todo: Attempting a setup where ctrl axes command a ctrl mix direction,
+                    //                     // todo to assist debugging.
+                    //                     let mix = CtrlMix {
+                    //                         pitch: ch_data.pitch,
+                    //                         roll: ch_data.roll,
+                    //                         yaw: ch_data.yaw,
+                    //                         throttle: ch_data.throttle,
+                    //                     };
+                    //
+                    //                     // let rpms_commanded = MotorRpm::from_mix(&mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
+                    //                     let power_commanded = MotorPower::from_mix(&mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
+                    //
+                    //                     // state_volatile.motor_servo_state.set_cmds_from_rpms(
+                    //                     //     &rpms_commanded,
+                    //                     //     pid_state,
+                    //                     //     pid_coeffs,
+                    //                     // );
+                    //
+                    //                     state_volatile.motor_servo_state.set_cmds_from_power(&power_commanded);
+                    //
+                    //                     // state_volatile.motor_servo_state.send_to_rotors(state_volatile.arm_status, motor_timer);
+                    //                     state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
+                    //                 } else {
+                    //                     dshot::stop_all(motor_timer);
+                    //                 }
+                    //             }
+                    //         }
+                    //     }
+                    //     None => {
+                    //         dshot::stop_all(motor_timer);
+                    //     }
+                    // }
                     // todo end temp motor debug code.
 
                     // todo: Impl once you've sorted out your control logic.
@@ -1079,6 +1078,73 @@ mod app {
                         },
                     };
 
+                    if state_volatile.op_mode != OperationMode::Preflight {
+                        // todo: Should this be before the optional sections? Probably.
+                        cfg_if! {
+                            if #[cfg(feature = "quad")] {
+                                let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
+                                    state_volatile.attitude_commanded.quat.unwrap_or(Quaternion::new_identity()),
+                                    params.attitude_quat,
+                                    throttle,
+                                    state_volatile.motor_servo_state.frontleft_aftright_dir,
+                                    params,
+                                    cx.local.params_prev,
+                                    &cfg.ctrl_coeffs,
+                                    &state_volatile.drag_coeffs,
+                                    &state_volatile.accel_maps,
+                                    flight_ctrl_filters,
+                                    // The DT passed is the IMU rate, since we update params_prev each IMU update.
+                                    DT_IMU,
+                                );
+
+                                // let rpms_commanded = MotorRpm::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
+                                let power_commanded = MotorPower::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
+
+                                // state_volatile.motor_servo_state.set_cmds_from_rpms(
+                                //     &rpms_commanded,
+                                //     pid_state,
+                                //     pid_coeffs,
+                                // );
+                                // state_volatile.motor_servo_state.set_cmds_from_power(&power_commanded);
+
+                                // This is what causes the actual change in motor speed, via DSHOT.
+                                state_volatile.motor_servo_state.send_to_rotors(state_volatile.arm_status, motor_timer);
+
+                                state_volatile.ctrl_mix = ctrl_mix;
+                            } else {
+                                let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
+                                    state_volatile.attitude_commanded.quat.unwrap(),
+                                    params.attitude_quat,
+                                    throttle,
+                                    params,
+                                    cx.local.params_prev,
+                                    // &state_volatile.ctrl_mix,
+                                    &cfg.ctrl_coeffs,
+                                    &state_volatile.drag_coeffs,
+                                    &state_volatile.accel_maps,
+                                    flight_ctrl_filters,
+                                    DT_IMU,
+                                );
+
+                                state_volatile.ctrl_mix = ctrl_mix;
+
+                                let ctrl_sfc_posits = CtrlSfcPosits::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
+
+                                state_volatile.motor_servo_state.set_cmds_from_control_posits(
+                                    &ctrl_sfc_posits,
+                                    pid_state,
+                                    pid_coeffs,
+                                );
+
+                                // This is what causes the actual change in motor speed, via DSHOT.
+                                state_volatile.motor_servo_state.send_to_motors(ArmStatus::MotorsControlsArmed, motor_timer);
+
+                                // This is what causes the actual change in servo position, via PWM.
+                                state_volatile.motor_servo_state.send_to_servos(ArmStatus::MotorsControlsArmed, servo_timer);
+                            }
+                        }
+                    }
+
                     // todo: These staggered tasks. should probably be after the flight control logic
 
                     // todo: Global const
@@ -1102,6 +1168,14 @@ mod app {
                     // We're tracking tasks as ones that make it past the initial flight]
                     // control ratio filter, so factor that out.
                     let i_compensated = i / FLIGHT_CTRL_IMU_RATIO;
+
+                    if i_compensated % 2_000 == 0 {
+                        println!("Mix. T:{} P:{} R:{} Y:{}", state_volatile.ctrl_mix.throttle, state_volatile.ctrl_mix.pitch, state_volatile.ctrl_mix.roll, state_volatile.ctrl_mix.yaw);
+
+                        let s = &state_volatile.motor_servo_state;
+                        println!("P. FL: {} FR: {} AL: {} AR: {}", s.rotor_front_left.power_setting ,
+                                s.rotor_front_right.power_setting, s.rotor_aft_left.power_setting, s.rotor_aft_right.power_setting);
+                    }
 
                     if (i_compensated - 0) % NUM_IMU_LOOP_TASKS == 0 {
                         let mut batt_v = 0.;
@@ -1234,9 +1308,9 @@ mod app {
                             // Log angular accel from RPM or servo posit delta.
                             // Code-shorteners
                             #[cfg(feature = "quad")]
-                            let ctrl_cmds = state_volatile.motor_servo_state.get_power_settings();
+                                let ctrl_cmds = state_volatile.motor_servo_state.get_power_settings();
                             #[cfg(feature = "fixed-wing")]
-                            let ctrl_cmds = state_volatile.motor_servo_state.get_ctrl_positions();
+                                let ctrl_cmds = state_volatile.motor_servo_state.get_ctrl_positions();
 
 
 
@@ -1286,76 +1360,6 @@ mod app {
                             );
                         }
                     });
-
-                    return; // todo TS
-
-                    if let OperationMode::Preflight = state_volatile.op_mode {
-                        return;
-                    }
-
-                    // todo: Should this be before the optional sections? Probably.
-
-                    cfg_if! {
-                        if #[cfg(feature = "quad")] {
-                            let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
-                                state_volatile.attitude_commanded.quat.unwrap(),
-                                params.attitude_quat,
-                                throttle,
-                                state_volatile.motor_servo_state.frontleft_aftright_dir,
-                                params,
-                                cx.local.params_prev,
-                                &cfg.ctrl_coeffs,
-                                &state_volatile.drag_coeffs,
-                                &state_volatile.accel_maps,
-                                flight_ctrl_filters,
-                                // The DT passed is the IMU rate, since we update params_prev each IMU update.
-                                DT_IMU,
-                            );
-
-                            state_volatile.ctrl_mix = ctrl_mix;
-
-                            let rpms_commanded = MotorRpm::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
-
-                            state_volatile.motor_servo_state.set_cmds_from_rpms(
-                                &rpms_commanded,
-                                pid_state,
-                                pid_coeffs,
-                            );
-
-                            // This is what causes the actual change in motor speed, via DSHOT.
-                            state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
-                        } else {
-                            let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
-                                state_volatile.attitude_commanded.quat.unwrap(),
-                                params.attitude_quat,
-                                throttle,
-                                params,
-                                cx.local.params_prev,
-                                // &state_volatile.ctrl_mix,
-                                &cfg.ctrl_coeffs,
-                                &state_volatile.drag_coeffs,
-                                &state_volatile.accel_maps,
-                                flight_ctrl_filters,
-                                DT_IMU,
-                            );
-
-                            state_volatile.ctrl_mix = ctrl_mix;
-
-                            let ctrl_sfc_posits = CtrlSfcPosits::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
-
-                            state_volatile.motor_servo_state.set_cmds_from_control_posits(
-                                &ctrl_sfc_posits,
-                                pid_state,
-                                pid_coeffs,
-                            );
-
-                            // This is what causes the actual change in motor speed, via DSHOT.
-                            state_volatile.motor_servo_state.send_to_motors(ArmStatus::MotorsControlsArmed, motor_timer);
-
-                            // This is what causes the actual change in servo position, via PWM.
-                            state_volatile.motor_servo_state.send_to_servos(ArmStatus::MotorsControlsArmed, servo_timer);
-                        }
-                    }
                 });
     }
 
@@ -1413,7 +1417,7 @@ mod app {
                                 params.baro_alt_msl,
                                 state_volatile.pressure_static,
                                 state_volatile.temp_baro,
-                                params.tof_alt,
+                                params.tof_alt_agl,
                                 state_volatile.batt_v,
                                 state_volatile.esc_current,
                                 ch_data,

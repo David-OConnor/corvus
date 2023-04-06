@@ -18,7 +18,8 @@ pub struct Params {
     /// MSL altitude in meters QFE (takeoff location is 0), from a barometer.
     pub baro_alt_msl: f32,
     /// AGL altitude in meters, from the Time of flight sensor.
-    pub tof_alt: Option<f32>,
+    pub tof_alt_agl: Option<f32>,
+    pub dtd_alt_agl: Option<f32>,
 
     pub s_pitch: f32,
     pub s_roll: f32,
