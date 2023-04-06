@@ -324,15 +324,14 @@ pub fn print_status(
         params.s_pitch, params.s_roll, params.s_yaw_heading
     );
 
-    if let Some(q) = state_volatile.attitude_commanded.quat {
-        println!("Commanded attitude quat: {} {} {} {}", q.w, q.x, q.y, q.z);
+    let q = state_volatile.attitude_commanded.quat;
+    println!("Commanded attitude quat: {} {} {} {}", q.w, q.x, q.y, q.z);
 
-        let euler = q.to_euler();
-        println!(
-            "Commanded attitude: pitch: {}, roll: {}, yaw: {}\n",
-            euler.pitch, euler.roll, euler.yaw
-        );
-    }
+    let euler = q.to_euler();
+    println!(
+        "Commanded attitude: pitch: {}, roll: {}, yaw: {}\n",
+        euler.pitch, euler.roll, euler.yaw
+    );
 
     let mut uart_regs = unsafe { &(*pac::USART2::ptr()) };
 

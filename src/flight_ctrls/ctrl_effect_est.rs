@@ -129,7 +129,15 @@ impl AccelMap {
     /// Given a target angular acceleration, calculate a polynomial-fit RPM delta or servo position.
     /// This is called by flight control logic to determine how to set the control mix.
     pub fn interpolate(&self, target_accel: f32) -> f32 {
-        // println!("sq: {}, lin: {}, const: {}", self.square, self.lin, self.constant);
+        static mut i: u32 = 0;
+        unsafe { i += 1 };
+        if unsafe { i } % 3_000 == 0 {
+            println!(
+                "sq: {}, lin: {}, const: {}",
+                self.square, self.lin, self.constant
+            );
+        }
+
         self.square * target_accel.powi(2) + self.lin * target_accel + self.constant
     }
 }

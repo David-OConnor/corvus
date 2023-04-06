@@ -449,9 +449,7 @@ pub fn handle_rx(
             let payload = params_to_bytes(
                 attitude,
                 // todo: Pass more than just the quat, here and in prelfight.
-                attitude_commanded
-                    .quat
-                    .unwrap_or(Quaternion::new_identity()),
+                attitude_commanded.quat,
                 altitude_baro,
                 pressure_static,
                 temp_baro,

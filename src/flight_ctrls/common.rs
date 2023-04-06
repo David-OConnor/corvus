@@ -117,7 +117,8 @@ pub struct CtrlInputs {
 /// If both a quaternion and euler angle are present, favor the quaternion.
 #[derive(Default)]
 pub struct AttitudeCommanded {
-    pub quat: Option<Quaternion>,
+    // pub quat: Option<Quaternion>,
+    pub quat: Quaternion,
     pub pitch: Option<f32>,
     pub roll: Option<f32>,
     pub yaw: Option<f32>,

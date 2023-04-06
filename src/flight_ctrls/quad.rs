@@ -39,9 +39,10 @@ impl Default for InputMap {
     // todo: move deafult impls to their respective moudles (quad, flying wing)?
     fn default() -> Self {
         Self {
-            pitch_rate: (-10., 10.),
-            roll_rate: (-10., 10.),
-            yaw_rate: (-10., 10.),
+            // todo: Consider raising these once prototype is ready.
+            pitch_rate: (-5., 5.),
+            roll_rate: (-5., 5.),
+            yaw_rate: (-5., 5.),
             throttle_clamped: (THROTTLE_MIN_MNVR_CLAMP, THROTTLE_MAX_MNVR_CLAMP),
             pitch_angle: (-TAU / 4., TAU / 4.),
             roll_angle: (-TAU / 4., TAU / 4.),

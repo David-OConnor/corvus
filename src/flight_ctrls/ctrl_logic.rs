@@ -234,7 +234,11 @@ fn find_ctrl_setting(
     // `cmd` is the unit we use for ctrl inputs. Not sure what (if any?) units it has.
     // α_target /= ctrl_effectiveness;
 
-    // println!("α_target: {}", α_target);
+    static mut i: u32 = 0;
+    unsafe { i += 1 };
+    if unsafe { i } % 3_000 == 0 {
+        println!("Pitch tgt accel: {}", α_target);
+    }
 
     accel_map.interpolate(α_target)
 }
@@ -264,10 +268,22 @@ pub fn ctrl_mix_from_att(
     // along individual axes.
     let rot_euler = rotation_cmd.to_euler();
 
-    println!(
-        "Pitch. Tgt: {} Curr: {}, rot_cmd:{} {} {}",
-        target_attitude.x, current_attitude.x, rot_euler.pitch, rot_euler.roll, rot_euler.yaw
-    );
+    static mut i: u32 = 0;
+    unsafe { i += 1 };
+    if unsafe { i } % 3_000 == 0 {
+        let t = target_attitude.to_euler();
+        println!(
+            "Tg P:{} R: \
+            {} Y:{}, Curr: {}, rot_cmd:{} {} {}",
+            t.pitch,
+            t.roll,
+            t.yaw,
+            current_attitude.to_euler().pitch,
+            rot_euler.pitch,
+            rot_euler.roll,
+            rot_euler.yaw
+        );
+    }
 
     let pitch = find_ctrl_setting(
         rot_euler.pitch,
@@ -371,8 +387,32 @@ pub fn modify_att_target(
     let rotation_roll = Quaternion::from_axis_angle(fwd_ac, roll * dt);
     let rotation_yaw = Quaternion::from_axis_angle(up_ac, yaw * dt);
 
+    // todo: This EPS is to prevent f32 drift. We probably need a better way.
+    const EPS: f32 = 0.00005;
+    if (pitch * dt).abs() < EPS && (roll * dt).abs() < EPS && (yaw * dt).abs() < EPS {
+        return orientation;
+    }
+
     // todo: Order?
-    rotation_yaw * rotation_roll * rotation_pitch * orientation
+    // rotation_yaw * rotation_roll * rotation_pitch * orientation
+    let rotation = rotation_yaw * rotation_roll * rotation_pitch;
+
+    static mut i: u32 = 0;
+    unsafe { i += 1 };
+    if unsafe { i } % 3_000 == 0 {
+        // println!("p: {} r: {} y: {}", pitch * dt, roll * dt, yaw * dt);
+
+        let re = rotation.to_euler();
+        // println!("Rot. p: {} r: {} y: {}. norm: {}", re.pitch, re.roll, re.yaw, rotation.magnitude());
+        let o = orientation.to_euler();
+        // println!("Or. p: {} r: {} y: {}. Fwd vec: ({} {} {})", o.pitch, o.roll, o.yaw, fwd_ac.x, fwd_ac.y, fwd_ac.z);
+    }
+
+    // todo: f32 precision issues?
+
+    // Should already be normalized, but do this to avoid drift.
+    (rotation * orientation).to_normalized()
+    // orientation
 }
 
 /// Calculate an attitude based on control input, in `attitude mode`.
