@@ -1028,7 +1028,7 @@ mod app {
                             if #[cfg(feature = "quad")] {
                                 let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
                                     state_volatile.attitude_commanded.quat,
-                                    state_volatile.attitude_commanded.quat_dt,
+                                    &state_volatile.attitude_commanded.quat_dt,
                                     params.attitude_quat,
                                     throttle,
                                     state_volatile.motor_servo_state.frontleft_aftright_dir,

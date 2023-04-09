@@ -1,11 +1,7 @@
 //! This module contains flight control code not specific to an aircraft design category.
 //! It is mostly types.
 
-use crate::{
-    flight_ctrls::ctrl_logic::Torque,
-    util::map_linear,
-    protocols::dshot::Motor,
-};
+use crate::{flight_ctrls::ctrl_logic::Torque, protocols::dshot::Motor, util::map_linear};
 
 use lin_alg2::f32::Quaternion;
 

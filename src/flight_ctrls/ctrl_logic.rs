@@ -4,8 +4,6 @@
 //! See the comments here, the accompanying Python script in this project, and the associated
 //! One note file for details on how we calculate this.
 
-use core::cmp;
-
 use crate::{
     control_interface::ChannelData,
     params::Params,
@@ -63,7 +61,10 @@ pub struct Torque {
 
 impl Default for Torque {
     fn default() -> Self {
-        Self { axis: Vec3::new(1., 0., 0.), angular_velocity: 0. }
+        Self {
+            axis: Vec3::new(1., 0., 0.),
+            angular_velocity: 0.,
+        }
     }
 }
 
@@ -72,16 +73,23 @@ impl Torque {
     pub fn from_components(pitch: f32, roll: f32, yaw: f32) -> Self {
         // todo: No idea if this is correct
         let vec = UP * yaw + RIGHT * pitch + FWD * roll;
-        Self {axis: vec.to_normalized(), angular_velocity: vec.magnitude()}
+        Self {
+            axis: vec.to_normalized(),
+            angular_velocity: vec.magnitude(),
+        }
     }
 
     /// Construct one from the rotation between a rotation quaternions, and the time the rotation takes.
     ///  This assumes less than a full rotation between updates.
     pub fn from_attitudes(att_prev: Quaternion, att_this: Quaternion, dt: f32) -> Self {
         // todo: Add to lin alg lib fn to get the axis and/or angles a/r
+        //
         let rotation = att_this - att_prev;
 
-        Self { axis: rotation.axis(), angular_velocity: rotation.angle() / dt }
+        Self {
+            axis: rotation.axis(),
+            angular_velocity: rotation.angle() / dt,
+        }
     }
 }
 
@@ -157,7 +165,6 @@ fn α_from_ttc(θ_0: f32, ω_0: f32, θ_tgt: f32, ω_tgt: f32, ttc_per_dθ: f32)
     // Calculate the "initial" target angular acceleration, from the formula we worked out
     // from the kinematic equations for θ(t) and ω(t).
     -2. / ttc.powi(2) * (ttc * (ω_tgt + 2. * ω_0) + 3. * (θ_0 - θ_tgt))
-
 }
 
 // #[cfg(feature = "quad")]
@@ -180,11 +187,7 @@ fn α_from_ttc(θ_0: f32, ω_0: f32, θ_tgt: f32, ω_tgt: f32, ttc_per_dθ: f32)
 ///
 /// We accomplish this by solving the formula
 fn find_time_to_correct(
-    θ_0: f32,
-    ω_0: f32,
-    ω_dot_0: f32,
-    θ_tgt: f32,
-    ω_tgt: f32,
+    θ_0: f32, ω_0: f32, ω_dot_0: f32, θ_tgt: f32, ω_tgt: f32
 ) -> Option<f32> {
     const EPS: f32 = 0.000001;
 
@@ -203,7 +206,7 @@ fn find_time_to_correct(
         // This would occur if, for example, α_0 and/or θ_0 is high,
         // and/or ω_0 is low.
 
-        let inner = 6.* ω_dot_0 * (θ_tgt - θ_0) + (ω_tgt + 2. * ω_0).powi(2);
+        let inner = 6. * ω_dot_0 * (θ_tgt - θ_0) + (ω_tgt + 2. * ω_0).powi(2);
 
         if inner < 0. {
             None
@@ -211,7 +214,21 @@ fn find_time_to_correct(
             let t_a = -(inner.sqrt() + 2. * ω_0 + ω_tgt) / ω_dot_0;
             let t_b = (inner.sqrt() - 2. * ω_0 - ω_tgt) / ω_dot_0;
 
-            Some(cmp::min(t_a, t_b))
+            // Choose the lower of these solutions if both are positive; otherwise
+            // choose the positive one, should it exist.
+            if t_a > 0. && t_b > 0. {
+                if t_a < t_b {
+                    Some(t_a)
+                } else {
+                    Some(t_b)
+                }
+            } else if t_a > 0. {
+                Some(t_a)
+            } else if t_b > 0. {
+                Some(t_b)
+            } else {
+                None
+            }
         }
     }
 }
@@ -230,6 +247,7 @@ fn find_ctrl_setting(
     drag_coeff: f32,
     accel_map: &AccelMap,
     // filters: &mut FlightCtrlFilters,
+    dt: f32,
 ) -> f32 {
     // todo: Take time to spin up/down into account?
 
@@ -248,10 +266,10 @@ fn find_ctrl_setting(
             } else {
                 // Calculate the (~constant for a given correction) change in angular acceleration.
                 // let j = 6. * (2. * θ_0 + ttc * ω_0) / ttc.powi(3);
-                let j = 6. / ttc.powi(3) * (2.* θ_0 + ttc*ω_0 - 2.*θ_tgt + ttc * ω_tgt);
+                let j = 6. / ttc.powi(3) * (2. * θ_0 + ttc * ω_0 - 2. * θ_tgt + ttc * ω_tgt);
 
                 // This is the actual target acceleration, determined by the questions above:
-                α_meas + j * dt
+                ω_dot_0 + j * dt
             }
         }
         None => α_from_ttc(θ_0, ω_0, θ_tgt, ω_tgt, coeffs.ttc_per_dθ),
@@ -353,6 +371,7 @@ pub fn ctrl_mix_from_att(
         coeffs,
         drag_coeffs.pitch,
         &accel_maps.map_pitch,
+        dt,
     );
     let roll = find_ctrl_setting(
         params.s_roll,
@@ -363,9 +382,10 @@ pub fn ctrl_mix_from_att(
         coeffs,
         drag_coeffs.roll,
         &accel_maps.map_roll,
+        dt,
     );
     let yaw = find_ctrl_setting(
-        params.s_yaw,
+        params.s_yaw_heading,
         params.v_yaw,
         params.a_yaw,
         rot_euler.yaw,
@@ -373,6 +393,7 @@ pub fn ctrl_mix_from_att(
         coeffs,
         drag_coeffs.yaw,
         &accel_maps.map_yaw,
+        dt,
     );
 
     let mut result = CtrlMix {

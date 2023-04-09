@@ -125,7 +125,14 @@ def find_time_to_correct(
 
             print(f"TA: {t_a}, TB: {t_b}")
             
-            t = min(t_a, t_b)
+            if t_a > 0. and t_b > 0.:
+                t = min(t_a, t_b)
+            elif t_a > 0.:
+                t = t_a
+            elif t_b > 0.:
+                t = t_b
+            else:
+                t = 6.9
 
         if abs(t - 6.9) < EPS:
             pass
@@ -135,12 +142,12 @@ def find_time_to_correct(
     return t
 
 def plot_analytic():
-    θ_tgt = 3.
-    ω_tgt = 0.
+    θ_tgt = 2.
+    ω_tgt = 1
 
-    for θ_0 in [4]:
-        for ω_0 in [-2]:
-            ω_dot_0 = 0.
+    for θ_0 in [1.5]:
+        for ω_0 in [-0.5]:
+            ω_dot_0 = 0.336
 
             # An alternative approach where we specify initial
             # acceleration. This has the advantage of being clearly
@@ -187,8 +194,8 @@ def plot_analytic():
             # GUess: omega goes with square, theta goes with cube?
 
             plt.plot(t, θ)
-            # plt.plot(ω)
-            # plt.plot(ω_dot)
+            plt.plot(t, ω)
+            plt.plot(t, ω_dot)
     plt.show()
 
 plot_analytic()
