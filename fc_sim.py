@@ -23,8 +23,8 @@ max_ω_dot = 10.
 drag_coeff_ctrls = 0.01
 
 # The change we need to effect given the initial conditions below.
-θ_target = 1.
-ω_target = 0.
+# θ_target = 1.
+# ω_target = 0.
 
 θ = np.zeros(N)
 ω = np.zeros(N)
@@ -98,38 +98,34 @@ def find_time_to_correct(
     θ_0: float,
     ω_0: float,
     ω_dot_0: float,
+    θ_tgt: float,
+    ω_tgt: float,
 ) -> float:
     """See Rust code for a description."""
 
     EPS = 0.000001
 
-    if abs(ω_dot_0) < EPS and abs(ω_0) < EPS:
-        t = 6.9
-        print("Unsolvable")
+    if abs(ω_dot_0) < EPS and abs(θ_0 - θ_tgt) > EPS and abs(ω_tgt + 2. * ω_0) > EPS:
+        t = 3. * (θ_tgt - θ_0) / (ω_tgt + 2. * ω_0)
+        print("\n\nCondition A")
 
-    if abs(ω_dot_0) < EPS:
-        t = -(3 * θ_0) / (2. * ω_0)
-        print("c")
+    elif abs(ω_dot_0) < EPS:
+        print("\n\nDivide by 0 on ω_dot_0; failure.")
+        t = 6.9
     else:
-        inner = 4. * ω_0**2 - 6. * ω_dot_0 * θ_0
+        inner = 6.*ω_dot_0 * (θ_tgt - θ_0) + (ω_tgt + 2. * ω_0)**2
 
         if inner < 0.:
-            print("Unable to find solution")
+            print("No solution exists (imaginary time)")
             t = 6.9
         else:
 
-            t_a = -(np.sqrt(inner) + 2. * ω_0) / ω_dot_0
-            t_b = (np.sqrt(inner) - 2. * ω_0) / ω_dot_0
+            t_a = -(np.sqrt(inner) + 2. * ω_0 + ω_tgt) / ω_dot_0
+            t_b = (np.sqrt(inner) - 2. * ω_0 - ω_tgt) / ω_dot_0
 
             print(f"TA: {t_a}, TB: {t_b}")
             
-            if t_a < 0:
-                t = t_b
-                print("b")
-                
-            else:
-                t = t_a
-                print("a")
+            t = min(t_a, t_b)
 
         if abs(t - 6.9) < EPS:
             pass
@@ -139,11 +135,8 @@ def find_time_to_correct(
     return t
 
 def plot_analytic():
-    # for θ_0 in [-0.5, 0.5, 1.]:
-    #     for ω_0 in [-0.5, 1., 2.]:
-
-    dθ = 0.
-    dω = 0.
+    θ_tgt = 3.
+    ω_tgt = 0.
 
     for θ_0 in [4]:
         for ω_0 in [-2]:
@@ -159,11 +152,12 @@ def plot_analytic():
             # discontinuously.
             # todo: Set a max ttc per theta.
 
-            ttc = find_time_to_correct(θ_0, ω_0, ω_dot_0);
+            ttc = find_time_to_correct(θ_0, ω_0, ω_dot_0, θ_tgt, ω_tgt);
                     
             # todo: Which t? a or b may result in negative time; that's a clue
 
-            j = 6. * (2.* θ_0 + ttc*ω_0) / ttc**3
+            # j = 6. * (2.* θ_0 + ttc*ω_0) / ttc**3
+            j = 6./ ttc**3 * (2.* θ_0 + ttc*ω_0 - 2.*θ_tgt + ttc * ω_tgt) 
 
             print(f"\n\n ω_dot_0: {ω_dot_0}, j: {j}, ttc: {ttc}")
 
@@ -192,7 +186,7 @@ def plot_analytic():
 
             # GUess: omega goes with square, theta goes with cube?
 
-            plt.plot(θ)
+            plt.plot(t, θ)
             # plt.plot(ω)
             # plt.plot(ω_dot)
     plt.show()

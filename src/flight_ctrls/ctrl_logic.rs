@@ -1,5 +1,10 @@
-//! This module contains code for attitude-based controls. This includes sticks mapping
-//! to attitude, and an internal attitude model with rate-like controls, where attitude is the target.
+//! This module contains code for control logic. It commands constant-jerk corrections to
+//! attitude and rate-of-change of attitude.
+//!
+//! See the comments here, the accompanying Python script in this project, and the associated
+//! One note file for details on how we calculate this.
+
+use core::cmp;
 
 use crate::{
     control_interface::ChannelData,
@@ -145,26 +150,14 @@ pub fn calc_drag_coeff(ω_meas: f32, α_meas: f32, α_commanded: f32) -> f32 {
 /// If we're unable to use our current parameters to determine a linear-jerk trajectory,
 /// we specify a time-to-correction based on the params, then using that time, calculate
 /// an angular accel and jerk. Returned result is α_0, j
-// fn α_from_ttc(dθ: f32, ω: f32, ttc_per_dθ: f32) -> f32 {
-fn α_from_ttc(dθ: f32, dω: f32, ttc_per_dθ: f32) -> f32 {
+fn α_from_ttc(θ_0: f32, ω_0: f32, θ_tgt: f32, ω_tgt: f32, ttc_per_dθ: f32) -> f32 {
     // Time to correction
-    let ttc = ttc_per_dθ * dθ.abs(); // todo: Naive. Take vel and accel into account.
+    let ttc = ttc_per_dθ * (θ_tgt - θ_0).abs(); // todo: Naive. Take vel and accel into account.
 
-    // Calculate the "initial" target angular acceleration.
-    // let α_0 = -(6. * dθ + 4. * ttc * ω) / ttc.powi(2);
-    let α_0 = -(6. * dθ + 4. * ttc * dω) / ttc.powi(2);
+    // Calculate the "initial" target angular acceleration, from the formula we worked out
+    // from the kinematic equations for θ(t) and ω(t).
+    -2. / ttc.powi(2) * (ttc * (ω_tgt + 2. * ω_0) + 3. * (θ_0 - θ_tgt))
 
-    // It appears we don't actually need to calculate j
-    // for our controller; although this value calculated here should be
-    // roughly maintained given how α evolves over time given
-    // the same control logic is applied repeatedly.
-
-    // Calculate the (~constant for a given correction) change in angular acceleration.
-    // (Commented-out, since we don't directly need this)
-    // let j = 6. * (2. * dθ + ttc * ω_0) / ttc.powi(3);
-
-    // α_0, j
-    α_0
 }
 
 // #[cfg(feature = "quad")]
@@ -190,12 +183,18 @@ fn find_time_to_correct(
     θ_0: f32,
     ω_0: f32,
     ω_dot_0: f32,
+    θ_tgt: f32,
+    ω_tgt: f32,
 ) -> Option<f32> {
     const EPS: f32 = 0.000001;
 
-    if α_meas.abs() < EPS {
+    if (ω_dot_0).abs() < EPS && (θ_0 - θ_tgt).abs() > EPS && (ω_tgt + 2. * ω_0).abs() > EPS {
         // todo: QC this change that incorporates dω
-        Some((3. * θ_0) / (2. * ω_0))
+        Some(3. * (θ_tgt - θ_0) / (ω_tgt + 2. * ω_0))
+    } else if (ω_dot_0).abs() < EPS {
+        // This happens if there's 0 initial angular acceleration, no change in desired
+        // attitude, but we do have a desired change in angular velocity. (todo is this right?)
+        None
     } else {
         // If `inner` is negative, there is no solution given our initial conditions, and
         // constant jerk condition. We return `None` here, and conduct an rapid
@@ -204,19 +203,15 @@ fn find_time_to_correct(
         // This would occur if, for example, α_0 and/or θ_0 is high,
         // and/or ω_0 is low.
 
-        let inner = 4. * ω_0.powi(2) - 6. * ω_dot_0 * θ_0;
+        let inner = 6.* ω_dot_0 * (θ_tgt - θ_0) + (ω_tgt + 2. * ω_0).powi(2);
+
         if inner < 0. {
             None
         } else {
-            let t_a = -(inner.sqrt() + 2. * ω_0) / ω_dot_0;
-            let t_b = (inner.sqrt() - 2. * ω_0) /ω_dot_0;
+            let t_a = -(inner.sqrt() + 2. * ω_0 + ω_tgt) / ω_dot_0;
+            let t_b = (inner.sqrt() - 2. * ω_0 - ω_tgt) / ω_dot_0;
 
-            // todo: QC this.
-            if t_a < 0. {
-                Some(t_b)
-            } else {
-                Some(t_a)
-            }
+            Some(cmp::min(t_a, t_b))
         }
     }
 }
@@ -238,26 +233,28 @@ fn find_ctrl_setting(
 ) -> f32 {
     // todo: Take time to spin up/down into account?
 
-    let time_to_correct = find_time_to_correct(θ_0, ω_0, ω_dot_0);
+    let time_to_correct = find_time_to_correct(θ_0, ω_0, ω_dot_0, θ_tgt, ω_tgt);
+
+    let dθ = θ_tgt - θ_0;
 
     let mut α_target = match time_to_correct {
         Some(ttc) => {
             // If it would take too longer to perform the correction, calculate a new
             // angular acceleration that fits the criteria.
-            if ttc > coeffs.max_ttc_per_dθ * dθ {
-                // α_from_ttc(dθ, ω_0, coeffs.ttc_per_dθ)
-                α_from_ttc(dθ, dω, coeffs.ttc_per_dθ)
+            if ttc > coeffs.max_ttc_per_dθ * (θ_tgt - θ_0).abs() {
+                α_from_ttc(θ_0, ω_0, θ_tgt, ω_tgt, coeffs.ttc_per_dθ)
                 // If the time to correction is sufficiently small, apply a constant jerk, which
                 // should be roughly the previous jerk if part way through a maneuver.
             } else {
                 // Calculate the (~constant for a given correction) change in angular acceleration.
-                let j = 6. * (2. * θ_0 + ttc * ω_0) / ttc.powi(3);
+                // let j = 6. * (2. * θ_0 + ttc * ω_0) / ttc.powi(3);
+                let j = 6. / ttc.powi(3) * (2.* θ_0 + ttc*ω_0 - 2.*θ_tgt + ttc * ω_tgt);
 
                 // This is the actual target acceleration, determined by the questions above:
                 α_meas + j * dt
             }
         }
-        None => α_from_ttc(dθ, ω_0, coeffs.ttc_per_dθ),
+        None => α_from_ttc(θ_0, ω_0, θ_tgt, ω_tgt, coeffs.ttc_per_dθ),
     };
 
     // The target acceleration needs to include both the correction, and drag compensation.
@@ -348,25 +345,31 @@ pub fn ctrl_mix_from_att(
     let dω_yaw = (target_torque.axis.y) * target_torque.angular_velocity - params.v_yaw;
 
     let pitch = find_ctrl_setting(
+        params.s_pitch,
+        params.v_pitch,
+        params.a_pitch,
         rot_euler.pitch,
         dω_pitch,
-        params.a_pitch,
         coeffs,
         drag_coeffs.pitch,
         &accel_maps.map_pitch,
     );
     let roll = find_ctrl_setting(
-        rot_euler.roll,
-        ω_roll,
+        params.s_roll,
+        params.v_roll,
         params.a_roll,
+        rot_euler.roll,
+        dω_roll,
         coeffs,
         drag_coeffs.roll,
         &accel_maps.map_roll,
     );
     let yaw = find_ctrl_setting(
+        params.s_yaw,
+        params.v_yaw,
+        params.a_yaw,
         rot_euler.yaw,
         dω_yaw,
-        params.a_yaw,
         coeffs,
         drag_coeffs.yaw,
         &accel_maps.map_yaw,

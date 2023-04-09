@@ -50,6 +50,8 @@ pub struct Params {
 }
 
 impl Params {
+    /// Update parameters that can be taken from either accels or gyros without fuzing. Data
+    /// that requires fuzing (eg attitude) is updated in the `attitude_platform` module.
     pub fn update_from_imu_readings(&mut self, mut imu_data: ImuReadings) {
         // todo: This is a good place to apply IMU calibration.
 
