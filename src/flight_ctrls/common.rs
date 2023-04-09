@@ -1,9 +1,12 @@
 //! This module contains flight control code not specific to an aircraft design category.
 //! It is mostly types.
 
-use crate::util::map_linear;
+use crate::{
+    flight_ctrls::ctrl_logic::Torque,
+    util::map_linear,
+    protocols::dshot::Motor,
+};
 
-use crate::protocols::dshot::Motor;
 use lin_alg2::f32::Quaternion;
 
 // Our input ranges for the 4 controls
@@ -90,6 +93,34 @@ pub struct CtrlMix {
     pub throttle: f32,
 }
 
+impl CtrlMix {
+    pub fn clamp(&mut self) {
+        if self.pitch > PITCH_IN_RNG.1 {
+            self.pitch = PITCH_IN_RNG.1;
+        } else if self.pitch < PITCH_IN_RNG.0 {
+            self.pitch = PITCH_IN_RNG.0;
+        }
+
+        if self.roll > ROLL_IN_RNG.1 {
+            self.roll = ROLL_IN_RNG.1;
+        } else if self.roll < ROLL_IN_RNG.0 {
+            self.roll = ROLL_IN_RNG.0;
+        }
+
+        if self.yaw > YAW_IN_RNG.1 {
+            self.yaw = YAW_IN_RNG.1;
+        } else if self.yaw < YAW_IN_RNG.0 {
+            self.yaw = YAW_IN_RNG.0;
+        }
+
+        if self.throttle > THROTTLE_IN_RNG.1 {
+            self.throttle = THROTTLE_IN_RNG.1;
+        } else if self.throttle < THROTTLE_IN_RNG.0 {
+            self.throttle = THROTTLE_IN_RNG.0;
+        }
+    }
+}
+
 /// Stores inputs to the system. `pitch`, `yaw`, and `roll` are in range -1. to +1.
 /// `thrust` is in range 0. to 1. Corresponds to stick positions on a controller, but can
 /// also be used as a model for autonomous flight.
@@ -118,7 +149,14 @@ pub struct CtrlInputs {
 #[derive(Default)]
 pub struct AttitudeCommanded {
     // pub quat: Option<Quaternion>,
+    /// Our main attitude commanded
     pub quat: Quaternion,
+    /// A change in attitude commanded per second, as an axis, and angular velocity in rad/s.
+    /// todo: Should this be determined from current rate controls, or a change in teh quat?
+    /// todo probably the latter, since it applies in other control modes.
+    pub quat_dt: Torque,
+    /// We use pitch, roll, and yaw if a specific axis is commanded.
+    /// todo: Are these earth-centered?
     pub pitch: Option<f32>,
     pub roll: Option<f32>,
     pub yaw: Option<f32>,

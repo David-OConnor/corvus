@@ -645,7 +645,7 @@ pub fn setup_busses(
         crsf::BAUD,
         UsartConfig {
             // todo: We're having a struggle with overruns.
-            overrun_disabled: true,
+            // overrun_disabled: true,
             ..Default::default()
         },
         clock_cfg,

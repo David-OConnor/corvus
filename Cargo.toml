@@ -38,7 +38,7 @@ usbd-serial = "^0.1.1"
 fdcan = { version = "0.1.2" }
 
 # To parse enums from their integer repr
-num_enum = { version = "^0.5.7", default_features = false }
+num_enum = { version = "^0.6.0", default_features = false }
 
 # Use these features to specify GPIO mapping, and which peripherals to use.
 [features]

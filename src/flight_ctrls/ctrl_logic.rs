@@ -14,7 +14,7 @@ use super::{
     motor_servo::{MotorServoState, RotationDir},
 };
 
-use lin_alg2::f32::{Quaternion, Vec3};
+use lin_alg2::f32::{EulerAngle, Quaternion, Vec3};
 
 use num_traits::float::Float; // For sqrt.
 
@@ -47,6 +47,38 @@ const FWD: Vec3 = Vec3 {
     y: 0.,
     z: 1.,
 };
+
+/// Represents a torque; ie a rotation with an associated angular velocity
+pub struct Torque {
+    /// Uses the right hand rule.
+    pub axis: Vec3,
+    /// In radians-per-second.
+    pub angular_velocity: f32,
+}
+
+impl Default for Torque {
+    fn default() -> Self {
+        Self { axis: Vec3::new(1., 0., 0.), angular_velocity: 0. }
+    }
+}
+
+impl Torque {
+    // todo: Do you need/want this?
+    pub fn from_components(pitch: f32, roll: f32, yaw: f32) -> Self {
+        // todo: No idea if this is correct
+        let vec = UP * yaw + RIGHT * pitch + FWD * roll;
+        Self {axis: vec.to_normalized(), angular_velocity: vec.magnitude()}
+    }
+
+    /// Construct one from the rotation between a rotation quaternions, and the time the rotation takes.
+    ///  This assumes less than a full rotation between updates.
+    pub fn from_attitudes(att_prev: Quaternion, att_this: Quaternion, dt: f32) -> Self {
+        // todo: Add to lin alg lib fn to get the axis and/or angles a/r
+        let rotation = att_this - att_prev;
+
+        Self { axis: rotation.axis(), angular_velocity: rotation.angle() / dt }
+    }
+}
 
 // The motor RPM of each motor will not go below this. We use this for both quad and fixed-wing motors.
 // todo: unimplemented
@@ -113,12 +145,14 @@ pub fn calc_drag_coeff(ω_meas: f32, α_meas: f32, α_commanded: f32) -> f32 {
 /// If we're unable to use our current parameters to determine a linear-jerk trajectory,
 /// we specify a time-to-correction based on the params, then using that time, calculate
 /// an angular accel and jerk. Returned result is α_0, j
-fn α_from_ttc(dθ: f32, ω: f32, ttc_per_dθ: f32) -> f32 {
+// fn α_from_ttc(dθ: f32, ω: f32, ttc_per_dθ: f32) -> f32 {
+fn α_from_ttc(dθ: f32, dω: f32, ttc_per_dθ: f32) -> f32 {
     // Time to correction
     let ttc = ttc_per_dθ * dθ.abs(); // todo: Naive. Take vel and accel into account.
 
     // Calculate the "initial" target angular acceleration.
-    let α_0 = -(6. * dθ + 4. * ttc * ω) / ttc.powi(2);
+    // let α_0 = -(6. * dθ + 4. * ttc * ω) / ttc.powi(2);
+    let α_0 = -(6. * dθ + 4. * ttc * dω) / ttc.powi(2);
 
     // It appears we don't actually need to calculate j
     // for our controller; although this value calculated here should be
@@ -145,40 +179,37 @@ fn α_from_ttc(dθ: f32, ω: f32, ttc_per_dθ: f32) -> f32 {
 //
 // }
 
-fn find_ctrl_setting(
-    dθ: f32,
-    ω_0: f32,
-    α_meas: f32,
-    // ctrl_cmd_prev: f32,
-    coeffs: &CtrlCoeffs,
-    drag_coeff: f32,
-    accel_map: &AccelMap,
-    // filters: &mut FlightCtrlFilters,
-) -> f32 {
-    // todo: Take time to spin up/down into account
+// todo: Due to numerical precision issues, should you work in ms?
 
+/// Calculate the time required to perform an angle and angular rate correction, for a given axis.
+/// This assumes constant jerk. If this is not possible given these constraints, returns `None`.
+/// This function does not check if the time is longer than suitable; we handle that elsewhere.
+///
+/// We accomplish this by solving the formula
+fn find_time_to_correct(
+    θ_0: f32,
+    ω_0: f32,
+    ω_dot_0: f32,
+) -> Option<f32> {
     const EPS: f32 = 0.000001;
 
-    // `t` here is the total time to complete this correction, using the analytic
-    // formula.
-    let t = if α_meas.abs() < EPS {
-        Some((3. * dθ) / (2. * ω_0))
+    if α_meas.abs() < EPS {
+        // todo: QC this change that incorporates dω
+        Some((3. * θ_0) / (2. * ω_0))
     } else {
-        // If `inner` is negative, there is no solution for the desired α_0;
-        // we must change it.
-        // It would be negative if, for example, α_0 and/or θ_0 is high,
+        // If `inner` is negative, there is no solution given our initial conditions, and
+        // constant jerk condition. We return `None` here, and conduct an rapid
+        // change of acceleration (a discontinuity), at which point we can then find a constant-jerk
+        // result after the change has been applied.
+        // This would occur if, for example, α_0 and/or θ_0 is high,
         // and/or ω_0 is low.
-        // This would manifest in an imaginary time.
-        // We resolve this by specifying a time-to-correction based on
-        // current parameters, and applying a discontinuity in angular accel;
-        // this discontinuity allows us to still find a constant-jerk
-        // result.
-        let inner = 4. * ω_0.powi(2) - 6. * α_meas * dθ;
+
+        let inner = 4. * ω_0.powi(2) - 6. * ω_dot_0 * θ_0;
         if inner < 0. {
             None
         } else {
-            let t_a = -(inner.sqrt() + 2. * ω_0) / α_meas;
-            let t_b = (inner.sqrt() - 2. * ω_0) / α_meas;
+            let t_a = -(inner.sqrt() + 2. * ω_0) / ω_dot_0;
+            let t_b = (inner.sqrt() - 2. * ω_0) /ω_dot_0;
 
             // todo: QC this.
             if t_a < 0. {
@@ -187,29 +218,51 @@ fn find_ctrl_setting(
                 Some(t_a)
             }
         }
-    };
+    }
+}
 
-    let mut α_target = match t {
+fn find_ctrl_setting(
+    θ_0: f32,
+    ω_0: f32,
+    ω_dot_0: f32,
+    // The change in angle desired, along a given axis.
+    θ_tgt: f32,
+    // The change in angular velocity desired, along a given axis. We can find this by subtracting
+    // the current angular velocity from the commanded rate.
+    ω_tgt: f32,
+    // ctrl_cmd_prev: f32,
+    coeffs: &CtrlCoeffs,
+    drag_coeff: f32,
+    accel_map: &AccelMap,
+    // filters: &mut FlightCtrlFilters,
+) -> f32 {
+    // todo: Take time to spin up/down into account?
+
+    let time_to_correct = find_time_to_correct(θ_0, ω_0, ω_dot_0);
+
+    let mut α_target = match time_to_correct {
         Some(ttc) => {
             // If it would take too longer to perform the correction, calculate a new
             // angular acceleration that fits the criteria.
             if ttc > coeffs.max_ttc_per_dθ * dθ {
-                α_from_ttc(dθ, ω_0, coeffs.ttc_per_dθ)
+                // α_from_ttc(dθ, ω_0, coeffs.ttc_per_dθ)
+                α_from_ttc(dθ, dω, coeffs.ttc_per_dθ)
                 // If the time to correction is sufficiently small, apply a constant jerk, which
                 // should be roughly the previous jerk if part way through a maneuver.
             } else {
                 // Calculate the (~constant for a given correction) change in angular acceleration.
-                let j = 6. * (2. * dθ + ttc * ω_0) / ttc.powi(3);
+                let j = 6. * (2. * θ_0 + ttc * ω_0) / ttc.powi(3);
 
                 // This is the actual target acceleration, determined by the questions above:
-                α_meas + j
+                α_meas + j * dt
             }
         }
         None => α_from_ttc(dθ, ω_0, coeffs.ttc_per_dθ),
     };
 
     // The target acceleration needs to include both the correction, and drag compensation.
-    let drag_accel = -drag_coeff * ω_0;
+    // let drag_accel = -drag_coeff * ω_0;
+    let drag_accel = -drag_coeff * dω;
     α_target += drag_accel;
 
     // Calculate how, most recently, the control command is affecting angular accel.
@@ -250,6 +303,10 @@ fn find_ctrl_setting(
 /// The DT passed is the IMU rate, since we update params_prev each IMU update.
 pub fn ctrl_mix_from_att(
     target_attitude: Quaternion,
+    // todo: Which do you want: A vector torque, or a rotation since last with DT?
+    // todo: Probably torque.
+    target_torque: &Torque,
+    // target_rotation_since_prev: Quaternion,
     current_attitude: Quaternion,
     throttle: f32,
     front_left_dir: RotationDir,
@@ -285,9 +342,14 @@ pub fn ctrl_mix_from_att(
         );
     }
 
+    // todo: Is this logic correct?
+    let dω_pitch = (target_torque.axis.x) * target_torque.angular_velocity - params.v_pitch;
+    let dω_roll = (target_torque.axis.z) * target_torque.angular_velocity - params.v_roll;
+    let dω_yaw = (target_torque.axis.y) * target_torque.angular_velocity - params.v_yaw;
+
     let pitch = find_ctrl_setting(
         rot_euler.pitch,
-        params.v_pitch,
+        dω_pitch,
         params.a_pitch,
         coeffs,
         drag_coeffs.pitch,
@@ -295,7 +357,7 @@ pub fn ctrl_mix_from_att(
     );
     let roll = find_ctrl_setting(
         rot_euler.roll,
-        params.v_roll,
+        ω_roll,
         params.a_roll,
         coeffs,
         drag_coeffs.roll,
@@ -303,19 +365,22 @@ pub fn ctrl_mix_from_att(
     );
     let yaw = find_ctrl_setting(
         rot_euler.yaw,
-        params.v_yaw,
+        dω_yaw,
         params.a_yaw,
         coeffs,
         drag_coeffs.yaw,
         &accel_maps.map_yaw,
     );
 
-    CtrlMix {
+    let mut result = CtrlMix {
         pitch,
         roll,
         yaw,
         throttle,
-    }
+    };
+
+    result.clamp();
+    result
 }
 
 #[cfg(feature = "fixed-wing")]

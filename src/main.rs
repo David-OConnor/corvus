@@ -39,7 +39,7 @@ use flight_ctrls::{
     autopilot::AutopilotStatus,
     common::CtrlMix,
     ctrl_effect_est::{AccelMapPt, AccelMaps},
-    ctrl_logic,
+    ctrl_logic::{self, Torque},
     filters::FlightCtrlFilters,
     motor_servo::{MotorRpm, RpmReadings},
     pid::{MotorCoeffs, MotorPidGroup},
@@ -72,7 +72,6 @@ mod control_interface;
 mod drivers;
 mod filter_imu;
 mod flight_ctrls;
-mod imu_calibration;
 mod imu_shared;
 mod params;
 mod ppks;
@@ -83,9 +82,6 @@ mod setup;
 mod state;
 mod system_status;
 mod util;
-
-#[cfg(feature = "quad")]
-use flight_ctrls::motor_servo::MotorPower; // todo Temp
 
 use params::Params;
 use ppks::{Location, LocationType};
@@ -121,7 +117,7 @@ cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         // use flight_ctrls::{autopilot::Orbit, ControlPositions, };
     } else {
-        use flight_ctrls::{motor_servo::{RotationDir}};
+        use flight_ctrls::{motor_servo::{RotationDir, MotorPower}};
     }
 }
 
@@ -256,7 +252,7 @@ mod app {
         flight_ctrl_filters: FlightCtrlFilters,
         // Note: We don't currently haveh PID filters, since we're not using a D term for the
         // RPM PID.
-        imu_calibration: imu_calibration::ImuCalibration,
+        imu_calibration: imu_shared::ImuCalibration,
         ext_sensor_active: ExtSensor,
         pwr_maps: AccelMaps,
         // /// Store rotor RPM: (M1, M2, M3, M4). Quad only, but we can't feature gate
@@ -298,9 +294,7 @@ mod app {
         // See note above about an RTIC limit preventing us from initing this way.
         // startup::init(&cx.core)
 
-        // Cortex-M peripherals
         let mut cp = cx.core;
-        // Set up microcontroller peripherals
         let mut dp = pac::Peripherals::take().unwrap();
 
         // Improves performance, at a cost of slightly increased power use.
@@ -673,7 +667,7 @@ mod app {
         let ahrs_settings = ahrs_fusion::Settings::default();
 
         // Note: Calibration and offsets ares handled handled by their defaults currently.
-        let imu_calibration = imu_calibration::ImuCalibration {
+        let imu_calibration = imu_shared::ImuCalibration {
             // gyro_misalignment: Mat3 {
             //     data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
             // },
@@ -993,13 +987,21 @@ mod app {
 
                             // If we haven't taken off, apply the attitude lock.
                             if state_volatile.has_taken_off {
+                                let att_cmd_prev = state_volatile.attitude_commanded.quat;
                                 state_volatile.attitude_commanded.quat = ctrl_logic::modify_att_target(
                                     state_volatile.attitude_commanded.quat,
                                     pitch_rate_cmd, roll_rate_cmd, yaw_rate_cmd,
                                     DT_FLIGHT_CTRLS,
                                 );
+
+                                state_volatile.attitude_commanded.quat_dt = Torque::from_attitudes(
+                                    att_cmd_prev,
+                                  state_volatile.attitude_commanded.quat,
+                                    DT_FLIGHT_CTRLS,
+                                );
                             } else {
                                 state_volatile.attitude_commanded.quat = cfg.takeoff_attitude;
+                                state_volatile.attitude_commanded.quat_dt = Torque::default();
                             }
                         }
                         None => {}
@@ -1026,6 +1028,7 @@ mod app {
                             if #[cfg(feature = "quad")] {
                                 let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
                                     state_volatile.attitude_commanded.quat,
+                                    state_volatile.attitude_commanded.quat_dt,
                                     params.attitude_quat,
                                     throttle,
                                     state_volatile.motor_servo_state.frontleft_aftright_dir,
@@ -1057,6 +1060,7 @@ mod app {
                                 let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
                                     state_volatile.attitude_commanded.quat.unwrap(),
                                     params.attitude_quat,
+                                    params.attitude_quat_dt,
                                     throttle,
                                     params,
                                     cx.local.params_prev,

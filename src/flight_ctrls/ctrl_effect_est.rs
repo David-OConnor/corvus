@@ -117,6 +117,8 @@ impl AccelMap {
             (0., 0.),
         );
 
+        // println!("Latest pt: {}, {}", pts[NUM_SAMPLE_PTS - 1].angular_accel, pts[NUM_SAMPLE_PTS - 1].ctrl_cmd);
+
         // let constant = 0.;
         // let squares = 0.;
         // let lin = (pts[pts.len()].ctrl_cmd / pts[pts.len()].angular_accel);
@@ -124,6 +126,11 @@ impl AccelMap {
         self.square = square;
         self.lin = lin;
         self.constant = constant;
+
+        // todo: Temp / v sloppy!!
+        self.square = 0.;
+        self.lin = 1.;
+        self.constant = 0.;
     }
 
     /// Given a target angular acceleration, calculate a polynomial-fit RPM delta or servo position.

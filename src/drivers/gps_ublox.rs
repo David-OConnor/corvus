@@ -34,7 +34,7 @@ const PAYLOAD_LEN_PVT: usize = 92;
 const PAYLOAD_LEN_ACK_NAK: usize = 2;
 
 // We use this max length for our DMA read buffer.
-const MAX_BUF_LEN: usize = PAYLOAD_LEN_PVT + MSG_SIZE_WITHOUT_PAYLOAD + 10;
+pub const MAX_BUF_LEN: usize = PAYLOAD_LEN_PVT + MSG_SIZE_WITHOUT_PAYLOAD + 10;
 
 pub static mut RX_BUFFER: [u8; MAX_BUF_LEN] = [0; MAX_BUF_LEN];
 // static mut TX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];

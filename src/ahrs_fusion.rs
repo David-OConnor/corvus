@@ -27,8 +27,6 @@ use num_traits::float::Float; // abs etc
 
 use cmsis_dsp_sys::{arm_cos_f32, arm_sin_f32};
 
-use super::flight_ctrls::common::CtrlInputs;
-
 use lin_alg2::f32::{Quaternion, Vec3};
 
 const G: f32 = 9.80665; // Gravity, in m/s^2
@@ -444,16 +442,6 @@ impl Ahrs {
             z: -1.0 * sin(half_iyaw_minus_heading),
         };
         self.quaternion = rotation * self.quaternion;
-    }
-
-    /// todo WIP
-    /// Not part of official AHRS fusion algorithm
-    fn apply_controls_quad(&mut self, controls: CtrlInputs) {}
-
-    /// todo WIP
-    /// Not part of official AHRS fusion algorithm
-    fn apply_controls_fixed_wing(&mut self, controls: CtrlInputs, airspeed: f32) {
-        let g_estimated = airspeed * controls.pitch.unwrap(); // downward G forces from a maneuver. Actually in m/s^2
     }
 }
 
