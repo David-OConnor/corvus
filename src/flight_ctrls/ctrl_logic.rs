@@ -84,7 +84,7 @@ impl Torque {
     pub fn from_attitudes(att_prev: Quaternion, att_this: Quaternion, dt: f32) -> Self {
         // todo: Add to lin alg lib fn to get the axis and/or angles a/r
         //
-        let rotation = att_this - att_prev;
+        let rotation = att_this * att_prev.inverse();
 
         Self {
             axis: rotation.axis(),
@@ -276,8 +276,7 @@ fn find_ctrl_setting(
     };
 
     // The target acceleration needs to include both the correction, and drag compensation.
-    // let drag_accel = -drag_coeff * ω_0;
-    let drag_accel = -drag_coeff * dω;
+    let drag_accel = -drag_coeff * ω_0;
     α_target += drag_accel;
 
     // Calculate how, most recently, the control command is affecting angular accel.

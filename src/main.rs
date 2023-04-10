@@ -549,7 +549,7 @@ mod app {
         let mut dshot_read_timer = Timer::new_tim2(dp.TIM2, 1., Default::default(), &clock_cfg);
 
         dshot_read_timer.set_prescaler(dshot::PSC_DSHOT);
-        dshot_read_timer.set_auto_reload(dshot::DSHOT_ARR_READ);
+        dshot_read_timer.set_auto_reload(setup::DSHOT_ARR_READ);
         dshot_read_timer.enable_interrupt(TimerInterrupt::Update);
 
         let mut lost_link_timer = Timer::new_tim17(
@@ -822,8 +822,8 @@ mod app {
     /// Certain tasks, like reading IMU measurements and filtering are run each time this function runs.
     /// Flight control logic is run once every several runs. Other tasks are run even less,
     /// sequenced among each other.
-    // #[task(binds = DMA1_STR2,
-    #[task(binds = DMA1_CH2,
+    #[task(binds = DMA1_STR2,
+    // #[task(binds = DMA1_CH2,
     shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status, tick_timer],
@@ -1310,8 +1310,8 @@ mod app {
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     // #[task(binds = OTG_HS,
-    // #[task(binds = OTG_FS,
-    #[task(binds = USB_LP,
+    #[task(binds = OTG_FS,
+    // #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, current_params, control_channel_data,
     link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer],
     local = [], priority = 2)]
@@ -1385,8 +1385,8 @@ mod app {
             )
     }
 
-    // #[task(binds = DMA1_STR3,
-    #[task(binds = DMA1_CH3,
+    #[task(binds = DMA1_STR3,
+    // #[task(binds = DMA1_CH3,
     shared = [motor_timer], priority = 6)]
     /// We use this ISR to initialize the RPM reception procedures upon completion of the dshot
     /// power setting transmission to the ESC.
@@ -1709,8 +1709,8 @@ mod app {
     /// If this triggers, it means we've received no radio control signals for a significant
     ///period of time; we treat this as a lost-link situation.
     /// (Note that this is for TIM17 on both variants)
-    // #[task(binds = TIM17,
-    #[task(binds = TIM1_TRG_COM,
+    #[task(binds = TIM17,
+    // #[task(binds = TIM1_TRG_COM,
     shared = [lost_link_timer, state_volatile, autopilot_status,
     current_params, system_status, control_channel_data], priority = 2)]
     fn lost_link_isr(mut cx: lost_link_isr::Context) {
@@ -1758,8 +1758,8 @@ mod app {
         TICK_OVERFLOW_COUNT.fetch_add(1, Ordering::Relaxed);
     }
 
-    // #[task(binds = TIM16,
-    #[task(binds = TIM1_UP_TIM16,
+    #[task(binds = TIM16,
+    // #[task(binds = TIM1_UP_TIM16,
     shared = [rf_limiter_timer], priority = 2)]
     fn rf_limiter_isr(mut cx: rf_limiter_isr::Context) {
         // println!("RF limiter ISR");
@@ -1770,8 +1770,8 @@ mod app {
         });
     }
 
-    // #[task(binds = DMA2_STR1,
-    #[task(binds = DMA2_CH1,
+    #[task(binds = DMA2_STR1,
+    // #[task(binds = DMA2_CH1,
     shared = [i2c2], priority = 2)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
@@ -1796,8 +1796,8 @@ mod app {
 
     // todo: For now, we start new transfers in the main loop.
 
-    // #[task(binds = DMA2_STR2,
-    #[task(binds = DMA2_CH2,
+    #[task(binds = DMA2_STR2,
+    // #[task(binds = DMA2_CH2,
     shared = [altimeter, current_params, state_volatile], priority = 3)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(cx: baro_read_tc_isr::Context) {
@@ -1828,8 +1828,8 @@ mod app {
             });
     }
 
-    // #[task(binds = DMA2_STR3,
-    #[task(binds = DMA2_CH3,
+    #[task(binds = DMA2_STR3,
+    // #[task(binds = DMA2_CH3,
     shared = [i2c1, ext_sensor_active], priority = 2)]
     /// External sensors write complete; start external sensors read.
     fn ext_sensors_write_tc_isr(cx: ext_sensors_write_tc_isr::Context) {
@@ -1879,8 +1879,8 @@ mod app {
         });
     }
 
-    // #[task(binds = DMA2_STR4,
-    #[task(binds = DMA2_CH4,
+    #[task(binds = DMA2_STR4,
+    // #[task(binds = DMA2_CH4,
     shared = [i2c1, ext_sensor_active], priority = 2)]
     /// Ext sensors write complete; start read of the next sensor in sequence.
     fn ext_sensors_read_tc_isr(cx: ext_sensors_read_tc_isr::Context) {

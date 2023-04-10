@@ -55,18 +55,20 @@
 //!
 //! CRC passes.
 
-use super::dshot::{self, calc_crc, DSHOT_SPEED, REC_BUF_LEN, TIM_CLK};
-
 use num_traits::float::FloatCore; // round
 
-use crate::flight_ctrls::motor_servo::RpmReadings;
+use crate::{
+    dshot::{self, calc_crc, REC_BUF_LEN},
+    flight_ctrls::motor_servo::RpmReadings,
+    setup::{TIM_CLK_SPEED, DSHOT_SPEED},
+};
 
 use defmt::println;
 
 // Number of counter ticks per bit.
 // The differences tend to come out a bit lower, b ut this is the number I've calced.
 // This corresponds to a period of 5/4 * the DSHOT freq, per its spec.
-const BIT_LEN: u16 = (TIM_CLK / (5 * DSHOT_SPEED / 4) - 1) as u16;
+const BIT_LEN: u16 = (TIM_CLK_SPEED / (5 * DSHOT_SPEED / 4) - 1) as u16;
 
 const GCR_LEN: usize = 20;
 

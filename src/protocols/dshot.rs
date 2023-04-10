@@ -24,7 +24,7 @@ use stm32_hal2::{
     timer::{CountDir, OutputCompare, Polarity},
 };
 
-use crate::setup::{self, MotorTimer};
+use crate::setup::{self, MotorTimer, DSHOT_SPEED, TIM_CLK_SPEED};
 
 // todo: Bidirectional: Set timers to active low, set GPIO idle to high, and perhaps set down counting
 // todo if required. Then figure out input capture, and fix in HAL.
@@ -57,31 +57,7 @@ static mut ESC_TELEM: bool = false;
 // The number of motors here affects our payload interleave logic, and DMA burst length written.
 const NUM_MOTORS: usize = 4;
 
-// Update frequency: 600kHz
-// 170Mhz tim clock on G4.
-// 240Mhz tim clock on H743
-// 260Mhz tim clock on H723 @ 520Mhz. 275Mhz @ 550Mhz
-
-cfg_if! {
-    if #[cfg(feature = "h7")] {
-        // pub const TIM_CLK: u32 = 260_000_000; // Hz. H723 @ 550Mhz
-        // pub const TIM_CLK: u32 = 275_000_000; // Hz.  H723 @ 520Mhz
-        pub const TIM_CLK: u32 = 240_000_000; // Hz.  H743
-        pub const DSHOT_SPEED: u32 = 600_000; // Hz.
-        // todo: What should this be on H7?
-        pub const DSHOT_ARR_READ: u32 = 17_000; // 17k for DSHOT300
-
-    } else if #[cfg(feature = "g4")] {
-        pub const TIM_CLK: u32 = 170_000_000;
-        pub const DSHOT_SPEED: u32 = 300_000; // Hz.
-        // todo: How should thsi be set up?
-        // todo: Uhoh - getting a weird stagger past 14.5k or so where starts jittering
-        // todo between increase and decrease?
-        pub const DSHOT_ARR_READ: u32 = 17_000; // 17k for DSHOT300
-    }
-}
-
-pub const ARR_DSHOT: u32 = TIM_CLK / DSHOT_SPEED - 1;
+pub const ARR_DSHOT: u32 = TIM_CLK_SPEED / DSHOT_SPEED - 1;
 // Duty cycle values (to be written to CCMRx), based on our ARR value. 0. = 0%. ARR = 100%.
 const DUTY_HIGH: u32 = ARR_DSHOT * 3 / 4;
 const DUTY_LOW: u32 = ARR_DSHOT * 3 / 8;

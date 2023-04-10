@@ -42,18 +42,6 @@ cfg_if! {
     }
 }
 
-cfg_if! {
-    if #[cfg(feature = "h7")] {
-        // todo: USB2 on H743; USB1 on H723.
-        // use stm32_hal2::usb_otg::Usb1BusType as UsbBusType;
-        use stm32_hal2::usb_otg::Usb2BusType as UsbBusType;
-        // type ADC = pac::ADC1;
-    } else {
-        use stm32_hal2::usb::UsbBusType;
-        // type ADC = pac::ADC2;
-    }
-}
-
 use usbd_serial::SerialPort;
 
 use crate::protocols::crsf::LinkStats;
@@ -380,7 +368,7 @@ struct PreflightData {}
 
 /// Handle incoming data from the PC
 pub fn handle_rx(
-    usb_serial: &mut SerialPort<'static, UsbBusType>,
+    usb_serial: &mut SerialPort<'static, setup::UsbBusType>,
     rx_buf: &[u8],
     attitude: Quaternion,
     attitude_commanded: &AttitudeCommanded,
@@ -643,7 +631,7 @@ pub fn handle_rx(
 fn send_payload<const N: usize>(
     msg_type: MsgType,
     payload: &[u8],
-    usb_serial: &mut SerialPort<'static, UsbBusType>,
+    usb_serial: &mut SerialPort<'static, setup::UsbBusType>,
 ) {
     // N is the packet size.
     let payload_size = msg_type.payload_size();

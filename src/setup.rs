@@ -10,7 +10,7 @@ use cfg_if::cfg_if;
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
-    can::Can,
+    can::{self, Can},
     clocks::Clocks,
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
@@ -99,15 +99,49 @@ pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
 pub const GNSS_TX_CH: DmaChannel = DmaChannel::C6;
 pub const GNSS_RX_CH: DmaChannel = DmaChannel::C7;
 
+// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, and is incremented
+// automatically when we set burst len = 4 in the DMA write and read.
+// Calculate by taking the Adddress Offset for the associated CCR channel in the
+// RM register table, and dividing by 4.
+// todo: Is this valid for H7 as well?
+pub const DSHOT_BASE_DIR_OFFSET: u8 = 0x34 / 4;
+
+// Update frequency: 600kHz
+// 170Mhz tim clock on G4.
+// 240Mhz tim clock on H743
+// 260Mhz tim clock on H723 @ 520Mhz. 275Mhz @ 550Mhz
+
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        // pub const TIM_CLK: u32 = 260_000_000; // Hz. H723 @ 550Mhz
+        // pub const TIM_CLK: u32 = 275_000_000; // Hz.  H723 @ 520Mhz
+        pub const TIM_CLK_SPEED: u32 = 240_000_000; // Hz.  H743
+        pub const DSHOT_SPEED: u32 = 600_000; // Hz.
+        // todo: What should this be on H7?
+        pub const DSHOT_ARR_READ: u32 = 17_000; // 17k for DSHOT300
+
+    } else if #[cfg(feature = "g4")] {
+        pub const TIM_CLK_SPEED: u32 = 170_000_000;
+        pub const DSHOT_SPEED: u32 = 300_000; // Hz.
+        // todo: How should thsi be set up?
+        // todo: Uhoh - getting a weird stagger past 14.5k or so where starts jittering
+        // todo between increase and decrease?
+        pub const DSHOT_ARR_READ: u32 = 17_000; // 17k for DSHOT300
+    }
+}
+
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        // todo: USB2 on H743; USB1 on H723.
+        // use stm32_hal2::usb_otg::Usb1BusType as UsbBusType;
+        pub use stm32_hal2::usb_otg::Usb2BusType as UsbBusType;
+    } else {
+        pub use stm32_hal2::usb::UsbBusType;
+    }
+}
+
 // Code shortener to isolate typestate syntax.
 pub type Can_ = FdCan<Can, NormalOperationMode>;
-
-/// Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, and is incremented
-/// automatically when we set burst len = 4 in the DMA write and read.
-/// Calculate by taking the Adddress Offset for the associated CCR channel in the
-/// RM register table, and dividing by 4.
-/// todo: Is this valid for H7 as well?
-pub const DSHOT_BASE_DIR_OFFSET: u8 = 0x34 / 4;
 
 // Define types for peripheral buses here; call these types from driver modules.
 pub type MotorTimer = Timer<pac::TIM3>;
@@ -157,7 +191,7 @@ pub fn init_sensors(
     params: &mut Params,
     base_pt: &mut Location,
     spi1: &mut Spi<SPI1>,
-    spi_flash: &mut flash_spi::SpiFlashType,
+    spi_flash: &mut SpiFlash,
     i2c1: &mut I2c<I2C1>,
     i2c2: &mut I2c<I2C2>,
     cs_imu: &mut Pin,

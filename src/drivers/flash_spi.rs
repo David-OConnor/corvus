@@ -3,10 +3,7 @@
 
 use stm32_hal2::{gpio::Pin, pac, spi};
 
-#[cfg(feature = "h7")]
-pub type SpiFlashType = stm32_hal2::qspi::Qspi;
-#[cfg(feature = "g4")]
-pub type SpiFlashType = crate::drivers::spi2_kludge::Spi2<pac::SPI2>;
+use crate::setup::SpiFlash;
 
 #[derive(Clone, Copy)]
 pub enum FlashSpiError {
@@ -29,7 +26,7 @@ pub enum Reg {
 }
 
 /// Initialize the flash peripheral, and verify it's returning the correct device id and metadata.
-pub fn setup(spi: &mut SpiFlashType, cs: &mut Pin) -> Result<(), FlashSpiError> {
+pub fn setup(spi: &mut SpiFlash, cs: &mut Pin) -> Result<(), FlashSpiError> {
     let mut buf = [Reg::Jedec as u8, 0, 0, 0];
     cs.set_low();
 

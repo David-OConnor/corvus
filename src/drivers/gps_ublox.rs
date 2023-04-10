@@ -16,6 +16,8 @@ use crate::{
     util,
 };
 
+use defmt::println;
+
 // UBX messages always start with these 2 preamble characters.
 const PREAMBLE_1: u8 = 0xb5;
 const PREAMBLE_2: u8 = 0x62;
@@ -421,10 +423,7 @@ impl<'a> Message<'a> {
     }
 }
 
-fn _setup_cfg_payload(payload: &mut [u8], item_id: u16, group_id: u8, storage_size: u8) {
-    let key_id =
-        (item_id & 0xfff) as u32 | (group_id as u32) << 16 | ((storage_size & 0b111) as u32) << 28;
-}
+fn _setup_cfg_payload(payload: &mut [u8]) {}
 
 /// Configure the UART interrupts, and GNSS configuration settings.
 /// Configure the Char match and idle interrupts, which will allow the initial UART ISR to run
@@ -459,14 +458,18 @@ pub fn setup(uart: &mut UartGnss) -> Result<(), GnssError> {
     // concatenating keys (U4 values) and values (variable type) without any padding. This format is used
     // in the UBX-CFG-VALSET and UBX-CFG-VALGET messages."
 
-    const PAYLOAD_LEN_CFG: u16 = 12; // todo: Adjust this based on which settings you configure.
-
+    const PAYLOAD_LEN_CFG: u16 = 14; // todo: Adjust this based on which settings you configure.
     let mut cfg_payload = [0; PAYLOAD_LEN_CFG as usize];
-    cfg_payload[0..4].clone_from_slice(&key_id_baud.to_le_bytes());
-    cfg_payload[4..8].clone_from_slice(&val_baud.to_le_bytes());
 
-    cfg_payload[8..12].clone_from_slice(&key_id_pvt_rate.to_le_bytes());
-    cfg_payload[12] = val_pvt_rate;
+    // setup_cfg_payload(&mut cfg_payload, );
+
+    // Bytes 0 and 1 are CFG metadata, prior to the key and value pairs. We currently leave this
+    // at default. (ie, write to the RAM layer.)
+    cfg_payload[2..6].clone_from_slice(&key_id_baud.to_le_bytes());
+    cfg_payload[6..10].clone_from_slice(&val_baud.to_le_bytes());
+
+    cfg_payload[10..14].clone_from_slice(&key_id_pvt_rate.to_le_bytes());
+    cfg_payload[14] = val_pvt_rate;
 
     let cfg_msg = Message {
         class_id: MsgClassId::CfgValSet,
@@ -478,6 +481,7 @@ pub fn setup(uart: &mut UartGnss) -> Result<(), GnssError> {
 
     let mut cfg_write_buf = [0; CFG_BUF_SIZE];
     cfg_msg.to_buf(&mut cfg_write_buf);
+    println!("CFG WRITE BUF: {:x}", cfg_write_buf);
 
     uart.write(&cfg_write_buf);
 
@@ -488,13 +492,20 @@ pub fn setup(uart: &mut UartGnss) -> Result<(), GnssError> {
     // "Output upon processing of an input message. A UBX-ACK-ACK is sent as soon as possible but at
     // least within one second."
     uart.read(&mut read_buf);
+    // return Ok(()); // todo temp
 
-    let msg = Message::from_buf(&read_buf)?;
+    println!("Read buf: {:x}", read_buf);
 
-    let (cfg_class, cfg_id) = MsgClassId::CfgValSet.to_vals();
+    let response = Message::from_buf(&read_buf)?;
 
-    if msg.class_id != MsgClassId::AckAck || msg.payload[0] != cfg_class || msg.payload[1] != cfg_id
+    // The Payload of an `ack` or `nack` is the class and ID of the send message.
+    let (cfg_class, cfg_id) = cfg_msg.class_id.to_vals();
+
+    if response.class_id != MsgClassId::AckAck
+        || response.payload[0] != cfg_class
+        || response.payload[1] != cfg_id
     {
+        println!("Nack");
         return Err(GnssError::NoAck);
     }
 
