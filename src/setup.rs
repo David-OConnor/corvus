@@ -162,13 +162,13 @@ cfg_if! {
     } else {
         // todo: USART2 is not working for some reason, at least for CRSF.
         // todo: Do more testing.
-        // type UartCrsfRegs = pac::USART2;
-        type UartCrsfRegs = pac::USART3;
+        type UartCrsfRegs = pac::USART2;
+        // type UartCrsfRegs = pac::USART3;
         type UartOsdRegs = pac::UART4;
         pub type SpiPacFlash = pac::SPI2;
         pub type SpiFlash = Spi2<SpiPacFlash>;
-        pub type UartCrsf = Usart<pac::USART3>;
-        // pub type UartCrsf = Usart<pac::USART2>;
+        pub type UartCrsf = Usart<pac::USART2>;
+        // pub type UartCrsf = Usart<pac::USART3>;
         pub type UartOsd = Usart4<pac::UART4>;
     }
 }
@@ -369,7 +369,6 @@ pub fn setup_pins() {
     miso1.output_speed(spi_gpiospeed);
     mosi1.output_speed(spi_gpiospeed);
 
-    // SPI2 for the LoRa chip on G4; OctoSPI1 (in Quad mode) on H7.
     cfg_if! {
         if #[cfg(feature = "h7")] {
             let _batt_v_adc = Pin::new(Port::A, 4, PinMode::Analog); // ADC12, channel 18
@@ -402,12 +401,21 @@ pub fn setup_pins() {
             let mut uart_crsf_rx = Pin::new(Port::B, 3, PinMode::Alt(11));
         } else {
             // We use UART 2 for ELRS on G4.
-            // let _uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
-            // let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
+            let mut uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
+            let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
+
+
+             // todo: Set high by default for some reason; maybe due to its use as a debug pin.
+            let _pa15 = Pin::new(Port::A, 15, PinMode::Output);
+            uart_crsf_tx.output_speed(OutputSpeed::Low);
+
+            // todo: TS
+            // let pwr = unsafe { &(*pac::PWR::ptr()) };
+            // pwr.cr3.modify(|_, w| w.ucpd1_dbdis().set_bit());
 
             // Usart 3 TS
-            let _uart_crsf_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
-            let mut uart_crsf_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
+            // let _uart_crsf_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
+            // let mut uart_crsf_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
         }
     }
 
@@ -415,6 +423,7 @@ pub fn setup_pins() {
     // some conditions, like when touching the (even outside) of the wires if an Rx
     // module isn't connected.
     uart_crsf_rx.pull(Pull::Up);
+    // uart_crsf_rx.pull(Pull::Floating); // todo: TS
 
     let _uart_osd_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
     let mut uart_osd_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
@@ -494,8 +503,8 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
             let crsf_dma_ip = DmaInput::Uart7Rx;
             let osd_dma_ip = DmaInput::Usart2Tx;
         } else {
-            let crsf_dma_ip = DmaInput::Usart3Rx;
-            // let crsf_dma_ip = DmaInput::Usart2Rx;
+            let crsf_dma_ip = DmaInput::Usart2Rx;
+            // let crsf_dma_ip = DmaInput::Usart3Rx;
             let adc_dma_ip = DmaInput::Adc2;
             let osd_dma_ip = DmaInput::Uart4Tx;
         }
@@ -567,7 +576,7 @@ pub fn setup_busses(
             // For H723, using PLLQ1 with PLLQ = DIV8: (And DIVN = 260; we lower DIVP in this case)
             // 68.75Mhz at 550Mhz, and 65Mhz SPI at 520Mhz core. /16 = 17Mhz and 16Mhz respectively.
             // If H723 @ 400Mhz, use same settings as H743.
-            // 100Mhz / 8 = 12.5Mhz. 120Mhz/8 = 15Mhz. 65Mhz/4 = 16.25Mhz. 68.75/4 = 17.2Mhz.
+            // 120Mhz/8 = 15Mhz. 65Mhz/4 = 16.25Mhz. 68.75/4 = 17.2Mhz.
             let imu_baud_div = BaudRate::Div8; // H743
             // let imu_baud_div = BaudRate::Div4;  // H723 (Assuming not @ 400Mhz; if that, use Div8)
         } else {
@@ -678,8 +687,8 @@ pub fn setup_busses(
         uart_crsf_pac,
         crsf::BAUD,
         UsartConfig {
-            // todo: We're having a struggle with overruns.
-            // overrun_disabled: true,
+            // todo: We're having a struggle with overruns. Must leave disabled.
+            overrun_disabled: true,
             ..Default::default()
         },
         clock_cfg,
@@ -749,14 +758,12 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
 
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            // 120Mhz
-            // todo: Currently set for 50Mhz while troublehsooting clock issues on h7.
+            // 120Mhz CAN clock
             let nominal_bit_timing = can_config::NominalBitTiming {
-                // prescaler: NonZeroU16::new(10).unwrap(),
-                prescaler: NonZeroU16::new(5).unwrap(),
+                prescaler: NonZeroU16::new(8).unwrap(),
                 // number of time quanta: 10 (50Mhz
-                seg1: NonZeroU8::new(8).unwrap(),
-                seg2: NonZeroU8::new(1).unwrap(),
+                seg1: NonZeroU8::new(12).unwrap(),
+                seg2: NonZeroU8::new(2).unwrap(),
                 sync_jump_width: NonZeroU8::new(1).unwrap(),
             };
 
@@ -764,10 +771,9 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
             // Value was calculated with http://www.bittiming.can-wiki.info/
             // TODO: use the can_bit_timings crate
             let data_bit_timing = can_config::DataBitTiming {
-                // prescaler: NonZeroU8::new(10).unwrap(),
-                prescaler: NonZeroU8::new(5).unwrap(),
-                seg1: NonZeroU8::new(8).unwrap(),
-                seg2: NonZeroU8::new(1).unwrap(),
+                prescaler: NonZeroU8::new(8).unwrap(),
+                seg1: NonZeroU8::new(12).unwrap(),
+                seg2: NonZeroU8::new(2).unwrap(),
                 sync_jump_width: NonZeroU8::new(1).unwrap(),
                 transceiver_delay_compensation: true,
             };

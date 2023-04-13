@@ -280,15 +280,15 @@ impl AutopilotStatus {
                 throttle: Some(takeoff_speed(to_speed, MAX_VER_SPEED)),
             };
         } else if let Some(ldg_cfg) = &self.land {
-            if system_status.gps == SensorStatus::Pass {}
+            if system_status.gnss == SensorStatus::Pass {}
         } else if let Some(pt) = &self.direct_to_point {
-            if system_status.gps == SensorStatus::Pass {
+            if system_status.gnss == SensorStatus::Pass {
                 let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
 
                 autopilot_commands.yaw = Some(target_heading);
             }
         } else if let Some(pt) = &self.loiter {
-            if system_status.gps == SensorStatus::Pass {
+            if system_status.gnss == SensorStatus::Pass {
                 // todo
             }
         }
@@ -353,7 +353,7 @@ impl AutopilotStatus {
                 throttle: Some(1.0), // full thrust.
             };
         } else if let Some(ldg_cfg) = &self.land {
-            if system_status.gps == SensorStatus::Pass {
+            if system_status.gnss == SensorStatus::Pass {
                 let dist_to_touchdown = find_distance(
                     (ldg_cfg.touchdown_point.lat, ldg_cfg.touchdown_point.lon),
                     (params.lat, params.lon),
@@ -366,7 +366,7 @@ impl AutopilotStatus {
             }
             // todo: DRY between quad and FC here, although the diff is power vs pitch.
         } else if let Some(orbit) = &self.orbit {
-            if system_status.gps == SensorStatus::Pass {
+            if system_status.gnss == SensorStatus::Pass {
                 // todo: You'll get a smoother entry if you initially calculate, and fly to a point on the radius
                 // todo on a heading similar to your own angle to it. For now, fly directly to the point for
                 // todo simpler logic and good-enough.
@@ -403,7 +403,7 @@ impl AutopilotStatus {
                 };
             }
         } else if let Some(pt) = &self.direct_to_point {
-            if system_status.gps == SensorStatus::Pass {
+            if system_status.gnss == SensorStatus::Pass {
                 let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
 
                 let target_pitch = ((pt.alt_msl - params.baro_alt_msl)

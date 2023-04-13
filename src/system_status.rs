@@ -15,7 +15,7 @@ pub struct SystemStatus {
     pub imu: SensorStatus,
     pub baro: SensorStatus,
     /// The GPS module is connected. Detected on init.
-    pub gps: SensorStatus,
+    pub gnss: SensorStatus,
     /// The time-of-flight sensor module is connected. Detected on init.
     pub tof: SensorStatus,
     ///  magnetometer is connected. Likely on the same module as GPS. Detected on init.
@@ -29,6 +29,9 @@ pub struct SystemStatus {
     // pub esc_rpm_fault: bool,
     /// SPI flash, which we may use in the future for data logging.
     pub flash_spi: SensorStatus,
+    pub rf_control_link_can: SensorStatus,
+    pub gnss_can: SensorStatus,
+    pub esc_can: SensorStatus,
 }
 
 #[derive(Clone, Copy, PartialEq)]

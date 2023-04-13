@@ -288,7 +288,7 @@ impl From<&SystemStatus> for [u8; SYS_STATUS_SIZE] {
         [
             p.imu as u8,
             p.baro as u8,
-            p.gps as u8,
+            p.gnss as u8,
             p.tof as u8,
             p.magnetometer as u8,
             p.esc_telemetry as u8,

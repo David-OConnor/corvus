@@ -307,6 +307,7 @@ mod app {
         // #[cfg(feature = "h7")]
         // cp.SCB.enable_dcache(&mut cp.CPUID);
 
+        let pll_src = PllSrc::Hse(16_000_000);
         cfg_if! {
             if #[cfg(feature = "h7")] {
                 let clock_cfg = Clocks {
@@ -314,30 +315,30 @@ mod app {
                     // Note: to get H723 working at 550Mhz. You'll need to increase divn to 275,
                     // and set CPU_FREQ_BOOST: "The CPU frequency boost can be enabled through the
                     // CPUFREQ_BOOST option byte in the FLASH_OPTSR2_PRG register."
-
-                    pll_src: PllSrc::Hse(16_000_000),
+                    pll_src,
                     pll1: PllCfg {
-                        divn: 200, // todo t. What's up with the crashes? 380 is ok. 400 crashes
                         divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
                         pllq_en: true, // PLLQ for Spi1 and CAN clocks. Its default div of 8 is fine.
                         ..Default::default()
                     },
                     hsi48_on: true,
-                    // todo: Trouble with full speed on H743
+                    // todo: Why is full speed not always working?
                     // ..Clocks::full_speed()
                     ..Default::default()
                 };
             } else {
                 let clock_cfg = Clocks {
-                    input_src: InputSrc::Pll(PllSrc::Hse(16_000_000)),
+                    input_src: InputSrc::Pll(pll_src),
                     hsi48_on: true,
-                    clk48_src: clocks::Clk48Src::Hsi48, // todo: Should be in be default
                     ..Default::default()
                 };
             }
         }
 
+        println!("Pre clock setup");
         clock_cfg.setup().unwrap();
+
+        println!("Clock config success");
 
         // Enable the Clock Recovery System, which improves HSI48 accuracy.
 
@@ -348,6 +349,8 @@ mod app {
         clocks::enable_crs(CrsSyncSrc::Usb);
 
         let flash = unsafe { &(*pac::FLASH::ptr()) };
+
+        let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
 
         // Set up pins with appropriate modes.
         setup::setup_pins();
@@ -368,12 +371,11 @@ mod app {
                 let uart_crsf_pac = dp.UART7;
                 let uart_osd_pac = dp.USART2;
             } else {
-                let uart_crsf_pac = dp.USART3;
-                // let uart_crsf_pac = dp.USART2;
+                let uart_crsf_pac = dp.USART2;
+                // let uart_crsf_pac = dp.USART3;
                 let uart_osd_pac = dp.UART4;
             }
         }
-        let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
 
         // loop {
         //     println!("test");
@@ -389,25 +391,25 @@ mod app {
         let spi_flash_pac = dp.SPI2;
 
         // todo: Start CAN test code
-        #[cfg(feature = "h7")]
-        {
-            let mut can = setup::setup_can(dp.FDCAN1);
-            let mut rx_buf: [u8; 24] = [0; 24];
-
-            loop {
-                let rx_result = can.receive0(&mut rx_buf);
-
-                match rx_result {
-                    Ok(r) => {
-                        println!("Ok");
-                        println!("Rx buf: {:?}", rx_buf);
-                    }
-                    Err(e) => {
-                        // println!("error");
-                    }
-                }
-            }
-        }
+        // #[cfg(feature = "h7")]
+        // {
+        //     let mut can = setup::setup_can(dp.FDCAN1);
+        //     let mut rx_buf: [u8; 24] = [0; 24];
+        //
+        //     loop {
+        //         let rx_result = can.receive0(&mut rx_buf);
+        //
+        //         match rx_result {
+        //             Ok(r) => {
+        //                 println!("Ok");
+        //                 println!("Rx buf: {:?}", rx_buf);
+        //             }
+        //             Err(e) => {
+        //                 // println!("error");
+        //             }
+        //         }
+        //     }
+        // }
         // todo: End CAN test code
 
         let (
@@ -659,7 +661,7 @@ mod app {
             system_status.imu == SensorStatus::Pass,
             system_status.baro == SensorStatus::Pass,
             system_status.magnetometer == SensorStatus::Pass,
-            system_status.gps == SensorStatus::Pass,
+            system_status.gnss == SensorStatus::Pass,
             system_status.tof == SensorStatus::Pass,
         );
 
@@ -822,8 +824,8 @@ mod app {
     /// Certain tasks, like reading IMU measurements and filtering are run each time this function runs.
     /// Flight control logic is run once every several runs. Other tasks are run even less,
     /// sequenced among each other.
-    #[task(binds = DMA1_STR2,
-    // #[task(binds = DMA1_CH2,
+    // #[task(binds = DMA1_STR2,
+    #[task(binds = DMA1_CH2,
     shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status, tick_timer],
@@ -1310,8 +1312,8 @@ mod app {
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     // #[task(binds = OTG_HS,
-    #[task(binds = OTG_FS,
-    // #[task(binds = USB_LP,
+    // #[task(binds = OTG_FS,
+    #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, current_params, control_channel_data,
     link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer],
     local = [], priority = 2)]
@@ -1385,8 +1387,8 @@ mod app {
             )
     }
 
-    #[task(binds = DMA1_STR3,
-    // #[task(binds = DMA1_CH3,
+    // #[task(binds = DMA1_STR3,
+    #[task(binds = DMA1_CH3,
     shared = [motor_timer], priority = 6)]
     /// We use this ISR to initialize the RPM reception procedures upon completion of the dshot
     /// power setting transmission to the ESC.
@@ -1553,8 +1555,8 @@ mod app {
 
     // todo: Evaluate priority.
     // #[task(binds = UART7,
-    #[task(binds = USART3,
-    // #[task(binds = USART2,
+    // #[task(binds = USART3,
+    #[task(binds = USART2,
     shared = [control_channel_data, link_stats, rf_limiter_timer, system_status,
     lost_link_timer], local = [uart_crsf], priority = 8)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
@@ -1574,6 +1576,9 @@ mod app {
 
         uart.clear_interrupt(UsartInterrupt::CharDetect(None));
         uart.clear_interrupt(UsartInterrupt::Idle);
+
+        println!("\n\nCRSF ISR\n\n");
+        return;
 
         // todo: Store link stats and control channel data in an intermediate variable.
         // todo: Don't lock it. At least, you don't want any delay when starting the read,
@@ -1616,6 +1621,13 @@ mod app {
                 );
             }
         } else {
+
+            // todo: These lines todo temp
+            let mut buf = [0; 5];
+            uart.read(&mut buf);
+            println!("\n\n\nRead Buf CRSF: {:x}\n\n\n\n", buf);
+            return
+
             crsf::TRANSFER_IN_PROG.store(false, Ordering::Relaxed);
             // Line is idle.
 
@@ -1709,8 +1721,8 @@ mod app {
     /// If this triggers, it means we've received no radio control signals for a significant
     ///period of time; we treat this as a lost-link situation.
     /// (Note that this is for TIM17 on both variants)
-    #[task(binds = TIM17,
-    // #[task(binds = TIM1_TRG_COM,
+    // #[task(binds = TIM17,
+    #[task(binds = TIM1_TRG_COM,
     shared = [lost_link_timer, state_volatile, autopilot_status,
     current_params, system_status, control_channel_data], priority = 2)]
     fn lost_link_isr(mut cx: lost_link_isr::Context) {
@@ -1758,8 +1770,8 @@ mod app {
         TICK_OVERFLOW_COUNT.fetch_add(1, Ordering::Relaxed);
     }
 
-    #[task(binds = TIM16,
-    // #[task(binds = TIM1_UP_TIM16,
+    // #[task(binds = TIM16,
+    #[task(binds = TIM1_UP_TIM16,
     shared = [rf_limiter_timer], priority = 2)]
     fn rf_limiter_isr(mut cx: rf_limiter_isr::Context) {
         // println!("RF limiter ISR");
@@ -1770,8 +1782,8 @@ mod app {
         });
     }
 
-    #[task(binds = DMA2_STR1,
-    // #[task(binds = DMA2_CH1,
+    // #[task(binds = DMA2_STR1,
+    #[task(binds = DMA2_CH1,
     shared = [i2c2], priority = 2)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
@@ -1796,8 +1808,8 @@ mod app {
 
     // todo: For now, we start new transfers in the main loop.
 
-    #[task(binds = DMA2_STR2,
-    // #[task(binds = DMA2_CH2,
+    // #[task(binds = DMA2_STR2,
+    #[task(binds = DMA2_CH2,
     shared = [altimeter, current_params, state_volatile], priority = 3)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(cx: baro_read_tc_isr::Context) {
@@ -1828,8 +1840,8 @@ mod app {
             });
     }
 
-    #[task(binds = DMA2_STR3,
-    // #[task(binds = DMA2_CH3,
+    // #[task(binds = DMA2_STR3,
+    #[task(binds = DMA2_CH3,
     shared = [i2c1, ext_sensor_active], priority = 2)]
     /// External sensors write complete; start external sensors read.
     fn ext_sensors_write_tc_isr(cx: ext_sensors_write_tc_isr::Context) {
@@ -1879,8 +1891,8 @@ mod app {
         });
     }
 
-    #[task(binds = DMA2_STR4,
-    // #[task(binds = DMA2_CH4,
+    // #[task(binds = DMA2_STR4,
+    #[task(binds = DMA2_CH4,
     shared = [i2c1, ext_sensor_active], priority = 2)]
     /// Ext sensors write complete; start read of the next sensor in sequence.
     fn ext_sensors_read_tc_isr(cx: ext_sensors_read_tc_isr::Context) {

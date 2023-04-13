@@ -140,27 +140,6 @@ fn read_one(reg: Reg, spi: &mut SpiImu, cs: &mut Pin) -> Result<u8, ImuError> {
 
     cs.set_low();
     spi.transfer(&mut buf)?;
-
-    // match spi.transfer(&mut buf) {
-    //     Ok(_) => {
-    //         println!("OK");
-    //     }
-    //     Err(e) => match e {
-    //         spi::SpiError::Crc => {
-    //             println!("CRC ERROR");
-    //         }
-    //         spi::SpiError::Overrun => {
-    //             println!("Overrun");
-    //         }
-    //         spi::SpiError::ModeFault => {
-    //             println!("Mod efault");
-    //         }
-    //         _ => {
-    //             println!("WTF");
-    //         }
-    //     },
-    // }
-
     cs.set_high();
 
     Ok(buf[1])
@@ -250,21 +229,33 @@ fn setup_aa_filters(spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
 pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), ImuError> {
     // Leave default of SPI mode 0 and 3.
 
+    println!("IMU A");
     // todo: Without self-test, we'll use a WHOAMI read to verify if the IMU is connected. Note that
     // todo the SPI bus will still not fail if the IMU isn't present. HAL error?
     // todo: Better sanity check than WHOAMI.
 
+    // loop {
+    //     write_one(Reg::Bank0(RegBank0::PwrMgmt0), 0b0111_0101, spi, cs).ok();
+    //     delay.delay_ms(10);
+    // }
+
     let device_id = read_one(Reg::Bank0(RegBank0::WhoAmI), spi, cs)?;
+
+    println!("IMU device Id: {}", device_id);
 
     if device_id != DEVICE_ID {
         return Err(ImuError::NotConnected);
     }
+
+    println!("IMU B");
 
     // An external cyrstal is connected on othe H7 FC, but not the G4.
     set_bank(Reg::Bank1(RegBank1::GyroConfigStatic3), spi, cs)?; // todo dummy val
     #[cfg(feature = "h7")]
     write_one(Reg::Bank1(RegBank1::IntfConfig5), 0b0000_0100, spi, cs)?;
     // (Bank 0 set by AA filter setup fn);
+
+    println!("IMU C");
 
     setup_aa_filters(spi, cs)?;
 
@@ -317,8 +308,6 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
 
     Ok(())
 }
-
-// todo: Low power fn
 
 /// Read temperature.
 pub fn _read_temp(spi: &mut SpiImu, cs: &mut Pin) -> Result<f32, ImuError> {
