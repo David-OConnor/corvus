@@ -3,6 +3,7 @@
 pub mod baro_dps310;
 // pub mod camera_gimbal;
 pub mod gps_ublox;
+pub mod gnss_can;
 pub mod imu_icm426xx;
 // pub mod imu_ism330dhcx;
 pub mod mag_lis3mdl;

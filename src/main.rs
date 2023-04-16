@@ -219,6 +219,7 @@ use fdcan::{
     id::{ExtendedId, Id, StandardId},
     FdCan,
     interrupt::Interrupt,
+    ReceiveOverrun,
 };
 
 #[rtic::app(device = pac, peripherals = false)]
@@ -1929,7 +1930,7 @@ mod app {
     fn can_isr(mut cx: can_isr::Context) {
         println!("CAN ISR");
 
-        let mut rx_buf: [u8; 24] = [0; 24];
+        let mut rx_buf: [u8; 48] = [0; 48];
 
         cx.shared.can.lock(|can| {
             can.clear_interrupt(Interrupt::RxFifo0NewMsg);
@@ -1938,6 +1939,21 @@ mod app {
 
             match rx_result {
                 Ok(r) => {
+                    match r {
+                        ReceiveOverrun::NoOverrun(frame_info) => {
+                            let id = match frame_info.id {
+                                Id::Standard(id) => id.as_raw() as u32,
+                                Id::Extended(id) => id.as_raw(),
+                            };
+                            println!("Frame info. Len: {}, id: {}, ts: {}",
+                                     frame_info.len, id, frame_info.time_stamp)
+                        }
+                        ReceiveOverrun::Overrun(frame_info) => {
+                            println!("CAN overrun!");
+                            println!("Frame info. Len: {}, id: {}, ts: {}",
+                                     frame_info.len, 0, frame_info.time_stamp)
+                        }
+                    }
                     println!("Rx buf: {:?}", rx_buf);
                 }
                 Err(e) => {

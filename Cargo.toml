@@ -37,6 +37,8 @@ usbd-serial = "^0.1.1"
 #fdcan = { version = "0.1.2", optional = true }
 fdcan = { version = "^0.1.2" }
 
+packed_struct = {version = "^0.10.1", default_features = false }
+
 # To parse enums from their integer repr
 num_enum = { version = "^0.6.0", default_features = false }
 
