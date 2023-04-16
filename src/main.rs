@@ -210,10 +210,6 @@ pub static TICK_OVERFLOW_COUNT: AtomicU32 = AtomicU32::new(0);
 
 // todo: Bit flags that display as diff colored LEDs, and OSD items
 
-// todo T
-use stm32_hal2::gpio::{PinMode, Port};
-
-// todo t:
 use fdcan::{
     frame::{FrameFormat, TxFrameHeader},
     id::{ExtendedId, Id, StandardId},
@@ -221,6 +217,8 @@ use fdcan::{
     interrupt::Interrupt,
     ReceiveOverrun,
 };
+
+use dronecan;
 
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
@@ -1928,7 +1926,7 @@ mod app {
     #[task(binds = FDCAN1_IT0, shared = [can], priority = 4)] // todo: Temp high prio
     /// Ext sensors write complete; start read of the next sensor in sequence.
     fn can_isr(mut cx: can_isr::Context) {
-        println!("CAN ISR");
+        // todo: Use CAN hardware filters.
 
         let mut rx_buf: [u8; 48] = [0; 48];
 
@@ -1937,29 +1935,29 @@ mod app {
 
             let rx_result = can.receive0(&mut rx_buf);
 
-            match rx_result {
-                Ok(r) => {
-                    match r {
-                        ReceiveOverrun::NoOverrun(frame_info) => {
-                            let id = match frame_info.id {
-                                Id::Standard(id) => id.as_raw() as u32,
-                                Id::Extended(id) => id.as_raw(),
-                            };
-                            println!("Frame info. Len: {}, id: {}, ts: {}",
-                                     frame_info.len, id, frame_info.time_stamp)
-                        }
-                        ReceiveOverrun::Overrun(frame_info) => {
-                            println!("CAN overrun!");
-                            println!("Frame info. Len: {}, id: {}, ts: {}",
-                                     frame_info.len, 0, frame_info.time_stamp)
-                        }
-                    }
-                    println!("Rx buf: {:?}", rx_buf);
+            match dronecan::get_frame_info(rx_result) {
+                Ok(frame_info) => {
+                    let id = match frame_info.id {
+                        Id::Standard(id) => id.as_raw() as u32,
+                        Id::Extended(id) => id.as_raw(),
+                    };
+
+                    println!("Can id: {}", id);
+
+                    let (priority, type_id, source_node_id) = dronecan::parse_can_id(id);
+                    println!("Frame info. Len: {}, ts: {}, pri: {}, type_id: {}, source id: {}",
+                             frame_info.len, frame_info.time_stamp, priority as u8, type_id, source_node_id);
                 }
-                Err(e) => {
-                    println!("error on can Rx");
+                Err(_) => {
+                    println!("Error getting frame info")
                 }
             }
+
+            let tail_byte = rx_buf[7]; // todo: Fix this!
+            let (start, end, toggle, transfer_id) = dronecan::parse_tail_byte(tail_byte);
+            println!("Start of xfer: {}, end: {}, toggle: {}, transfer_id: {}",
+            start, end, toggle, transfer_id);
+
         });
 
     }

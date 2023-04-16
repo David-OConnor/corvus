@@ -23,7 +23,7 @@ use stm32_hal2::{
 
 use fdcan::{
     config as can_config,
-    filter::{ExtendedFilter, ExtendedFilterSlot},
+    filter::{ExtendedFilter, ExtendedFilterSlot, Filter, FilterId, FilterType, Action},
     frame::{FrameFormat, TxFrameHeader},
     id::{Id, StandardId},
     ExternalLoopbackMode, FdCan, NormalOperationMode,
@@ -816,10 +816,19 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
     can.set_nominal_bit_timing(nominal_bit_timing);
     can.set_data_bit_timing(data_bit_timing);
 
+    let filter_: FilterType<u16, i8> = FilterType::Range {from: 0, to: 10_000};
+
+    let filter = Filter {
+        filter: filter_,
+        action: Action::StoreInFifo0,
+    };
+
     can.set_extended_filter(
         ExtendedFilterSlot::_0,
         ExtendedFilter::accept_all_into_fifo0(),
+        // filter::accept_all_into_fifo0(),
     );
+
     let can_cfg = can
         .get_config()
         .set_frame_transmit(can_config::FrameTransmissionConfig::AllowFdCanAndBRS);

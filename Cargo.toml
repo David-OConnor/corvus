@@ -42,6 +42,8 @@ packed_struct = {version = "^0.10.1", default_features = false }
 # To parse enums from their integer repr
 num_enum = { version = "^0.6.0", default_features = false }
 
+dronecan = {path = "../dronecan" }
+
 # Use these features to specify GPIO mapping, and which peripherals to use.
 [features]
 g4 = ["stm32-hal2/g4rt", "stm32-hal2/g473", "stm32-hal2/usb", "stm32-hal2/can_fd_g", "stm32-usbd"]
