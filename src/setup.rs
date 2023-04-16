@@ -27,6 +27,7 @@ use fdcan::{
     frame::{FrameFormat, TxFrameHeader},
     id::{Id, StandardId},
     ExternalLoopbackMode, FdCan, NormalOperationMode,
+    interrupt::{InterruptLine, Interrupt},
 };
 
 use core::num::{NonZeroU16, NonZeroU8}; // for CAN
@@ -404,10 +405,10 @@ pub fn setup_pins() {
             let mut uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
             let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
 
-
-             // todo: Set high by default for some reason; maybe due to its use as a debug pin.
-            let _pa15 = Pin::new(Port::A, 15, PinMode::Output);
+            // Undo settings on PB3 and PB4 that are due to initial debug-pin config.
+            uart_crsf_tx.pull(Pull::Floating);
             uart_crsf_tx.output_speed(OutputSpeed::Low);
+            uart_crsf_rx.output_speed(OutputSpeed::Low);
 
             // todo: TS
             // let pwr = unsafe { &(*pac::PWR::ptr()) };
@@ -423,7 +424,6 @@ pub fn setup_pins() {
     // some conditions, like when touching the (even outside) of the wires if an Rx
     // module isn't connected.
     uart_crsf_rx.pull(Pull::Up);
-    // uart_crsf_rx.pull(Pull::Floating); // todo: TS
 
     let _uart_osd_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
     let mut uart_osd_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
@@ -489,6 +489,9 @@ pub fn setup_pins() {
 
 /// Assign DMA channels to peripherals.
 pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
+    #[cfg(feature = "g4")]
+    dma::enable_mux1();
+
     // IMU
     dma::mux(IMU_DMA_PERIPH, IMU_TX_CH, DmaInput::Spi1Tx);
     dma::mux(IMU_DMA_PERIPH, IMU_RX_CH, DmaInput::Spi1Rx);
@@ -760,10 +763,13 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
         if #[cfg(feature = "h7")] {
             // 120Mhz CAN clock
             let nominal_bit_timing = can_config::NominalBitTiming {
-                prescaler: NonZeroU16::new(8).unwrap(),
+                prescaler: NonZeroU16::new(10).unwrap(), // for 100Mhz
+                // prescaler: NonZeroU16::new(8).unwrap(), // for 120Mhz
                 // number of time quanta: 10 (50Mhz
-                seg1: NonZeroU8::new(12).unwrap(),
-                seg2: NonZeroU8::new(2).unwrap(),
+                seg1: NonZeroU8::new(8).unwrap(), // 100Mhz
+                // seg1: NonZeroU8::new(12).unwrap(),
+                seg2: NonZeroU8::new(1).unwrap(), // 100Mhz
+                // seg2: NonZeroU8::new(2).unwrap(),
                 sync_jump_width: NonZeroU8::new(1).unwrap(),
             };
 
@@ -771,9 +777,12 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
             // Value was calculated with http://www.bittiming.can-wiki.info/
             // TODO: use the can_bit_timings crate
             let data_bit_timing = can_config::DataBitTiming {
-                prescaler: NonZeroU8::new(8).unwrap(),
-                seg1: NonZeroU8::new(12).unwrap(),
-                seg2: NonZeroU8::new(2).unwrap(),
+                prescaler: NonZeroU8::new(10).unwrap(),  // 100Mhz
+                // prescaler: NonZeroU8::new(8).unwrap(),
+                seg1: NonZeroU8::new(8).unwrap(),  // 100Mhz
+                // seg1: NonZeroU8::new(12).unwrap(),
+                seg2: NonZeroU8::new(1).unwrap(),  // 100Mhz
+                // seg2: NonZeroU8::new(2).unwrap(),
                 sync_jump_width: NonZeroU8::new(1).unwrap(),
                 transceiver_delay_compensation: true,
             };
@@ -816,6 +825,9 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
         .set_frame_transmit(can_config::FrameTransmissionConfig::AllowFdCanAndBRS);
 
     can.apply_config(can_cfg);
+
+    can.enable_interrupt(Interrupt::RxFifo0NewMsg);
+    can.enable_interrupt_line(InterruptLine::_0, true);
 
     can.into_normal()
 }
