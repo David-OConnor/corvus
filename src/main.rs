@@ -349,8 +349,6 @@ mod app {
         #[cfg(feature = "g4")]
         clocks::enable_crs(CrsSyncSrc::Usb);
 
-        let flash = unsafe { &(*pac::FLASH::ptr()) };
-
         let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
 
         // Set up pins with appropriate modes.
@@ -1942,6 +1940,7 @@ mod app {
                         Id::Extended(id) => id.as_raw(),
                     };
 
+                    println!("Buf: {:?}", rx_buf);
                     println!("Can id: {}", id);
 
                     let (priority, type_id, source_node_id) = dronecan::parse_can_id(id);
