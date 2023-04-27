@@ -826,7 +826,6 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
     can.set_extended_filter(
         ExtendedFilterSlot::_0,
         ExtendedFilter::accept_all_into_fifo0(),
-        // filter::accept_all_into_fifo0(),
     );
 
     let can_cfg = can

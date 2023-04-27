@@ -16,7 +16,6 @@
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08oOLBVYYIwwN_nvuyUqEjrj
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pQBgjxYFXSsODEF3Jqmm-y
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pFBqgd_6Bi7msgkWFKL33b
-
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use ahrs_fusion::Ahrs;
@@ -607,15 +606,6 @@ mod app {
         flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
         #[cfg(feature = "g4")]
         flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
-
-        // println!(
-        //     "mem val: {}",
-        //     flash_onboard.read(FLASH_CFG_PAGE, 0)
-        // );
-
-        println!("Flash Buf ( should be 1, 2, 3, 0, 0): {:?}", flash_buf);
-        // flash_onboard.erase_write_page(Bank::B1, FLASH_CFG_PAGE, &[10, 11, 12, 13, 14, 15, 16, 17]).ok();
-        println!("Flash write complete");
 
         let mut params = Default::default();
 
@@ -1925,11 +1915,12 @@ mod app {
     /// Ext sensors write complete; start read of the next sensor in sequence.
     fn can_isr(mut cx: can_isr::Context) {
         // todo: Use CAN hardware filters.
-
-        let mut rx_buf: [u8; 48] = [0; 48];
+        println!("CAN ISR");
 
         cx.shared.can.lock(|can| {
             can.clear_interrupt(Interrupt::RxFifo0NewMsg);
+
+            let mut rx_buf: [u8; 64] = [0; 64];
 
             let rx_result = can.receive0(&mut rx_buf);
 
@@ -1943,20 +1934,22 @@ mod app {
                     println!("Buf: {:?}", rx_buf);
                     println!("Can id: {}", id);
 
-                    let (priority, type_id, source_node_id) = dronecan::parse_can_id(id);
+                    let can_id = dronecan::CanId::from_value(id);
                     println!("Frame info. Len: {}, ts: {}, pri: {}, type_id: {}, source id: {}",
-                             frame_info.len, frame_info.time_stamp, priority as u8, type_id, source_node_id);
+                             frame_info.len, frame_info.time_stamp, can_id.priority.val(), can_id.message_type_id, can_id.source_node_id);
+
+
+                    let tail_byte = dronecan::get_tail_byte( &rx_buf, frame_info.len).ok();
+
+                    if let Some(tail_byte) = tail_byte {
+                        println!("Start of xfer: {}, end: {}, toggle: {}, transfer_id: {}",
+                                 tail_byte.start_of_transfer, tail_byte.end_of_transfer, tail_byte.toggle, tail_byte.transfer_id);
+                    }
                 }
                 Err(_) => {
                     println!("Error getting frame info")
                 }
             }
-
-            let tail_byte = rx_buf[7]; // todo: Fix this!
-            let (start, end, toggle, transfer_id) = dronecan::parse_tail_byte(tail_byte);
-            println!("Start of xfer: {}, end: {}, toggle: {}, transfer_id: {}",
-            start, end, toggle, transfer_id);
-
         });
 
     }
