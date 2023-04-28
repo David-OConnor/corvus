@@ -14,10 +14,11 @@ use stm32_hal2::{
 };
 
 use crate::{
-    ppks::{Location, LocationType},
     setup::{UartGnss, GNSS_DMA_PERIPH, GNSS_RX_CH, GNSS_TX_CH},
     util,
 };
+
+use chrono::{Datelike, NaiveDate, NaiveDateTime, Timelike};
 
 use defmt::println;
 
@@ -52,7 +53,7 @@ pub const MAX_BUF_LEN: usize = PAYLOAD_LEN_PVT + MSG_SIZE_WITHOUT_PAYLOAD;
 pub static mut RX_BUFFER: [u8; PAYLOAD_LEN_PVT + MSG_SIZE_WITHOUT_PAYLOAD] =
     [0; PAYLOAD_LEN_PVT + MSG_SIZE_WITHOUT_PAYLOAD];
 
-pub static TRANSFER_IN_PROG: AtomicBool = AtomicBool::new(false);
+pub static _TRANSFER_IN_PROG: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
@@ -74,41 +75,50 @@ impl Default for FixType {
 }
 
 #[derive(Default)]
+/// Note: For position and elevation, we use the same units as Ublox reports; we
+/// can convert to floats as required downstream.
 pub struct Fix {
-    /// Seconds since start.
+    /// This timestamp is local, eg synced from CAN bus.
     pub timestamp: f32,
-    pub timestamp_gnss: i8,
+    pub datetime: NaiveDateTime,
     pub type_: FixType,
-    /// Degrees
-    pub lat: f64,
-    /// Degrees
-    pub lon: f64,
-    /// Meters
-    pub elevation_hae: f32,
-    /// Meters
-    pub elevation_msl: f32,
-    /// Meters per second (?)
-    pub ground_speed: f32,
-    /// North, east, down velocity; in that order. In M/s.
-    pub ned_velocity: [f32; 3],
+    // /// Degrees
+    // pub lat: f64,
+    // /// Degrees
+    // pub lon: f64,
+    /// Degrees x 1e7
+    pub lat: i32,
+    /// Degrees x 1e7
+    pub lon: i32,
+    /// mm
+    pub elevation_hae: i32,
+    /// mm
+    pub elevation_msl: i32,
+    /// mm/s
+    pub ground_speed: i32,
+    /// North, east, down velocity; in that order. In mm/s.
+    pub ned_velocity: [i32; 3],
     /// Degrees
     pub heading: Option<f32>, // only when valid.
     pub sats_used: u8,
-    /// Position dilution of precision
-    pub pdop: f32,
+    /// Position dilution of precision. Divided by 100.
+    pub pdop: u16,
 }
 
 impl Fix {
     pub fn print(&self) {
         println!(
-            "Fix data: Timestamp: {}, type: {}, \nlat: {}, lon: {}, \n\
+            "Fix data: Timestamp: {}, {}:{}:{}, type: {}, \nlat: {}, lon: {}, \n\
             HAE: {}, MSL: {}, sats used: {}",
-            self.timestamp_gnss,
+            self.datetime.day(),
+            self.datetime.hour(),
+            self.datetime.minute(),
+            self.datetime.second(),
             self.type_ as u8,
-            self.lat,
-            self.lon,
-            self.elevation_hae,
-            self.elevation_msl,
+            self.lat as f32 / 10_000_000.,
+            self.lon as f32 / 10_000_000.,
+            self.elevation_hae as f32 / 1_000.,
+            self.elevation_msl as f32 / 1_000.,
             self.sats_used,
         );
     }
@@ -454,7 +464,7 @@ impl<'a> Message<'a> {
             return Err(GnssError::MessageData);
         }
 
-        let mut result = Self {
+        let result = Self {
             class_id,
             payload_len,
             payload: &buf[6..payload_end],
@@ -591,12 +601,30 @@ pub fn fix_pvt_from_buf(buf: &[u8], timestamp: f32) -> Result<Fix, GnssError> {
     let fix_ok = (flags & 1) != 0;
     let heading_valid = (flags & 0b10_0000) != 0;
 
+    let date = NaiveDate::from_ymd_opt(
+        u16::from_le_bytes(msg.payload[4..6].try_into().unwrap()) as i32,
+        msg.payload[6] as u32,
+        msg.payload[7] as u32,
+    );
+    if date.is_none() {
+        return Err(GnssError::MessageData);
+    }
+    let date = date.unwrap(); // eg invalid values.
+
+    let ns = i32::from_le_bytes(msg.payload[16..20].try_into().unwrap());
+    let datetime = date.and_hms_nano_opt(
+        msg.payload[8] as u32,
+        msg.payload[9] as u32,
+        msg.payload[10] as u32,
+        ns as u32,
+    );
+    if datetime.is_none() {
+        return Err(GnssError::MessageData);
+    }
+    let datetime = datetime.unwrap();
+
     let lat_e7 = i32::from_le_bytes(msg.payload[28..32].try_into().unwrap());
     let lon_e7 = i32::from_le_bytes(msg.payload[24..28].try_into().unwrap());
-
-    // todo: This is a big risk for precision loss. QC this.
-    let lat = lat_e7 as f64 / 10_000_000.;
-    let lon = lon_e7 as f64 / 10_000_000.;
 
     let heading = if heading_valid {
         Some(i32::from_le_bytes(msg.payload[84..88].try_into().unwrap()) as f32)
@@ -609,21 +637,21 @@ pub fn fix_pvt_from_buf(buf: &[u8], timestamp: f32) -> Result<Fix, GnssError> {
     // `UBX-NAV-PVT`.
     let mut result = Fix {
         timestamp,
-        timestamp_gnss: 0, // todo!
+        datetime,
         type_,
-        lat,
-        lon,
-        elevation_hae: i32::from_le_bytes(msg.payload[32..36].try_into().unwrap()) as f32 / 1_000.,
-        elevation_msl: i32::from_le_bytes(msg.payload[36..40].try_into().unwrap()) as f32 / 1_000.,
-        ground_speed: i32::from_le_bytes(msg.payload[60..64].try_into().unwrap()) as f32 / 1_000.,
+        lat: lat_e7,
+        lon: lon_e7,
+        elevation_hae: i32::from_le_bytes(msg.payload[32..36].try_into().unwrap()),
+        elevation_msl: i32::from_le_bytes(msg.payload[36..40].try_into().unwrap()),
+        ground_speed: i32::from_le_bytes(msg.payload[60..64].try_into().unwrap()),
         ned_velocity: [
-            i32::from_le_bytes(msg.payload[48..52].try_into().unwrap()) as f32 / 1_000.,
-            i32::from_le_bytes(msg.payload[52..56].try_into().unwrap()) as f32 / 1_000.,
-            i32::from_le_bytes(msg.payload[56..60].try_into().unwrap()) as f32 / 1_000.,
+            i32::from_le_bytes(msg.payload[48..52].try_into().unwrap()),
+            i32::from_le_bytes(msg.payload[52..56].try_into().unwrap()),
+            i32::from_le_bytes(msg.payload[56..60].try_into().unwrap()),
         ],
         heading,
         sats_used: msg.payload[23],
-        pdop: i16::from_le_bytes(msg.payload[76..78].try_into().unwrap()) as f32 / 100.,
+        pdop: u16::from_le_bytes(msg.payload[76..78].try_into().unwrap()),
     };
 
     Ok(result)

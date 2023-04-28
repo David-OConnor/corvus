@@ -16,7 +16,7 @@
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08oOLBVYYIwwN_nvuyUqEjrj
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pQBgjxYFXSsODEF3Jqmm-y
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pFBqgd_6Bi7msgkWFKL33b
-use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use core::sync::atomic::{self, AtomicU32, AtomicUsize, Ordering};
 
 use ahrs_fusion::Ahrs;
 use cfg_if::cfg_if;
@@ -142,6 +142,9 @@ const UPDATE_RATE_IMU: f32 = 8_000.;
 const DT_IMU: f32 = 1. / UPDATE_RATE_IMU;
 const NUM_IMU_LOOP_TASKS: usize = 6; // We cycle through lower-priority tasks in the main loop.
 
+// todo: Move this A/R if you end up using it.
+static mut RX_BUF_CAN: [u8; 64] = [0; 64];
+
 cfg_if! {
     if #[cfg(feature = "h7")] {
         // H723: 1Mb of flash, in one bank.
@@ -203,6 +206,8 @@ const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 // it has overflowed. (timer expired)
 const TICK_TIMER_PERIOD: f32 = 0.5; // in seconds. Decrease for higher measurement precision.
 pub static TICK_OVERFLOW_COUNT: AtomicU32 = AtomicU32::new(0);
+
+static mut CAN_BUF_RX: [u8; 64] = [0; 64];
 
 //// The time, in ms, to wait during initializing to allow the ESC and RX to power up and initialize.
 // const WARMUP_TIME: u32 = 100;
@@ -1920,8 +1925,10 @@ mod app {
         cx.shared.can.lock(|can| {
             can.clear_interrupt(Interrupt::RxFifo0NewMsg);
 
-            let mut rx_buf: [u8; 64] = [0; 64];
+            atomic::compiler_fence(Ordering::SeqCst);
 
+            let mut rx_buf = [0; 64];
+            // let rx_result = can.receive0(&mut unsafe { RX_BUF_CAN });
             let rx_result = can.receive0(&mut rx_buf);
 
             match dronecan::get_frame_info(rx_result) {
@@ -1931,6 +1938,7 @@ mod app {
                         Id::Extended(id) => id.as_raw(),
                     };
 
+                    // println!("Buf: {:?}", unsafe { RX_BUF_CAN });
                     println!("Buf: {:?}", rx_buf);
                     println!("Can id: {}", id);
 
@@ -1939,7 +1947,8 @@ mod app {
                              frame_info.len, frame_info.time_stamp, can_id.priority.val(), can_id.message_type_id, can_id.source_node_id);
 
 
-                    let tail_byte = dronecan::get_tail_byte( &rx_buf, frame_info.len).ok();
+                    // let tail_byte = dronecan::get_tail_byte(unsafe { &RX_BUF_CAN }, frame_info.len).ok();
+                    let tail_byte = dronecan::get_tail_byte(&rx_buf, frame_info.len).ok();
 
                     if let Some(tail_byte) = tail_byte {
                         println!("Start of xfer: {}, end: {}, toggle: {}, transfer_id: {}",

@@ -36,12 +36,17 @@ usbd-serial = "^0.1.1"
 #fdcan = { version = "0.1.2", optional = true }
 fdcan = { version = "^0.1.2" }
 
+# `Chrono` for GNSS timestamp
+chrono = { version = "^0.4.23", default-features = false }
+
 packed_struct = {version = "^0.10.1", default_features = false }
 
 # To parse enums from their integer repr
 num_enum = { version = "^0.6.0", default_features = false }
 
 dronecan = {path = "../dronecan" }
+
+half = { version = "^2.2.1", default_features = false } # f16 for DroneCAN
 
 # Use these features to specify GPIO mapping, and which peripherals to use.
 [features]

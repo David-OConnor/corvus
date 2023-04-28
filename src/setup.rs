@@ -828,14 +828,16 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
         ExtendedFilter::accept_all_into_fifo0(),
     );
 
-    let can_cfg = can
-        .get_config()
-        .set_frame_transmit(can_config::FrameTransmissionConfig::AllowFdCanAndBRS);
+    // let can_cfg = can
+    //     .get_config()
+    //     .set_frame_transmit(can_config::FrameTransmissionConfig::AllowFdCanAndBRS);
 
-    can.apply_config(can_cfg);
+    can.set_frame_transmit(can_config::FrameTransmissionConfig::AllowFdCanAndBRS);
 
     can.enable_interrupt(Interrupt::RxFifo0NewMsg);
     can.enable_interrupt_line(InterruptLine::_0, true);
+
+    // can.apply_config(can_cfg);
 
     can.into_normal()
 }
