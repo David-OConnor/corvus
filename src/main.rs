@@ -91,6 +91,7 @@ use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
 use state::{OperationMode, StateVolatile, UserCfg};
 
 use packed_struct::PackedStruct;
+use half::f16;
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
@@ -1917,17 +1918,16 @@ mod app {
     /// Ext sensors write complete; start read of the next sensor in sequence.
     fn can_isr(mut cx: can_isr::Context) {
         // todo: Use CAN hardware filters.
-        println!("CAN ISR");
+        // println!("\nCAN ISR");
 
         cx.shared.can.lock(|can| {
             can.clear_interrupt(Interrupt::RxFifo0NewMsg);
 
             // atomic::compiler_fence(Ordering::SeqCst);
 
-            let mut rx_buf = [0; 64];
+            let rx_buf = unsafe { &mut RX_BUF_CAN }; // todo
 
-            // let rx_result = can.receive0(&mut unsafe { RX_BUF_CAN });
-            let rx_result = can.receive0(&mut rx_buf);
+            let rx_result = can.receive0(rx_buf);
 
             match dronecan::get_frame_info(rx_result) {
                 Ok(frame_info) => {
@@ -1936,42 +1936,43 @@ mod app {
                         Id::Extended(id) => id.as_raw(),
                     };
 
-                    // println!("Buf: {:?}", unsafe { RX_BUF_CAN });
                     // println!("Buf: {:?}", rx_buf);
-                    println!("Can id: {}", id);
+                    // println!("Can id: {}", id);
 
                     let can_id = dronecan::CanId::from_value(id);
-                    println!(
-                        "Frame info. Len: {}, ts: {}, pri: {}, type_id: {}, source id: {}",
-                        frame_info.len,
-                        frame_info.time_stamp,
-                        can_id.priority.val(),
-                        can_id.message_type_id,
-                        can_id.source_node_id
-                    );
+                    // println!(
+                    //     "Frame info. Len: {}, ts: {}, pri: {}, type_id: {}, source id: {}",
+                    //     frame_info.len,
+                    //     frame_info.time_stamp,
+                    //     can_id.priority.val(),
+                    //     can_id.message_type_id,
+                    //     can_id.source_node_id
+                    // );
 
-                    // let tail_byte = dronecan::get_tail_byte(unsafe { &RX_BUF_CAN }, frame_info.len).ok();
-                    let tail_byte = dronecan::get_tail_byte(&rx_buf, frame_info.len).ok();
+                    // let tail_byte = dronecan::get_tail_byte(&rx_buf, frame_info.len).ok();
+                    let tail_byte = dronecan::get_tail_byte(rx_buf, frame_info.len).ok();
 
                     if let Some(tail_byte) = tail_byte {
-                        println!(
-                            "Start of xfer: {}, end: {}, toggle: {}, transfer_id: {}",
-                            tail_byte.start_of_transfer,
-                            tail_byte.end_of_transfer,
-                            tail_byte.toggle,
-                            tail_byte.transfer_id
-                        );
+                    //     println!(
+                    //         "Start of xfer: {}, end: {}, toggle: {}, transfer_id: {}",
+                    //         tail_byte.start_of_transfer,
+                    //         tail_byte.end_of_transfer,
+                    //         tail_byte.toggle,
+                    //         tail_byte.transfer_id
+                    //     );
 
                         match can_id.message_type_id {
                             dronecan::DATA_TYPE_ID_NODE_STATUS => {}
                             dronecan::DATA_TYPE_ID_FIX2 => {
                                 let fix = dronecan::gnss::FixDronecan::unpack(
-                                    &rx_buf[0..50].try_into().unwrap(),
+                                    // &rx_buf[0..50].try_into().unwrap(),
+                                    rx_buf[0..50].try_into().unwrap(),
                                 );
                                 match fix {
                                     Ok(f) => {
                                         println!(
-                                            "Fix. Lat: {}",
+                                            "Fix. Time: {}, Lat: {}",
+                                            f.gnss_timestamp,
                                             f.latitude_deg_1e8 as f32 / 10_000_000.
                                         );
                                     }
@@ -1986,10 +1987,14 @@ mod app {
                             }
                             dronecan::DATA_TYPE_ID_STATIC_TEMPERATURE => {
                                 // f16
-                                let mut bytes = [0; 4];
-                                bytes[0..2].copy_from_slice(&rx_buf[0..2]);
-                                let temp = f32::from_le_bytes(bytes.try_into().unwrap());
+                                let temp = f32::from(f16::from_le_bytes(rx_buf[0..2].try_into().unwrap()));
                                 println!("Temp: {} K", temp);
+                            }
+                            dronecan::DATA_TYPE_ID_NODE_STATUS => {
+                                // f16
+                                let uptime = u32::from_le_bytes(rx_buf[0..4].try_into().unwrap());
+                                println!("Node status. Uptime sec: {}, health: {}, mode; {}",
+                                         uptime, rx_buf[4], rx_buf[5]);
                             }
                             _ => {
                                 println!("Unknown message type received");
