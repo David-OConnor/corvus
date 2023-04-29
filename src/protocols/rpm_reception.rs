@@ -60,7 +60,7 @@ use num_traits::float::FloatCore; // round
 use crate::{
     dshot::{self, calc_crc, REC_BUF_LEN},
     flight_ctrls::motor_servo::RpmReadings,
-    setup::{TIM_CLK_SPEED, DSHOT_SPEED},
+    setup::{DSHOT_SPEED, TIM_CLK_SPEED},
 };
 
 use defmt::println;

@@ -10,7 +10,7 @@ use core::sync::atomic::AtomicUsize;
 use packed_struct::{prelude::*, PackedStruct};
 
 use dronecan::{
-    gnss::{GnssMode, EcefPositionVelocity, FixDronecan, GnssTimeStandard, FixStatus, GnssSubMode},
+    gnss::{EcefPositionVelocity, FixDronecan, FixStatus, GnssMode, GnssSubMode, GnssTimeStandard},
     CanError, ConfigCommon, HardwareVersion, MsgPriority, SoftwareVersion, CONFIG_COMMON_SIZE,
 };
 
@@ -57,7 +57,7 @@ impl Default for Config {
 }
 
 impl Config {
- pub fn from_bytes(buf: &[u8]) -> Self {
+    pub fn from_bytes(buf: &[u8]) -> Self {
         const CCS: usize = CONFIG_COMMON_SIZE;
         Self {
             common: ConfigCommon::from_bytes(&buf[0..CCS]),

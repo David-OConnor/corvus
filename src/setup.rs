@@ -23,11 +23,11 @@ use stm32_hal2::{
 
 use fdcan::{
     config as can_config,
-    filter::{ExtendedFilter, ExtendedFilterSlot, Filter, FilterId, FilterType, Action},
+    filter::{Action, ExtendedFilter, ExtendedFilterSlot, Filter, FilterId, FilterType},
     frame::{FrameFormat, TxFrameHeader},
     id::{Id, StandardId},
+    interrupt::{Interrupt, InterruptLine},
     ExternalLoopbackMode, FdCan, NormalOperationMode,
-    interrupt::{InterruptLine, Interrupt},
 };
 
 use core::num::{NonZeroU16, NonZeroU8}; // for CAN
@@ -816,7 +816,10 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
     can.set_nominal_bit_timing(nominal_bit_timing);
     can.set_data_bit_timing(data_bit_timing);
 
-    let filter_: FilterType<u16, i8> = FilterType::Range {from: 0, to: 10_000};
+    let filter_: FilterType<u16, i8> = FilterType::Range {
+        from: 0,
+        to: 10_000,
+    };
 
     let filter = Filter {
         filter: filter_,

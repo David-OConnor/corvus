@@ -90,6 +90,8 @@ use safety::ArmStatus;
 use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
 use state::{OperationMode, StateVolatile, UserCfg};
 
+use packed_struct::PackedStruct;
+
 cfg_if! {
     if #[cfg(feature = "h7")] {
         use stm32_hal2::{
@@ -217,9 +219,8 @@ static mut CAN_BUF_RX: [u8; 64] = [0; 64];
 use fdcan::{
     frame::{FrameFormat, TxFrameHeader},
     id::{ExtendedId, Id, StandardId},
-    FdCan,
     interrupt::Interrupt,
-    ReceiveOverrun,
+    FdCan, ReceiveOverrun,
 };
 
 use dronecan;
@@ -385,11 +386,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-            // let spi_flash_pac = dp.OCTOSPI1;
-            let spi_flash_pac = dp.QUADSPI;
+        // let spi_flash_pac = dp.OCTOSPI1;
+        let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-            let spi_flash_pac = dp.SPI2;
-
+        let spi_flash_pac = dp.SPI2;
 
         let mut can = setup::setup_can(dp.FDCAN1);
 
@@ -448,10 +448,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -667,21 +667,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-            // todo: Wrong. You need to do this by number; apply your pin mapping.
-            let motors_reversed = (
+        // todo: Wrong. You need to do this by number; apply your pin mapping.
+        let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -1543,7 +1543,7 @@ mod app {
     /// Must be a higher priority than the IMU TC isr.
     fn crsf_isr(mut cx: crsf_isr::Context) {
         let uart = &mut cx.local.uart_crsf; // Code shortener
-        // println!("CRSF");
+                                            // println!("CRSF");
         let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
         let mut rx_fault = false;
 
@@ -1594,14 +1594,11 @@ mod app {
                 );
             }
         } else {
-
             // todo: These lines todo temp
             let mut buf = [0; 5];
             uart.read(&mut buf);
             println!("\n\n\nRead Buf CRSF: {:x}\n\n\n\n", buf);
-            return
-
-                crsf::TRANSFER_IN_PROG.store(false, Ordering::Relaxed);
+            return crsf::TRANSFER_IN_PROG.store(false, Ordering::Relaxed);
             // Line is idle.
 
             // A `None` value here re-enables the interrupt without changing the char to match.
@@ -1925,9 +1922,10 @@ mod app {
         cx.shared.can.lock(|can| {
             can.clear_interrupt(Interrupt::RxFifo0NewMsg);
 
-            atomic::compiler_fence(Ordering::SeqCst);
+            // atomic::compiler_fence(Ordering::SeqCst);
 
             let mut rx_buf = [0; 64];
+
             // let rx_result = can.receive0(&mut unsafe { RX_BUF_CAN });
             let rx_result = can.receive0(&mut rx_buf);
 
@@ -1939,20 +1937,64 @@ mod app {
                     };
 
                     // println!("Buf: {:?}", unsafe { RX_BUF_CAN });
-                    println!("Buf: {:?}", rx_buf);
+                    // println!("Buf: {:?}", rx_buf);
                     println!("Can id: {}", id);
 
                     let can_id = dronecan::CanId::from_value(id);
-                    println!("Frame info. Len: {}, ts: {}, pri: {}, type_id: {}, source id: {}",
-                             frame_info.len, frame_info.time_stamp, can_id.priority.val(), can_id.message_type_id, can_id.source_node_id);
-
+                    println!(
+                        "Frame info. Len: {}, ts: {}, pri: {}, type_id: {}, source id: {}",
+                        frame_info.len,
+                        frame_info.time_stamp,
+                        can_id.priority.val(),
+                        can_id.message_type_id,
+                        can_id.source_node_id
+                    );
 
                     // let tail_byte = dronecan::get_tail_byte(unsafe { &RX_BUF_CAN }, frame_info.len).ok();
                     let tail_byte = dronecan::get_tail_byte(&rx_buf, frame_info.len).ok();
 
                     if let Some(tail_byte) = tail_byte {
-                        println!("Start of xfer: {}, end: {}, toggle: {}, transfer_id: {}",
-                                 tail_byte.start_of_transfer, tail_byte.end_of_transfer, tail_byte.toggle, tail_byte.transfer_id);
+                        println!(
+                            "Start of xfer: {}, end: {}, toggle: {}, transfer_id: {}",
+                            tail_byte.start_of_transfer,
+                            tail_byte.end_of_transfer,
+                            tail_byte.toggle,
+                            tail_byte.transfer_id
+                        );
+
+                        match can_id.message_type_id {
+                            dronecan::DATA_TYPE_ID_NODE_STATUS => {}
+                            dronecan::DATA_TYPE_ID_FIX2 => {
+                                let fix = dronecan::gnss::FixDronecan::unpack(
+                                    &rx_buf[0..50].try_into().unwrap(),
+                                );
+                                match fix {
+                                    Ok(f) => {
+                                        println!(
+                                            "Fix. Lat: {}",
+                                            f.latitude_deg_1e8 as f32 / 10_000_000.
+                                        );
+                                    }
+                                    Err(_) => {
+                                        println!("Error unpacking fix");
+                                    }
+                                }
+                            }
+                            dronecan::DATA_TYPE_ID_STATIC_PRESSURE => {
+                                let pressure = f32::from_le_bytes(rx_buf[0..4].try_into().unwrap());
+                                println!("Pressure: {} kPa", pressure / 1_000.);
+                            }
+                            dronecan::DATA_TYPE_ID_STATIC_TEMPERATURE => {
+                                // f16
+                                let mut bytes = [0; 4];
+                                bytes[0..2].copy_from_slice(&rx_buf[0..2]);
+                                let temp = f32::from_le_bytes(bytes.try_into().unwrap());
+                                println!("Temp: {} K", temp);
+                            }
+                            _ => {
+                                println!("Unknown message type received");
+                            }
+                        }
                     }
                 }
                 Err(_) => {
@@ -1960,7 +2002,6 @@ mod app {
                 }
             }
         });
-
     }
 }
 
