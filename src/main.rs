@@ -18,7 +18,6 @@
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pFBqgd_6Bi7msgkWFKL33b
 use core::sync::atomic::{self, AtomicU32, AtomicUsize, Ordering};
 
-
 use cfg_if::cfg_if;
 
 use cortex_m::{self, asm, delay::Delay};
@@ -48,8 +47,8 @@ use stm32_hal2::{
 use usb_device::{bus::UsbBusAllocator, prelude::*};
 use usbd_serial::{self, SerialPort};
 
-use packed_struct::PackedStruct;
 use half::f16;
+use packed_struct::PackedStruct;
 
 use fdcan::{
     frame::{FrameFormat, TxFrameHeader},
@@ -65,6 +64,7 @@ mod cfg_storage;
 mod control_interface;
 mod drivers;
 mod flight_ctrls;
+mod imu_processing;
 mod params;
 mod ppks;
 mod protocols;
@@ -74,21 +74,14 @@ mod setup;
 mod state;
 mod system_status;
 mod util;
-mod imu_processing;
 
 use crate::{
+    control_interface::ChannelData,
     drivers::{
-        baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
+        baro_dps310 as baro, gps_ublox as gnss, imu_icm426xx as imu, mag_lis3mdl as mag,
         osd::{self, AutopilotData, OsdData},
         tof_vl53l1 as tof,
     },
-    imu_processing::{
-        filter_imu::ImuFilters,
-        ahrs_fusion::{self, Ahrs},
-        imu_shared,
-        attitude_platform,
-    },
-    control_interface::ChannelData,
     flight_ctrls::{
         autopilot::AutopilotStatus,
         common::CtrlMix,
@@ -98,13 +91,22 @@ use crate::{
         motor_servo::{MotorRpm, RpmReadings},
         pid::{MotorCoeffs, MotorPidGroup},
     },
-    system_status::{SensorStatus, SystemStatus},
+    imu_processing::{
+        ahrs_fusion::{self, Ahrs},
+        attitude_platform,
+        filter_imu::ImuFilters,
+        imu_shared,
+    },
     params::Params,
     ppks::{Location, LocationType},
-    protocols::{crsf::{self, LinkStats}, dshot, rpm_reception, usb_preflight},
+    protocols::{
+        crsf::{self, LinkStats},
+        dshot, rpm_reception, usb_preflight,
+    },
     safety::ArmStatus,
     sensors_shared::{ExtSensor, V_A_ADC_READ_BUF},
-    state::{OperationMode, StateVolatile, UserCfg}
+    state::{OperationMode, StateVolatile, UserCfg},
+    system_status::{SensorStatus, SystemStatus},
 };
 
 cfg_if! {
@@ -369,7 +371,7 @@ mod app {
         let mut dma2 = Dma::new(dp.DMA2);
 
         // todo: Note that the HAL currently won't enable DMA2's RCC wihtout using a struct like this.
-        let dma2_ch1 = dma::Dma2Ch1::new();
+        let _dma2_ch1 = dma::Dma2Ch1::new();
 
         setup::setup_dma(&mut dma, &mut dma2);
 
@@ -392,10 +394,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-            // let spi_flash_pac = dp.OCTOSPI1;
-            let spi_flash_pac = dp.QUADSPI;
+        // let spi_flash_pac = dp.OCTOSPI1;
+        let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-            let spi_flash_pac = dp.SPI2;
+        let spi_flash_pac = dp.SPI2;
 
         let mut can = setup::setup_can(dp.FDCAN1);
 
@@ -454,10 +456,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -673,21 +675,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-            // todo: Wrong. You need to do this by number; apply your pin mapping.
-            let motors_reversed = (
+        // todo: Wrong. You need to do this by number; apply your pin mapping.
+        let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -882,7 +884,7 @@ mod app {
                     params.update_from_imu_readings(imu_data);
 
                     // todo: Update attitude each IMU update, or at FC interval?
-                    attitude_platform::update_attitude(cx.local.ahrs, params);
+                    attitude_platform::update_attitude(cx.local.ahrs, params, None, DT_FLIGHT_CTRLS);
 
                     let mut rpm_fault = false;
 
@@ -1549,7 +1551,7 @@ mod app {
     /// Must be a higher priority than the IMU TC isr.
     fn crsf_isr(mut cx: crsf_isr::Context) {
         let uart = &mut cx.local.uart_crsf; // Code shortener
-        // println!("CRSF");
+                                            // println!("CRSF");
         let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
         let mut rx_fault = false;
 
@@ -1774,7 +1776,7 @@ mod app {
         cx.shared.i2c2.lock(|i2c| unsafe {
             i2c.read_dma(
                 baro::ADDR,
-                &mut sensors_shared::BARO_READINGS,
+                &mut sensors_shared::READ_BUF_BARO,
                 setup::BARO_RX_CH,
                 Default::default(),
                 setup::BARO_DMA_PERIPH,
@@ -1796,7 +1798,7 @@ mod app {
         );
         dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_RX_CH);
 
-        let buf = unsafe { &sensors_shared::BARO_READINGS };
+        let buf = unsafe { &sensors_shared::READ_BUF_BARO };
 
         (
             cx.shared.altimeter,
@@ -1994,14 +1996,17 @@ mod app {
                             }
                             dronecan::DATA_TYPE_ID_STATIC_TEMPERATURE => {
                                 // f16
-                                let temp = f32::from(f16::from_le_bytes(rx_buf[0..2].try_into().unwrap()));
+                                let temp =
+                                    f32::from(f16::from_le_bytes(rx_buf[0..2].try_into().unwrap()));
                                 println!("Temp: {} K", temp);
                             }
                             dronecan::DATA_TYPE_ID_NODE_STATUS => {
                                 // f16
                                 let uptime = u32::from_le_bytes(rx_buf[0..4].try_into().unwrap());
-                                println!("Node status. Uptime sec: {}, health: {}, mode; {}",
-                                         uptime, rx_buf[4], rx_buf[5]);
+                                println!(
+                                    "Node status. Uptime sec: {}, health: {}, mode; {}",
+                                    uptime, rx_buf[4], rx_buf[5]
+                                );
                             }
                             _ => {
                                 println!("Unknown message type received");

@@ -16,7 +16,7 @@ use dronecan::{
 
 use half::f16;
 
-use crate::gps::{Fix, FixType};
+use crate::gnss::{Fix, FixType};
 
 pub const GNSS_PAYLOAD_SIZE: usize = 38;
 

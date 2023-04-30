@@ -149,6 +149,7 @@ pub type MotorTimer = Timer<pac::TIM3>;
 pub type ServoTimer = Timer<pac::TIM8>; // Valid for H7 on all channels. Valid for G4 on Ch 1, 3, 4.
 pub type SpiImu = Spi<SPI1>;
 pub type I2cBaro = I2c<I2C2>;
+pub type I2cMag = I2c<I2C1>; // Currently unused.
 pub type UartGnss = Usart<USART1>;
 
 cfg_if! {

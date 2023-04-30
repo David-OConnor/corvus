@@ -1,14 +1,15 @@
 //! Driver for the ST LIS3MDL 3-axis magnetometer. This is an I2C or SPI device;
 //! This module only includes functionality for I2C mode.
 
-use stm32_hal2::{
-    i2c::{self, I2c},
-    pac::I2C1,
-};
+use stm32_hal2::i2c;
 
 use cortex_m::delay::Delay;
 
 use defmt::println;
+
+use crate::setup::I2cMag;
+
+use lin_alg2::f32::Vec3;
 
 // DS: "The Slave Address (SAD) associated to the LIS3MDL is 00111x0b, whereas the x bit is
 // modified by the SDO/SA1 pin in order to modify the device address. If the SDO/SA1 pin is
@@ -19,13 +20,50 @@ pub const ADDR: u8 = 0b11100; // ie 0x1C (Can alternatively be wired for 0b11110
 
 const WHOAMI: u8 = 0x3d;
 
+const FULL_SCALE_DEFLECTION: FullScaleDeflection = FullScaleDeflection::G4;
+
 pub struct MagNotConnectedError {}
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum FullScaleDeflection {
+    /// +/- 4 Gauss, etc
+    G4 = 0b00,
+    G8 = 0b01,
+    G12 = 0b10,
+    G16 = 0b11,
+}
+
+impl FullScaleDeflection {
+    /// Value, in Gauss.
+    pub fn value(&self) -> f32 {
+        match self {
+            Self::G4 => 4.,
+            Self::G8 => 8.,
+            Self::G12 => 12.,
+            Self::G16 => 16.,
+        }
+    }
+}
 
 impl From<i2c::Error> for MagNotConnectedError {
     fn from(_e: i2c::Error) -> Self {
         Self {}
     }
 }
+//
+// // todo: Use Vec3 instead?
+// /// Represents sensor readings from a 3-axis magnetometer.
+// /// Accelerometer readings are in m/2^2. Gyroscope readings are in radians/s.
+// #[derive(Default)]
+// pub struct MagReadings {
+//     /// Positive X: Accel towards right wing
+//     pub x: f32,
+//     /// Positive Y: Accel forwards
+//     pub y: f32,
+//     /// Positive X: Accel up
+//     pub z: f32,
+// }
 
 /// DS, Table 16. Register address map.
 #[allow(dead_code)]
@@ -53,32 +91,34 @@ pub enum Reg {
     INtThsH = 0x33,
 }
 
-pub fn setup(i2c: &mut I2c<I2C1>) -> Result<(), MagNotConnectedError> {
+pub fn setup(i2c: &mut I2cMag) -> Result<(), MagNotConnectedError> {
     // todo 2 to TS
     // todo: Could we take advantaeg of temp here for a diff purpose, away
     // from the FC board?
-
-    println!("MAG Pre setup");
+    println!("Mag setup start");
 
     let mut read_buf = [0];
     i2c.write_read(ADDR, &[Reg::WhoAmI as u8], &mut read_buf)?;
 
-    println!("READ BUF Mag: {:?}", read_buf);
-    if (read_buf[0] & 0xf) != WHOAMI {
-        // return Err(BaroNotConnectedError {}); // todo: PUt back once baro is workign
+    println!("Mag setup A, {}", read_buf);
+
+    if (read_buf[0]) != WHOAMI {
+        return Err(MagNotConnectedError {});
     }
 
     // Disable temp sensor. Set fast ODR, in ultra-high-performance mode.
     // Todo: This sets a relatively low refresh rate of 155Hz.
     // todo: But lower performance modes have up to 1kHz??
     i2c.write(ADDR, &[Reg::Ctrl1 as u8, 0b0110_0010])?;
-    println!("MAG Post setup");
 
-    // Set fullscale range to +-4 gauss.
-    i2c.write(ADDR, &[Reg::Ctrl2 as u8, 0b0000_0000])?;
+    println!("Mag setup B");
+
+    // Set fullscale range.
+    let ctrl2_val = (FULL_SCALE_DEFLECTION as u8) << 5;
+    i2c.write(ADDR, &[Reg::Ctrl2 as u8, ctrl2_val])?;
 
     // Set to continuous-conversion mode.
-    i2c.write(ADDR, &[Reg::Ctrl3 as u8, 0b0000_0011])?;
+    i2c.write(ADDR, &[Reg::Ctrl3 as u8, 0b0000_0000])?;
 
     // Set Z-axis to ultra-high performance mode. Set little endian data.
     i2c.write(ADDR, &[Reg::Ctrl4 as u8, 0b0000_1100])?;
@@ -91,7 +131,31 @@ pub fn setup(i2c: &mut I2c<I2C1>) -> Result<(), MagNotConnectedError> {
     // 1: output registers not updated until MSb and LSb have been read)"
     i2c.write(ADDR, &[Reg::Ctrl5 as u8, 0b0000_0000])?;
 
+    println!("Mag setup complete");
+
     Ok(())
 }
 
-// i2c.write_read(ADDR, &[Reg::MeasCfg as u8], &mut prs_buf)?;
+/// Given readings taken from registers directly, calcualte pressure.
+/// We split this from the other functions for use with DMA.
+pub fn orientation_from_readings(buf: &[u8; 6]) -> Vec3 {
+    let [xl, xh, yl, yh, zl, zh] = *buf;
+
+    let fsd = FULL_SCALE_DEFLECTION.value();
+
+    let x = i16::from_le_bytes([xl, xh]) as f32 / fsd;
+    let y = i16::from_le_bytes([yl, yh]) as f32 / fsd;
+    let z = i16::from_le_bytes([zl, zh]) as f32 / fsd;
+
+    Vec3::new(x, y, z)
+}
+
+pub fn read_orientation(i2c: &mut I2cMag) -> Result<Vec3, MagNotConnectedError> {
+    // The Pressure Data registers contains the 16 bit 2's complement magnetic inductino measurement value.
+    let mut buf = [0; 6];
+    i2c.write_read(ADDR, &[Reg::OutXL as u8], &mut buf)?;
+
+    println!("Buf: {:?}", buf);
+
+    Ok(orientation_from_readings(&buf))
+}

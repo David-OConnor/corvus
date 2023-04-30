@@ -46,7 +46,7 @@ use lin_alg2::f32::Vec3;
 // http://www.iri.upc.edu/people/jsola/JoanSola/objectes/notes/kinematics.pdf
 
 /// Update the attitude from the AHRS.
-pub fn update_attitude(ahrs: &mut Ahrs, params: &mut Params) {
+pub fn update_attitude(ahrs: &mut Ahrs, params: &mut Params, mag_data: Option<Vec3>, dt: f32) {
     // Gyro measurements - not really a vector.
     // In our IMU interpretation, we use direction references that make sense for our aircraft.
     // See `imu_shared::ImuReadings` field descriptions for this. Here, we undo it: The AHRS
@@ -85,7 +85,14 @@ pub fn update_attitude(ahrs: &mut Ahrs, params: &mut Params) {
     // let gyro_data_with_offset = ahrs.offset.update(gyro_data);
     // let gyro_data_with_offset = gyro_data;
 
-    ahrs.update_no_magnetometer(gyro_data, accel_data, crate::DT_FLIGHT_CTRLS);
+    match mag_data {
+        Some(m) => {
+            ahrs.update(gyro_data, accel_data, m, dt);
+        }
+        None => {
+            ahrs.update_no_magnetometer(gyro_data, accel_data, dt);
+        }
+    }
 
     let att_euler = ahrs.quaternion.to_euler();
 

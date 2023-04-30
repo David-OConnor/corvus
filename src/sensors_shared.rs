@@ -8,8 +8,10 @@ use stm32_hal2::{
 };
 
 use crate::{
-    baro, gps, mag,
-    setup::{self, BARO_DMA_PERIPH, BARO_TX_CH, EXT_SENSORS_TX_CH, IMU_DMA_PERIPH},
+    baro, gnss, mag,
+    setup::{
+        self, I2cBaro, I2cMag, BARO_DMA_PERIPH, BARO_TX_CH, EXT_SENSORS_TX_CH, IMU_DMA_PERIPH,
+    },
     tof,
 };
 
@@ -17,9 +19,13 @@ use crate::{
 // todo: Populate these.
 // We sequence these using TC ISRs.
 pub static mut WRITE_BUF_BARO: [u8; 1] = [baro::Reg::PsrB2 as u8];
-pub static mut WRITE_BUF_MAG: [u8; 1] = [0];
-pub static mut WRITE_BUF_GPS: [u8; 1] = [0];
+pub static mut WRITE_BUF_MAG: [u8; 1] = [mag::Reg::OutXL as u8];
 pub static mut WRITE_BUF_TOF: [u8; 2] = [0; 2];
+
+pub static mut READ_BUF_GNSS: [u8; gnss::MAX_BUF_LEN] = [0; gnss::MAX_BUF_LEN];
+pub static mut READ_BUF_BARO: [u8; 6] = [0; 6]; // 3x pressure, 3x temperature.
+pub static mut READ_BUF_MAG: [u8; 6] = [0; 6]; // 2 mag for each dimension.
+pub static mut READ_BUF_TOF: [u8; 2] = [0; 2];
 
 pub static mut V_A_ADC_READ_BUF: [u16; 2] = [0; 2];
 
@@ -41,19 +47,11 @@ pub enum ExtSensor {
     Tof,
 }
 
-// 3 pressure bytes, followed by 3 temp bytes.
-pub static mut BARO_READINGS: [u8; 6] = [0; 6];
-
-// todo: Sizes on these, and fns to interp them.
-pub static mut MAG_READINGS: [u8; 8] = [0; 8];
-pub static mut GPS_READINGS: [u8; 12] = [0; 12];
-pub static mut TOF_READINGS: [u8; 2] = [0; 2];
-
 // 3 sensors; each 16 bits.
 // pub static mut EXT_SENSORS_READINGS: [u8; 3 * 2] = [0; 3 * 2];
 
 /// Start continous transfers for all sensors controlled by this module.
-pub fn start_transfers(i2c_ext_sensors: &mut I2c<I2C1>, i2c_baro: &mut I2c<I2C2>) {
+pub fn start_transfers(i2c_ext_sensors: &mut I2cMag, i2c_baro: &mut I2cBaro) {
     // println!("Starting transfers");
     // let write_buf_ext_sensors = [starting_addr, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let write_buf_mag = [0, 0];
