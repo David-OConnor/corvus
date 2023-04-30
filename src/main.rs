@@ -18,9 +18,9 @@
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pFBqgd_6Bi7msgkWFKL33b
 use core::sync::atomic::{self, AtomicU32, AtomicUsize, Ordering};
 
-use ahrs_fusion::Ahrs;
+
 use cfg_if::cfg_if;
-use control_interface::ChannelData;
+
 use cortex_m::{self, asm, delay::Delay};
 use cortex_m_rt::exception;
 
@@ -28,21 +28,6 @@ use defmt::println;
 use defmt_rtt as _;
 use panic_probe as _;
 
-use drivers::{
-    baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
-    osd::{self, AutopilotData, OsdData},
-    tof_vl53l1 as tof,
-};
-use filter_imu::ImuFilters;
-use flight_ctrls::{
-    autopilot::AutopilotStatus,
-    common::CtrlMix,
-    ctrl_effect_est::{AccelMapPt, AccelMaps},
-    ctrl_logic::{self, Torque},
-    filters::FlightCtrlFilters,
-    motor_servo::{MotorRpm, RpmReadings},
-    pid::{MotorCoeffs, MotorPidGroup},
-};
 use lin_alg2::f32::Quaternion;
 
 use stm32_hal2::{
@@ -59,19 +44,27 @@ use stm32_hal2::{
     timer::{BasicTimer, MasterModeSelection, Timer, TimerConfig, TimerInterrupt},
     usart::UsartInterrupt,
 };
-use system_status::{SensorStatus, SystemStatus};
+
 use usb_device::{bus::UsbBusAllocator, prelude::*};
 use usbd_serial::{self, SerialPort};
 
-mod ahrs_fusion;
+use packed_struct::PackedStruct;
+use half::f16;
+
+use fdcan::{
+    frame::{FrameFormat, TxFrameHeader},
+    id::{ExtendedId, Id, StandardId},
+    interrupt::Interrupt,
+    FdCan, ReceiveOverrun,
+};
+
+use dronecan;
+
 mod atmos_model;
-mod attitude_platform;
 mod cfg_storage;
 mod control_interface;
 mod drivers;
-mod filter_imu;
 mod flight_ctrls;
-mod imu_shared;
 mod params;
 mod ppks;
 mod protocols;
@@ -81,17 +74,38 @@ mod setup;
 mod state;
 mod system_status;
 mod util;
+mod imu_processing;
 
-use params::Params;
-use ppks::{Location, LocationType};
-use protocols::crsf::LinkStats;
-use protocols::{crsf, dshot, rpm_reception, usb_preflight};
-use safety::ArmStatus;
-use sensors_shared::{ExtSensor, V_A_ADC_READ_BUF};
-use state::{OperationMode, StateVolatile, UserCfg};
-
-use packed_struct::PackedStruct;
-use half::f16;
+use crate::{
+    drivers::{
+        baro_dps310 as baro, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
+        osd::{self, AutopilotData, OsdData},
+        tof_vl53l1 as tof,
+    },
+    imu_processing::{
+        filter_imu::ImuFilters,
+        ahrs_fusion::{self, Ahrs},
+        imu_shared,
+        attitude_platform,
+    },
+    control_interface::ChannelData,
+    flight_ctrls::{
+        autopilot::AutopilotStatus,
+        common::CtrlMix,
+        ctrl_effect_est::{AccelMapPt, AccelMaps},
+        ctrl_logic::{self, Torque},
+        filters::FlightCtrlFilters,
+        motor_servo::{MotorRpm, RpmReadings},
+        pid::{MotorCoeffs, MotorPidGroup},
+    },
+    system_status::{SensorStatus, SystemStatus},
+    params::Params,
+    ppks::{Location, LocationType},
+    protocols::{crsf::{self, LinkStats}, dshot, rpm_reception, usb_preflight},
+    safety::ArmStatus,
+    sensors_shared::{ExtSensor, V_A_ADC_READ_BUF},
+    state::{OperationMode, StateVolatile, UserCfg}
+};
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
@@ -216,15 +230,6 @@ static mut CAN_BUF_RX: [u8; 64] = [0; 64];
 // const WARMUP_TIME: u32 = 100;
 
 // todo: Bit flags that display as diff colored LEDs, and OSD items
-
-use fdcan::{
-    frame::{FrameFormat, TxFrameHeader},
-    id::{ExtendedId, Id, StandardId},
-    interrupt::Interrupt,
-    FdCan, ReceiveOverrun,
-};
-
-use dronecan;
 
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
@@ -387,10 +392,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-        // let spi_flash_pac = dp.OCTOSPI1;
-        let spi_flash_pac = dp.QUADSPI;
+            // let spi_flash_pac = dp.OCTOSPI1;
+            let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-        let spi_flash_pac = dp.SPI2;
+            let spi_flash_pac = dp.SPI2;
 
         let mut can = setup::setup_can(dp.FDCAN1);
 
@@ -449,10 +454,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -668,21 +673,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-        // todo: Wrong. You need to do this by number; apply your pin mapping.
-        let motors_reversed = (
+            // todo: Wrong. You need to do this by number; apply your pin mapping.
+            let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -1544,7 +1549,7 @@ mod app {
     /// Must be a higher priority than the IMU TC isr.
     fn crsf_isr(mut cx: crsf_isr::Context) {
         let uart = &mut cx.local.uart_crsf; // Code shortener
-                                            // println!("CRSF");
+        // println!("CRSF");
         let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
         let mut rx_fault = false;
 
@@ -1953,13 +1958,13 @@ mod app {
                     let tail_byte = dronecan::get_tail_byte(rx_buf, frame_info.len).ok();
 
                     if let Some(tail_byte) = tail_byte {
-                    //     println!(
-                    //         "Start of xfer: {}, end: {}, toggle: {}, transfer_id: {}",
-                    //         tail_byte.start_of_transfer,
-                    //         tail_byte.end_of_transfer,
-                    //         tail_byte.toggle,
-                    //         tail_byte.transfer_id
-                    //     );
+                        //     println!(
+                        //         "Start of xfer: {}, end: {}, toggle: {}, transfer_id: {}",
+                        //         tail_byte.start_of_transfer,
+                        //         tail_byte.end_of_transfer,
+                        //         tail_byte.toggle,
+                        //         tail_byte.transfer_id
+                        //     );
 
                         match can_id.message_type_id {
                             dronecan::DATA_TYPE_ID_NODE_STATUS => {}
@@ -1971,9 +1976,11 @@ mod app {
                                 match fix {
                                     Ok(f) => {
                                         println!(
-                                            "Fix. Time: {}, Lat: {}",
+                                            "Fix. Time: {}. Lat: {}. Lon: {}. Msl: {}",
                                             f.gnss_timestamp,
-                                            f.latitude_deg_1e8 as f32 / 10_000_000.
+                                            f.latitude_deg_1e8 as f32 / 10_000_000.,
+                                            f.longitude_deg_1e8 as f32 / 10_000_000.,
+                                            f.height_msl_mm as f32 / 1_000.,
                                         );
                                     }
                                     Err(_) => {
