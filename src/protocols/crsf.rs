@@ -38,7 +38,7 @@ pub const BAUD: u32 = 420_000;
 
 // This buf shift allows us to read messages that we didn't start reading immediately.
 // Note that the most we generally see is 3, but we use a higher value conservatively.
-const MAX_BUF_SHIFT: usize = 10;
+const MAX_BUF_SHIFT: usize = 0;
 
 const CRC_POLY: u8 = 0xd5;
 const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
@@ -240,7 +240,10 @@ impl Packet {
     pub fn from_buf(buf: &[u8]) -> Result<Self, DecodeError> {
         let dest_addr: DestAddr = match buf[0].try_into() {
             Ok(d) => d,
-            Err(_) => return Err(DecodeError {}),
+            Err(_) => {
+                println!("Dest Addr error");
+                return Err(DecodeError {});
+            }
         };
 
         // Byte 1 (`len` var below) is the length of bytes to follow, ie type (1 byte),
@@ -253,7 +256,10 @@ impl Packet {
 
         let frame_type: FrameType = match buf[2].try_into() {
             Ok(f) => f,
-            Err(_) => return Err(DecodeError {}),
+            Err(_) => {
+                println!("Frame type error");
+                return Err(DecodeError {});
+            }
         };
 
         let mut payload = [0; MAX_PAYLOAD_SIZE];
@@ -280,10 +286,11 @@ impl Packet {
         );
 
         if expected_crc != received_crc {
-            println!(
-                "CRSF CRC failed on recieved packet. Expected: {}. Received: {}",
-                expected_crc, received_crc
-            );
+            // todo: We are getting lots of CRC errors out of nowhere!!
+            // println!(
+            //     "CRSF CRC failed on recieved packet. Expected: {}. Received: {}",
+            //     expected_crc, received_crc
+            // );
             return Err(DecodeError {});
         };
 
@@ -370,67 +377,15 @@ impl Packet {
 }
 
 /// Handle an incomming packet. Triggered whenever the line goes idle.
-pub fn handle_packet(
-    // uart: &mut crate::setup::UartCrsf,
-    rx_chan: DmaChannel,
-    rx_fault: &mut bool,
-) -> Option<PacketData> {
-    // Sometimes the buff starts at index 1; not sure why. Identify and compensate.
-    let mut start_i = 0;
-    let mut start_i_found = false;
-    let mut buf_shifted = [0; MAX_PACKET_SIZE];
-    let mut workaround = false;
+pub fn handle_packet(rx_chan: DmaChannel, rx_fault: &mut bool) -> Option<PacketData> {
+    let buf = unsafe { &RX_BUFFER };
 
-    // todo: workaround klodge for when byte 1 is missing. Not sure why this happens.
-    // todo: Eventually, find a more robust solution.
-    let mut buf_shifted = [0; RX_BUF_SIZE];
-
-    if !workaround {
-        // This flexible start index allows us to read messages even if the reception was
-        // slightly delayed - this would result in the buffer being shifted right 1 or more bytes.
-        for i in 0..MAX_BUF_SHIFT {
-            unsafe {
-                if RX_BUFFER[i] != DestAddr::FlightController as u8 {
-                    continue;
-                }
-
-                let next_byte = RX_BUFFER[i + 1];
-                let two_bytes_ahead = RX_BUFFER[i + 2];
-
-                if (next_byte == PAYLOAD_SIZE_RC_CHANNELS as u8 + 2
-                    && two_bytes_ahead == FrameType::RcChannelsPacked as u8)
-                    || (next_byte == PAYLOAD_SIZE_LINK_STATS as u8 + 2
-                        && two_bytes_ahead == FrameType::LinkStatistics as u8)
-                {
-                    start_i = i;
-                    start_i_found = true;
-                    break;
-                }
-            }
-        }
-
-        if !start_i_found {
-            *rx_fault = true;
-            println!("Can't find starting position in Rx payload");
-            println!("RX buf: {:?}", unsafe { RX_BUFFER });
-            return None;
-        }
-
-        for i in 0..MAX_PACKET_SIZE {
-            let msg_start_i = start_i + i;
-            buf_shifted[i] = unsafe { RX_BUFFER }[msg_start_i];
-        }
-    }
-
-    // todo: do we need to erase messages as we read them from the buf?
-
-    let packet = match Packet::from_buf(&buf_shifted) {
-        // let packet = match Packet::from_buf(unsafe { & RX_BUFFER }) {
+    let packet = match Packet::from_buf(buf) {
         Ok(p) => p,
         Err(_) => {
             *rx_fault = true;
-            println!("Error decoding packet address or frame type; skipping");
-            println!("BUF: {:?}", unsafe { RX_BUFFER });
+            // println!("Error Parsing CRSF packet");
+            // println!("BUF: {:?}", buf);
             return None;
         }
     };

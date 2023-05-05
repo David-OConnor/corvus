@@ -1,18 +1,26 @@
-//! This module handles mapping control inputs from the ELRS radio controller to program functions.
+//! This module handles mapping control inputs from the radio controller to program functions.
 //! It is not based on the ELRS or CRSF spec; it's an interface layer between that, and the rest of this program.
 //! Interfaces in this module is specific to this program.
 //!
 //! https://www.expresslrs.org/3.0/software/switch-config/
 
+use core::sync::atomic::Ordering;
+
 use crate::{
     protocols::crsf::{self, ChannelDataCrsf, LinkStats, TxPower},
+    safety::{self, ArmStatus},
+    setup,
+    system_status::{self, SensorStatus, SystemStatus},
     util,
 };
+
+use stm32_hal2::{pac::TIM17, timer::Timer};
+
 use num_enum::TryFromPrimitive; // Enum from integer
 
-use crate::safety::ArmStatus;
-
 use cfg_if::cfg_if;
+
+use defmt::println;
 
 const CONTROL_VAL_MIN: f32 = -1.;
 // todo: Note that if you support 0-centering throttles, make this -1 as well.
@@ -284,5 +292,48 @@ impl ChannelData {
             pid_tune_actuation,
             level_attitude_commanded,
         }
+    }
+}
+
+// todo: Is this the right module for this?
+/// Loads channel data and link stats into our shared structures,
+/// from the DMA buffer. Performs link-status updates.
+pub fn handle_crsf_data(
+    control_channel_data: &mut Option<ChannelData>,
+    link_stats: &mut LinkStats,
+    system_status: &mut SystemStatus,
+    lost_link_timer: &mut Timer<TIM17>,
+) {
+    let mut rx_fault = false;
+
+    if let Some(crsf_data) = crsf::handle_packet(setup::CRSF_RX_CH, &mut rx_fault) {
+        match crsf_data {
+            crsf::PacketData::ChannelData(data_crsf) => {
+                *control_channel_data = Some(ChannelData::from_crsf(&data_crsf));
+
+                // We've received a packet successfully - reset the lost-link timer.
+                lost_link_timer.disable();
+                lost_link_timer.reset_count();
+                lost_link_timer.enable();
+
+                if safety::LINK_LOST
+                    .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    println!("Link re-acquired");
+                    // todo: Execute re-acq procedure
+
+                    system_status.rf_control_link = SensorStatus::Pass;
+                }
+            }
+
+            crsf::PacketData::LinkStats(stats) => {
+                *link_stats = stats;
+            }
+        }
+    }
+
+    if rx_fault {
+        system_status::RX_FAULT.store(true, Ordering::Release);
     }
 }

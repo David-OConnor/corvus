@@ -807,7 +807,7 @@ mod app {
     /// sequenced among each other.
     // #[task(binds = DMA1_STR2,
     #[task(binds = DMA1_CH2,
-    shared = [spi1, i2c1, i2c2, current_params, control_channel_data, link_stats,
+    shared = [spi1, i2c1, i2c2, current_params, control_channel_data, link_stats, lost_link_timer,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status, tick_timer],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
@@ -833,6 +833,7 @@ mod app {
             cx.shared.current_params,
             cx.shared.control_channel_data,
             cx.shared.link_stats,
+            cx.shared.lost_link_timer,
             cx.shared.autopilot_status,
             cx.shared.motor_timer,
             cx.shared.servo_timer,
@@ -849,6 +850,7 @@ mod app {
                 |params,
                  control_channel_data,
                  link_stats,
+                 lost_link_timer,
                  autopilot_status,
                  motor_timer,
                  servo_timer,
@@ -1148,60 +1150,9 @@ mod app {
                             );
                         }
 
-
-                        // todo: Start of inserted ctrl-ch data process
-
-                        // todo: Put this all in a fn! The CRSF handling.
-
-                        let mut rx_fault = false;
-                        let mut received_ch_data = false;
-
-                        if let Some(crsf_data) = crsf::handle_packet(setup::CRSF_RX_CH, &mut rx_fault) {
-                            match crsf_data {
-                                crsf::PacketData::ChannelData(data_crsf) => {
-                                    // cx.shared.control_channel_data.lock(|ch_data| {
-                                        *control_channel_data = Some(ChannelData::from_crsf(&data_crsf));
-                                    // });
-
-                                    received_ch_data = true;
-                                }
-
-                                crsf::PacketData::LinkStats(stats) => {
-                                    // cx.shared.link_stats.lock(|link_stats| {
-                                        *link_stats = stats;
-                                    // })
-                                },
-                            }
-                        }
-
-                        if rx_fault {
-                            system_status::RX_FAULT.store(true, Ordering::Release);
-                        }
-
-                        // todo!
-                        // cx.shared.lost_link_timer.lock(|lost_link_timer| {
-                        //     if recieved_ch_data {
-                        //         // We've received a packet successfully - reset the lost-link timer.
-                        //         lost_link_timer.disable();
-                        //         lost_link_timer.reset_count();
-                        //         lost_link_timer.enable();
-                        //
-                        //         if safety::LINK_LOST
-                        //             .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
-                        //             .is_ok()
-                        //         {
-                        //             println!("Link re-acquired");
-                        //             // todo: Execute re-acq procedure
-                        //
-                        //             cx.shared.system_status.lock(|system_status| {
-                        //                 system_status.rf_control_link = SensorStatus::Pass;
-                        //             });
-                        //         }
-                        //     }
-                        // });
-
-
-                        // todo: End of ctrl data processing
+                        // Loads channel data and link stats into our shared structures,
+                        // from the DMA buffer.
+                        control_interface::handle_crsf_data(control_channel_data, link_stats, system_status, lost_link_timer);
 
                         #[cfg(feature = "quad")]
                         if let Some(ch_data) = control_channel_data {
@@ -1611,13 +1562,8 @@ mod app {
     fn crsf_isr(mut cx: crsf_isr::Context) {
         let uart = &mut cx.local.uart_crsf; // Code shortener
 
-        let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
-        let mut rx_fault = false;
-
         uart.clear_interrupt(UsartInterrupt::CharDetect(None));
         uart.clear_interrupt(UsartInterrupt::Idle);
-
-        // println!("\n\nCRSF ISR\n\n");
 
         // todo: Store link stats and control channel data in an intermediate variable.
         // todo: Don't lock it. At least, you don't want any delay when starting the read,
@@ -1666,89 +1612,6 @@ mod app {
             // A `None` value here re-enables the interrupt without changing the char to match.
             uart.enable_interrupt(UsartInterrupt::CharDetect(None));
         }
-
-        //     if let Some(crsf_data) = crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault) {
-        //         match crsf_data {
-        //             crsf::PacketData::ChannelData(data_crsf) => {
-        //                 cx.shared.control_channel_data.lock(|ch_data| {
-        //                     *ch_data = Some(ChannelData::from_crsf(&data_crsf));
-        //                 });
-        //
-        //                 recieved_ch_data = true;
-        //
-        //                 // We have this PID adjustment here, since they're one-off actuations.
-        //                 // We handle other things like autopilot mode entry in the update fn.
-        //                 // if cx.local.ctrl_coeff_adj_timer.is_enabled() {
-        //                 //     println!("PID timer is still running.");
-        //                 // } else {
-        //                 //     let pid_adjustment = match ch_data.pid_tune_actuation {
-        //                 //         PidTuneActuation::Increase => CTRL_COEFF_ADJ_AMT,
-        //                 //         PidTuneActuation::Decrease => -CTRL_COEFF_ADJ_AMT,
-        //                 //         PidTuneActuation::Neutral => 0.,
-        //                 //     };
-        //                 //
-        //                 //     match ch_data.pid_tune_actuation {
-        //                 //         PidTuneActuation::Neutral => (),
-        //                 //         _ => {
-        //                 //             println!("Adjusting PID");
-        //                 //             // match ch_data.pid_tune_mode {
-        //                 //             //     PidTuneMode::Disabled => (),
-        //                 //             //     PidTuneMode::P => {
-        //                 //             //         // todo: for now or forever, adjust pitch, roll, yaw
-        //                 //             //         // todo at once to keep UI simple
-        //                 //             //         ctrl_coeffs.pitch.k_p_rate += pid_adjustment;
-        //                 //             //         ctrl_coeffs.roll.k_p_rate += pid_adjustment;
-        //                 //             //         // todo: Maybe skip yaw here?
-        //                 //             //         ctrl_coeffs.yaw.k_p_rate += pid_adjustment;
-        //                 //             //     }
-        //                 //             //     PidTuneMode::I => {
-        //                 //             //         ctrl_coeffs.pitch.k_i_rate += pid_adjustment;
-        //                 //             //         ctrl_coeffs.roll.k_i_rate += pid_adjustment;
-        //                 //             //         ctrl_coeffs.yaw.k_i_rate += pid_adjustment;
-        //                 //             //     }
-        //                 //             //     PidTuneMode::D => {
-        //                 //             //         ctrl_coeffs.pitch.k_d_rate += pid_adjustment;
-        //                 //             //         ctrl_coeffs.roll.k_d_rate += pid_adjustment;
-        //                 //             //         ctrl_coeffs.yaw.k_d_rate += pid_adjustment;
-        //                 //             //     }
-        //                 //             // }
-        //                 //         }
-        //                 //     }
-        //                 //     cx.local.ctrl_coeff_adj_timer.reset_count();
-        //                 //     cx.local.ctrl_coeff_adj_timer.enable();
-        //                 // }
-        //             }
-        //             crsf::PacketData::LinkStats(stats) => cx.shared.link_stats.lock(|link_stats| {
-        //                 *link_stats = stats;
-        //             }),
-        //         }
-        //     }
-        // }
-        //
-        // if rx_fault {
-        //     system_status::RX_FAULT.store(true, Ordering::Release);
-        // }
-        //
-        // cx.shared.lost_link_timer.lock(|lost_link_timer| {
-        //     if recieved_ch_data {
-        //         // We've received a packet successfully - reset the lost-link timer.
-        //         lost_link_timer.disable();
-        //         lost_link_timer.reset_count();
-        //         lost_link_timer.enable();
-        //
-        //         if safety::LINK_LOST
-        //             .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
-        //             .is_ok()
-        //         {
-        //             println!("Link re-acquired");
-        //             // todo: Execute re-acq procedure
-        //
-        //             cx.shared.system_status.lock(|system_status| {
-        //                 system_status.rf_control_link = SensorStatus::Pass;
-        //             });
-        //         }
-        //     }
-        // });
     }
 
     /// If this triggers, it means we've received no radio control signals for a significant
