@@ -380,8 +380,8 @@ mod app {
                 let uart_crsf_pac = dp.UART7;
                 let uart_osd_pac = dp.USART2;
             } else {
-                let uart_crsf_pac = dp.USART2;
-                // let uart_crsf_pac = dp.USART3;
+                // let uart_crsf_pac = dp.USART2;
+                let uart_crsf_pac = dp.USART3;
                 let uart_osd_pac = dp.UART4;
             }
         }
@@ -805,9 +805,9 @@ mod app {
     /// Certain tasks, like reading IMU measurements and filtering are run each time this function runs.
     /// Flight control logic is run once every several runs. Other tasks are run even less,
     /// sequenced among each other.
-    #[task(binds = DMA1_STR2,
-    // #[task(binds = DMA1_CH2,
-    shared = [spi1, i2c1, i2c2, current_params, control_channel_data,
+    // #[task(binds = DMA1_STR2,
+    #[task(binds = DMA1_CH2,
+    shared = [spi1, i2c1, i2c2, current_params, control_channel_data, link_stats,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status, tick_timer],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
@@ -832,6 +832,7 @@ mod app {
         (
             cx.shared.current_params,
             cx.shared.control_channel_data,
+            cx.shared.link_stats,
             cx.shared.autopilot_status,
             cx.shared.motor_timer,
             cx.shared.servo_timer,
@@ -847,6 +848,7 @@ mod app {
             .lock(
                 |params,
                  control_channel_data,
+                 link_stats,
                  autopilot_status,
                  motor_timer,
                  servo_timer,
@@ -1098,13 +1100,13 @@ mod app {
                     // control ratio filter, so factor that out.
                     let i_compensated = i / FLIGHT_CTRL_IMU_RATIO;
 
-                    if i_compensated % 2_000 == 0 {
-                        println!("Mix. T:{} P:{} R:{} Y:{}", state_volatile.ctrl_mix.throttle, state_volatile.ctrl_mix.pitch, state_volatile.ctrl_mix.roll, state_volatile.ctrl_mix.yaw);
-
-                        let s = &state_volatile.motor_servo_state;
-                        println!("P. FL: {} FR: {} AL: {} AR: {}", s.rotor_front_left.power_setting ,
-                                 s.rotor_front_right.power_setting, s.rotor_aft_left.power_setting, s.rotor_aft_right.power_setting);
-                    }
+                    // if i_compensated % 2_000 == 0 {
+                    //     println!("Mix. T:{} P:{} R:{} Y:{}", state_volatile.ctrl_mix.throttle, state_volatile.ctrl_mix.pitch, state_volatile.ctrl_mix.roll, state_volatile.ctrl_mix.yaw);
+                    //
+                    //     let s = &state_volatile.motor_servo_state;
+                    //     println!("P. FL: {} FR: {} AL: {} AR: {}", s.rotor_front_left.power_setting ,
+                    //              s.rotor_front_right.power_setting, s.rotor_aft_left.power_setting, s.rotor_aft_right.power_setting);
+                    // }
 
                     if (i_compensated - 0) % NUM_IMU_LOOP_TASKS == 0 {
                         let mut batt_v = 0.;
@@ -1145,6 +1147,61 @@ mod app {
                                 DT_MAIN_LOOP,
                             );
                         }
+
+
+                        // todo: Start of inserted ctrl-ch data process
+
+                        // todo: Put this all in a fn! The CRSF handling.
+
+                        let mut rx_fault = false;
+                        let mut received_ch_data = false;
+
+                        if let Some(crsf_data) = crsf::handle_packet(setup::CRSF_RX_CH, &mut rx_fault) {
+                            match crsf_data {
+                                crsf::PacketData::ChannelData(data_crsf) => {
+                                    // cx.shared.control_channel_data.lock(|ch_data| {
+                                        *control_channel_data = Some(ChannelData::from_crsf(&data_crsf));
+                                    // });
+
+                                    received_ch_data = true;
+                                }
+
+                                crsf::PacketData::LinkStats(stats) => {
+                                    // cx.shared.link_stats.lock(|link_stats| {
+                                        *link_stats = stats;
+                                    // })
+                                },
+                            }
+                        }
+
+                        if rx_fault {
+                            system_status::RX_FAULT.store(true, Ordering::Release);
+                        }
+
+                        // todo!
+                        // cx.shared.lost_link_timer.lock(|lost_link_timer| {
+                        //     if recieved_ch_data {
+                        //         // We've received a packet successfully - reset the lost-link timer.
+                        //         lost_link_timer.disable();
+                        //         lost_link_timer.reset_count();
+                        //         lost_link_timer.enable();
+                        //
+                        //         if safety::LINK_LOST
+                        //             .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+                        //             .is_ok()
+                        //         {
+                        //             println!("Link re-acquired");
+                        //             // todo: Execute re-acq procedure
+                        //
+                        //             cx.shared.system_status.lock(|system_status| {
+                        //                 system_status.rf_control_link = SensorStatus::Pass;
+                        //             });
+                        //         }
+                        //     }
+                        // });
+
+
+                        // todo: End of ctrl data processing
 
                         #[cfg(feature = "quad")]
                         if let Some(ch_data) = control_channel_data {
@@ -1293,8 +1350,8 @@ mod app {
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     // #[task(binds = OTG_HS,
-    #[task(binds = OTG_FS,
-    // #[task(binds = USB_LP,
+    // #[task(binds = OTG_FS,
+    #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, current_params, control_channel_data,
     link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer],
     local = [], priority = 2)]
@@ -1368,8 +1425,8 @@ mod app {
             )
     }
 
-    #[task(binds = DMA1_STR3,
-    // #[task(binds = DMA1_CH3,
+    // #[task(binds = DMA1_STR3,
+    #[task(binds = DMA1_CH3,
     shared = [motor_timer], priority = 6)]
     /// We use this ISR to initialize the RPM reception procedures upon completion of the dshot
     /// power setting transmission to the ESC.
@@ -1535,11 +1592,13 @@ mod app {
     }
 
     // todo: Evaluate priority.
-    #[task(binds = UART7,
-    // #[task(binds = USART3,
-    // #[task(binds = USART2,
-    shared = [control_channel_data, link_stats, rf_limiter_timer, system_status,
-    lost_link_timer], local = [uart_crsf], priority = 8)]
+    // #[task(binds = UART7,
+    #[task(binds = USART3,
+// #[task(binds = USART2,
+// shared = [control_channel_data, link_stats, rf_limiter_timer, system_status,
+// lost_link_timer], local = [uart_crsf], priority = 8)]
+
+    shared = [], local = [uart_crsf], priority = 8)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
     /// and message ends. For message starts, it begins a DMA transfer. For message ends, it
     /// processes the radio data, passing it into shared resources for control channel data,
@@ -1551,15 +1610,14 @@ mod app {
     /// Must be a higher priority than the IMU TC isr.
     fn crsf_isr(mut cx: crsf_isr::Context) {
         let uart = &mut cx.local.uart_crsf; // Code shortener
-                                            // println!("CRSF");
+
         let mut recieved_ch_data = false; // Lets us split up the lock a bit more.
         let mut rx_fault = false;
 
         uart.clear_interrupt(UsartInterrupt::CharDetect(None));
         uart.clear_interrupt(UsartInterrupt::Idle);
 
-        println!("\n\nCRSF ISR\n\n");
-        return;
+        // println!("\n\nCRSF ISR\n\n");
 
         // todo: Store link stats and control channel data in an intermediate variable.
         // todo: Don't lock it. At least, you don't want any delay when starting the read,
@@ -1602,105 +1660,102 @@ mod app {
                 );
             }
         } else {
-            // todo: These lines todo temp
-            let mut buf = [0; 5];
-            uart.read(&mut buf);
-            println!("\n\n\nRead Buf CRSF: {:x}\n\n\n\n", buf);
-            return crsf::TRANSFER_IN_PROG.store(false, Ordering::Relaxed);
+            crsf::TRANSFER_IN_PROG.store(false, Ordering::Relaxed);
             // Line is idle.
 
             // A `None` value here re-enables the interrupt without changing the char to match.
             uart.enable_interrupt(UsartInterrupt::CharDetect(None));
-
-            if let Some(crsf_data) = crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault) {
-                match crsf_data {
-                    crsf::PacketData::ChannelData(data_crsf) => {
-                        cx.shared.control_channel_data.lock(|ch_data| {
-                            *ch_data = Some(ChannelData::from_crsf(&data_crsf));
-                        });
-
-                        recieved_ch_data = true;
-
-                        // We have this PID adjustment here, since they're one-off actuations.
-                        // We handle other things like autopilot mode entry in the update fn.
-                        // if cx.local.ctrl_coeff_adj_timer.is_enabled() {
-                        //     println!("PID timer is still running.");
-                        // } else {
-                        //     let pid_adjustment = match ch_data.pid_tune_actuation {
-                        //         PidTuneActuation::Increase => CTRL_COEFF_ADJ_AMT,
-                        //         PidTuneActuation::Decrease => -CTRL_COEFF_ADJ_AMT,
-                        //         PidTuneActuation::Neutral => 0.,
-                        //     };
-                        //
-                        //     match ch_data.pid_tune_actuation {
-                        //         PidTuneActuation::Neutral => (),
-                        //         _ => {
-                        //             println!("Adjusting PID");
-                        //             // match ch_data.pid_tune_mode {
-                        //             //     PidTuneMode::Disabled => (),
-                        //             //     PidTuneMode::P => {
-                        //             //         // todo: for now or forever, adjust pitch, roll, yaw
-                        //             //         // todo at once to keep UI simple
-                        //             //         ctrl_coeffs.pitch.k_p_rate += pid_adjustment;
-                        //             //         ctrl_coeffs.roll.k_p_rate += pid_adjustment;
-                        //             //         // todo: Maybe skip yaw here?
-                        //             //         ctrl_coeffs.yaw.k_p_rate += pid_adjustment;
-                        //             //     }
-                        //             //     PidTuneMode::I => {
-                        //             //         ctrl_coeffs.pitch.k_i_rate += pid_adjustment;
-                        //             //         ctrl_coeffs.roll.k_i_rate += pid_adjustment;
-                        //             //         ctrl_coeffs.yaw.k_i_rate += pid_adjustment;
-                        //             //     }
-                        //             //     PidTuneMode::D => {
-                        //             //         ctrl_coeffs.pitch.k_d_rate += pid_adjustment;
-                        //             //         ctrl_coeffs.roll.k_d_rate += pid_adjustment;
-                        //             //         ctrl_coeffs.yaw.k_d_rate += pid_adjustment;
-                        //             //     }
-                        //             // }
-                        //         }
-                        //     }
-                        //     cx.local.ctrl_coeff_adj_timer.reset_count();
-                        //     cx.local.ctrl_coeff_adj_timer.enable();
-                        // }
-                    }
-                    crsf::PacketData::LinkStats(stats) => cx.shared.link_stats.lock(|link_stats| {
-                        *link_stats = stats;
-                    }),
-                }
-            }
         }
 
-        if rx_fault {
-            system_status::RX_FAULT.store(true, Ordering::Release);
-        }
-
-        cx.shared.lost_link_timer.lock(|lost_link_timer| {
-            if recieved_ch_data {
-                // We've received a packet successfully - reset the lost-link timer.
-                lost_link_timer.disable();
-                lost_link_timer.reset_count();
-                lost_link_timer.enable();
-
-                if safety::LINK_LOST
-                    .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    println!("Link re-acquired");
-                    // todo: Execute re-acq procedure
-
-                    cx.shared.system_status.lock(|system_status| {
-                        system_status.rf_control_link = SensorStatus::Pass;
-                    });
-                }
-            }
-        });
+        //     if let Some(crsf_data) = crsf::handle_packet(uart, setup::CRSF_RX_CH, &mut rx_fault) {
+        //         match crsf_data {
+        //             crsf::PacketData::ChannelData(data_crsf) => {
+        //                 cx.shared.control_channel_data.lock(|ch_data| {
+        //                     *ch_data = Some(ChannelData::from_crsf(&data_crsf));
+        //                 });
+        //
+        //                 recieved_ch_data = true;
+        //
+        //                 // We have this PID adjustment here, since they're one-off actuations.
+        //                 // We handle other things like autopilot mode entry in the update fn.
+        //                 // if cx.local.ctrl_coeff_adj_timer.is_enabled() {
+        //                 //     println!("PID timer is still running.");
+        //                 // } else {
+        //                 //     let pid_adjustment = match ch_data.pid_tune_actuation {
+        //                 //         PidTuneActuation::Increase => CTRL_COEFF_ADJ_AMT,
+        //                 //         PidTuneActuation::Decrease => -CTRL_COEFF_ADJ_AMT,
+        //                 //         PidTuneActuation::Neutral => 0.,
+        //                 //     };
+        //                 //
+        //                 //     match ch_data.pid_tune_actuation {
+        //                 //         PidTuneActuation::Neutral => (),
+        //                 //         _ => {
+        //                 //             println!("Adjusting PID");
+        //                 //             // match ch_data.pid_tune_mode {
+        //                 //             //     PidTuneMode::Disabled => (),
+        //                 //             //     PidTuneMode::P => {
+        //                 //             //         // todo: for now or forever, adjust pitch, roll, yaw
+        //                 //             //         // todo at once to keep UI simple
+        //                 //             //         ctrl_coeffs.pitch.k_p_rate += pid_adjustment;
+        //                 //             //         ctrl_coeffs.roll.k_p_rate += pid_adjustment;
+        //                 //             //         // todo: Maybe skip yaw here?
+        //                 //             //         ctrl_coeffs.yaw.k_p_rate += pid_adjustment;
+        //                 //             //     }
+        //                 //             //     PidTuneMode::I => {
+        //                 //             //         ctrl_coeffs.pitch.k_i_rate += pid_adjustment;
+        //                 //             //         ctrl_coeffs.roll.k_i_rate += pid_adjustment;
+        //                 //             //         ctrl_coeffs.yaw.k_i_rate += pid_adjustment;
+        //                 //             //     }
+        //                 //             //     PidTuneMode::D => {
+        //                 //             //         ctrl_coeffs.pitch.k_d_rate += pid_adjustment;
+        //                 //             //         ctrl_coeffs.roll.k_d_rate += pid_adjustment;
+        //                 //             //         ctrl_coeffs.yaw.k_d_rate += pid_adjustment;
+        //                 //             //     }
+        //                 //             // }
+        //                 //         }
+        //                 //     }
+        //                 //     cx.local.ctrl_coeff_adj_timer.reset_count();
+        //                 //     cx.local.ctrl_coeff_adj_timer.enable();
+        //                 // }
+        //             }
+        //             crsf::PacketData::LinkStats(stats) => cx.shared.link_stats.lock(|link_stats| {
+        //                 *link_stats = stats;
+        //             }),
+        //         }
+        //     }
+        // }
+        //
+        // if rx_fault {
+        //     system_status::RX_FAULT.store(true, Ordering::Release);
+        // }
+        //
+        // cx.shared.lost_link_timer.lock(|lost_link_timer| {
+        //     if recieved_ch_data {
+        //         // We've received a packet successfully - reset the lost-link timer.
+        //         lost_link_timer.disable();
+        //         lost_link_timer.reset_count();
+        //         lost_link_timer.enable();
+        //
+        //         if safety::LINK_LOST
+        //             .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+        //             .is_ok()
+        //         {
+        //             println!("Link re-acquired");
+        //             // todo: Execute re-acq procedure
+        //
+        //             cx.shared.system_status.lock(|system_status| {
+        //                 system_status.rf_control_link = SensorStatus::Pass;
+        //             });
+        //         }
+        //     }
+        // });
     }
 
     /// If this triggers, it means we've received no radio control signals for a significant
     ///period of time; we treat this as a lost-link situation.
     /// (Note that this is for TIM17 on both variants)
-    #[task(binds = TIM17,
-    // #[task(binds = TIM1_TRG_COM,
+    // #[task(binds = TIM17,
+    #[task(binds = TIM1_TRG_COM,
     shared = [lost_link_timer, state_volatile, autopilot_status,
     current_params, system_status, control_channel_data], priority = 2)]
     fn lost_link_isr(mut cx: lost_link_isr::Context) {
@@ -1748,8 +1803,8 @@ mod app {
         TICK_OVERFLOW_COUNT.fetch_add(1, Ordering::Relaxed);
     }
 
-    #[task(binds = TIM16,
-    // #[task(binds = TIM1_UP_TIM16,
+    // #[task(binds = TIM16,
+    #[task(binds = TIM1_UP_TIM16,
     shared = [rf_limiter_timer], priority = 2)]
     fn rf_limiter_isr(mut cx: rf_limiter_isr::Context) {
         // println!("RF limiter ISR");
@@ -1760,8 +1815,8 @@ mod app {
         });
     }
 
-    #[task(binds = DMA2_STR1,
-    // #[task(binds = DMA2_CH1,
+    // #[task(binds = DMA2_STR1,
+    #[task(binds = DMA2_CH1,
     shared = [i2c2], priority = 2)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
@@ -1786,8 +1841,8 @@ mod app {
 
     // todo: For now, we start new transfers in the main loop.
 
-    #[task(binds = DMA2_STR2,
-    // #[task(binds = DMA2_CH2,
+    // #[task(binds = DMA2_STR2,
+    #[task(binds = DMA2_CH2,
     shared = [altimeter, current_params, state_volatile], priority = 3)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(cx: baro_read_tc_isr::Context) {
@@ -1818,8 +1873,8 @@ mod app {
             });
     }
 
-    #[task(binds = DMA2_STR3,
-    // #[task(binds = DMA2_CH3,
+    // #[task(binds = DMA2_STR3,
+    #[task(binds = DMA2_CH3,
     shared = [i2c1, ext_sensor_active], priority = 2)]
     /// External sensors write complete; start external sensors read.
     fn ext_sensors_write_tc_isr(cx: ext_sensors_write_tc_isr::Context) {
@@ -1869,8 +1924,8 @@ mod app {
         });
     }
 
-    #[task(binds = DMA2_STR4,
-    // #[task(binds = DMA2_CH4,
+    // #[task(binds = DMA2_STR4,
+    #[task(binds = DMA2_CH4,
     shared = [i2c1, ext_sensor_active], priority = 2)]
     /// Ext sensors write complete; start read of the next sensor in sequence.
     fn ext_sensors_read_tc_isr(cx: ext_sensors_read_tc_isr::Context) {
@@ -1921,7 +1976,9 @@ mod app {
         });
     }
 
-    #[task(binds = FDCAN1_IT0, shared = [can], priority = 4)] // todo: Temp high prio
+    // #[task(binds = FDCAN1_IT0,
+    #[task(binds = FDCAN1_INTR0_IT,
+    shared = [can], priority = 4)] // todo: Temp high prio
     /// Ext sensors write complete; start read of the next sensor in sequence.
     fn can_isr(mut cx: can_isr::Context) {
         // todo: Use CAN hardware filters.
@@ -1942,9 +1999,6 @@ mod app {
                         Id::Standard(id) => id.as_raw() as u32,
                         Id::Extended(id) => id.as_raw(),
                     };
-
-                    // println!("Buf: {:?}", rx_buf);
-                    // println!("Can id: {}", id);
 
                     let can_id = dronecan::CanId::from_value(id);
                     // println!(
@@ -1969,7 +2023,6 @@ mod app {
                         //     );
 
                         match can_id.message_type_id {
-                            dronecan::DATA_TYPE_ID_NODE_STATUS => {}
                             dronecan::DATA_TYPE_ID_FIX2 => {
                                 let fix = dronecan::gnss::FixDronecan::unpack(
                                     // &rx_buf[0..50].try_into().unwrap(),
@@ -1989,19 +2042,50 @@ mod app {
                                         println!("Error unpacking fix");
                                     }
                                 }
+                                // println!("Test broadcast");
+                                // // todo temp: Testing config get/set.
+                                // dronecan::broadcast(
+                                //     can,
+                                //     dronecan::MsgPriority::Slow,
+                                //     2_110,
+                                //     1,
+                                //     0,
+                                //     &mut [5, 6, 7, 8, 9, 10, 11, 12],
+                                //     8, //
+                                //     true,
+                                // ).ok();
+
+                                // let mut cfg_to_set = &[0; 8]
+                                // dronecan::broadcast(
+                                //     can,
+                                //     dronecan::MsgPriority::Slow,
+                                //     2_111,
+                                //     0,
+                                //     0,
+                                //     &mut cfg_to_set,
+                                //     0,
+                                //     true,
+                                // ).ok();
                             }
                             dronecan::DATA_TYPE_ID_STATIC_PRESSURE => {
                                 let pressure = f32::from_le_bytes(rx_buf[0..4].try_into().unwrap());
                                 println!("Pressure: {} kPa", pressure / 1_000.);
                             }
                             dronecan::DATA_TYPE_ID_STATIC_TEMPERATURE => {
-                                // f16
                                 let temp =
                                     f32::from(f16::from_le_bytes(rx_buf[0..2].try_into().unwrap()));
                                 println!("Temp: {} K", temp);
                             }
+                            dronecan::DATA_TYPE_ID_MAGNETIC_FIELD_STRENGTH2 => {
+                                let x =
+                                    f32::from(f16::from_le_bytes(rx_buf[1..3].try_into().unwrap()));
+                                let y =
+                                    f32::from(f16::from_le_bytes(rx_buf[3..5].try_into().unwrap()));
+                                let z =
+                                    f32::from(f16::from_le_bytes(rx_buf[5..7].try_into().unwrap()));
+                                println!("Mag. x: {}, y: {}, z: {}", x, y, z);
+                            }
                             dronecan::DATA_TYPE_ID_NODE_STATUS => {
-                                // f16
                                 let uptime = u32::from_le_bytes(rx_buf[0..4].try_into().unwrap());
                                 println!(
                                     "Node status. Uptime sec: {}, health: {}, mode; {}",
@@ -2009,7 +2093,11 @@ mod app {
                                 );
                             }
                             _ => {
-                                println!("Unknown message type received");
+                                println!(
+                                    "Unknown message type received: {}",
+                                    can_id.message_type_id
+                                );
+                                println!("Rx buf: {:?}", rx_buf);
                             }
                         }
                     }

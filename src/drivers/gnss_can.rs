@@ -11,7 +11,8 @@ use packed_struct::{prelude::*, PackedStruct};
 
 use dronecan::{
     gnss::{EcefPositionVelocity, FixDronecan, FixStatus, GnssMode, GnssSubMode, GnssTimeStandard},
-    CanError, ConfigCommon, HardwareVersion, MsgPriority, SoftwareVersion, CONFIG_COMMON_SIZE,
+    CanError, ConfigCommon, HardwareVersion, MsgPriority, SoftwareVersion,
+    PAYLOAD_SIZE_CONFIG_COMMON,
 };
 
 use half::f16;
@@ -58,7 +59,7 @@ impl Default for Config {
 
 impl Config {
     pub fn from_bytes(buf: &[u8]) -> Self {
-        const CCS: usize = CONFIG_COMMON_SIZE;
+        const CCS: usize = PAYLOAD_SIZE_CONFIG_COMMON;
         Self {
             common: ConfigCommon::from_bytes(&buf[0..CCS]),
             broadcast_rate_gnss: buf[CCS],
@@ -70,7 +71,7 @@ impl Config {
     }
 
     pub fn to_bytes(&self) -> [u8; CONFIG_SIZE] {
-        const CCS: usize = CONFIG_COMMON_SIZE;
+        const CCS: usize = PAYLOAD_SIZE_CONFIG_COMMON;
         let mut result = [0; CONFIG_SIZE];
 
         result[0..CCS].clone_from_slice(&self.common.to_bytes());
@@ -141,6 +142,7 @@ pub fn from_fix(fix: &Fix, timestamp: f32) -> FixDronecan {
         mode: GnssMode::Dgps,                     // todo
         sub_mode: GnssSubMode::DgpsOtherRtkFloat, // todo?
         // covariance: [None; 36],                   // todo?
+        covariance: 0,
         pdop,
         // ecef_position_velocity,
     }

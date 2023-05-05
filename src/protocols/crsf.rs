@@ -371,7 +371,7 @@ impl Packet {
 
 /// Handle an incomming packet. Triggered whenever the line goes idle.
 pub fn handle_packet(
-    uart: &mut crate::setup::UartCrsf,
+    // uart: &mut crate::setup::UartCrsf,
     rx_chan: DmaChannel,
     rx_fault: &mut bool,
 ) -> Option<PacketData> {

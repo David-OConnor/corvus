@@ -92,26 +92,17 @@ pub enum Reg {
 }
 
 pub fn setup(i2c: &mut I2cMag) -> Result<(), MagNotConnectedError> {
-    // todo 2 to TS
-    // todo: Could we take advantaeg of temp here for a diff purpose, away
-    // from the FC board?
-    println!("Mag setup start");
-
     let mut read_buf = [0];
     i2c.write_read(ADDR, &[Reg::WhoAmI as u8], &mut read_buf)?;
-
-    println!("Mag setup A, {}", read_buf);
 
     if (read_buf[0]) != WHOAMI {
         return Err(MagNotConnectedError {});
     }
 
-    // Disable temp sensor. Set fast ODR, in ultra-high-performance mode.
-    // Todo: This sets a relatively low refresh rate of 155Hz.
-    // todo: But lower performance modes have up to 1kHz??
+    // Disable temp sensor. Set fast Output Data Register, in ultra-high-performance mode.
+    // This leads to a 155Hz refresh rate on the ODR.
+    // todo: Do you want perhaps HP or MP mode at a higher rate?
     i2c.write(ADDR, &[Reg::Ctrl1 as u8, 0b0110_0010])?;
-
-    println!("Mag setup B");
 
     // Set fullscale range.
     let ctrl2_val = (FULL_SCALE_DEFLECTION as u8) << 5;
@@ -125,37 +116,36 @@ pub fn setup(i2c: &mut I2cMag) -> Result<(), MagNotConnectedError> {
 
     // Disable fast read. Disable block data update. Perhaps this
     // will ensure the latest data is always what we read.
-    // todo: Do we want block data update?
     // "Block data update for magnetic data. Default value: 0
     // (0: continuous update;
     // 1: output registers not updated until MSb and LSb have been read)"
     i2c.write(ADDR, &[Reg::Ctrl5 as u8, 0b0000_0000])?;
 
-    println!("Mag setup complete");
-
     Ok(())
 }
 
-/// Given readings taken from registers directly, calcualte pressure.
+pub fn interpret_mag(val: i16) -> f32 {
+    (val as f32 / i16::MAX as f32) * FULL_SCALE_DEFLECTION.value()
+}
+
+/// Given readings taken from registers directly, calcualte magnetic induction (flux density),
+/// in Gauss.
 /// We split this from the other functions for use with DMA.
-pub fn orientation_from_readings(buf: &[u8; 6]) -> Vec3 {
+pub fn mag_induction_from_readings(buf: &[u8; 6]) -> Vec3 {
     let [xl, xh, yl, yh, zl, zh] = *buf;
 
-    let fsd = FULL_SCALE_DEFLECTION.value();
-
-    let x = i16::from_le_bytes([xl, xh]) as f32 / fsd;
-    let y = i16::from_le_bytes([yl, yh]) as f32 / fsd;
-    let z = i16::from_le_bytes([zl, zh]) as f32 / fsd;
+    let x = interpret_mag(i16::from_le_bytes([xl, xh]));
+    let y = interpret_mag(i16::from_le_bytes([yl, yh]));
+    let z = interpret_mag(i16::from_le_bytes([zl, zh]));
 
     Vec3::new(x, y, z)
 }
 
-pub fn read_orientation(i2c: &mut I2cMag) -> Result<Vec3, MagNotConnectedError> {
+/// Reads magnetic induction (flux density), in Gauss.
+pub fn read(i2c: &mut I2cMag) -> Result<Vec3, MagNotConnectedError> {
     // The Pressure Data registers contains the 16 bit 2's complement magnetic inductino measurement value.
     let mut buf = [0; 6];
     i2c.write_read(ADDR, &[Reg::OutXL as u8], &mut buf)?;
 
-    println!("Buf: {:?}", buf);
-
-    Ok(orientation_from_readings(&buf))
+    Ok(mag_induction_from_readings(&buf))
 }

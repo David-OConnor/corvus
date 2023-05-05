@@ -164,13 +164,13 @@ cfg_if! {
     } else {
         // todo: USART2 is not working for some reason, at least for CRSF.
         // todo: Do more testing.
-        type UartCrsfRegs = pac::USART2;
-        // type UartCrsfRegs = pac::USART3;
+        // type UartCrsfRegs = pac::USART2;
+        type UartCrsfRegs = pac::USART3;
         type UartOsdRegs = pac::UART4;
         pub type SpiPacFlash = pac::SPI2;
         pub type SpiFlash = Spi2<SpiPacFlash>;
-        pub type UartCrsf = Usart<pac::USART2>;
-        // pub type UartCrsf = Usart<pac::USART3>;
+        // pub type UartCrsf = Usart<pac::USART2>;
+        pub type UartCrsf = Usart<pac::USART3>;
         pub type UartOsd = Usart4<pac::UART4>;
     }
 }
@@ -403,21 +403,21 @@ pub fn setup_pins() {
             let mut uart_crsf_rx = Pin::new(Port::B, 3, PinMode::Alt(11));
         } else {
             // We use UART 2 for ELRS on G4.
-            let mut uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
-            let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
+            // let mut uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
+            // let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
 
             // Undo settings on PB3 and PB4 that are due to initial debug-pin config.
-            uart_crsf_tx.pull(Pull::Floating);
-            uart_crsf_tx.output_speed(OutputSpeed::Low);
-            uart_crsf_rx.output_speed(OutputSpeed::Low);
+            // uart_crsf_tx.pull(Pull::Floating);
+            // uart_crsf_tx.output_speed(OutputSpeed::Low);
+            // uart_crsf_rx.output_speed(OutputSpeed::Low);
 
             // todo: TS
             // let pwr = unsafe { &(*pac::PWR::ptr()) };
             // pwr.cr3.modify(|_, w| w.ucpd1_dbdis().set_bit());
 
             // Usart 3 TS
-            // let _uart_crsf_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
-            // let mut uart_crsf_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
+            let _uart_crsf_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
+            let mut uart_crsf_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
         }
     }
 
@@ -507,8 +507,8 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
             let crsf_dma_ip = DmaInput::Uart7Rx;
             let osd_dma_ip = DmaInput::Usart2Tx;
         } else {
-            let crsf_dma_ip = DmaInput::Usart2Rx;
-            // let crsf_dma_ip = DmaInput::Usart3Rx;
+            // let crsf_dma_ip = DmaInput::Usart2Rx;
+            let crsf_dma_ip = DmaInput::Usart3Rx;
             let adc_dma_ip = DmaInput::Adc2;
             let osd_dma_ip = DmaInput::Uart4Tx;
         }
@@ -758,8 +758,6 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
     #[cfg(feature = "h7")]
     can::set_message_ram_layout(); // Must be called explicitly; for H7.
 
-    // What bit rate to use? Maybe start with 1Mbit/s
-
     cfg_if! {
         if #[cfg(feature = "h7")] {
             // 120Mhz CAN clock
@@ -821,27 +819,21 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
         from: 0,
         to: 10_000,
     };
-
-    let filter = Filter {
-        filter: filter_,
-        action: Action::StoreInFifo0,
-    };
+    //
+    // let filter = Filter {
+    //     filter: filter_,
+    //     action: Action::StoreInFifo0,
+    // };
 
     can.set_extended_filter(
         ExtendedFilterSlot::_0,
         ExtendedFilter::accept_all_into_fifo0(),
     );
 
-    // let can_cfg = can
-    //     .get_config()
-    //     .set_frame_transmit(can_config::FrameTransmissionConfig::AllowFdCanAndBRS);
-
     can.set_frame_transmit(can_config::FrameTransmissionConfig::AllowFdCanAndBRS);
 
     can.enable_interrupt(Interrupt::RxFifo0NewMsg);
     can.enable_interrupt_line(InterruptLine::_0, true);
-
-    // can.apply_config(can_cfg);
 
     can.into_normal()
 }

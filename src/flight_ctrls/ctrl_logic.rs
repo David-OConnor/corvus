@@ -304,7 +304,7 @@ fn find_ctrl_setting(
     static mut i: u32 = 0;
     unsafe { i += 1 };
     if unsafe { i } % 3_000 == 0 {
-        println!("Pitch tgt accel: {}", α_target);
+        // println!("Pitch tgt accel: {}", α_target);
     }
 
     accel_map.interpolate(α_target)

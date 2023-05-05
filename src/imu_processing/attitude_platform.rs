@@ -87,7 +87,12 @@ pub fn update_attitude(ahrs: &mut Ahrs, params: &mut Params, mag_data: Option<Ve
 
     match mag_data {
         Some(m) => {
-            ahrs.update(gyro_data, accel_data, m, dt);
+            let mag_data = Vec3 {
+                x: m.y,
+                y: m.x,
+                z: m.z,
+            };
+            ahrs.update(gyro_data, accel_data, mag_data, dt);
         }
         None => {
             ahrs.update_no_magnetometer(gyro_data, accel_data, dt);

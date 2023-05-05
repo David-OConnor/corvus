@@ -52,11 +52,6 @@ pub enum ExtSensor {
 
 /// Start continous transfers for all sensors controlled by this module.
 pub fn start_transfers(i2c_ext_sensors: &mut I2cMag, i2c_baro: &mut I2cBaro) {
-    // println!("Starting transfers");
-    // let write_buf_ext_sensors = [starting_addr, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let write_buf_mag = [0, 0];
-    // todo: Hal-level write_read_dma fn?
-
     unsafe {
         // todo: Does this continuous/circular approach work for I2C/multiple sensors
         // todo/these specific sensors?

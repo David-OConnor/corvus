@@ -212,19 +212,19 @@ pub fn print_status(
 
     let log_pts = state_volatile.accel_maps.sample_pts_pitch;
 
-    println!("\n\nLogged pts");
-    for i in 0..10 {
-        println!(
-            "A: {} Cmd: {}, t: {}",
-            log_pts[i].angular_accel, log_pts[i].ctrl_cmd, log_pts[i].timestamp
-        );
-    }
-    println!(
-        "Fit. A: {}, B: {}, C: {}",
-        state_volatile.accel_maps.map_pitch.square,
-        state_volatile.accel_maps.map_pitch.lin,
-        state_volatile.accel_maps.map_pitch.constant
-    );
+    // println!("\n\nLogged pts");
+    // for i in 0..10 {
+    //     println!(
+    //         "A: {} Cmd: {}, t: {}",
+    //         log_pts[i].angular_accel, log_pts[i].ctrl_cmd, log_pts[i].timestamp
+    //     );
+    // }
+    // println!(
+    //     "Fit. A: {}, B: {}, C: {}",
+    //     state_volatile.accel_maps.map_pitch.square,
+    //     state_volatile.accel_maps.map_pitch.lin,
+    //     state_volatile.accel_maps.map_pitch.constant
+    // );
 
     println!(
         "Faults. Rx: {}. RPM: {}",
@@ -362,7 +362,7 @@ pub fn print_status(
         state_volatile.motor_servo_state.motor_thrust2.rpm_reading,
     );
 
-    println!("Alt MSL: {}", params.baro_alt_msl);
+    // println!("Alt MSL: {}", params.baro_alt_msl);
 
     // println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
     // println!(

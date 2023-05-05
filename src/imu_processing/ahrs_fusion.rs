@@ -60,8 +60,16 @@ fn is_zero(v: Vec3) -> bool {
     v.x.abs() < EPS && v.y.abs() < EPS && v.z.abs() < EPS
 }
 
+#[derive(Clone, Copy)]
+pub enum AxisConvention {
+    NorthWestUp,
+    EastNorthUp,
+    NorthEastDown,
+}
+
 /// AHRS algorithm settings. Field doc comments here are from [the readme](https://github.com/xioTechnologies/Fusion).
 pub struct Settings {
+    pub convention: AxisConvention,
     /// The algorithm calculates the orientation as the integration of the gyroscope
     /// summed with a feedback term. The feedback term is equal to the error in the current measurement
     /// of orientation as determined by the other sensors, multiplied by a gain. The algorithm therefore
@@ -109,10 +117,11 @@ impl Default for Settings {
     /// See above field descriptions for why we use these defaults.
     fn default() -> Self {
         Self {
+            convention: AxisConvention::NorthWestUp,
             gain: 0.5,
             accel_rejection: 0.1745,
             magnetic_rejection: 0.35,
-            rejection_timeout: (5. * crate::UPDATE_RATE_FLIGHT_CTRLS) as u32,
+            rejection_timeout: (5. * crate::UPDATE_RATE_IMU) as u32,
         }
     }
 }
@@ -195,7 +204,7 @@ impl Ahrs {
     /// magnetometer measurements.
     /// Gyroscope measurement is in radians per second
     /// accelerometer Accelerometer measurement is in m/s^2.
-    /// magnetometer Magnetometer measurement is in arbitrary units.
+    /// Magnetometer measurement is in arbitrary units.
     /// dt is in seconds.
     pub fn update(&mut self, gyro_data: Vec3, accel_data: Vec3, mag_data: Vec3, dt: f32) {
         // Store accelerometer
@@ -212,14 +221,7 @@ impl Ahrs {
         }
 
         // Calculate direction of gravity indicated by algorithm
-        let half_gravity = {
-            let q = self.quaternion;
-            Vec3 {
-                x: q.x * q.z - q.w * q.y,
-                y: q.y * q.z + q.w * q.x,
-                z: q.w * q.w - 0.5 + q.z * q.z,
-            }
-        }; // third column of transposed rotation matrix scaled by 0.5
+        let half_gravity = self.half_gravity();
 
         // Calculate accelerometer feedback
         let mut half_accelerometer_feedback = Vec3::new_zero();
@@ -257,6 +259,7 @@ impl Ahrs {
         // Calculate magnetometer feedback
         let mut half_magnetometer_feedback = Vec3::new_zero();
         self.magnetometer_ignored = true;
+
         if !is_zero(mag_data) {
             // Set to compass heading if magnetic rejection times out
             self.mag_rejection_timeout = false;
@@ -267,20 +270,13 @@ impl Ahrs {
             }
 
             // Compute direction of west indicated by algorithm
-            let half_west = {
-                let q = self.quaternion;
-                Vec3 {
-                    x: q.x * q.y + q.w * q.z,
-                    y: q.w * q.w - 0.5 + q.y * q.y,
-                    z: q.y * q.z - q.w * q.x,
-                }
-            }; // second column of transposed rotation matrix scaled by 0.5
+            let half_magnetic = self.half_magnetic();
 
             // Calculate magnetometer feedback scaled by 0.5
             self.half_magnetometer_feedback = half_gravity
                 .cross(mag_data)
                 .to_normalized()
-                .cross(half_west);
+                .cross(half_magnetic);
 
             // Ignore magnetometer if magnetic distortion detected
             if self.initialising
@@ -308,6 +304,62 @@ impl Ahrs {
 
         // Normalise quaternion
         self.quaternion = self.quaternion.to_normalized();
+    }
+
+    /// Returns the direction of gravity scaled by 0.5.
+    /// ahrs AHRS algorithm structure.
+    /// Direction of gravity scaled by 0.5.
+    fn half_gravity(&self) -> Vec3 {
+        let q = self.quaternion;
+
+        match self.settings.convention {
+            AxisConvention::NorthWestUp | AxisConvention::EastNorthUp => {
+                Vec3 {
+                    x: q.x * q.z - q.w * q.y,
+                    y: q.y * q.z + q.w * q.x,
+                    z: q.w * q.w - 0.5 + q.z * q.z,
+                } // third column of transposed rotation matrix scaled by 0.5
+            }
+
+            AxisConvention::NorthEastDown => {
+                Vec3 {
+                    x: q.w * q.y - q.x * q.z,
+                    y: -1.0 * (q.y * q.z + q.w * q.x),
+                    z: 0.5 - q.w * q.w - q.z * q.z,
+                } // third column of transposed rotation matrix scaled by -0.5
+            }
+        }
+    }
+
+    /// Returns the direction of the magnetic field scaled by 0.5.
+    /// ahrs AHRS algorithm structure.
+    /// Direction of the magnetic field scaled by 0.5.
+    fn half_magnetic(&self) -> Vec3 {
+        let q = self.quaternion;
+
+        match self.settings.convention {
+            AxisConvention::NorthWestUp => {
+                Vec3 {
+                    x: q.x * q.y + q.w * q.z,
+                    y: q.w * q.w - 0.5 + q.y * q.y,
+                    z: q.y * q.z - q.w * q.x,
+                } // second column of transposed rotation matrix scaled by 0.5
+            }
+            AxisConvention::EastNorthUp => {
+                Vec3 {
+                    x: 0.5 - q.w * q.w - q.x * q.x,
+                    y: q.w * q.z - q.x * q.y,
+                    z: -1.0 * (q.x * q.z + q.w * q.y),
+                } // first column of transposed rotation matrix scaled by -0.5
+            }
+            AxisConvention::NorthEastDown => {
+                Vec3 {
+                    x: -1.0 * (q.x * q.y + q.w * q.z),
+                    y: 0.5 - q.w * q.w - q.y * q.y,
+                    z: q.w * q.x - q.y * q.z,
+                } // second column of transposed rotation matrix scaled by -0.5
+            }
+        }
     }
 
     /// Updates the AHRS algorithm using the gyroscope and accelerometer
