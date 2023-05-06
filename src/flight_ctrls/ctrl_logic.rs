@@ -304,7 +304,7 @@ fn find_ctrl_setting(
     static mut i: u32 = 0;
     unsafe { i += 1 };
     if unsafe { i } % 3_000 == 0 {
-        // println!("Pitch tgt accel: {}", α_target);
+        println!("Pitch tgt accel: {}", α_target);
     }
 
     accel_map.interpolate(α_target)
@@ -341,7 +341,7 @@ pub fn ctrl_mix_from_att(
 
     static mut i: u32 = 0;
     unsafe { i += 1 };
-    if unsafe { i } % 3_000 == 0 {
+    if unsafe { i } % 1_000 == 0 {
         let t = target_attitude.to_euler();
         println!(
             "Tg P:{} R: \
@@ -372,6 +372,7 @@ pub fn ctrl_mix_from_att(
         &accel_maps.map_pitch,
         dt,
     );
+
     let roll = find_ctrl_setting(
         params.s_roll,
         params.v_roll,
@@ -383,6 +384,7 @@ pub fn ctrl_mix_from_att(
         &accel_maps.map_roll,
         dt,
     );
+
     let yaw = find_ctrl_setting(
         params.s_yaw_heading,
         params.v_yaw,

@@ -69,6 +69,9 @@ static mut TX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
 
 pub static TRANSFER_IN_PROG: AtomicBool = AtomicBool::new(false);
 
+// Used to determine if we have a new packet we haven't yet parsed.
+pub static NEW_PACKET_RECEIVED: AtomicBool = AtomicBool::new(false);
+
 // "All packets are in the CRSF format [dest] [len] [type] [payload] [crc8]"
 
 /// Invalid packet, etc.
@@ -257,7 +260,7 @@ impl Packet {
         let frame_type: FrameType = match buf[2].try_into() {
             Ok(f) => f,
             Err(_) => {
-                println!("Frame type error");
+                println!("Frame type error: {:?}", buf);
                 return Err(DecodeError {});
             }
         };

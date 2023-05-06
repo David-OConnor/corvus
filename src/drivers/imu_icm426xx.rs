@@ -229,7 +229,6 @@ fn setup_aa_filters(spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
 pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), ImuError> {
     // Leave default of SPI mode 0 and 3.
 
-    println!("IMU A");
     // todo: Without self-test, we'll use a WHOAMI read to verify if the IMU is connected. Note that
     // todo the SPI bus will still not fail if the IMU isn't present. HAL error?
     // todo: Better sanity check than WHOAMI.
@@ -247,15 +246,11 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
         return Err(ImuError::NotConnected);
     }
 
-    println!("IMU B");
-
     // An external cyrstal is connected on othe H7 FC, but not the G4.
     set_bank(Reg::Bank1(RegBank1::GyroConfigStatic3), spi, cs)?; // todo dummy val
     #[cfg(feature = "h7")]
     write_one(Reg::Bank1(RegBank1::IntfConfig5), 0b0000_0100, spi, cs)?;
     // (Bank 0 set by AA filter setup fn);
-
-    println!("IMU C");
 
     setup_aa_filters(spi, cs)?;
 

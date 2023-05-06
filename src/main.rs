@@ -253,7 +253,6 @@ mod app {
         i2c2: I2c<I2C2>,
         altimeter: baro::Altimeter,
         flash_onboard: Flash,
-        rf_limiter_timer: Timer<TIM16>,
         lost_link_timer: Timer<TIM17>,
         motor_timer: setup::MotorTimer,
         servo_timer: setup::ServoTimer,
@@ -484,17 +483,6 @@ mod app {
         //     &clock_cfg,
         // );
         // update_timer.enable_interrupt(TimerInterrupt::Update);
-
-        // This timer is used to prevent a stream of continuous RF control signals, should they arrive
-        // at any reason, from crashing the FC. Ie, limit damage that can be done from external sources.
-        let mut rf_limiter_timer = Timer::new_tim16(
-            dp.TIM16,
-            safety::MAX_RF_UPDATE_RATE,
-            Default::default(),
-            &clock_cfg,
-        );
-
-        rf_limiter_timer.enable_interrupt(TimerInterrupt::Update);
 
         // We use this timer to maintain a time since bootup.
         // A shorter timeout period will allow higher resolution measurements, while a longer one
@@ -733,7 +721,6 @@ mod app {
                 i2c2,
                 altimeter,
                 // rtc,
-                rf_limiter_timer,
                 lost_link_timer,
                 motor_timer,
                 servo_timer,
@@ -948,7 +935,7 @@ mod app {
 
                     // todo: This whole section between here and the `ctrl_logic` calls is janky!
                     // todo you need to properly blend manual controls and autopilot, and handle
-                    // lost-link procedures properly (Which may have been encoded in autopilot elsewhere)
+                    // todo lost-link procedures properly (Which may have been encoded in autopilot elsewhere)
 
                     // Update our commanded attitude
                     match control_channel_data {
@@ -965,10 +952,8 @@ mod app {
                             let roll_rate_cmd = cfg.input_map.calc_roll_rate(ch_data.roll);
                             let yaw_rate_cmd = cfg.input_map.calc_yaw_rate(ch_data.yaw);
 
-
                             // todo: Temp for testing flight control logic!! Take away this hard set.
                             state_volatile.has_taken_off = true;
-
 
                             // todo: Should attitude commanded regress to current attitude if it hasn't changed??
 
@@ -999,83 +984,17 @@ mod app {
                     // todo: Here, or in a subfunction, blend in autopiot commands! Currently not applied,
                     // todo other than throttle.
 
-                    let throttle = match state_volatile.autopilot_commands.throttle {
-                        Some(t) => t,
-                        None => {
-                            match control_channel_data {
-                                Some(ch_data) => ch_data.throttle,
-                                None => 0.,
-                            }
-                        },
-                    };
-
                     if state_volatile.op_mode != OperationMode::Preflight {
                         // todo: Should this be before the optional sections? Probably.
-                        cfg_if! {
-                            if #[cfg(feature = "quad")] {
-                                let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
-                                    state_volatile.attitude_commanded.quat,
-                                    &state_volatile.attitude_commanded.quat_dt,
-                                    params.attitude_quat,
-                                    throttle,
-                                    state_volatile.motor_servo_state.frontleft_aftright_dir,
-                                    params,
-                                    cx.local.params_prev,
-                                    &cfg.ctrl_coeffs,
-                                    &state_volatile.drag_coeffs,
-                                    &state_volatile.accel_maps,
-                                    flight_ctrl_filters,
-                                    // The DT passed is the IMU rate, since we update params_prev each IMU update.
-                                    DT_IMU,
-                                );
-
-                                // let rpms_commanded = MotorRpm::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
-                                let power_commanded = MotorPower::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
-
-                                // state_volatile.motor_servo_state.set_cmds_from_rpms(
-                                //     &rpms_commanded,
-                                //     pid_state,
-                                //     pid_coeffs,
-                                // );
-                                state_volatile.motor_servo_state.set_cmds_from_power(&power_commanded);
-
-                                // This is what causes the actual change in motor speed, via DSHOT.
-                                state_volatile.motor_servo_state.send_to_rotors(state_volatile.arm_status, motor_timer);
-
-                                state_volatile.ctrl_mix = ctrl_mix;
-                            } else {
-                                let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
-                                    state_volatile.attitude_commanded.quat.unwrap(),
-                                    params.attitude_quat,
-                                    params.attitude_quat_dt,
-                                    throttle,
-                                    params,
-                                    cx.local.params_prev,
-                                    // &state_volatile.ctrl_mix,
-                                    &cfg.ctrl_coeffs,
-                                    &state_volatile.drag_coeffs,
-                                    &state_volatile.accel_maps,
-                                    flight_ctrl_filters,
-                                    DT_IMU,
-                                );
-
-                                state_volatile.ctrl_mix = ctrl_mix;
-
-                                let ctrl_sfc_posits = CtrlSfcPosits::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
-
-                                state_volatile.motor_servo_state.set_cmds_from_control_posits(
-                                    &ctrl_sfc_posits,
-                                    pid_state,
-                                    pid_coeffs,
-                                );
-
-                                // This is what causes the actual change in motor speed, via DSHOT.
-                                state_volatile.motor_servo_state.send_to_motors(ArmStatus::MotorsControlsArmed, motor_timer);
-
-                                // This is what causes the actual change in servo position, via PWM.
-                                state_volatile.motor_servo_state.send_to_servos(ArmStatus::MotorsControlsArmed, servo_timer);
-                            }
-                        }
+                        flight_ctrls::run(
+                            params,
+                            cx.local.params_prev,
+                            state_volatile,
+                            control_channel_data,
+                            &cfg.ctrl_coeffs,
+                            flight_ctrl_filters,
+                            motor_timer,
+                        );
                     }
 
                     // todo: These staggered tasks. should probably be after the flight control logic
@@ -1152,7 +1071,9 @@ mod app {
 
                         // Loads channel data and link stats into our shared structures,
                         // from the DMA buffer.
-                        control_interface::handle_crsf_data(control_channel_data, link_stats, system_status, lost_link_timer);
+                        if !crsf::TRANSFER_IN_PROG.load(Ordering::Acquire) && crsf::NEW_PACKET_RECEIVED.load(Ordering::Acquire); {
+                            control_interface::handle_crsf_data(control_channel_data, link_stats, system_status, lost_link_timer);
+                        }
 
                         #[cfg(feature = "quad")]
                         if let Some(ch_data) = control_channel_data {
@@ -1236,43 +1157,16 @@ mod app {
                         // todo: This should probably be delegatd to a fn; get it
                         // todo out here
                         if i % THRUST_LOG_RATIO == 0 {
-
-                            let elapsed = cx.shared.tick_timer.lock(|tick_timer| {
-                                tick_timer.time_elapsed().as_secs()
-                            });
+                            let elapsed = cx
+                                .shared
+                                .tick_timer
+                                .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
 
                             let timestamp = util::tick_count_fm_overflows_s() + elapsed;
-                            // Log angular accel from RPM or servo posit delta.
-                            // Code-shorteners
-                            #[cfg(feature = "quad")]
-                                let ctrl_cmds = state_volatile.motor_servo_state.get_power_settings();
-                            #[cfg(feature = "fixed-wing")]
-                                let ctrl_cmds = state_volatile.motor_servo_state.get_ctrl_positions();
 
-                            state_volatile.accel_maps.log_pt(
-                                AccelMapPt {
-                                    angular_accel: params.a_pitch,
-                                    ctrl_cmd: ctrl_cmds.pitch_delta(),
-                                    timestamp,
-                                },
-                                AccelMapPt {
-                                    angular_accel: params.a_roll,
-                                    ctrl_cmd: ctrl_cmds.roll_delta(),
-                                    timestamp,
-                                },
-                                AccelMapPt {
-                                    angular_accel: params.a_yaw,
-                                    #[cfg(feature = "quad")]
-                                    ctrl_cmd: ctrl_cmds.yaw_delta(state_volatile.motor_servo_state.frontleft_aftright_dir),
-                                    #[cfg(feature = "fixed-wing")]
-                                    ctrl_cmd: ctrl_cmds.yaw_delta(),
-                                    timestamp,
-                                },
-                            );
-
+                            flight_ctrls::log_accel_pts(state_volatile, params, timestamp);
                         }
                     } else if (i_compensated - 5) % NUM_IMU_LOOP_TASKS == 0 {
-                        // println!("F");
                         (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
                             // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
                             // DMA TC isrs are sequenced.
@@ -1546,7 +1440,7 @@ mod app {
     // #[task(binds = UART7,
     #[task(binds = USART3,
 // #[task(binds = USART2,
-// shared = [control_channel_data, link_stats, rf_limiter_timer, system_status,
+// shared = [control_channel_data, link_stats, system_status,
 // lost_link_timer], local = [uart_crsf], priority = 8)]
 
     shared = [], local = [uart_crsf], priority = 8)]
@@ -1573,25 +1467,13 @@ mod app {
         // to the variable message sizes.
         dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
 
-        if !crsf::TRANSFER_IN_PROG.load(Ordering::Relaxed) {
-            crsf::TRANSFER_IN_PROG.store(true, Ordering::Relaxed);
-
+        if crsf::TRANSFER_IN_PROG
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
             // Don't allow the starting char, as used in the middle of a message,
             // to trigger an interrupt.
             uart.disable_interrupt(UsartInterrupt::CharDetect(None));
-
-            // todo: Deal with this later.
-            // if limiter_timer.is_enabled() {
-            //     // todo: This is triggering off link stats. Find a way to accept that, but still
-            //     // todo cancel immediately. (?)
-            //     // println!("Time since last req: {}", limiter_timer.time_elapsed().as_secs());
-            //     println!("RF limiter triggered.");
-            //     // return; // todo
-            // } else {
-            //     limiter_timer.disable();
-            //     limiter_timer.reset_count();
-            //     limiter_timer.enable();
-            // }
 
             unsafe {
                 uart.read_dma(
@@ -1606,11 +1488,12 @@ mod app {
                 );
             }
         } else {
-            crsf::TRANSFER_IN_PROG.store(false, Ordering::Relaxed);
             // Line is idle.
 
             // A `None` value here re-enables the interrupt without changing the char to match.
             uart.enable_interrupt(UsartInterrupt::CharDetect(None));
+
+            crsf::NEW_PACKET_RECEIVED.store(true, Ordering::Release);
         }
     }
 
@@ -1664,18 +1547,6 @@ mod app {
         // (*pac::TIM5::ptr())
 
         TICK_OVERFLOW_COUNT.fetch_add(1, Ordering::Relaxed);
-    }
-
-    // #[task(binds = TIM16,
-    #[task(binds = TIM1_UP_TIM16,
-    shared = [rf_limiter_timer], priority = 2)]
-    fn rf_limiter_isr(mut cx: rf_limiter_isr::Context) {
-        // println!("RF limiter ISR");
-        cx.shared.rf_limiter_timer.lock(|timer| {
-            timer.clear_interrupt(TimerInterrupt::Update);
-            timer.disable();
-            timer.reset_count();
-        });
     }
 
     // #[task(binds = DMA2_STR1,

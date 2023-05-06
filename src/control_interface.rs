@@ -325,6 +325,8 @@ pub fn handle_crsf_data(
 
                     system_status.rf_control_link = SensorStatus::Pass;
                 }
+
+                crsf::NEW_PACKET_RECEIVED.store(false, Ordering::Release);
             }
 
             crsf::PacketData::LinkStats(stats) => {
