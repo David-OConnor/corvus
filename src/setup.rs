@@ -326,27 +326,29 @@ pub fn setup_pins() {
     // interrupt. This performs some extra setup, then lets us enable and disable the interrupt
     // by masking and unmasking using imr1.
 
-    motor1.enable_interrupt(Edge::Either);
-    motor2.enable_interrupt(Edge::Either); // todo: Put back.
-    motor3.enable_interrupt(Edge::Either);
-    motor4.enable_interrupt(Edge::Either);
+    if dshot::BIDIR_EN {
+        motor1.enable_interrupt(Edge::Either);
+        motor2.enable_interrupt(Edge::Either);
+        motor3.enable_interrupt(Edge::Either);
+        motor4.enable_interrupt(Edge::Either);
 
-    let exti = unsafe { &(*pac::EXTI::ptr()) };
-    cfg_if! {
-        if #[cfg(feature = "h7")] {
-            exti.cpuimr1.modify(|_, w| {
-                w.mr6().clear_bit();
-                w.mr7().clear_bit();
-                w.mr8().clear_bit();
-                w.mr9().clear_bit()
-            });
-        } else {
-            exti.imr1.modify(|_, w| {
-                w.im6().clear_bit();
-                w.im4().clear_bit();
-                w.im0().clear_bit();
-                w.im1().clear_bit()
-            });
+        let exti = unsafe { &(*pac::EXTI::ptr()) };
+        cfg_if! {
+            if #[cfg(feature = "h7")] {
+                exti.cpuimr1.modify(|_, w| {
+                    w.mr6().clear_bit();
+                    w.mr7().clear_bit();
+                    w.mr8().clear_bit();
+                    w.mr9().clear_bit()
+                });
+            } else {
+                exti.imr1.modify(|_, w| {
+                    w.im6().clear_bit();
+                    w.im4().clear_bit();
+                    w.im0().clear_bit();
+                    w.im1().clear_bit()
+                });
+            }
         }
     }
 
@@ -424,7 +426,8 @@ pub fn setup_pins() {
     // Pull up the CRSF RX line. Without this, our idle interrupt fires spuratically in
     // some conditions, like when touching the (even outside) of the wires if an Rx
     // module isn't connected.
-    uart_crsf_rx.pull(Pull::Up);
+    // todo???
+    // uart_crsf_rx.pull(Pull::Up);
 
     let _uart_osd_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
     let mut uart_osd_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
@@ -437,9 +440,9 @@ pub fn setup_pins() {
     // Used to trigger a PID update based on new IMU data.
     // We assume here the interrupt config uses default settings active low, push pull, pulsed.
     #[cfg(feature = "h7")]
-    let mut imu_exti_pin = Pin::new(Port::B, 12, PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::B, 12, PinMode::Input);
     #[cfg(feature = "g4")]
-    let mut imu_exti_pin = Pin::new(Port::C, 13, PinMode::Input);
+        let mut imu_exti_pin = Pin::new(Port::C, 13, PinMode::Input);
 
     imu_exti_pin.output_type(OutputType::OpenDrain);
     imu_exti_pin.pull(Pull::Up);
@@ -641,16 +644,16 @@ pub fn setup_busses(
     }
 
     #[cfg(feature = "h7")]
-    let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output);
+        let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output);
     #[cfg(feature = "g4")]
-    let mut cs_flash = Pin::new(Port::A, 0, PinMode::Output);
+        let mut cs_flash = Pin::new(Port::A, 0, PinMode::Output);
 
     cs_flash.set_high();
 
     // We use UART4 for the OSD, for DJI, via the MSP protocol.
     // todo: QC baud.
     #[cfg(feature = "h7")]
-    let uart_osd = Usart::new(
+        let uart_osd = Usart::new(
         uart_osd_pac,
         crate::osd::BAUD,
         Default::default(),
@@ -658,7 +661,7 @@ pub fn setup_busses(
     );
 
     #[cfg(feature = "g4")]
-    let uart_osd = Usart4::new(
+        let uart_osd = Usart4::new(
         uart_osd_pac,
         crate::osd::BAUD,
         Default::default(),

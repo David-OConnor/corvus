@@ -228,4 +228,8 @@ pub struct StateVolatile {
     pub motor_servo_state: MotorServoState,
     /// Use this, in combination with arm status, and `MotorServoState`.
     pub preflight_motors_running: bool,
+    // /// todo - experimental. We use this to avoid numerical precision issues that occur from
+    // /// todo tracking the tiny attitude changes each update loop.`
+    // /// Todo: Along these lines, you probably don't want to update target attitude each
+    // pub att_cmd_history: [Quaternion; crate::TORQUE_CMD_UPDATE_RATIO as usize],
 }

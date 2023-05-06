@@ -289,11 +289,10 @@ impl Packet {
         );
 
         if expected_crc != received_crc {
-            // todo: We are getting lots of CRC errors out of nowhere!!
-            // println!(
-            //     "CRSF CRC failed on recieved packet. Expected: {}. Received: {}",
-            //     expected_crc, received_crc
-            // );
+            println!(
+                "CRSF CRC failed on recieved packet. Expected: {}. Received: {}",
+                expected_crc, received_crc
+            );
             return Err(DecodeError {});
         };
 

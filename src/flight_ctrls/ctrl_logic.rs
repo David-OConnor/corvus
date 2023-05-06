@@ -27,6 +27,7 @@ use cfg_if::cfg_if;
 
 use defmt::println;
 
+
 cfg_if! {
     if #[cfg(feature = "quad")] {
         use super::motor_servo::MotorRpm;
@@ -79,12 +80,25 @@ impl Torque {
         }
     }
 
-    /// Construct one from the rotation between a rotation quaternions, and the time the rotation takes.
-    ///  This assumes less than a full rotation between updates.
+    /// Construct torque from 2 quaternions, and the time the rotation takes.
+    /// This assumes less than a full rotation between updates.
     pub fn from_attitudes(att_prev: Quaternion, att_this: Quaternion, dt: f32) -> Self {
         // todo: Add to lin alg lib fn to get the axis and/or angles a/r
         //
         let rotation = att_this * att_prev.inverse();
+
+        // todo t
+        // static mut i: u32 = 0;
+        // unsafe { i += 1 };
+        // if unsafe { i } % 200 == 0 {
+        //     let euler = rotation.to_euler();
+        //     let axis = rotation.axis();
+        //     let angle = rotation.angle() / dt;
+        //     println!("prev: x{} y{} z{}. w{}", att_prev.x, att_prev.y, att_prev.z, att_prev.w);
+        //     println!("This: x{} y{} z{}. w{}", att_this.x, att_this.y, att_this.z, att_this.w);
+        //     println!("Rotation: p{} r{} y{}", euler.pitch, euler.roll, euler.yaw);
+        //     println!("Axis: {} {} {}. Angle: {}", axis.x, axis.y, axis.z, angle);
+        // }
 
         Self {
             axis: rotation.axis(),
@@ -161,6 +175,12 @@ pub fn calc_drag_coeff(ω_meas: f32, α_meas: f32, α_commanded: f32) -> f32 {
 fn α_from_ttc(θ_0: f32, ω_0: f32, θ_tgt: f32, ω_tgt: f32, ttc_per_dθ: f32) -> f32 {
     // Time to correction
     let ttc = ttc_per_dθ * (θ_tgt - θ_0).abs(); // todo: Naive. Take vel and accel into account.
+
+    // static mut i: u32 = 0;
+    // unsafe { i += 1 };
+    // if unsafe { i } % 3_000 == 0 {
+    //     println!("ttc inner: {}", ttc);
+    // }
 
     // Calculate the "initial" target angular acceleration, from the formula we worked out
     // from the kinematic equations for θ(t) and ω(t).
@@ -272,7 +292,14 @@ fn find_ctrl_setting(
                 ω_dot_0 + j * dt
             }
         }
-        None => α_from_ttc(θ_0, ω_0, θ_tgt, ω_tgt, coeffs.ttc_per_dθ),
+        None => {
+            if unsafe { i } % 3_000 == 0 {
+                println!("theta_0: {}, omega_0: {}, theta_tgt: {}, omega_tgt: {}, coeff: {}",
+                         θ_0, ω_0, θ_tgt, ω_tgt, coeffs.ttc_per_dθ);
+            }
+
+            α_from_ttc(θ_0, ω_0, θ_tgt, ω_tgt, coeffs.ttc_per_dθ)
+        },
     };
 
     // The target acceleration needs to include both the correction, and drag compensation.
@@ -304,7 +331,7 @@ fn find_ctrl_setting(
     static mut i: u32 = 0;
     unsafe { i += 1 };
     if unsafe { i } % 3_000 == 0 {
-        println!("Pitch tgt accel: {}", α_target);
+        println!("Tgt accel: {}", α_target);
     }
 
     accel_map.interpolate(α_target)
@@ -339,6 +366,13 @@ pub fn ctrl_mix_from_att(
     // along individual axes.
     let rot_euler = rotation_cmd.to_euler();
 
+    // todo: Is this logic correct?
+    let dω_pitch = (target_torque.axis.x) * target_torque.angular_velocity - params.v_pitch;
+    let dω_roll = (target_torque.axis.z) * target_torque.angular_velocity - params.v_roll;
+    let dω_yaw = (target_torque.axis.y) * target_torque.angular_velocity - params.v_yaw;
+
+
+
     static mut i: u32 = 0;
     unsafe { i += 1 };
     if unsafe { i } % 1_000 == 0 {
@@ -354,12 +388,9 @@ pub fn ctrl_mix_from_att(
             rot_euler.roll,
             rot_euler.yaw
         );
-    }
 
-    // todo: Is this logic correct?
-    let dω_pitch = (target_torque.axis.x) * target_torque.angular_velocity - params.v_pitch;
-    let dω_roll = (target_torque.axis.z) * target_torque.angular_velocity - params.v_roll;
-    let dω_yaw = (target_torque.axis.y) * target_torque.angular_velocity - params.v_yaw;
+        println!("w_tgt pitch: {}. axis: {}, angular: {}, v: {}", dω_pitch, target_torque.axis.x, target_torque.angular_velocity, params.v_pitch);
+    }
 
     let pitch = find_ctrl_setting(
         params.s_pitch,

@@ -240,8 +240,6 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
 
     let device_id = read_one(Reg::Bank0(RegBank0::WhoAmI), spi, cs)?;
 
-    println!("IMU device Id: {}", device_id);
-
     if device_id != DEVICE_ID {
         return Err(ImuError::NotConnected);
     }

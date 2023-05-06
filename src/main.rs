@@ -197,6 +197,12 @@ const UPDATE_RATE_MAIN_LOOP: f32 = 600.; // todo: Experiment with this.
 const DT_FLIGHT_CTRLS: f32 = 1. / UPDATE_RATE_FLIGHT_CTRLS;
 const DT_MAIN_LOOP: f32 = 1. / UPDATE_RATE_MAIN_LOOP;
 
+// We run into numerical precision issues if diffing attitude commanded
+// every update loop. Updating this once every few updates creates a larger difference
+// in quaternion commanded, to compensate. A higher value will be more resistant
+// to numerical precision problems, but may cause sluggish behavior.
+const ATT_CMD_UPDATE_RATIO: usize = 20;
+
 // Every x main update loops, log parameters etc to flash.
 const LOGGING_UPDATE_RATIO: usize = 100;
 
@@ -232,6 +238,9 @@ static mut CAN_BUF_RX: [u8; 64] = [0; 64];
 // const WARMUP_TIME: u32 = 100;
 
 // todo: Bit flags that display as diff colored LEDs, and OSD items
+
+// todo: t
+use stm32_hal2::gpio::{Port, PinMode};
 
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
@@ -393,10 +402,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-        // let spi_flash_pac = dp.OCTOSPI1;
-        let spi_flash_pac = dp.QUADSPI;
+            // let spi_flash_pac = dp.OCTOSPI1;
+            let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-        let spi_flash_pac = dp.SPI2;
+            let spi_flash_pac = dp.SPI2;
 
         let mut can = setup::setup_can(dp.FDCAN1);
 
@@ -455,10 +464,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -663,21 +672,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-        // todo: Wrong. You need to do this by number; apply your pin mapping.
-        let motors_reversed = (
+            // todo: Wrong. You need to do this by number; apply your pin mapping.
+            let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -958,19 +967,31 @@ mod app {
                             // todo: Should attitude commanded regress to current attitude if it hasn't changed??
 
                             // If we haven't taken off, apply the attitude lock.
-                            if state_volatile.has_taken_off {
-                                let att_cmd_prev = state_volatile.attitude_commanded.quat;
-                                state_volatile.attitude_commanded.quat = ctrl_logic::modify_att_target(
-                                    state_volatile.attitude_commanded.quat,
-                                    pitch_rate_cmd, roll_rate_cmd, yaw_rate_cmd,
-                                    DT_FLIGHT_CTRLS,
-                                );
 
-                                state_volatile.attitude_commanded.quat_dt = Torque::from_attitudes(
-                                    att_cmd_prev,
-                                    state_volatile.attitude_commanded.quat,
-                                    DT_FLIGHT_CTRLS,
-                                );
+                            // Don't update attitude commanded, or the change in attitude commanded
+                            // each loop. We don't get control commands that rapidly, and more importantly,
+                            // doing it every loop leads to numerical precision issues due to how small
+                            // the changes are.
+                            if state_volatile.has_taken_off {
+                                if i % ATT_CMD_UPDATE_RATIO == 0 {
+                                    let att_cmd_prev = state_volatile.attitude_commanded.quat;
+                                    // }
+
+                                    state_volatile.attitude_commanded.quat = ctrl_logic::modify_att_target(
+                                        state_volatile.attitude_commanded.quat,
+                                        pitch_rate_cmd, roll_rate_cmd, yaw_rate_cmd,
+                                        DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
+                                    );
+
+                                    // todo: Instead of skipping ones not on the update ratio, you could store
+                                    // todo a buffer of attitudes, and look that far back.
+                                    // if i % ATT_CMD_UPDATE_RATIO == 0 {
+                                    state_volatile.attitude_commanded.quat_dt = Torque::from_attitudes(
+                                        att_cmd_prev,
+                                        state_volatile.attitude_commanded.quat,
+                                        DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
+                                    );
+                                }
                             } else {
                                 state_volatile.attitude_commanded.quat = cfg.takeoff_attitude;
                                 state_volatile.attitude_commanded.quat_dt = Torque::default();
@@ -1071,7 +1092,8 @@ mod app {
 
                         // Loads channel data and link stats into our shared structures,
                         // from the DMA buffer.
-                        if !crsf::TRANSFER_IN_PROG.load(Ordering::Acquire) && crsf::NEW_PACKET_RECEIVED.load(Ordering::Acquire); {
+                        // todo
+                        if !crsf::TRANSFER_IN_PROG.load(Ordering::Acquire) && crsf::NEW_PACKET_RECEIVED.load(Ordering::Acquire) {
                             control_interface::handle_crsf_data(control_channel_data, link_stats, system_status, lost_link_timer);
                         }
 
@@ -1314,7 +1336,6 @@ mod app {
     /// High priority since this is time-sensitive, and fast-to-execute.
     fn rpm_read_m1(_cx: rpm_read_m1::Context) {
         let exti = unsafe { &(*pac::EXTI::ptr()) };
-
         // Determine which line fired. I'm not sure if it's going to be generally (always?)
         // a single line, or multiple ones.
         cfg_if! {
@@ -1467,10 +1488,14 @@ mod app {
         // to the variable message sizes.
         dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
 
-        if crsf::TRANSFER_IN_PROG
-            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok()
-        {
+        // if crsf::TRANSFER_IN_PROG
+        //     .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        //     .is_ok()
+        // {
+
+        if crsf::TRANSFER_IN_PROG.load(Ordering::Acquire) == false {
+            crsf::TRANSFER_IN_PROG.store(true, Ordering::Release);
+
             // Don't allow the starting char, as used in the middle of a message,
             // to trigger an interrupt.
             uart.disable_interrupt(UsartInterrupt::CharDetect(None));
@@ -1488,6 +1513,7 @@ mod app {
                 );
             }
         } else {
+            crsf::TRANSFER_IN_PROG.store(false ,Ordering::Release);
             // Line is idle.
 
             // A `None` value here re-enables the interrupt without changing the char to match.
