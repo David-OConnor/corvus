@@ -86,7 +86,7 @@ use crate::{
         autopilot::AutopilotStatus,
         common::CtrlMix,
         ctrl_effect_est::{AccelMapPt, AccelMaps},
-        ctrl_logic::{self, Torque},
+        ctrl_logic,
         filters::FlightCtrlFilters,
         motor_servo::{MotorRpm, RpmReadings},
         pid::{MotorCoeffs, MotorPidGroup},
@@ -986,7 +986,13 @@ mod app {
                                     // todo: Instead of skipping ones not on the update ratio, you could store
                                     // todo a buffer of attitudes, and look that far back.
                                     // if i % ATT_CMD_UPDATE_RATIO == 0 {
-                                    state_volatile.attitude_commanded.quat_dt = Torque::from_attitudes(
+                                    // state_volatile.attitude_commanded.quat_dt = Torque::from_attitudes(
+                                    //     att_cmd_prev,
+                                    //     state_volatile.attitude_commanded.quat,
+                                    //     DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
+                                    // );
+
+                                    state_volatile.attitude_commanded.quat_dt = ctrl_logic::ang_v_from_attitudes(
                                         att_cmd_prev,
                                         state_volatile.attitude_commanded.quat,
                                         DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
@@ -994,7 +1000,7 @@ mod app {
                                 }
                             } else {
                                 state_volatile.attitude_commanded.quat = cfg.takeoff_attitude;
-                                state_volatile.attitude_commanded.quat_dt = Torque::default();
+                                state_volatile.attitude_commanded.quat_dt = (0., 0., 0.);
                             }
                         }
                         None => {}
@@ -1785,11 +1791,17 @@ mod app {
                         let temp_id = dronecan::MsgType::StaticTemperature.id();
                         let node_status_id = dronecan::MsgType::NodeStatus.id();
 
+                        if can_id.message_type_id != 20007 {
+                            println!("Id: {}", can_id.message_type_id);
+                        }
+                        return;
+
                         match can_id.message_type_id {
                             fix_id => {
                                 let fix = dronecan::gnss::FixDronecan::unpack(
-                                    // &rx_buf[0..50].try_into().unwrap(),
-                                    rx_buf[0..50].try_into().unwrap(),
+                                    rx_buf[0..dronecan::MsgType::Fix2.payload_size() as usize]
+                                        .try_into()
+                                        .unwrap(),
                                 );
                                 match fix {
                                     Ok(f) => {

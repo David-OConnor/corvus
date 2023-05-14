@@ -1,7 +1,7 @@
 //! This module contains flight control code not specific to an aircraft design category.
 //! It is mostly types.
 
-use crate::{flight_ctrls::ctrl_logic::Torque, protocols::dshot::Motor, util::map_linear};
+use crate::{protocols::dshot::Motor, util::map_linear};
 
 use lin_alg2::f32::Quaternion;
 
@@ -150,7 +150,9 @@ pub struct AttitudeCommanded {
     /// A change in attitude commanded per second, as an axis, and angular velocity in rad/s.
     /// todo: Should this be determined from current rate controls, or a change in teh quat?
     /// todo probably the latter, since it applies in other control modes.
-    pub quat_dt: Torque,
+    // pub quat_dt: Torque,
+    /// todo: Switched to pitch, roll, yaw, radians-per-second.
+    pub quat_dt: (f32, f32, f32),
     /// We use pitch, roll, and yaw if a specific axis is commanded.
     /// todo: Are these earth-centered?
     pub pitch: Option<f32>,

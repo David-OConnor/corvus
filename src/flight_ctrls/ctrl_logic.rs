@@ -55,14 +55,14 @@ const FWD: Vec3 = Vec3 {
 };
 
 /// Represents a torque; ie a rotation with an associated angular velocity
-pub struct Torque {
+pub struct _Torque {
     /// A unit vector. Uses the right hand rule.
     pub axis: Vec3,
     /// In radians-per-second.
     pub angular_velocity: f32,
 }
 
-impl Default for Torque {
+impl Default for _Torque {
     fn default() -> Self {
         Self {
             axis: Vec3::new(1., 0., 0.),
@@ -71,7 +71,7 @@ impl Default for Torque {
     }
 }
 
-impl Torque {
+impl _Torque {
     // todo: Do you need/want this?
     pub fn from_components(pitch: f32, roll: f32, yaw: f32) -> Self {
         // todo: No idea if this is correct
@@ -92,6 +92,20 @@ impl Torque {
             angular_velocity: rotation.angle() / dt,
         }
     }
+}
+
+/// Construct 3 euler-representation angular velocities from 2 quaternions, and the time the rotation takes.
+/// This assumes less than a full rotation between updates.
+pub fn ang_v_from_attitudes(
+    att_prev: Quaternion,
+    att_this: Quaternion,
+    dt: f32,
+) -> (f32, f32, f32) {
+    let rotation = att_this * att_prev.inverse();
+
+    let euler = rotation.to_euler();
+
+    (euler.pitch * dt, euler.roll * dt, euler.yaw * dt)
 }
 
 // The motor RPM of each motor will not go below this. We use this for both quad and fixed-wing motors.
@@ -339,7 +353,8 @@ pub fn ctrl_mix_from_att(
     target_attitude: Quaternion,
     // todo: Which do you want: A vector torque, or a rotation since last with DT?
     // todo: Probably torque.
-    target_torque: &Torque,
+    // target_torque: &Torque,
+    target_ω: &(f32, f32, f32), // (pitch, roll, yaw)
     // target_rotation_since_prev: Quaternion,
     // current_attitude: Quaternion,
     throttle: f32,
@@ -365,10 +380,15 @@ pub fn ctrl_mix_from_att(
 
     // We arrive at a target attitude, and target angular velocity.
 
-    let target_ω_pitch = target_torque.axis.dot(RIGHT) * target_torque.angular_velocity;
-    let target_ω_roll = target_torque.axis.dot(FWD) * target_torque.angular_velocity;
-    let target_ω_yaw = target_torque.axis.dot(UP) * target_torque.angular_velocity;
+    // todo: Why the assymetry; why is target angular velocity represented as a torque,
+    // todo but params are as a euler angle? Possibly because params comes directly from gyros,
+    // todo but target comes from a change in quaternions.
+    // todo: YOu might skip torque and convert the quaternion diff direclty to euler angles.
+    // let target_ω_pitch = target_torque.axis.dot(RIGHT) * target_torque.angular_velocity;
+    // let target_ω_roll = target_torque.axis.dot(FWD) * target_torque.angular_velocity;
+    // let target_ω_yaw = target_torque.axis.dot(UP) * target_torque.angular_velocity;
 
+    let (target_ω_pitch, target_ω_roll, target_ω_yaw) = target_ω;
     let dω_pitch = target_ω_pitch - params.v_pitch;
     let dω_roll = target_ω_roll - params.v_roll;
     let dω_yaw = target_ω_yaw - params.v_yaw;
@@ -430,7 +450,7 @@ pub fn ctrl_mix_from_att(
         println!("Current: p{} r{} y{}", c.pitch, c.roll, c.yaw);
         println!("Target: p{} r{} y{}", t.pitch, t.roll, t.yaw);
         println!(
-            "Required rot: p:{} r:{} y:{}",
+            "Required rot: p{} r{} y{}",
             rot_euler.pitch, rot_euler.roll, rot_euler.yaw
         );
 
@@ -440,19 +460,19 @@ pub fn ctrl_mix_from_att(
             params.v_pitch, params.v_roll, params.v_yaw
         );
         println!(
-            "Target torque: x{}, y{}, z{} v{} ",
-            target_torque.axis.x,
-            target_torque.axis.y,
-            target_torque.axis.z,
-            target_torque.angular_velocity
-        );
-
-        println!(
-            "Target ω p{}, ω r{}, ω y{}",
+            "Target ω p{}, r{}, y{}",
             target_ω_pitch, target_ω_roll, target_ω_yaw
         );
 
-        println!("dω p{}, dω r{}, dω y{}", dω_pitch, dω_roll, dω_yaw);
+        println!("Required dω: p{}, r{}, y{}", dω_pitch, dω_roll, dω_yaw);
+
+        // println!(
+        //     "Target torque: x{}, y{}, z{} v{} ",
+        //     target_torque.axis.x,
+        //     target_torque.axis.y,
+        //     target_torque.axis.z,
+        //     target_torque.angular_velocity
+        // );
 
         println!("\n***Command generated:***");
         println!(

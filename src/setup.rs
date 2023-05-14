@@ -814,7 +814,7 @@ pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
         }
     }
 
-    can.set_protocol_exception_handling(false);
+    can.set_protocol_exception_handling(false); // todo?
     can.set_nominal_bit_timing(nominal_bit_timing);
     can.set_data_bit_timing(data_bit_timing);
 
