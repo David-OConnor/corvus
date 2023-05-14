@@ -440,9 +440,9 @@ pub fn setup_pins() {
     // Used to trigger a PID update based on new IMU data.
     // We assume here the interrupt config uses default settings active low, push pull, pulsed.
     #[cfg(feature = "h7")]
-        let mut imu_exti_pin = Pin::new(Port::B, 12, PinMode::Input);
+    let mut imu_exti_pin = Pin::new(Port::B, 12, PinMode::Input);
     #[cfg(feature = "g4")]
-        let mut imu_exti_pin = Pin::new(Port::C, 13, PinMode::Input);
+    let mut imu_exti_pin = Pin::new(Port::C, 13, PinMode::Input);
 
     imu_exti_pin.output_type(OutputType::OpenDrain);
     imu_exti_pin.pull(Pull::Up);
@@ -644,16 +644,16 @@ pub fn setup_busses(
     }
 
     #[cfg(feature = "h7")]
-        let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output);
+    let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output);
     #[cfg(feature = "g4")]
-        let mut cs_flash = Pin::new(Port::A, 0, PinMode::Output);
+    let mut cs_flash = Pin::new(Port::A, 0, PinMode::Output);
 
     cs_flash.set_high();
 
     // We use UART4 for the OSD, for DJI, via the MSP protocol.
     // todo: QC baud.
     #[cfg(feature = "h7")]
-        let uart_osd = Usart::new(
+    let uart_osd = Usart::new(
         uart_osd_pac,
         crate::osd::BAUD,
         Default::default(),
@@ -661,7 +661,7 @@ pub fn setup_busses(
     );
 
     #[cfg(feature = "g4")]
-        let uart_osd = Usart4::new(
+    let uart_osd = Usart4::new(
         uart_osd_pac,
         crate::osd::BAUD,
         Default::default(),

@@ -73,24 +73,17 @@ pub enum Reg {
 
 // See Datasheet, secction 7: Register Map
 
-// ...
-
 // See datasheet, table 9. Used in pressure and temperature calculation. This is set up for 64-times
 // oversampling rate.
 const K_P: f32 = 1_040_384.; // 64x oversample
 const K_T: f32 = 1_040_384.; // 64x oversample
-                             // const SCALE_FACTOR: i32 = 2_088_960; // 128x oversample
-                             // todo: 128 times for even more precision?
-                             // todo: Result shift (bit 2 and 3 address 0x09, for use with this setting)
 
-/// Fix the sign on signed 24 bit integers, represented as `i32`. (Here, we use this for pressure
-/// and temp readings)
+/// Fix the sign on signed 24-bit and 12-bit integers, represented as `i32`.
+/// See section 8.11 in the datasheet for the algorithm.
+/// (Here, we use this for pressure and temp readings)
 fn fix_int_sign(val: &mut i32, num_bits: u8) {
-    // let diff = 32 - num_bits as i32;
-    // *val = (*val << diff) >> diff;
-    // todo experimenting
-    if (*val & (1 << (num_bits - 1))) > 0 {
-        *val -= (1 << num_bits) as i32;
+    if *val > (1 << (num_bits - 1)) - 1 {
+        *val -= 1 << (num_bits as i32);
     }
 }
 
@@ -104,8 +97,18 @@ fn read_one(reg: Reg, i2c: &mut I2cBaro) -> Result<u8, BaroNotConnectedError> {
 
 /// Calibration coefficients, read from factory-assigned registers.
 /// 2's complement numbers.
+/// We store these as floats, since that's how they're used in operations.
 #[derive(Default)]
 struct HardwareCoeffCal {
+    // c0: f32,  // 12 bits
+    // c1: f32,  // 12 bits
+    // c00: f32, // 20 bits
+    // c10: f32, // 20 bits
+    // c01: f32, // 16 bits for the rest.
+    // c11: f32,
+    // c20: f32,
+    // c30: f32,
+    // c21: f32,
     c0: i16,  // 12 bits
     c1: i16,  // 12 bits
     c00: i32, // 20 bits
@@ -118,44 +121,32 @@ struct HardwareCoeffCal {
 }
 
 impl HardwareCoeffCal {
+    /// See table 8.11
     pub fn new(i2c: &mut I2cBaro) -> Result<Self, BaroNotConnectedError> {
-        // Read each register value.
-
         let mut buf = [0; 18];
 
         i2c.write_read(ADDR, &[Reg::c0 as u8], &mut buf)?;
 
-        let [c0_, c0_c1, c1_, c00_a, c00_b, c00_c10, c10_a, c10_b, c01_a, c01_b, c11_a, c11_b, c20_a, c20_b, c21_a, c21_b, c30_a, c30_b] =
-            buf;
-
         // Unpack into coefficients. See datasheet Table 18.
-        let mut c0 = ((c0_ as i32) << 4) | ((c0_c1 as i32) >> 4);
-        let mut c1 = i16::from_be_bytes([c0_c1 & 0xf, c1_]) as i32;
-        let mut c00 = ((c00_a as i32) << 12) | ((c00_b as i32) << 4) | ((c00_c10 as i32) >> 4);
-        let mut c10 = i32::from_be_bytes([0, c00_c10 & 0xf, c10_a, c10_b]);
-        let c01 = i16::from_be_bytes([c01_a, c01_b]);
-        let c11 = i16::from_be_bytes([c11_a, c11_b]);
-        let c20 = i16::from_be_bytes([c20_a, c20_b]);
-        let c21 = i16::from_be_bytes([c21_a, c21_b]);
-        let c30 = i16::from_be_bytes([c30_a, c30_b]);
+        let mut c0 = ((buf[0] as i32) << 4) | (buf[1] as i32 >> 4);
+        let mut c1 = (((buf[1] as i32) & 0xf) << 8) | (buf[2] as i32);
+
+        let mut c00 = ((buf[3] as i32) << 12) | ((buf[4] as i32) << 4) | ((buf[5] as i32) >> 4);
+        let mut c10 = i32::from_be_bytes([0, buf[5] & 0xf, buf[6], buf[7]]);
+
+        let c01 = i16::from_be_bytes([buf[8], buf[9]]);
+        let c11 = i16::from_be_bytes([buf[10], buf[11]]);
+        let c20 = i16::from_be_bytes([buf[12], buf[13]]);
+        let c21 = i16::from_be_bytes([buf[14], buf[15]]);
+        let c30 = i16::from_be_bytes([buf[16], buf[17]]);
 
         // c0 and c1 are 12 bits. c00 and c10 are 20 bits. The rest are 16.
         // All are 2's complement.
-        // println!("C0:{} C1:{}", c0, c1);
         fix_int_sign(&mut c0, 12);
         fix_int_sign(&mut c1, 12);
-        // if c0 > ((1<<11)-1) {
-        //     c0 -= (1<<12); // todo TS
-        // }
-        // if c1 > ((1<<11)-1) {
-        //     c1 -= (1<<12); // todo TS
-        // }
-        // println!("fixedC0:{} fixedC1:{}\n", c0, c1);
 
         fix_int_sign(&mut c00, 20);
         fix_int_sign(&mut c10, 20);
-
-        // todo: Store as f32?
 
         Ok(Self {
             c0: c0 as i16,
@@ -267,29 +258,18 @@ impl Altimeter {
     /// Apply compensation values from calibration coefficients to the pressure reading.
     /// Output is in Pascals. Datasheet, section 4.9.1. We use naming conventions
     /// to match the DS.
-    fn pressure_from_raw(&self, p_raw: i32, t_raw: i32) -> f32 {
-        // todo: With floats
-        let p_raw_sc = p_raw as f32 / K_P;
-        let t_raw_sc = t_raw as f32 / K_T;
-
+    fn pressure_from_raw(&self, p_raw_sc: f32, t_raw_sc: f32) -> f32 {
         let cal = &self.hardware_coeff_cal; // code shortener
 
         cal.c00 as f32
             + p_raw_sc * (cal.c10 as f32 + p_raw_sc * (cal.c20 as f32 + p_raw_sc * cal.c30 as f32))
             + t_raw_sc * cal.c01 as f32
-            + t_raw_sc * p_raw_sc * (cal.c11 as f32 + p_raw_sc * cal.c21 as f32)
+            + t_raw_sc * p_raw_sc as f32 * (cal.c11 as f32 + p_raw_sc * cal.c21 as f32)
     }
 
     /// Datasheet, section 4.9.2. Returns temperature in K.
-    fn temp_from_raw(&self, t_raw: i32) -> f32 {
-        let t_raw_sc = t_raw as f32 / K_T;
-        // (self.pressure_cal.c0 * 0.5 * self.pressure_call.c1 * t_raw_sc) as f32
-        // todo: Should we be doing these operations (Here and above in pressure-from_reading
-        // todo as floats, and storing the c vals as floats?
-
-        // todo: Is this C or K?
-
-        // println!("C0: {}, C1: {}, KT: {}", self.hardware_coeff_cal.c0, self.hardware_coeff_cal.c1, K_T);
+    /// Assumes we've calculated `t_raw_sc` already as part of our pressure reading.
+    fn temp_from_raw_sc(&self, t_raw_sc: f32) -> f32 {
         (self.hardware_coeff_cal.c0 as f32 * 0.5 + self.hardware_coeff_cal.c1 as f32 * t_raw_sc)
             + 273.15
     }
@@ -303,12 +283,14 @@ impl Altimeter {
         fix_int_sign(&mut p_raw, 24);
 
         let mut t_raw = i32::from_be_bytes([0, t2, t1, t0]);
-        // println!("\n\n\nT RAW: {:?}", t_raw);
         fix_int_sign(&mut t_raw, 24);
 
+        let p_raw_sc = p_raw as f32 / K_P;
+        let t_raw_sc = t_raw as f32 / K_T;
+
         (
-            self.pressure_from_raw(p_raw, t_raw),
-            self.temp_from_raw(t_raw),
+            self.pressure_from_raw(p_raw_sc, t_raw_sc),
+            self.temp_from_raw_sc(t_raw_sc),
         )
     }
 

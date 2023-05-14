@@ -59,7 +59,7 @@ pub fn run(
             let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
                 state_volatile.attitude_commanded.quat,
                 &state_volatile.attitude_commanded.quat_dt,
-                params.attitude_quat,
+                // params.attitude_quat,
                 throttle,
                 state_volatile.motor_servo_state.frontleft_aftright_dir,
                 params,
@@ -80,14 +80,15 @@ pub fn run(
             //     pid_coeffs,
             // );
 
-            static mut i: u32 = 0;
-            unsafe { i += 1 };
-            if unsafe { i } % 500 == 0 {
-                println!("\n\nMix. pitch: {} roll: {} yaw: {} throttle: {}", ctrl_mix.pitch, ctrl_mix.roll, ctrl_mix.yaw, ctrl_mix.throttle);
+            // static mut i: u32 = 0;
+            // unsafe { i += 1 };
+            // if unsafe { i } % 4000 == 0 {
+            //     println!("\n\nMix. pitch: {} roll: {} yaw: {} throttle: {}", ctrl_mix.pitch, ctrl_mix.roll, ctrl_mix.yaw, ctrl_mix.throttle);
+            //
+            //     println!("Power comm. FL: {} FR: {} AL: {} AR: {}", power_commanded.front_left, power_commanded.front_right,
+            //     power_commanded.aft_left, power_commanded.aft_right);
+            // }
 
-                println!("Power comm. FL: {} FR: {} AL: {} AR: {}", power_commanded.front_left, power_commanded.front_right,
-                power_commanded.aft_left, power_commanded.aft_right);
-            }
             state_volatile.ctrl_mix = ctrl_mix;
 
             state_volatile.motor_servo_state.set_cmds_from_power(&power_commanded);

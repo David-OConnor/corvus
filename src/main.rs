@@ -240,7 +240,7 @@ static mut CAN_BUF_RX: [u8; 64] = [0; 64];
 // todo: Bit flags that display as diff colored LEDs, and OSD items
 
 // todo: t
-use stm32_hal2::gpio::{Port, PinMode};
+use stm32_hal2::gpio::{PinMode, Port};
 
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
@@ -402,10 +402,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-            // let spi_flash_pac = dp.OCTOSPI1;
-            let spi_flash_pac = dp.QUADSPI;
+        // let spi_flash_pac = dp.OCTOSPI1;
+        let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-            let spi_flash_pac = dp.SPI2;
+        let spi_flash_pac = dp.SPI2;
 
         let mut can = setup::setup_can(dp.FDCAN1);
 
@@ -464,10 +464,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -672,21 +672,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-            // todo: Wrong. You need to do this by number; apply your pin mapping.
-            let motors_reversed = (
+        // todo: Wrong. You need to do this by number; apply your pin mapping.
+        let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -1513,7 +1513,7 @@ mod app {
                 );
             }
         } else {
-            crsf::TRANSFER_IN_PROG.store(false ,Ordering::Release);
+            crsf::TRANSFER_IN_PROG.store(false, Ordering::Release);
             // Line is idle.
 
             // A `None` value here re-enables the interrupt without changing the char to match.
@@ -1586,7 +1586,7 @@ mod app {
             DmaInterrupt::TransferComplete,
         );
 
-        dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_TX_CH);
+        dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_RX_CH);
 
         cx.shared.i2c2.lock(|i2c| unsafe {
             i2c.read_dma(
@@ -1611,7 +1611,6 @@ mod app {
             setup::BARO_RX_CH,
             DmaInterrupt::TransferComplete,
         );
-        dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_RX_CH);
 
         let buf = unsafe { &sensors_shared::READ_BUF_BARO };
 
@@ -1644,7 +1643,7 @@ mod app {
             DmaInterrupt::TransferComplete,
         );
 
-        dma::stop(setup::EXT_SENSORS_DMA_PERIPH, setup::EXT_SENSORS_TX_CH);
+        dma::stop(setup::EXT_SENSORS_DMA_PERIPH, setup::EXT_SENSORS_RX_CH);
 
         println!("Ext sensors B");
         (cx.shared.i2c1, cx.shared.ext_sensor_active).lock(|i2c1, ext_sensor_active| {
@@ -1694,8 +1693,6 @@ mod app {
             setup::EXT_SENSORS_RX_CH,
             DmaInterrupt::TransferComplete,
         );
-
-        dma::stop(setup::EXT_SENSORS_DMA_PERIPH, setup::EXT_SENSORS_RX_CH);
 
         println!("Ext sensors A");
         (cx.shared.i2c1, cx.shared.ext_sensor_active).lock(|i2c1, ext_sensor_active| {
@@ -1782,8 +1779,14 @@ mod app {
                         //         tail_byte.transfer_id
                         //     );
 
+                        let fix_id = dronecan::MsgType::Fix2.id();
+                        let mag_id = dronecan::MsgType::MagneticFieldStrength2.id();
+                        let pres_id = dronecan::MsgType::StaticPressure.id();
+                        let temp_id = dronecan::MsgType::StaticTemperature.id();
+                        let node_status_id = dronecan::MsgType::NodeStatus.id();
+
                         match can_id.message_type_id {
-                            dronecan::DATA_TYPE_ID_FIX2 => {
+                            fix_id => {
                                 let fix = dronecan::gnss::FixDronecan::unpack(
                                     // &rx_buf[0..50].try_into().unwrap(),
                                     rx_buf[0..50].try_into().unwrap(),
@@ -1827,16 +1830,16 @@ mod app {
                                 //     true,
                                 // ).ok();
                             }
-                            dronecan::DATA_TYPE_ID_STATIC_PRESSURE => {
+                            pres_id => {
                                 let pressure = f32::from_le_bytes(rx_buf[0..4].try_into().unwrap());
                                 println!("Pressure: {} kPa", pressure / 1_000.);
                             }
-                            dronecan::DATA_TYPE_ID_STATIC_TEMPERATURE => {
+                            temp_id => {
                                 let temp =
                                     f32::from(f16::from_le_bytes(rx_buf[0..2].try_into().unwrap()));
                                 println!("Temp: {} K", temp);
                             }
-                            dronecan::DATA_TYPE_ID_MAGNETIC_FIELD_STRENGTH2 => {
+                            mag_id => {
                                 let x =
                                     f32::from(f16::from_le_bytes(rx_buf[1..3].try_into().unwrap()));
                                 let y =
@@ -1845,7 +1848,7 @@ mod app {
                                     f32::from(f16::from_le_bytes(rx_buf[5..7].try_into().unwrap()));
                                 println!("Mag. x: {}, y: {}, z: {}", x, y, z);
                             }
-                            dronecan::DATA_TYPE_ID_NODE_STATUS => {
+                            node_status_id => {
                                 let uptime = u32::from_le_bytes(rx_buf[0..4].try_into().unwrap());
                                 println!(
                                     "Node status. Uptime sec: {}, health: {}, mode; {}",

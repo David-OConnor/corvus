@@ -123,15 +123,17 @@ pub fn from_fix(fix: &Fix, timestamp: f32) -> FixDronecan {
     let pdop = u16::from_le_bytes([pdop_bytes[0], pdop_bytes[1]]);
 
     FixDronecan {
-        timestamp: (timestamp * 1_000_000.) as u64, // us.
+        timestamp: (fix.timestamp * 1_000_000.) as u64, // us.
         gnss_timestamp: fix.datetime.timestamp_micros() as u64,
+        // todo temp TS heisenbug
+        // gnss_timestamp: u64::from_le_bytes([1, 2, 3, 4, 5, 6, 7, 8]),
         gnss_time_standard: GnssTimeStandard::Utc, // todo
         // 13-bit pad
         num_leap_seconds: 0, // todo
         // We must multiply by 10 due to the higher precion format used
         // in DroneCan.
-        longitude_deg_1e8: (fix.lon * 10) as i64,
-        latitude_deg_1e8: (fix.lat * 10) as i64,
+        longitude_deg_1e8: (fix.lon as i64) * 10,
+        latitude_deg_1e8: (fix.lat as i64) * 10,
         height_ellipsoid_mm: fix.elevation_hae,
         height_msl_mm: fix.elevation_msl,
         // todo: Groundspeed? Or is that only from NED vel?
@@ -141,9 +143,10 @@ pub fn from_fix(fix: &Fix, timestamp: f32) -> FixDronecan {
         fix_status,
         mode: GnssMode::Dgps,                     // todo
         sub_mode: GnssSubMode::DgpsOtherRtkFloat, // todo?
-        // covariance: [None; 36],                   // todo?
-        covariance: 0,
+        covariance: 0,                            // Must be 0.
         pdop,
-        // ecef_position_velocity,
+        ecef_position_velocity: 0, // Must be 0.
+        pad: 0,                    // Must be 0.
+                                   // ecef_position_velocity,
     }
 }

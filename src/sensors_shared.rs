@@ -2,7 +2,7 @@
 //! regarding DMA operations on the barometer and external sensors I2C lines.
 
 use stm32_hal2::{
-    dma::DmaChannel,
+    dma::{self, DmaChannel},
     i2c::I2c,
     pac::{I2C1, I2C2},
 };
@@ -10,7 +10,8 @@ use stm32_hal2::{
 use crate::{
     baro, gnss, mag,
     setup::{
-        self, I2cBaro, I2cMag, BARO_DMA_PERIPH, BARO_TX_CH, EXT_SENSORS_TX_CH, IMU_DMA_PERIPH,
+        self, I2cBaro, I2cMag, BARO_DMA_PERIPH, BARO_RX_CH, BARO_TX_CH, EXT_SENSORS_TX_CH,
+        IMU_DMA_PERIPH,
     },
     tof,
 };
@@ -92,7 +93,10 @@ pub fn start_transfers(i2c_ext_sensors: &mut I2cMag, i2c_baro: &mut I2cBaro) {
         // In DMA TC ISRs, sequence read and writes; These are the transfers that start
         // the sequence of writes and reads for each bus.
 
-        // dma::stop(BARO_DMA_PERIPH, BARO_TX_CH);
+        // This stop appears to be required in some cases.
+        dma::stop(BARO_DMA_PERIPH, BARO_TX_CH);
+        dma::stop(BARO_DMA_PERIPH, BARO_RX_CH);
+
         i2c_baro.write_dma(
             // i2c_ext_sensors.write_dma(
             // todo temp since baro is currently wired to i2c1.

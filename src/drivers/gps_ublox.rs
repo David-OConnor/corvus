@@ -45,6 +45,8 @@ const MSG_SIZE_WITHOUT_PAYLOAD: usize = 8;
 const PAYLOAD_LEN_PVT: usize = 92;
 // Payload length for an acknowledgement message.
 const PAYLOAD_LEN_ACK_NAK: usize = 2;
+
+// The first few messages of config are reserved or used to set RAM vs FLASH
 const CFG_PAYLOAD_START_I: usize = 4;
 
 // We use this max length for our DMA read buffer.
@@ -75,6 +77,7 @@ impl Default for FixType {
 }
 
 #[derive(Default)]
+/// In a format conducive to being parsed from the UBX PVT.
 /// Note: For position and elevation, we use the same units as Ublox reports; we
 /// can convert to floats as required downstream.
 pub struct Fix {
@@ -122,6 +125,24 @@ impl Fix {
             self.sats_used,
         );
     }
+}
+
+#[derive(Default)]
+/// Dilution of precision (DOP) Eg parsed from UBX-NAV-DOP.
+/// DOP values are dimensionless.
+/// All DOP values are scaled by a factor of 100. If the unit transmits a value of e.g. 156, the DOP value is
+/// 1.56.
+pub struct DilutionOfPrecision {
+    /// GPS time of week of the navigation epoch; reported by the GNSS.
+    // pub timestamp: u32,
+    // pub datetime: NaiveDateTime,
+    pub geometric: u16,
+    pub position: u16,
+    pub time: u16,
+    pub vertical: u16,
+    pub horizontal: u16,
+    pub northing: u16,
+    pub easting: u16,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -516,11 +537,15 @@ pub fn setup(uart: &mut UartGnss, clock_cfg: &Clocks) -> Result<(), GnssError> {
     let key_id_rate_meas: u32 = 0x3021_0001;
     let val_rate_meas = (1_000. / MEASUREMENT_RATE) as u16;
 
+    // CFG-MSGOUT-UBX_NAV_DOP_UART1
+    let key_id_dop_rate: u32 = 0x2091_0039;
+    let val_dop_rate: u8 = 1;
+
     // "Configuration data is the binary representation of a list of Key ID and Value pairs. It is formed by
     // concatenating keys (U4 values) and values (variable type) without any padding. This format is used
     // in the UBX-CFG-VALSET and UBX-CFG-VALGET messages."
 
-    const PAYLOAD_LEN_CFG: u16 = 24; // Adjust this based on which items you configure.
+    const PAYLOAD_LEN_CFG: u16 = 23; // Adjust this based on which items you configure.
     let mut cfg_payload = [0; PAYLOAD_LEN_CFG as usize];
 
     // Bytes 0 and 1 are CFG metadata, prior to the key and value pairs. We use this to set the layer
@@ -535,6 +560,12 @@ pub fn setup(uart: &mut UartGnss, clock_cfg: &Clocks) -> Result<(), GnssError> {
 
     cfg_payload[17..21].clone_from_slice(&key_id_rate_meas.to_le_bytes());
     cfg_payload[21..23].clone_from_slice(&val_rate_meas.to_le_bytes());
+
+    // todo: Put back DOP once you change UART reception to not rely on TC interrupt.
+    // todo: Address that, using your CRSF code as a guideline, once you get the reception
+    // todo and mag ISRs working properly.
+    // cfg_payload[23..27].clone_from_slice(&key_id_pvt_rate.to_le_bytes());
+    // cfg_payload[27] = val_dop_rate;
 
     let cfg_msg = Message {
         class_id: MsgClassId::CfgValSet,

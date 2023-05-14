@@ -228,6 +228,11 @@ pub struct StateVolatile {
     pub motor_servo_state: MotorServoState,
     /// Use this, in combination with arm status, and `MotorServoState`.
     pub preflight_motors_running: bool,
+    #[cfg(feature = "quad")]
+    pub estimated_hover_power: f32,
+    #[cfg(feature = "quad")]
+    /// Per motor.
+    pub estimated_hover_rpm: f32,
     // /// todo - experimental. We use this to avoid numerical precision issues that occur from
     // /// todo tracking the tiny attitude changes each update loop.`
     // /// Todo: Along these lines, you probably don't want to update target attitude each

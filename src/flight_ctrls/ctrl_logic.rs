@@ -27,7 +27,6 @@ use cfg_if::cfg_if;
 
 use defmt::println;
 
-
 cfg_if! {
     if #[cfg(feature = "quad")] {
         use super::motor_servo::MotorRpm;
@@ -36,6 +35,9 @@ cfg_if! {
     }
 }
 
+// todo: Make sure this jives with the axis you're using elsewhere;
+// todo: Especially y and z! I'm attempting to use something similar to how the ICM42688 defines
+// todo axis. Maybe use a standard coord system? Check the signs on UP and FWD in particular.
 const RIGHT: Vec3 = Vec3 {
     x: 1.,
     y: 0.,
@@ -43,18 +45,18 @@ const RIGHT: Vec3 = Vec3 {
 };
 const UP: Vec3 = Vec3 {
     x: 0.,
-    y: 1.,
-    z: 0.,
+    y: 0.,
+    z: 1.,
 };
 const FWD: Vec3 = Vec3 {
     x: 0.,
-    y: 0.,
-    z: 1.,
+    y: 1.,
+    z: 0.,
 };
 
 /// Represents a torque; ie a rotation with an associated angular velocity
 pub struct Torque {
-    /// Uses the right hand rule.
+    /// A unit vector. Uses the right hand rule.
     pub axis: Vec3,
     /// In radians-per-second.
     pub angular_velocity: f32,
@@ -83,22 +85,7 @@ impl Torque {
     /// Construct torque from 2 quaternions, and the time the rotation takes.
     /// This assumes less than a full rotation between updates.
     pub fn from_attitudes(att_prev: Quaternion, att_this: Quaternion, dt: f32) -> Self {
-        // todo: Add to lin alg lib fn to get the axis and/or angles a/r
-        //
         let rotation = att_this * att_prev.inverse();
-
-        // todo t
-        // static mut i: u32 = 0;
-        // unsafe { i += 1 };
-        // if unsafe { i } % 200 == 0 {
-        //     let euler = rotation.to_euler();
-        //     let axis = rotation.axis();
-        //     let angle = rotation.angle() / dt;
-        //     println!("prev: x{} y{} z{}. w{}", att_prev.x, att_prev.y, att_prev.z, att_prev.w);
-        //     println!("This: x{} y{} z{}. w{}", att_this.x, att_this.y, att_this.z, att_this.w);
-        //     println!("Rotation: p{} r{} y{}", euler.pitch, euler.roll, euler.yaw);
-        //     println!("Axis: {} {} {}. Angle: {}", axis.x, axis.y, axis.z, angle);
-        // }
 
         Self {
             axis: rotation.axis(),
@@ -275,6 +262,9 @@ fn find_ctrl_setting(
 
     let dθ = θ_tgt - θ_0;
 
+    static mut i: u32 = 0;
+    unsafe { i += 1 };
+
     let mut α_target = match time_to_correct {
         Some(ttc) => {
             // If it would take too longer to perform the correction, calculate a new
@@ -293,13 +283,15 @@ fn find_ctrl_setting(
             }
         }
         None => {
-            if unsafe { i } % 3_000 == 0 {
-                println!("theta_0: {}, omega_0: {}, theta_tgt: {}, omega_tgt: {}, coeff: {}",
-                         θ_0, ω_0, θ_tgt, ω_tgt, coeffs.ttc_per_dθ);
-            }
+            // if unsafe { i } % 7_000 == 0 {
+            //     println!(
+            //         "theta_0: {}, omega_0: {}, theta_tgt: {}, omega_tgt: {}, coeff: {}",
+            //         θ_0, ω_0, θ_tgt, ω_tgt, coeffs.ttc_per_dθ
+            //     );
+            // }
 
             α_from_ttc(θ_0, ω_0, θ_tgt, ω_tgt, coeffs.ttc_per_dθ)
-        },
+        }
     };
 
     // The target acceleration needs to include both the correction, and drag compensation.
@@ -328,27 +320,28 @@ fn find_ctrl_setting(
     // `cmd` is the unit we use for ctrl inputs. Not sure what (if any?) units it has.
     // α_target /= ctrl_effectiveness;
 
-    static mut i: u32 = 0;
-    unsafe { i += 1 };
-    if unsafe { i } % 3_000 == 0 {
-        println!("Tgt accel: {}", α_target);
-    }
+    // static mut i: u32 = 0;
+    // unsafe { i += 1 };
+    // if unsafe { i } % 6_000 == 0 {
+    //     println!("Tgt accel: {}", α_target);
+    // }
 
     accel_map.interpolate(α_target)
 }
 
 #[cfg(feature = "quad")]
-/// Calculate target rotor RPM from current and target attitudes. This is our entry point
-/// for control application: It generates motor powers (in 2 formats) based on the
-/// parameters, and commands.
-/// The DT passed is the IMU rate, since we update params_prev each IMU update.
+/// Calculate target rotor RPM or control-surface positions from current and target attitudes,
+/// and current and target angular velocities.
+/// This is our entry point
+/// for control application:
+/// The DT passed is the IMU update rate, since we update params_prev each IMU update.
 pub fn ctrl_mix_from_att(
     target_attitude: Quaternion,
     // todo: Which do you want: A vector torque, or a rotation since last with DT?
     // todo: Probably torque.
     target_torque: &Torque,
     // target_rotation_since_prev: Quaternion,
-    current_attitude: Quaternion,
+    // current_attitude: Quaternion,
     throttle: f32,
     front_left_dir: RotationDir,
     // todo: Params is just for current angular rates. Maybe just pass those?
@@ -360,37 +353,29 @@ pub fn ctrl_mix_from_att(
     filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
 ) -> CtrlMix {
-    // This is the rotation we need to create to arrive at the target attitude.
-    let rotation_cmd = target_attitude * current_attitude.inverse();
-    // Split the rotation into 3 euler angles. We do this due to our controls acting primarily
+    // todo: Dry between current_attitude and params?
+
+    // This is the rotation we need to create to arrive at the target attitude from the current one.
+    let rotation_cmd = target_attitude * params.attitude_quat.inverse();
+    // Split the rotation into 3 euler angles. We do this due to our controls and sensors acting
     // along individual axes.
     let rot_euler = rotation_cmd.to_euler();
 
     // todo: Is this logic correct?
-    let dω_pitch = (target_torque.axis.x) * target_torque.angular_velocity - params.v_pitch;
-    let dω_roll = (target_torque.axis.z) * target_torque.angular_velocity - params.v_roll;
-    let dω_yaw = (target_torque.axis.y) * target_torque.angular_velocity - params.v_yaw;
 
+    // We arrive at a target attitude, and target angular velocity.
 
+    let target_ω_pitch = target_torque.axis.dot(RIGHT) * target_torque.angular_velocity;
+    let target_ω_roll = target_torque.axis.dot(FWD) * target_torque.angular_velocity;
+    let target_ω_yaw = target_torque.axis.dot(UP) * target_torque.angular_velocity;
 
-    static mut i: u32 = 0;
-    unsafe { i += 1 };
-    if unsafe { i } % 1_000 == 0 {
-        let t = target_attitude.to_euler();
-        println!(
-            "Tg P:{} R: \
-            {} Y:{}, Curr: {}, rot_cmd:{} {} {}",
-            t.pitch,
-            t.roll,
-            t.yaw,
-            current_attitude.to_euler().pitch,
-            rot_euler.pitch,
-            rot_euler.roll,
-            rot_euler.yaw
-        );
+    let dω_pitch = target_ω_pitch - params.v_pitch;
+    let dω_roll = target_ω_roll - params.v_roll;
+    let dω_yaw = target_ω_yaw - params.v_yaw;
 
-        println!("w_tgt pitch: {}. axis: {}, angular: {}, v: {}", dω_pitch, target_torque.axis.x, target_torque.angular_velocity, params.v_pitch);
-    }
+    // let dω_pitch = (target_torque.axis.x) * target_torque.angular_velocity - params.v_pitch;
+    // let dω_roll = (target_torque.axis.z) * target_torque.angular_velocity - params.v_roll;
+    // let dω_yaw = (target_torque.axis.y) * target_torque.angular_velocity - params.v_yaw;
 
     let pitch = find_ctrl_setting(
         params.s_pitch,
@@ -434,6 +419,47 @@ pub fn ctrl_mix_from_att(
         yaw,
         throttle,
     };
+
+    static mut i: u32 = 0;
+    unsafe { i += 1 };
+    if unsafe { i } % 4_000 == 0 {
+        let c = params.attitude_quat.to_euler();
+        let t = target_attitude.to_euler();
+
+        println!("\n***Attitude***");
+        println!("Current: p{} r{} y{}", c.pitch, c.roll, c.yaw);
+        println!("Target: p{} r{} y{}", t.pitch, t.roll, t.yaw);
+        println!(
+            "Required rot: p:{} r:{} y:{}",
+            rot_euler.pitch, rot_euler.roll, rot_euler.yaw
+        );
+
+        println!("\n***Ang Velocity***");
+        println!(
+            "Current: v_p{} v_r{} v_y{}",
+            params.v_pitch, params.v_roll, params.v_yaw
+        );
+        println!(
+            "Target torque: x{}, y{}, z{} v{} ",
+            target_torque.axis.x,
+            target_torque.axis.y,
+            target_torque.axis.z,
+            target_torque.angular_velocity
+        );
+
+        println!(
+            "Target ω p{}, ω r{}, ω y{}",
+            target_ω_pitch, target_ω_roll, target_ω_yaw
+        );
+
+        println!("dω p{}, dω r{}, dω y{}", dω_pitch, dω_roll, dω_yaw);
+
+        println!("\n***Command generated:***");
+        println!(
+            "Mix. p{} r{} y{} t{}\n\n\n",
+            result.pitch, result.roll, result.yaw, result.throttle
+        );
+    }
 
     result.clamp();
     result
