@@ -129,7 +129,7 @@ impl AccelMap {
 
         // todo: Temp / v sloppy!!
         self.square = 0.;
-        self.lin = 0.01;
+        self.lin = 0.001;
         self.constant = 0.;
     }
 

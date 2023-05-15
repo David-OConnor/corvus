@@ -272,9 +272,9 @@ fn find_ctrl_setting(
 ) -> f32 {
     // todo: Take time to spin up/down into account?
 
-    let time_to_correct = find_time_to_correct(θ_0, ω_0, ω_dot_0, θ_tgt, ω_tgt);
+    // let dθ = θ_tgt - θ_0;
 
-    let dθ = θ_tgt - θ_0;
+    let time_to_correct = find_time_to_correct(θ_0, ω_0, ω_dot_0, θ_tgt, ω_tgt);
 
     static mut i: u32 = 0;
     unsafe { i += 1 };
@@ -368,13 +368,24 @@ pub fn ctrl_mix_from_att(
     filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
 ) -> CtrlMix {
-    // todo: Dry between current_attitude and params?
+    // todo: Comfirming rotations work as expected. They appear to, although this axis-angle
+    // todo thing is all wrong! (Rotation along the RIGHT vec is showing it's a roll, vice pitch...
+    // let target_attitude = Quaternion::from_axis_angle(RIGHT, 0.2);
 
     // This is the rotation we need to create to arrive at the target attitude from the current one.
-    let rotation_cmd = target_attitude * params.attitude_quat.inverse();
+    // Note: This isn't the recipe I imagined, but the one that seems to work due to trial+error.
+    // it's possible you have flipped quaternion multiplication in your impl, or something.
+    let rotation_cmd = params.attitude_quat * target_attitude.inverse();
     // Split the rotation into 3 euler angles. We do this due to our controls and sensors acting
     // along individual axes.
-    let rot_euler = rotation_cmd.to_euler();
+    let mut rot_euler = rotation_cmd.to_euler();
+    // again, strange results, so compensationg
+    rot_euler.pitch *= -1.;
+    rot_euler.roll *= -1.;
+    rot_euler.yaw *= -1.;
+
+    // todo: It looks like our new API uses the target eulers directly...
+    let target_euler = target_attitude.to_euler();
 
     // todo: Is this logic correct?
 
@@ -401,8 +412,10 @@ pub fn ctrl_mix_from_att(
         params.s_pitch,
         params.v_pitch,
         params.a_pitch,
-        rot_euler.pitch,
-        dω_pitch,
+        target_euler.pitch,
+        // rot_euler.pitch,
+        // dω_pitch,
+        *target_ω_pitch,
         coeffs,
         drag_coeffs.pitch,
         &accel_maps.map_pitch,
@@ -413,8 +426,10 @@ pub fn ctrl_mix_from_att(
         params.s_roll,
         params.v_roll,
         params.a_roll,
-        rot_euler.roll,
-        dω_roll,
+        target_euler.roll,
+        // rot_euler.roll,
+        // dω_roll,
+        *target_ω_roll,
         coeffs,
         drag_coeffs.roll,
         &accel_maps.map_roll,
@@ -425,8 +440,9 @@ pub fn ctrl_mix_from_att(
         params.s_yaw_heading,
         params.v_yaw,
         params.a_yaw,
-        rot_euler.yaw,
-        dω_yaw,
+        // rot_euler.yaw,
+        target_euler.yaw,
+        *target_ω_yaw,
         coeffs,
         drag_coeffs.yaw,
         &accel_maps.map_yaw,
@@ -443,12 +459,12 @@ pub fn ctrl_mix_from_att(
     static mut i: u32 = 0;
     unsafe { i += 1 };
     if unsafe { i } % 4_000 == 0 {
-        let c = params.attitude_quat.to_euler();
-        let t = target_attitude.to_euler();
+        // let c = params.attitude_quat.to_euler();
 
         println!("\n***Attitude***");
-        println!("Current: p{} r{} y{}", c.pitch, c.roll, c.yaw);
-        println!("Target: p{} r{} y{}", t.pitch, t.roll, t.yaw);
+        // println!("Current: p{} r{} y{}", c.pitch, c.roll, c.yaw);
+        println!("Current p{} r{} y{}", params.s_pitch, params.s_roll, params.s_yaw_heading);
+        println!("Target: p{} r{} y{}", target_euler.pitch, target_euler.roll, target_euler.yaw);
         println!(
             "Required rot: p{} r{} y{}",
             rot_euler.pitch, rot_euler.roll, rot_euler.yaw
