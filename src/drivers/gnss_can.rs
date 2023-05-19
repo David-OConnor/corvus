@@ -123,7 +123,7 @@ pub fn from_fix(fix: &Fix, timestamp: f32) -> FixDronecan {
     let pdop = u16::from_le_bytes([pdop_bytes[0], pdop_bytes[1]]);
 
     FixDronecan {
-        timestamp: (fix.timestamp * 1_000_000.) as u64, // us.
+        timestamp: (fix.timestamp_s * 1_000_000.) as u64, // us.
         gnss_timestamp: fix.datetime.timestamp_micros() as u64,
         // todo temp TS heisenbug
         // gnss_timestamp: u64::from_le_bytes([1, 2, 3, 4, 5, 6, 7, 8]),
@@ -145,8 +145,6 @@ pub fn from_fix(fix: &Fix, timestamp: f32) -> FixDronecan {
         sub_mode: GnssSubMode::DgpsOtherRtkFloat, // todo?
         covariance: 0,                            // Must be 0.
         pdop,
-        ecef_position_velocity: 0, // Must be 0.
-        pad: 0,                    // Must be 0.
-                                   // ecef_position_velocity,
+        pad: 0, // Must be 0.
     }
 }

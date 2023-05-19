@@ -249,7 +249,7 @@ pub fn init_sensors(
     //     Ok(f) => {
     //         params.lon = f.lon;
     //         params.lat = f.lat;
-    //         params.baro_alt_msl = f.alt_msl;
+    //         params.alt_msl_baro = f.alt_msl;
     //
     //         *base_pt = Location::new(LocationType::LatLon, f.lat, f.lon, f.alt_msl);
     //

@@ -43,6 +43,7 @@ const MSG_SIZE_WITHOUT_PAYLOAD: usize = 8;
 
 // Position, velocity, time data payload side: UBX-NAV-PVT.
 const PAYLOAD_LEN_PVT: usize = 92;
+const PAYLOAD_LEN_DOP: usize = 18;
 // Payload length for an acknowledgement message.
 const PAYLOAD_LEN_ACK_NAK: usize = 2;
 
@@ -55,7 +56,7 @@ pub const MAX_BUF_LEN: usize = PAYLOAD_LEN_PVT + MSG_SIZE_WITHOUT_PAYLOAD;
 pub static mut RX_BUFFER: [u8; PAYLOAD_LEN_PVT + MSG_SIZE_WITHOUT_PAYLOAD] =
     [0; PAYLOAD_LEN_PVT + MSG_SIZE_WITHOUT_PAYLOAD];
 
-pub static _TRANSFER_IN_PROG: AtomicBool = AtomicBool::new(false);
+pub static TRANSFER_IN_PROG: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
@@ -77,12 +78,12 @@ impl Default for FixType {
 }
 
 #[derive(Default)]
-/// In a format conducive to being parsed from the UBX PVT.
+/// In a format conducive to being parsed from the UBX PVT. (`UBX-NAV-PVT`)
 /// Note: For position and elevation, we use the same units as Ublox reports; we
 /// can convert to floats as required downstream.
 pub struct Fix {
     /// This timestamp is local, eg synced from CAN bus.
-    pub timestamp: f32,
+    pub timestamp_s: f32,
     pub datetime: NaiveDateTime,
     pub type_: FixType,
     // /// Degrees
@@ -109,6 +110,76 @@ pub struct Fix {
 }
 
 impl Fix {
+    /// Get position, velocity, and time data, assuming it has already been transsferred into the reception
+    /// buffer. Run this after a packet has been completedly received, eg as indicated by the UART idle
+    /// interrupt.
+    ///
+    /// The input buffer includes the entire packet, including CRC, message length, Class and ID etc.
+    ///
+    /// Timestamp is seconds since program start.
+    pub fn from_payload(payload: &[u8], timestamp: f32) -> Result<Self, GnssError> {
+        if payload.len() < PAYLOAD_LEN_PVT {
+            println!("Incorrect PVT payload.");
+            return Err(GnssError::MessageData);
+        }
+
+        let flags = payload[21];
+        let fix_ok = (flags & 1) != 0;
+        let heading_valid = (flags & 0b10_0000) != 0;
+
+        let date = NaiveDate::from_ymd_opt(
+            u16::from_le_bytes(payload[4..6].try_into().unwrap()) as i32,
+            payload[6] as u32,
+            payload[7] as u32,
+        );
+        if date.is_none() {
+            return Err(GnssError::MessageData);
+        }
+        let date = date.unwrap(); // eg invalid values.
+
+        let ns = i32::from_le_bytes(payload[16..20].try_into().unwrap());
+        let datetime = date.and_hms_nano_opt(
+            payload[8] as u32,
+            payload[9] as u32,
+            payload[10] as u32,
+            ns as u32,
+        );
+        if datetime.is_none() {
+            return Err(GnssError::MessageData);
+        }
+        let datetime = datetime.unwrap();
+
+        let lat_e7 = i32::from_le_bytes(payload[28..32].try_into().unwrap());
+        let lon_e7 = i32::from_le_bytes(payload[24..28].try_into().unwrap());
+
+        let heading = if heading_valid {
+            Some(i32::from_le_bytes(payload[84..88].try_into().unwrap()) as f32)
+        } else {
+            None
+        };
+
+        let type_ = payload[20].try_into()?;
+
+        Ok(Self {
+            timestamp_s: timestamp,
+            datetime,
+            type_,
+            lat: lat_e7,
+            lon: lon_e7,
+            elevation_hae: i32::from_le_bytes(payload[32..36].try_into().unwrap()),
+            elevation_msl: i32::from_le_bytes(payload[36..40].try_into().unwrap()),
+            ground_speed: i32::from_le_bytes(payload[60..64].try_into().unwrap()),
+            ned_velocity: [
+                i32::from_le_bytes(payload[48..52].try_into().unwrap()),
+                i32::from_le_bytes(payload[52..56].try_into().unwrap()),
+                i32::from_le_bytes(payload[56..60].try_into().unwrap()),
+            ],
+            heading,
+            sats_used: payload[23],
+            pdop: u16::from_le_bytes(payload[76..78].try_into().unwrap()),
+        })
+    }
+
     pub fn print(&self) {
         println!(
             "Fix data: Timestamp: {}, {}:{}:{}, type: {}, \nlat: {}, lon: {}, \n\
@@ -145,11 +216,30 @@ pub struct DilutionOfPrecision {
     pub easting: u16,
 }
 
+impl DilutionOfPrecision {
+    pub fn from_payload(payload: &[u8]) -> Result<Self, GnssError> {
+        if payload.len() < PAYLOAD_LEN_DOP {
+            println!("Incorrect DOP payload.");
+            return Err(GnssError::MessageData);
+        }
+
+        Ok(Self {
+            geometric: u16::from_le_bytes(payload[4..6].try_into().unwrap()),
+            position: u16::from_le_bytes(payload[6..8].try_into().unwrap()),
+            time: u16::from_le_bytes(payload[8..10].try_into().unwrap()),
+            vertical: u16::from_le_bytes(payload[10..12].try_into().unwrap()),
+            horizontal: u16::from_le_bytes(payload[12..14].try_into().unwrap()),
+            northing: u16::from_le_bytes(payload[14..16].try_into().unwrap()),
+            easting: u16::from_le_bytes(payload[16..18].try_into().unwrap()),
+        })
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 /// See Interface manual, section 3.8: UBX messages overview
 ///
 /// todo: Class enum, and id-per-class enum?
-enum MsgClassId {
+pub enum MsgClassId {
     /// Message acknowledged (Output)
     AckAck,
     /// Message not acknowledged (Output)
@@ -419,7 +509,7 @@ impl From<TryFromPrimitiveError<FixType>> for GnssError {
     }
 }
 
-struct Message<'a> {
+pub struct Message<'a> {
     /// A 1-byte message class field follows. A class is a group of messages that are related to each
     /// other.
     /// A 1-byte message ID field defines the message that is to follow.
@@ -517,7 +607,7 @@ pub fn setup(uart: &mut UartGnss, clock_cfg: &Clocks) -> Result<(), GnssError> {
     // todo: Consider, if failing? try the new, and or reset baud here.
 
     uart.enable_interrupt(UsartInterrupt::CharDetect(Some(PREAMBLE_1)));
-    // uart.enable_interrupt(UsartInterrupt::Idle); // todo: experimenting.
+    uart.enable_interrupt(UsartInterrupt::Idle);
 
     // Note: Fix mode defaults to auto, which allows fixes from multiple constellations.
 
@@ -541,11 +631,13 @@ pub fn setup(uart: &mut UartGnss, clock_cfg: &Clocks) -> Result<(), GnssError> {
     let key_id_dop_rate: u32 = 0x2091_0039;
     let val_dop_rate: u8 = 1;
 
+    // todo: We could also report COV matrices.
+
     // "Configuration data is the binary representation of a list of Key ID and Value pairs. It is formed by
     // concatenating keys (U4 values) and values (variable type) without any padding. This format is used
     // in the UBX-CFG-VALSET and UBX-CFG-VALGET messages."
 
-    const PAYLOAD_LEN_CFG: u16 = 23; // Adjust this based on which items you configure.
+    const PAYLOAD_LEN_CFG: u16 = 28; // Adjust this based on which items you configure.
     let mut cfg_payload = [0; PAYLOAD_LEN_CFG as usize];
 
     // Bytes 0 and 1 are CFG metadata, prior to the key and value pairs. We use this to set the layer
@@ -561,11 +653,8 @@ pub fn setup(uart: &mut UartGnss, clock_cfg: &Clocks) -> Result<(), GnssError> {
     cfg_payload[17..21].clone_from_slice(&key_id_rate_meas.to_le_bytes());
     cfg_payload[21..23].clone_from_slice(&val_rate_meas.to_le_bytes());
 
-    // todo: Put back DOP once you change UART reception to not rely on TC interrupt.
-    // todo: Address that, using your CRSF code as a guideline, once you get the reception
-    // todo and mag ISRs working properly.
-    // cfg_payload[23..27].clone_from_slice(&key_id_pvt_rate.to_le_bytes());
-    // cfg_payload[27] = val_dop_rate;
+    cfg_payload[23..27].clone_from_slice(&key_id_pvt_rate.to_le_bytes());
+    cfg_payload[27] = val_dop_rate;
 
     let cfg_msg = Message {
         class_id: MsgClassId::CfgValSet,
@@ -605,85 +694,4 @@ pub fn setup(uart: &mut UartGnss, clock_cfg: &Clocks) -> Result<(), GnssError> {
     }
 
     Ok(())
-}
-
-/// Get position, velocity, and time data, assuming it has already been transsferred into the reception
-/// buffer. Run this after a packet has been completedly received, eg as indicated by the UART idle
-/// interrupt.
-///
-/// The input buffer includes the entire packet, including CRC, message length, Class and ID etc.
-///
-/// Timestamp is seconds since program start.
-// pub fn fix_pvt_from_buf(buf: &[u8], timestamp: f32) -> Result<Option<Fix>, GnssError> {
-pub fn fix_pvt_from_buf(buf: &[u8], timestamp: f32) -> Result<Fix, GnssError> {
-    if buf.len() < PAYLOAD_LEN_PVT + MSG_SIZE_WITHOUT_PAYLOAD {
-        println!("Message data error.");
-        return Err(GnssError::MessageData);
-    }
-
-    let payload_len = u16::from_le_bytes(buf[4..6].try_into().unwrap());
-    if payload_len != PAYLOAD_LEN_PVT as u16 {
-        println!("Incorrect reported payloaded length for PVT");
-        return Err(GnssError::MessageData);
-    }
-    let msg = Message::from_buf(buf)?;
-
-    let flags = msg.payload[21];
-    let fix_ok = (flags & 1) != 0;
-    let heading_valid = (flags & 0b10_0000) != 0;
-
-    let date = NaiveDate::from_ymd_opt(
-        u16::from_le_bytes(msg.payload[4..6].try_into().unwrap()) as i32,
-        msg.payload[6] as u32,
-        msg.payload[7] as u32,
-    );
-    if date.is_none() {
-        return Err(GnssError::MessageData);
-    }
-    let date = date.unwrap(); // eg invalid values.
-
-    let ns = i32::from_le_bytes(msg.payload[16..20].try_into().unwrap());
-    let datetime = date.and_hms_nano_opt(
-        msg.payload[8] as u32,
-        msg.payload[9] as u32,
-        msg.payload[10] as u32,
-        ns as u32,
-    );
-    if datetime.is_none() {
-        return Err(GnssError::MessageData);
-    }
-    let datetime = datetime.unwrap();
-
-    let lat_e7 = i32::from_le_bytes(msg.payload[28..32].try_into().unwrap());
-    let lon_e7 = i32::from_le_bytes(msg.payload[24..28].try_into().unwrap());
-
-    let heading = if heading_valid {
-        Some(i32::from_le_bytes(msg.payload[84..88].try_into().unwrap()) as f32)
-    } else {
-        None
-    };
-
-    let type_ = msg.payload[20].try_into()?;
-
-    // `UBX-NAV-PVT`.
-    let mut result = Fix {
-        timestamp,
-        datetime,
-        type_,
-        lat: lat_e7,
-        lon: lon_e7,
-        elevation_hae: i32::from_le_bytes(msg.payload[32..36].try_into().unwrap()),
-        elevation_msl: i32::from_le_bytes(msg.payload[36..40].try_into().unwrap()),
-        ground_speed: i32::from_le_bytes(msg.payload[60..64].try_into().unwrap()),
-        ned_velocity: [
-            i32::from_le_bytes(msg.payload[48..52].try_into().unwrap()),
-            i32::from_le_bytes(msg.payload[52..56].try_into().unwrap()),
-            i32::from_le_bytes(msg.payload[56..60].try_into().unwrap()),
-        ],
-        heading,
-        sats_used: msg.payload[23],
-        pdop: u16::from_le_bytes(msg.payload[76..78].try_into().unwrap()),
-    };
-
-    Ok(result)
 }

@@ -463,8 +463,14 @@ pub fn ctrl_mix_from_att(
 
         println!("\n***Attitude***");
         // println!("Current: p{} r{} y{}", c.pitch, c.roll, c.yaw);
-        println!("Current p{} r{} y{}", params.s_pitch, params.s_roll, params.s_yaw_heading);
-        println!("Target: p{} r{} y{}", target_euler.pitch, target_euler.roll, target_euler.yaw);
+        println!(
+            "Current p{} r{} y{}",
+            params.s_pitch, params.s_roll, params.s_yaw_heading
+        );
+        println!(
+            "Target: p{} r{} y{}",
+            target_euler.pitch, target_euler.roll, target_euler.yaw
+        );
         println!(
             "Required rot: p{} r{} y{}",
             rot_euler.pitch, rot_euler.roll, rot_euler.yaw

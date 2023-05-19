@@ -556,8 +556,8 @@ mod app {
         user_cfg.waypoints[0] = Some(Location {
             type_: LocationType::LatLon,
             name: [0, 1, 2, 3, 4, 5, 6],
-            lon: 1.,
-            lat: 2.,
+            lat_e8: 0,
+            lon_e8: 0,
             alt_msl: 3.,
         });
 
@@ -881,7 +881,7 @@ mod app {
                     // Update `params_prev` with past-update data prior to updating params
                     // todo: Update params each IMU update, or at FC interval?
                     *cx.local.params_prev = params.clone();
-                    params.update_from_imu_readings(imu_data);
+                    params.update_from_imu_readings(&imu_data);
 
                     // todo: Update attitude each IMU update, or at FC interval?
                     attitude_platform::update_attitude(cx.local.ahrs, params, None, DT_FLIGHT_CTRLS);
@@ -1112,7 +1112,7 @@ mod app {
                             arm_status: state_volatile.arm_status,
                             battery_voltage: state_volatile.batt_v,
                             current_draw: state_volatile.esc_current,
-                            alt_msl_baro: params.baro_alt_msl,
+                            alt_msl_baro: params.alt_msl_baro,
                             gps_fix: Location::default(),
                             pitch: params.s_pitch,
                             roll: params.s_roll,
@@ -1271,10 +1271,10 @@ mod app {
                                 &buf,
                                 params.attitude_quat,
                                 &state_volatile.attitude_commanded,
-                                params.baro_alt_msl,
+                                params.alt_msl_baro,
                                 state_volatile.pressure_static,
                                 state_volatile.temp_baro,
-                                params.tof_alt_agl,
+                                params.alt_tof,
                                 state_volatile.batt_v,
                                 state_volatile.esc_current,
                                 ch_data,
@@ -1633,7 +1633,7 @@ mod app {
 
                 state_volatile.pressure_static = pressure;
                 state_volatile.temp_baro = temp;
-                params.baro_alt_msl =
+                params.alt_msl_baro =
                     atmos_model::estimate_altitude_msl(pressure, temp, &altimeter.ground_cal)
             });
     }
@@ -1769,7 +1769,7 @@ mod app {
                     //     frame_info.len,
                     //     frame_info.time_stamp,
                     //     can_id.priority.val(),
-                    //     can_id.message_type_id,
+                    //     can_id.type_id,
                     //     can_id.source_node_id
                     // );
 
@@ -1785,19 +1785,15 @@ mod app {
                         //         tail_byte.transfer_id
                         //     );
 
-                        let fix_id = dronecan::MsgType::Fix2.id();
-                        let mag_id = dronecan::MsgType::MagneticFieldStrength2.id();
-                        let pres_id = dronecan::MsgType::StaticPressure.id();
-                        let temp_id = dronecan::MsgType::StaticTemperature.id();
-                        let node_status_id = dronecan::MsgType::NodeStatus.id();
-
-                        if can_id.message_type_id != 20007 {
-                            println!("Id: {}", can_id.message_type_id);
+                        if can_id.type_id != 20007 {
+                            println!("Id: {}", can_id.type_id);
                         }
-                        return;
 
-                        match can_id.message_type_id {
-                            fix_id => {
+                        // todo: See notes on GNSS CAN firmware about why we hard-code these
+                        // todo match arm vals.
+
+                        match can_id.type_id {
+                            1_063 => {
                                 let fix = dronecan::gnss::FixDronecan::unpack(
                                     rx_buf[0..dronecan::MsgType::Fix2.payload_size() as usize]
                                         .try_into()
@@ -1842,16 +1838,16 @@ mod app {
                                 //     true,
                                 // ).ok();
                             }
-                            pres_id => {
+                            1_028 => {
                                 let pressure = f32::from_le_bytes(rx_buf[0..4].try_into().unwrap());
                                 println!("Pressure: {} kPa", pressure / 1_000.);
                             }
-                            temp_id => {
+                            1_029 => {
                                 let temp =
                                     f32::from(f16::from_le_bytes(rx_buf[0..2].try_into().unwrap()));
                                 println!("Temp: {} K", temp);
                             }
-                            mag_id => {
+                            1_002 => {
                                 let x =
                                     f32::from(f16::from_le_bytes(rx_buf[1..3].try_into().unwrap()));
                                 let y =
@@ -1860,18 +1856,18 @@ mod app {
                                     f32::from(f16::from_le_bytes(rx_buf[5..7].try_into().unwrap()));
                                 println!("Mag. x: {}, y: {}, z: {}", x, y, z);
                             }
-                            node_status_id => {
+                            341 => {
                                 let uptime = u32::from_le_bytes(rx_buf[0..4].try_into().unwrap());
                                 println!(
                                     "Node status. Uptime sec: {}, health: {}, mode; {}",
                                     uptime, rx_buf[4], rx_buf[5]
                                 );
                             }
+                            3_115 => {
+                                println!("Position fused");
+                            }
                             _ => {
-                                println!(
-                                    "Unknown message type received: {}",
-                                    can_id.message_type_id
-                                );
+                                println!("Unknown message type received: {}", can_id.type_id);
                                 println!("Rx buf: {:?}", rx_buf);
                             }
                         }

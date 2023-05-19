@@ -11,14 +11,16 @@ use lin_alg2::f32::Quaternion;
 /// frame of reference.
 #[derive(Default, Clone)]
 pub struct Params {
-    /// Latitude in radians. From GPS alone, or blended with accelerometer data.
-    pub lat: f32,
-    /// Longitude in radians. From GPS alone, or blended with accelerometer data.
-    pub lon: f32,
+    /// Latitude in degrees; fused.
+    pub lat_e8: i64,
+    /// Longitude in degrees; fused.
+    pub lon_e8: i64,
+    /// Altitude fused from GNSS, IMU, and maybe baro. In meters.
+    pub alt_msl_fused: f32,
     /// MSL altitude in meters QFE (takeoff location is 0), from a barometer.
-    pub baro_alt_msl: f32,
+    pub alt_msl_baro: f32,
     /// AGL altitude in meters, from the Time of flight sensor.
-    pub tof_alt_agl: Option<f32>,
+    pub alt_tof: Option<f32>,
     pub dtd_alt_agl: Option<f32>,
 
     pub s_pitch: f32,
@@ -52,7 +54,7 @@ pub struct Params {
 impl Params {
     /// Update parameters that can be taken from either accels or gyros without fuzing. Data
     /// that requires fuzing (eg attitude) is updated in the `attitude_platform` module.
-    pub fn update_from_imu_readings(&mut self, mut imu_data: ImuReadings) {
+    pub fn update_from_imu_readings(&mut self, mut imu_data: &ImuReadings) {
         // todo: This is a good place to apply IMU calibration.
 
         // Calculate angular acceleration. Do this before updating velocities, since we use

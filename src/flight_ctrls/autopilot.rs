@@ -73,6 +73,8 @@ const ORBIT_START_LATERAL_TOLERANCE: f32 = 10.;
 pub const ORBIT_DEFAULT_RADIUS: f32 = 20.; // meters.
 pub const ORBIT_DEFAULT_GROUNDSPEED: f32 = 10.; // m/s
 
+const DEG_SCALE_1E8: f32 = 100_000_000.;
+
 fn cos(v: f32) -> f32 {
     unsafe { arm_cos_f32(v) }
 }
@@ -85,10 +87,14 @@ fn sin(v: f32) -> f32 {
 /// Params and output are in radians. Does not take into account turn radius.
 /// https://www.movable-type.co.uk/scripts/latlong.html
 /// θ = atan2( sin Δλ ⋅ cos φ2 , cos φ1 ⋅ sin φ2 − sin φ1 ⋅ cos φ2 ⋅ cos Δλ )
-fn find_bearing(target: (f32, f32), aircraft: (f32, f32)) -> f32 {
-    let y = sin(target.1 - aircraft.1) * cos(target.0);
-    let x = cos(aircraft.0) * sin(target.0)
-        - sin(aircraft.0) * cos(target.0) * cos(target.1 - aircraft.1);
+fn find_bearing(target: (i64, i64), aircraft: (i64, i64)) -> f32 {
+    let tgt_lat = target.0 as f32 / DEG_SCALE_1E8;
+    let tgt_lon = target.1 as f32 / DEG_SCALE_1E8;
+    let ac_lat = aircraft.0 as f32 / DEG_SCALE_1E8;
+    let ac_lon = aircraft.1 as f32 / DEG_SCALE_1E8;
+
+    let y = sin(tgt_lon - tgt_lon) * cos(tgt_lat);
+    let x = cos(ac_lat) * sin(tgt_lat) - sin(ac_lat) * cos(tgt_lat) * cos(tgt_lon - ac_lon);
     y.atan2(x) % TAU
 }
 
@@ -268,9 +274,9 @@ impl AutopilotStatus {
         // If in acro or attitude mode, we can adjust the throttle setting to maintain a fixed altitude,
         // either MSL or AGL.
         if self.takeoff {
-            let to_speed = match params.tof_alt_agl {
+            let to_speed = match params.alt_tof {
                 Some(alt) => alt,
-                None => params.baro_alt_msl, // todo temp?
+                None => params.alt_msl_baro, // todo temp?
             };
 
             autopilot_commands = CtrlInputs {
@@ -283,7 +289,8 @@ impl AutopilotStatus {
             if system_status.gnss == SensorStatus::Pass {}
         } else if let Some(pt) = &self.direct_to_point {
             if system_status.gnss == SensorStatus::Pass {
-                let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
+                let target_heading =
+                    find_bearing((params.lat_e8, params.lon_e8), (pt.lat_e8, pt.lon_e8));
 
                 autopilot_commands.yaw = Some(target_heading);
             }
@@ -307,8 +314,8 @@ impl AutopilotStatus {
             if !(alt_type == AltType::Agl && system_status.tof != SensorStatus::Pass) {
                 // Set a vertical velocity for the inner loop to maintain, based on distance
                 let dist = match alt_type {
-                    AltType::Msl => alt_commanded - params.baro_alt_msl,
-                    AltType::Agl => alt_commanded - params.tof_alt_agl.unwrap_or(0.),
+                    AltType::Msl => alt_commanded - params.alt_msl_baro,
+                    AltType::Agl => alt_commanded - params.alt_tof.unwrap_or(0.),
                 };
 
                 // todo: Instead of a PID, consider something simpler.
@@ -406,7 +413,7 @@ impl AutopilotStatus {
             if system_status.gnss == SensorStatus::Pass {
                 let target_heading = find_bearing((params.lat, params.lon), (pt.lat, pt.lon));
 
-                let target_pitch = ((pt.alt_msl - params.baro_alt_msl)
+                let target_pitch = ((pt.alt_msl - params.alt_msl_baro)
                     / find_distance((pt.lat, pt.lon), (params.lat, params.lon)))
                 .atan();
 
@@ -429,8 +436,8 @@ impl AutopilotStatus {
             if !(alt_type == AltType::Agl && system_status.tof != SensorStatus::Pass) {
                 // Set a vertical velocity for the inner loop to maintain, based on distance
                 let dist = match alt_type {
-                    AltType::Msl => alt_commanded - params.baro_alt_msl,
-                    AltType::Agl => alt_commanded - params.tof_alt_agl.unwrap_or(0.),
+                    AltType::Msl => alt_commanded - params.alt_msl_baro,
+                    AltType::Agl => alt_commanded - params.alt_tof.unwrap_or(0.),
                 };
 
                 // todo replacement for this and quad.
@@ -471,9 +478,9 @@ impl AutopilotStatus {
         match control_channel_data.alt_hold {
             AltHoldSwitch::Disabled => self.alt_hold = None,
             AltHoldSwitch::EnabledAgl => {
-                self.alt_hold = Some((AltType::Agl, params.tof_alt_agl.unwrap_or(20.)))
+                self.alt_hold = Some((AltType::Agl, params.alt_tof.unwrap_or(20.)))
             }
-            AltHoldSwitch::EnabledMsl => self.alt_hold = Some((AltType::Msl, params.baro_alt_msl)),
+            AltHoldSwitch::EnabledMsl => self.alt_hold = Some((AltType::Msl, params.alt_msl_baro)),
         }
 
         match control_channel_data.autopilot_a {
@@ -500,13 +507,13 @@ impl AutopilotStatus {
             AutopilotSwitchA::LoiterOrbit => {
                 self.loiter = Some(Location::new(
                     LocationType::LatLon,
-                    params.lat,
-                    params.lon,
-                    params.baro_alt_msl,
+                    params.lat_e8,
+                    params.lon_e8,
+                    params.alt_msl_baro,
                 ));
             }
             AutopilotSwitchA::DirectToPoint => {
-                self.alt_hold = Some((AltType::Msl, params.baro_alt_msl))
+                self.alt_hold = Some((AltType::Msl, params.alt_msl_baro))
             }
         }
 

@@ -272,7 +272,7 @@ pub fn link_lost(
 
     #[cfg(feature = "quad")]
     if system_status.gnss == SensorStatus::Pass {
-        if (params.baro_alt_msl - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
+        if (params.alt_msl_baro - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
             autopilot_status.direct_to_point = Some(base_pt.clone());
         }
     }
@@ -280,7 +280,7 @@ pub fn link_lost(
     #[cfg(feature = "fixed-wing")]
     if system_status.gnss == SensorStatus::Pass {
     } else if system_status.magnetometer == SensorStatus::Pass {
-        if (params.baro_alt_msl - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
+        if (params.alt_msl_baro - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
             autopilot_status.direct_to_point = Some(base_pt.clone());
         }
 

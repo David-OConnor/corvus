@@ -362,7 +362,7 @@ pub fn print_status(
         state_volatile.motor_servo_state.motor_thrust2.rpm_reading,
     );
 
-    // println!("Alt MSL: {}", params.baro_alt_msl);
+    // println!("Alt MSL: {}", params.alt_msl_baro);
 
     // println!("In acro mode: {:?}", *input_mode == InputMode::Acro);
     // println!(

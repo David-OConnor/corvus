@@ -24,20 +24,20 @@ pub struct Location {
     // todo type.
     pub name: [u8; WAYPOINT_MAX_NAME_LEN], // utf-8 encoding
     /// Latitude in radians
-    pub lat: f32,
+    pub lat_e8: i64,
     /// Longitude in radians
-    pub lon: f32,
+    pub lon_e8: i64,
     /// Altitude in meters MSL, QFE.
     pub alt_msl: f32,
 }
 
 impl Location {
-    pub fn new(type_: LocationType, lat: f32, lon: f32, alt_msl: f32) -> Self {
+    pub fn new(type_: LocationType, lat_e8: i64, lon_e8: i64, alt_msl: f32) -> Self {
         Self {
             type_,
             name: [0; WAYPOINT_MAX_NAME_LEN],
-            lat,
-            lon,
+            lat_e8,
+            lon_e8,
             alt_msl,
         }
     }

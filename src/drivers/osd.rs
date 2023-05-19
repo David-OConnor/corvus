@@ -30,7 +30,6 @@ pub const BAUD: u32 = 115_200;
 const NOT_VISIBLE: u16 = 234;
 
 // These scale factors are used by MSP to store degrees as integers with suitable precision.
-const GPS_SCALE_FACTOR: f32 = 10_000_000.;
 const EULER_ANGLE_SCALE_FACTOR: f32 = 10.;
 
 // If you need more BF status flags, see the ref library above.
@@ -197,8 +196,8 @@ pub fn send_osd_data(uart: &mut UartOsd, dma_chan: DmaChannel, data: &OsdData) {
     // MSP format stores coordinates in 10^6 degrees. Our internal format is radians.
     // TAU radians in 360 degrees. 1 degree = TAU/360 rad
     let raw_gps = RawGps {
-        lat: (to_degrees(data.gps_fix.lat) * GPS_SCALE_FACTOR) as i32,
-        lon: (to_degrees(data.gps_fix.lon) * GPS_SCALE_FACTOR) as i32,
+        lat: (data.gps_fix.lat_e8 / 10) as i32,
+        lon: (data.gps_fix.lon_e8 / 10) as i32,
         alt: data.gps_fix.alt_msl as i16,
         ..Default::default()
     };
