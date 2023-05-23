@@ -492,7 +492,7 @@ pub fn setup_pins() {
 }
 
 /// Assign DMA channels to peripherals.
-pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
+pub fn setup_dma() {
     #[cfg(feature = "g4")]
     dma::enable_mux1();
 
@@ -531,7 +531,7 @@ pub fn setup_dma(dma: &mut Dma<DMA1>, dma2: &mut Dma<DMA2>) {
 
     // We use Spi transfer complete to know when our readings are ready - in its ISR,
     // we trigger the attitude-rates PID loop.
-    dma.enable_interrupt(IMU_RX_CH, DmaInterrupt::TransferComplete);
+    dma::enable_interrupt(IMU_DMA_PERIPH, IMU_RX_CH, DmaInterrupt::TransferComplete);
 
     // It appears the timer `DmaUpdate`, interrupt, enabled in DSHOT setup code, will
     // auto-enable the transfer complete interrupts; that interrupt is required for

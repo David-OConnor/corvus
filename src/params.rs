@@ -3,8 +3,9 @@
 
 // todo: Maybe a more-specific name, like 'flight_params' etc?
 
-use crate::{imu_shared::ImuReadings, DT_FLIGHT_CTRLS};
+use crate::DT_FLIGHT_CTRLS;
 
+use ahrs::ImuReadings;
 use lin_alg2::f32::Quaternion;
 
 /// Aircraft flight parameters, at a given instant. Pitch and roll rates are in the aircraft's
@@ -52,9 +53,9 @@ pub struct Params {
 }
 
 impl Params {
-    /// Update parameters that can be taken from either accels or gyros without fuzing. Data
-    /// that requires fuzing (eg attitude) is updated in the `attitude_platform` module.
-    pub fn update_from_imu_readings(&mut self, mut imu_data: &ImuReadings) {
+    /// Update params with IMU readings, and attitude. If filtering IMU readings, to so before
+    ///running this.
+    pub fn update_from_imu_readings(&mut self, imu_data: &ImuReadings, attitude: Quaternion) {
         // todo: This is a good place to apply IMU calibration.
 
         // Calculate angular acceleration. Do this before updating velocities, since we use
@@ -71,5 +72,22 @@ impl Params {
         self.a_x = imu_data.a_x;
         self.a_y = imu_data.a_y;
         self.a_z = imu_data.a_z;
+
+        self.attitude_quat = attitude;
+
+        let euler = attitude.to_euler();
+        self.s_pitch = euler.pitch;
+        self.s_roll = euler.roll;
+        self.s_yaw_heading = euler.yaw;
+    }
+
+    /// Update lat, lon, and MSL altitude values from our fused position
+    pub fn update_positions_from_fused(&mut self, fused: &PositionFused) {
+        self.lat_e8 = fused.lat_e8;
+        self.lon_e8 = fused.lon_e8;
+        self.alt_msl_fused = fused.elevation_msl;
+        self.v_x = fused.ned_velocity[0];
+        self.v_y = fused.ned_velocity[1];
+        self.v_z = fused.ned_velocity[2];
     }
 }

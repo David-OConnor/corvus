@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Driver for the ST LIS3MDL 3-axis magnetometer. This is an I2C or SPI device;
 //! This module only includes functionality for I2C mode.
 
@@ -124,7 +126,7 @@ pub fn setup(i2c: &mut I2cMag) -> Result<(), MagNotConnectedError> {
     Ok(())
 }
 
-pub fn interpret_mag(val: i16) -> f32 {
+fn interpret_mag(val: i16) -> f32 {
     (val as f32 / i16::MAX as f32) * FULL_SCALE_DEFLECTION.value()
 }
 

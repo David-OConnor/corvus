@@ -27,6 +27,7 @@ use defmt::println;
 use defmt_rtt as _;
 use panic_probe as _;
 
+use ahrs::{Ahrs, ImuCalibration, ImuReadings};
 use lin_alg2::f32::Quaternion;
 
 use stm32_hal2::{
@@ -273,7 +274,7 @@ mod app {
         flight_ctrl_filters: FlightCtrlFilters,
         // Note: We don't currently haveh PID filters, since we're not using a D term for the
         // RPM PID.
-        imu_calibration: imu_shared::ImuCalibration,
+        imu_calibration: ImuCalibration,
         ext_sensor_active: ExtSensor,
         pwr_maps: AccelMaps,
         // /// Store rotor RPM: (M1, M2, M3, M4). Quad only, but we can't feature gate
@@ -375,13 +376,13 @@ mod app {
         // Set up pins with appropriate modes.
         setup::setup_pins();
 
-        let mut dma = Dma::new(dp.DMA1);
-        let mut dma2 = Dma::new(dp.DMA2);
+        let dma_ = Dma::new(dp.DMA1);
+        let dma2_ = Dma::new(dp.DMA2);
 
         // todo: Note that the HAL currently won't enable DMA2's RCC wihtout using a struct like this.
         let _dma2_ch1 = dma::Dma2Ch1::new();
 
-        setup::setup_dma(&mut dma, &mut dma2);
+        setup::setup_dma();
 
         cfg_if! {
             if #[cfg(feature = "h7")] {
@@ -402,10 +403,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-        // let spi_flash_pac = dp.OCTOSPI1;
-        let spi_flash_pac = dp.QUADSPI;
+            // let spi_flash_pac = dp.OCTOSPI1;
+            let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-        let spi_flash_pac = dp.SPI2;
+            let spi_flash_pac = dp.SPI2;
 
         let mut can = setup::setup_can(dp.FDCAN1);
 
@@ -464,10 +465,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -643,10 +644,10 @@ mod app {
         );
 
         // todo: Calibation proecedure, either in air or on ground.
-        let ahrs_settings = ahrs_fusion::Settings::default();
+        let ahrs_settings = ahrs::Settings::new(UPDATE_RATE_IMU);
 
         // Note: Calibration and offsets ares handled handled by their defaults currently.
-        let imu_calibration = imu_shared::ImuCalibration {
+        let imu_calibration = ImuCalibration {
             // gyro_misalignment: Mat3 {
             //     data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
             // },
@@ -672,21 +673,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-        // todo: Wrong. You need to do this by number; apply your pin mapping.
-        let motors_reversed = (
+            // todo: Wrong. You need to do this by number; apply your pin mapping.
+            let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -859,8 +860,8 @@ mod app {
                  // rpm_readings,
                  // rpms_commanded
                 | {
-                    let mut imu_data =
-                        imu_shared::ImuReadings::from_buffer(unsafe { &imu_shared::IMU_READINGS });
+        let mut imu_data =
+           ImuReadings::from_buffer(unsafe { &imu_shared::IMU_READINGS }, imu_shared::ACCEL_FULLSCALE, imu_shared::GYRO_FULLSCALE);
 
                     cx.shared.imu_filters.lock(|imu_filters| {
                         imu_filters.apply(&mut imu_data);
@@ -881,10 +882,9 @@ mod app {
                     // Update `params_prev` with past-update data prior to updating params
                     // todo: Update params each IMU update, or at FC interval?
                     *cx.local.params_prev = params.clone();
-                    params.update_from_imu_readings(&imu_data);
 
-                    // todo: Update attitude each IMU update, or at FC interval?
-                    attitude_platform::update_attitude(cx.local.ahrs, params, None, DT_FLIGHT_CTRLS);
+                    let att = ahrs::get_attitude(cx.local.ahrs, &imu_data, None, DT_FLIGHT_CTRLS);
+                    params.update_from_imu_readings(&imu_data, &att);
 
                     let mut rpm_fault = false;
 

@@ -51,10 +51,10 @@ const PAYLOAD_LEN_ACK_NAK: usize = 2;
 const CFG_PAYLOAD_START_I: usize = 4;
 
 // We use this max length for our DMA read buffer.
-pub const MAX_BUF_LEN: usize = PAYLOAD_LEN_PVT + MSG_SIZE_WITHOUT_PAYLOAD;
+// We pad this due to the possibility of shifted data.
+pub const MAX_BUF_LEN: usize = PAYLOAD_LEN_PVT + MSG_SIZE_WITHOUT_PAYLOAD + 4;
 
-pub static mut RX_BUFFER: [u8; PAYLOAD_LEN_PVT + MSG_SIZE_WITHOUT_PAYLOAD] =
-    [0; PAYLOAD_LEN_PVT + MSG_SIZE_WITHOUT_PAYLOAD];
+pub static mut RX_BUFFER: [u8; MAX_BUF_LEN] = [0; MAX_BUF_LEN];
 
 pub static TRANSFER_IN_PROG: AtomicBool = AtomicBool::new(false);
 
@@ -201,8 +201,8 @@ impl Fix {
 #[derive(Default)]
 /// Dilution of precision (DOP) Eg parsed from UBX-NAV-DOP.
 /// DOP values are dimensionless.
-/// All DOP values are scaled by a factor of 100. If the unit transmits a value of e.g. 156, the DOP value is
-/// 1.56.
+/// All DOP values are scaled by a factor of 100. If the unit transmits a value of e.g. 156,
+// the DOP value is 1.56.
 pub struct DilutionOfPrecision {
     /// GPS time of week of the navigation epoch; reported by the GNSS.
     // pub timestamp: u32,
@@ -562,12 +562,31 @@ impl<'a> Message<'a> {
     }
 
     pub fn from_buf(buf: &'a [u8]) -> Result<Self, GnssError> {
-        let class = buf[2];
-        let id = buf[3];
+        let mut shift: isize = 0;
+        // Check if the message has been shifted left due to jitter;
+        // if so, shift right accordingly.
+        if buf[0] == PREAMBLE_2 {
+            shift = -1;
+            println!("GNSS L shift")
+        } else if buf[0] != PREAMBLE_1 {
+            return Err(GnssError::MessageData);
+            // We can't prove this, but it's possible
+            // shift = 1;
+            // println!("Trying a right shift");
+            // println!("BUf first 5: {:?}", buf[0 ..5]);
+        }
+
+        let class = buf[(2 + shift) as usize];
+        let id = buf[(3 + shift) as usize];
+
         let class_id = MsgClassId::from_vals((class, id))?;
 
-        let payload_len = u16::from_le_bytes(buf[4..6].try_into().unwrap());
-        let payload_end = 6 + payload_len as usize;
+        let payload_len = u16::from_le_bytes(
+            buf[(4 + shift) as usize..(6 + shift) as usize]
+                .try_into()
+                .unwrap(),
+        );
+        let payload_end = (6 + shift) as usize + payload_len as usize;
 
         if payload_end > buf.len() {
             // This can come up while reading the acknowledgement if attempting to set up while already
@@ -578,12 +597,12 @@ impl<'a> Message<'a> {
         let result = Self {
             class_id,
             payload_len,
-            payload: &buf[6..payload_end],
+            payload: &buf[(6 + shift) as usize..payload_end],
         };
 
         let crc_received = (buf[payload_end], buf[payload_end + 1]);
 
-        if crc_received != calc_checksum(&buf[2..payload_end]) {
+        if crc_received != calc_checksum(&buf[(2 + shift as usize)..payload_end]) {
             return Err(GnssError::Crc);
         }
 
@@ -653,7 +672,7 @@ pub fn setup(uart: &mut UartGnss, clock_cfg: &Clocks) -> Result<(), GnssError> {
     cfg_payload[17..21].clone_from_slice(&key_id_rate_meas.to_le_bytes());
     cfg_payload[21..23].clone_from_slice(&val_rate_meas.to_le_bytes());
 
-    cfg_payload[23..27].clone_from_slice(&key_id_pvt_rate.to_le_bytes());
+    cfg_payload[23..27].clone_from_slice(&key_id_dop_rate.to_le_bytes());
     cfg_payload[27] = val_dop_rate;
 
     let cfg_msg = Message {

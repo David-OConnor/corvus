@@ -23,6 +23,7 @@ cmsis-dsp-sys = "^0.3.1"
 cmsis-dsp-api = { git = "https://github.com/David-OConnor/cmsis-dsp-api"}
 
 lin-alg2 = { path = "../../lin_alg", features = ["no_std"]}
+ahrs = { path = "../../ahrs"}
 
 num-traits = { version = "^0.2.15", default_features = false } # Absolute value, powers etc.
 

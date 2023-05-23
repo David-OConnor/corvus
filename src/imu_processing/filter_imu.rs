@@ -5,7 +5,9 @@
 
 use cmsis_dsp_api as dsp_api;
 
-use crate::{imu_shared::ImuReadings, util::IirInstWrapper};
+use crate::{util::IirInstWrapper};
+
+use ahrs::ImuReadings;
 
 // const BLOCK_SIZE: u32 = crate::FLIGHT_CTRL_IMU_RATIO as u32;
 const BLOCK_SIZE: u32 = 1;
