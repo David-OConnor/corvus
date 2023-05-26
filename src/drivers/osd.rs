@@ -13,7 +13,6 @@
 use core::f32::consts::TAU;
 
 use crate::{
-    ppks::Location,
     protocols::{
         msp::{MsgType, Packet, METADATA_SIZE_V1},
         msp_defines::*,
@@ -21,6 +20,8 @@ use crate::{
     safety::ArmStatus,
     setup::{self, UartOsd},
 };
+
+use ahrs::ppks::PositEarthUnits;
 
 use stm32_hal2::dma::DmaChannel;
 
@@ -108,7 +109,7 @@ pub struct OsdData {
     pub battery_voltage: f32,
     pub current_draw: f32, // mA
     pub alt_msl_baro: f32, // m
-    pub gps_fix: Location,
+    pub gps_fix: PositEarthUnits,
     pub pitch: f32,
     pub roll: f32,
     pub yaw: f32,
@@ -198,7 +199,7 @@ pub fn send_osd_data(uart: &mut UartOsd, dma_chan: DmaChannel, data: &OsdData) {
     let raw_gps = RawGps {
         lat: (data.gps_fix.lat_e8 / 10) as i32,
         lon: (data.gps_fix.lon_e8 / 10) as i32,
-        alt: data.gps_fix.alt_msl as i16,
+        alt: data.gps_fix.elevation_msl as i16,
         ..Default::default()
     };
 

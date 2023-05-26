@@ -27,7 +27,7 @@ use defmt::println;
 use defmt_rtt as _;
 use panic_probe as _;
 
-use ahrs::{Ahrs, ImuCalibration, ImuReadings};
+use ahrs::{ppks, ppks::PositEarthUnits, Ahrs, ImuCalibration, ImuReadings, Params};
 use lin_alg2::f32::Quaternion;
 
 use stm32_hal2::{
@@ -66,8 +66,6 @@ mod control_interface;
 mod drivers;
 mod flight_ctrls;
 mod imu_processing;
-mod params;
-mod ppks;
 mod protocols;
 mod safety;
 mod sensors_shared;
@@ -92,14 +90,7 @@ use crate::{
         motor_servo::{MotorRpm, RpmReadings},
         pid::{MotorCoeffs, MotorPidGroup},
     },
-    imu_processing::{
-        ahrs_fusion::{self, Ahrs},
-        attitude_platform,
-        filter_imu::ImuFilters,
-        imu_shared,
-    },
-    params::Params,
-    ppks::{Location, LocationType},
+    imu_processing::{filter_imu::ImuFilters, imu_shared},
     protocols::{
         crsf::{self, LinkStats},
         dshot, rpm_reception, usb_preflight,
@@ -403,10 +394,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-            // let spi_flash_pac = dp.OCTOSPI1;
-            let spi_flash_pac = dp.QUADSPI;
+        // let spi_flash_pac = dp.OCTOSPI1;
+        let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-            let spi_flash_pac = dp.SPI2;
+        let spi_flash_pac = dp.SPI2;
 
         let mut can = setup::setup_can(dp.FDCAN1);
 
@@ -465,10 +456,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -553,14 +544,6 @@ mod app {
         lost_link_timer.enable_interrupt(TimerInterrupt::Update);
 
         let mut user_cfg = UserCfg::default();
-        // todo temp
-        user_cfg.waypoints[0] = Some(Location {
-            type_: LocationType::LatLon,
-            name: [0, 1, 2, 3, 4, 5, 6],
-            lat_e8: 0,
-            lon_e8: 0,
-            alt_msl: 3.,
-        });
 
         // Note: With this circular DMA approach, we discard many readings,
         // but shouldn't have consequences other than higher power use, compared to commanding
@@ -644,7 +627,7 @@ mod app {
         );
 
         // todo: Calibation proecedure, either in air or on ground.
-        let ahrs_settings = ahrs::Settings::new(UPDATE_RATE_IMU);
+        // let ahrs_settings = ahrs::Settings::new(UPDATE_RATE_IMU);
 
         // Note: Calibration and offsets ares handled handled by their defaults currently.
         let imu_calibration = ImuCalibration {
@@ -661,7 +644,8 @@ mod app {
             ..Default::default()
         }; // todo - load from flash
 
-        let ahrs = Ahrs::new(&ahrs_settings, UPDATE_RATE_FLIGHT_CTRLS as u32);
+        // let ahrs = Ahrs::new(&ahrs_settings, UPDATE_RATE_FLIGHT_CTRLS as u32);
+        let ahrs = Ahrs::new(DT_FLIGHT_CTRLS);
 
         // Allow ESC to warm up and the radio to connect before starting the main loop.
         // delay.delay_ms(WARMUP_TIME);
@@ -673,21 +657,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-            // todo: Wrong. You need to do this by number; apply your pin mapping.
-            let motors_reversed = (
+        // todo: Wrong. You need to do this by number; apply your pin mapping.
+        let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -883,8 +867,9 @@ mod app {
                     // todo: Update params each IMU update, or at FC interval?
                     *cx.local.params_prev = params.clone();
 
-                    let att = ahrs::get_attitude(cx.local.ahrs, &imu_data, None, DT_FLIGHT_CTRLS);
-                    params.update_from_imu_readings(&imu_data, &att);
+                    let att = ahrs::get_attitude(cx.local.ahrs, &imu_data, None);
+                    let accel_cal = Default::default();
+                    params.update_from_imu_readings(&imu_data, None, att, &accel_cal, DT_FLIGHT_CTRLS);
 
                     let mut rpm_fault = false;
 
@@ -1108,15 +1093,17 @@ mod app {
                             flight_ctrls::set_input_mode(ch_data.input_mode, state_volatile, system_status);
                         }
                     } else if (i_compensated - 2) % NUM_IMU_LOOP_TASKS == 0 {
+                        let euler = params.attitude.to_euler();
+
                         let osd_data = OsdData {
                             arm_status: state_volatile.arm_status,
                             battery_voltage: state_volatile.batt_v,
                             current_draw: state_volatile.esc_current,
                             alt_msl_baro: params.alt_msl_baro,
-                            gps_fix: Location::default(),
-                            pitch: params.s_pitch,
-                            roll: params.s_roll,
-                            yaw: params.s_yaw_heading,
+                            gps_fix: PositEarthUnits::default(),
+                            pitch: euler.pitch,
+                            roll: euler.roll,
+                            yaw: euler.yaw,
                             // pid_p: coeffs.roll.k_p_rate,
                             // pid_i: coeffs.roll.k_i_rate,
                             // pid_d: coeffs.roll.k_d_rate,
@@ -1269,7 +1256,7 @@ mod app {
                             usb_preflight::handle_rx(
                                 usb_serial,
                                 &buf,
-                                params.attitude_quat,
+                                params.attitude,
                                 &state_volatile.attitude_commanded,
                                 params.alt_msl_baro,
                                 state_volatile.pressure_static,

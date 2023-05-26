@@ -17,7 +17,7 @@ use dronecan::{
 
 use half::f16;
 
-use crate::gnss::{Fix, FixType};
+use ahrs::{Fix, FixType};
 
 pub const GNSS_PAYLOAD_SIZE: usize = 38;
 
@@ -86,7 +86,7 @@ impl Config {
 }
 
 /// Create a Dronecan Fix2 from our Fix format, based on Ublox's.
-pub fn from_fix(fix: &Fix, timestamp: f32) -> FixDronecan {
+pub fn can_fix_from_ublox_fix(fix: &Fix, cov: &Covariance) -> FixDronecan {
     let fix_status = match fix.type_ {
         FixType::NoFix => FixStatus::NoFix,
         FixType::DeadReckoning => FixStatus::Fix2d, // todo?
@@ -104,10 +104,11 @@ pub fn from_fix(fix: &Fix, timestamp: f32) -> FixDronecan {
         covariance: [None; 36], // todo: [f16; <=36?]
     };
 
+    // NED velocity from Ublox is in i32, mm/s. Dronecan uses f32, m/s.
     // `packed_struct` doesn't support floats; convert to integers.
-    let ned0_bytes = fix.ned_velocity[0].to_le_bytes();
-    let ned1_bytes = fix.ned_velocity[1].to_le_bytes();
-    let ned2_bytes = fix.ned_velocity[2].to_le_bytes();
+    let ned0_bytes = (fix.ned_velocity[0] as f32 / 1_000.).to_le_bytes();
+    let ned1_bytes = (fix.ned_velocity[1] as f32 / 1_000.).to_le_bytes();
+    let ned2_bytes = (fix.ned_velocity[2] as f32 / 1_000.).to_le_bytes();
 
     let ned_velocity = [
         u32::from_le_bytes(ned0_bytes),
@@ -117,16 +118,24 @@ pub fn from_fix(fix: &Fix, timestamp: f32) -> FixDronecan {
 
     // packed-struct workaround for not having floats.
     // And handling 100x factor between Ublox and DroneCan.
-    let pdop = f16::from_f32((fix.pdop as f32) * 100.);
+    let pdop = f16::from_f32((fix.pdop as f32) / 100.);
     let pdop_bytes = pdop.to_le_bytes();
-    // todo: order?
     let pdop = u16::from_le_bytes([pdop_bytes[0], pdop_bytes[1]]);
+
+    // For now, only position covariance.
+    // todo: QC order.
+    let covariance = [
+        u16::from_le_bytes(f16::from_f32(cov.pos_nn).to_le_bytes()),
+        u16::from_le_bytes(f16::from_f32(cov.pos_ne).to_le_bytes()),
+        u16::from_le_bytes(f16::from_f32(cov.pos_nd).to_le_bytes()),
+        u16::from_le_bytes(f16::from_f32(cov.pos_ee).to_le_bytes()),
+        u16::from_le_bytes(f16::from_f32(cov.pos_ed).to_le_bytes()),
+        u16::from_le_bytes(f16::from_f32(cov.pos_dd).to_le_bytes()),
+    ];
 
     FixDronecan {
         timestamp: (fix.timestamp_s * 1_000_000.) as u64, // us.
         gnss_timestamp: fix.datetime.timestamp_micros() as u64,
-        // todo temp TS heisenbug
-        // gnss_timestamp: u64::from_le_bytes([1, 2, 3, 4, 5, 6, 7, 8]),
         gnss_time_standard: GnssTimeStandard::Utc, // todo
         // 13-bit pad
         num_leap_seconds: 0, // todo
@@ -136,15 +145,16 @@ pub fn from_fix(fix: &Fix, timestamp: f32) -> FixDronecan {
         latitude_deg_1e8: (fix.lat as i64) * 10,
         height_ellipsoid_mm: fix.elevation_hae,
         height_msl_mm: fix.elevation_msl,
-        // todo: Groundspeed? Or is that only from NED vel?
-        // todo: NED vel DroneCAN is in m/s, like our format, right?
         ned_velocity,
         sats_used: fix.sats_used,
         fix_status,
-        mode: GnssMode::Dgps,                     // todo
-        sub_mode: GnssSubMode::DgpsOtherRtkFloat, // todo?
-        covariance: 0,                            // Must be 0.
+        mode: GnssMode::Single, // Hard-set; not using DGPS, RTK, or PPP
+        sub_mode: GnssSubMode::DgpsOtherRtkFloat,
+        covariance_len: 6,
+        covariance,
         pdop,
+        // ecef_position_velocity: 0, // Must be 0.
         pad: 0, // Must be 0.
+                // ecef_position_velocity,
     }
 }

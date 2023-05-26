@@ -7,19 +7,21 @@ use num_traits::float::Float;
 use crate::{
     control_interface::{AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData},
     flight_ctrls::common::{AltType, CtrlInputs},
+    system_status::{SensorStatus, SystemStatus},
     // pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
-    ppks::{Location, LocationType},
 };
 
-// Max distance from curent location, to point, then base a
+use ahrs::{ppks::PositEarthUnits, Fix, Params};
+
+use cfg_if::cfg_if;
+
+// Max distance from curent PositEarthUnits, to point, then base a
 // direct-to point can be, in meters. A sanity check
 // todo: Take into account flight time left.
 const DIRECT_AUTOPILOT_MAX_RNG: f32 = 500.;
 
 #[cfg(feature = "fixed-wing")]
 const TAKEOFF_PITCH: f32 = 1.1; // radians
-
-use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
@@ -40,8 +42,6 @@ cfg_if! {
 
 // todo: FOr various autopilot modes, check if variou sensors are connected like GPS, TOF, and MAG!
 
-use crate::params::Params;
-use crate::system_status::{SensorStatus, SystemStatus};
 use cmsis_dsp_sys::{arm_cos_f32, arm_sin_f32};
 
 const R: f32 = 6_371_000.; // Earth's radius in meters. (ellipsoid?)
@@ -168,7 +168,7 @@ pub struct LandingCfg {
     // todo: Could also land at an angle.
     pub descent_starting_alt_msl: f32, // altitude to start the descent in QFE msl.
     pub descent_speed: f32,            // m/s
-    pub touchdown_point: Location,
+    pub touchdown_point: PositEarthUnits,
 }
 
 #[cfg(feature = "quad")]
@@ -195,8 +195,8 @@ pub struct LandingCfg {
     pub heading: f32,
     /// radians, down from level
     pub glideslope: f32,
-    /// Touchdown location, ideally with GPS (requirement?)
-    pub touchdown_point: Location,
+    /// Touchdown PositEarthUnits, ideally with GPS (requirement?)
+    pub touchdown_point: PositEarthUnits,
     /// Groundspeed in m/s
     /// todo: Remove ground_speed in favor of AOA once you figure out how to measure AOA.
     pub ground_speed: f32,
@@ -225,7 +225,7 @@ pub struct AutopilotStatus {
     /// parameters here correspond to the flight path; not attitude.
     pub velocity_vector: Option<(f32, f32)>, // pitch, yaw
     /// Fly direct to a point
-    pub direct_to_point: Option<Location>,
+    pub direct_to_point: Option<PositEarthUnits>,
     /// The aircraft will fly a fixed profile between sequence points
     pub sequence: bool,
     /// Terrain following mode. Similar to TF radar in a jet. Require a forward-pointing sensor.
@@ -240,7 +240,7 @@ pub struct AutopilotStatus {
     pub recover: Option<f32>, // value is MSL alt to hold, eg our alt at time of command.
     #[cfg(feature = "quad")]
     /// Maintain a geographic position and altitude
-    pub loiter: Option<Location>,
+    pub loiter: Option<PositEarthUnits>,
     #[cfg(feature = "fixed-wing")]
     /// Orbit over a point on the ground
     pub orbit: Option<Orbit>,
@@ -505,12 +505,11 @@ impl AutopilotStatus {
             }
             #[cfg(feature = "quad")]
             AutopilotSwitchA::LoiterOrbit => {
-                self.loiter = Some(Location::new(
-                    LocationType::LatLon,
-                    params.lat_e8,
-                    params.lon_e8,
-                    params.alt_msl_baro,
-                ));
+                self.loiter = Some(PositEarthUnits {
+                    lat_e8: params.lat_e8,
+                    lon_e8: params.lon_e8,
+                    elevation_msl: params.alt_msl_baro,
+                });
             }
             AutopilotSwitchA::DirectToPoint => {
                 self.alt_hold = Some((AltType::Msl, params.alt_msl_baro))
@@ -522,7 +521,7 @@ impl AutopilotStatus {
                 self.hdg_hold = None;
                 self.land = None;
             }
-            AutopilotSwitchB::HdgHold => self.hdg_hold = Some(params.s_yaw_heading),
+            AutopilotSwitchB::HdgHold => self.hdg_hold = Some(params.attitude.to_euler().yaw),
             AutopilotSwitchB::Land => {
                 // todo: impl.
                 // self.land = Some(Land);

@@ -13,7 +13,7 @@ use stm32_hal2::{gpio::Pin, spi};
 
 use cortex_m::delay::Delay;
 
-use crate::{setup::SpiImu};
+use crate::setup::SpiImu;
 
 const DEVICE_ID: u8 = 0x47;
 

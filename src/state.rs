@@ -12,11 +12,12 @@ use crate::{
         // ControlMapping,
         motor_servo::MotorServoState,
     },
-    ppks::Location,
     safety::ArmStatus,
     sensors_shared::BattCellCount,
     system_status::{SensorStatus, SystemStatus},
 };
+
+use ahrs::{ppks::PositEarthUnits, Fix, Params};
 
 use lin_alg2::f32::Quaternion;
 
@@ -112,7 +113,7 @@ pub struct UserCfg {
     // pub launch_pt_msl: f32,
     // Pressure at the surface at the launch point, in Pa.
     // pub altimeter_setting: f32,
-    pub waypoints: [Option<Location>; MAX_WAYPOINTS],
+    pub waypoints: [Option<PositEarthUnits>; MAX_WAYPOINTS],
     /// The (index of the) waypoint we are currently steering to.
     pub active_waypoint: usize,
     pub landing_cfg: LandingCfg,
@@ -124,11 +125,12 @@ pub struct UserCfg {
     pub batt_cell_count: BattCellCount,
     /// Number of poles in each motor. Can be counted by hand, or by referencing motor datasheets.
     pub motor_pole_count: u8,
+    pub base_pt: PositEarthUnits,
 }
 
 impl Default for UserCfg {
     fn default() -> Self {
-        let waypoints = [(); MAX_WAYPOINTS].map(|_| Option::<Location>::default());
+        let waypoints = [(); MAX_WAYPOINTS].map(|_| Option::<PositEarthUnits>::default());
 
         Self {
             // aircraft_type: AircraftType::Quadcopter,
@@ -181,6 +183,7 @@ impl Default for UserCfg {
             takeoff_attitude: Quaternion::from_axis_angle(Vec3::new(1., 0., 0.), 0.35),
             batt_cell_count: Default::default(),
             motor_pole_count: 14,
+            base_pt: Default::default(),
         }
     }
 }
@@ -196,7 +199,7 @@ pub struct StateVolatile {
     // For now, we use "link lost" to include never having been connected.
     // connected_to_controller: bool,
     /// Base point - generally takeoff location.
-    pub base_point: Location, // todo: user cfg varianit too?
+    pub base_point: PositEarthUnits, // todo: user cfg varianit too?
     /// The commanded attitude. Used in attitude mode, and a variant of rate mode.
     /// For attitude mode, and modified rate mode.
     pub attitude_commanded: AttitudeCommanded,

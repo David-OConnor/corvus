@@ -6,7 +6,6 @@
 
 use crate::{
     control_interface::ChannelData,
-    params::Params,
     util::{self, map_linear},
 };
 
@@ -16,6 +15,8 @@ use super::{
     filters::FlightCtrlFilters,
     motor_servo::{MotorServoState, RotationDir},
 };
+
+use ahrs::Params;
 
 use lin_alg2::f32::{EulerAngle, Quaternion, Vec3};
 
@@ -463,10 +464,8 @@ pub fn ctrl_mix_from_att(
 
         println!("\n***Attitude***");
         // println!("Current: p{} r{} y{}", c.pitch, c.roll, c.yaw);
-        println!(
-            "Current p{} r{} y{}",
-            params.s_pitch, params.s_roll, params.s_yaw_heading
-        );
+        let euler = params.attitude.to_euler();
+        println!("Current p{} r{} y{}", euler.pitch, euler.roll, euler.yaw,);
         println!(
             "Target: p{} r{} y{}",
             target_euler.pitch, target_euler.roll, target_euler.yaw

@@ -5,7 +5,7 @@
 
 use cmsis_dsp_api as dsp_api;
 
-use crate::{util::IirInstWrapper};
+use crate::util::IirInstWrapper;
 
 use ahrs::ImuReadings;
 

@@ -8,7 +8,7 @@ use stm32_hal2::{
 
 use lin_alg2::f32::{Mat3, Vec3};
 
-use crate::setup::{IMU_RX_CH, IMU_TX_CH, SpiImu};
+use crate::setup::{SpiImu, IMU_RX_CH, IMU_TX_CH};
 
 use ahrs::ImuReadings;
 
@@ -31,7 +31,6 @@ static mut WRITE_BUF: [u8; 13] = [0; 13];
 // each with 2 bytes each.
 pub static mut IMU_READINGS: [u8; 13] = [0; 13];
 // pub static mut IMU_READINGS: [u8; 13 * FLIGHT_CTRL_IMU_RATIO] = [0; 13 * FLIGHT_CTRL_IMU_RATIO];
-
 
 /// Read all 3 measurements, by commanding a DMA transfer. The transfer is closed, and readings
 /// are processed in the Transfer Complete ISR.
