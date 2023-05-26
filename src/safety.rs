@@ -11,6 +11,7 @@ use crate::{
     system_status::{SensorStatus, SystemStatus},
 };
 
+use ahrs::ppks::PositEarthUnits;
 use ahrs::Params;
 
 #[cfg(feature = "fixed-wing")]
@@ -257,7 +258,7 @@ pub fn link_lost(
     autopilot_status: &mut AutopilotStatus,
     // entering_lost_link: bool,
     params: &Params,
-    base_pt: &Location,
+    base_pt: &PositEarthUnits,
 ) {
     system_status.rf_control_link = SensorStatus::NotConnected;
     // todo: Consider how you want to handle this, with and without GPS.

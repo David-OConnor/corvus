@@ -11,12 +11,13 @@ use crate::{
         autopilot::AutopilotStatus,
         motor_servo::{MotorServoState, RpmReadings},
     },
-    params::Params,
     safety::ArmStatus,
     sensors_shared::BattCellCount,
     state::StateVolatile,
     system_status::{self, SensorStatus, SystemStatus},
 };
+
+use ahrs::Params;
 
 use stm32_hal2::{pac::TIM5, timer::Timer};
 
@@ -312,16 +313,18 @@ pub fn print_status(
     //     params.v_roll, params.v_pitch, params.v_yaw
     // );
     // // //
-    println!(
-        "Attitude quat: {} {} {} {}",
-        params.attitude_quat.w,
-        params.attitude_quat.x,
-        params.attitude_quat.y,
-        params.attitude_quat.z
-    );
+    // println!(
+    //     "Attitude quat: {} {} {} {}",
+    //     params.attitude.w,
+    //     params.attitude.x,
+    //     params.attitude.y,
+    //     params.attitude.z
+    // );
+
+    let euler = params.attitude.to_euler();
     println!(
         "Attitude: pitch: {}, roll: {}, yaw: {}\n",
-        params.s_pitch, params.s_roll, params.s_yaw_heading
+        euler.pitch, euler.roll, euler.yaw
     );
 
     let q = state_volatile.attitude_commanded.quat;

@@ -15,6 +15,8 @@ use dronecan::{
     PAYLOAD_SIZE_CONFIG_COMMON,
 };
 
+use crate::gnss::Covariance;
+
 use half::f16;
 
 use ahrs::{Fix, FixType};

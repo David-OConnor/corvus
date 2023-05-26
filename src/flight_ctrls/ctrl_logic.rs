@@ -16,7 +16,7 @@ use super::{
     motor_servo::{MotorServoState, RotationDir},
 };
 
-use ahrs::Params;
+use ahrs::{Params, FORWARD, RIGHT, UP};
 
 use lin_alg2::f32::{EulerAngle, Quaternion, Vec3};
 
@@ -35,25 +35,6 @@ cfg_if! {
         use super::motor_servo::CtrlSfcPosits;
     }
 }
-
-// todo: Make sure this jives with the axis you're using elsewhere;
-// todo: Especially y and z! I'm attempting to use something similar to how the ICM42688 defines
-// todo axis. Maybe use a standard coord system? Check the signs on UP and FWD in particular.
-const RIGHT: Vec3 = Vec3 {
-    x: 1.,
-    y: 0.,
-    z: 0.,
-};
-const UP: Vec3 = Vec3 {
-    x: 0.,
-    y: 0.,
-    z: 1.,
-};
-const FWD: Vec3 = Vec3 {
-    x: 0.,
-    y: 1.,
-    z: 0.,
-};
 
 /// Represents a torque; ie a rotation with an associated angular velocity
 pub struct _Torque {
@@ -76,7 +57,7 @@ impl _Torque {
     // todo: Do you need/want this?
     pub fn from_components(pitch: f32, roll: f32, yaw: f32) -> Self {
         // todo: No idea if this is correct
-        let vec = UP * yaw + RIGHT * pitch + FWD * roll;
+        let vec = UP * yaw + RIGHT * pitch + FORWARD * roll;
         Self {
             axis: vec.to_normalized(),
             angular_velocity: vec.magnitude(),
@@ -376,17 +357,10 @@ pub fn ctrl_mix_from_att(
     // This is the rotation we need to create to arrive at the target attitude from the current one.
     // Note: This isn't the recipe I imagined, but the one that seems to work due to trial+error.
     // it's possible you have flipped quaternion multiplication in your impl, or something.
-    let rotation_cmd = params.attitude_quat * target_attitude.inverse();
-    // Split the rotation into 3 euler angles. We do this due to our controls and sensors acting
-    // along individual axes.
-    let mut rot_euler = rotation_cmd.to_euler();
-    // again, strange results, so compensationg
-    rot_euler.pitch *= -1.;
-    rot_euler.roll *= -1.;
-    rot_euler.yaw *= -1.;
+    let rotation_cmd = params.attitude * target_attitude.inverse();
 
     // todo: It looks like our new API uses the target eulers directly...
-    let target_euler = target_attitude.to_euler();
+    // let target_euler = target_attitude.to_euler();
 
     // todo: Is this logic correct?
 
@@ -410,10 +384,10 @@ pub fn ctrl_mix_from_att(
     // let dω_yaw = (target_torque.axis.y) * target_torque.angular_velocity - params.v_yaw;
 
     let pitch = find_ctrl_setting(
-        params.s_pitch,
+        0.,
         params.v_pitch,
         params.a_pitch,
-        target_euler.pitch,
+        69.,
         // rot_euler.pitch,
         // dω_pitch,
         *target_ω_pitch,
@@ -424,10 +398,10 @@ pub fn ctrl_mix_from_att(
     );
 
     let roll = find_ctrl_setting(
-        params.s_roll,
+        0.,
         params.v_roll,
         params.a_roll,
-        target_euler.roll,
+        69.,
         // rot_euler.roll,
         // dω_roll,
         *target_ω_roll,
@@ -438,11 +412,11 @@ pub fn ctrl_mix_from_att(
     );
 
     let yaw = find_ctrl_setting(
-        params.s_yaw_heading,
+        0.,
         params.v_yaw,
         params.a_yaw,
         // rot_euler.yaw,
-        target_euler.yaw,
+        69.,
         *target_ω_yaw,
         coeffs,
         drag_coeffs.yaw,
@@ -465,15 +439,15 @@ pub fn ctrl_mix_from_att(
         println!("\n***Attitude***");
         // println!("Current: p{} r{} y{}", c.pitch, c.roll, c.yaw);
         let euler = params.attitude.to_euler();
-        println!("Current p{} r{} y{}", euler.pitch, euler.roll, euler.yaw,);
-        println!(
-            "Target: p{} r{} y{}",
-            target_euler.pitch, target_euler.roll, target_euler.yaw
-        );
-        println!(
-            "Required rot: p{} r{} y{}",
-            rot_euler.pitch, rot_euler.roll, rot_euler.yaw
-        );
+        // println!("Current p{} r{} y{}", euler.pitch, euler.roll, euler.yaw,);
+        // println!(
+        //     "Target: p{} r{} y{}",
+        //     target_euler.pitch, target_euler.roll, target_euler.yaw
+        // );
+        // println!(
+        //     "Required rot: p{} r{} y{}",
+        //     rot_euler.pitch, rot_euler.roll, rot_euler.yaw
+        // );
 
         println!("\n***Ang Velocity***");
         println!(
@@ -568,7 +542,7 @@ pub fn modify_att_target(
     // Rotate our basis vecs using the orientation, such that control inputs are relative to the
     // aircraft's attitude.
     let right_ac = orientation.rotate_vec(RIGHT);
-    let fwd_ac = orientation.rotate_vec(FWD);
+    let fwd_ac = orientation.rotate_vec(FORWARD);
     let up_ac = orientation.rotate_vec(UP);
 
     let rotation_pitch = Quaternion::from_axis_angle(right_ac, pitch * dt);
@@ -608,7 +582,7 @@ pub fn _att_from_ctrls(ch_data: &ChannelData) -> Quaternion {
     // todo: How do you deal with heading? That's a potential disadvantage of using a quaternion:
     // todo we can calculate pitch and roll, but not yaw.
     let rotation_pitch = Quaternion::from_axis_angle(RIGHT, ch_data.pitch);
-    let rotation_roll = Quaternion::from_axis_angle(FWD, ch_data.roll);
+    let rotation_roll = Quaternion::from_axis_angle(FORWARD, ch_data.roll);
 
     rotation_roll * rotation_pitch
 }

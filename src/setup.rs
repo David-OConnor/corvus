@@ -5,6 +5,8 @@
 //! This module is the source of definitions of Buses, binding busses named after use cases to
 //! specific hardware STM32 peripherals.
 
+use core::num::{NonZeroU16, NonZeroU8};
+
 use cfg_if::cfg_if;
 
 use cortex_m::delay::Delay;
@@ -30,7 +32,7 @@ use fdcan::{
     ExternalLoopbackMode, FdCan, NormalOperationMode,
 };
 
-use core::num::{NonZeroU16, NonZeroU8}; // for CAN
+use ahrs::{ppks::PositEarthUnits, Params};
 
 #[cfg(feature = "h7")]
 use stm32_hal2::qspi::Qspi;
@@ -48,7 +50,6 @@ use crate::{
         tof_vl53l1 as tof,
     },
     // flight_ctrls::common::Motor,
-    params::Params,
     protocols::{
         dshot::{self, Motor},
         servo,
@@ -190,7 +191,7 @@ cfg_if! {
 /// todo: Periodically check these sensor statuses after init.
 pub fn init_sensors(
     params: &mut Params,
-    base_pt: &mut Location,
+    base_pt: &mut PositEarthUnits,
     spi1: &mut Spi<SPI1>,
     spi_flash: &mut SpiFlash,
     i2c1: &mut I2c<I2C1>,

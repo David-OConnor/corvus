@@ -19,13 +19,14 @@ use crate::{
         common::AttitudeCommanded,
         motor_servo::{MotorPower, MotorRpm, MotorServoState, RotationDir},
     },
-    ppks::{Location, WAYPOINT_MAX_NAME_LEN},
     safety::ArmStatus,
     setup,
     state::{OperationMode, MAX_WAYPOINTS},
     system_status::{self, SystemStatus},
     util,
 };
+
+use ahrs::ppks::PositEarthUnits;
 
 use defmt::println;
 
@@ -64,6 +65,7 @@ const CONTROLS_SIZE: usize = 19; // Includes first byte as an Option byte.
 const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
 
 // 3 coords + option to indicate if used. (Some/None)
+const WAYPOINT_MAX_NAME_LEN: usize = 12; // todo
 pub const WAYPOINT_SIZE: usize = F32_SIZE * 3 + WAYPOINT_MAX_NAME_LEN + 1;
 pub const WAYPOINTS_SIZE: usize = crate::state::MAX_WAYPOINTS * WAYPOINT_SIZE;
 pub const SET_SERVO_POSIT_SIZE: usize = 1 + F32_SIZE; // Servo num, value
@@ -333,7 +335,7 @@ impl From<&SystemStatus> for [u8; SYS_STATUS_SIZE] {
 
 // impl From<[Option<Location>; MAX_WAYPOINTS]> for [u8; WAYPOINTS_SIZE] {
 /// Standalone fn instead of impl due to a Rust restriction.
-fn waypoints_to_buf(w: &[Option<Location>; MAX_WAYPOINTS]) -> [u8; WAYPOINTS_SIZE] {
+fn waypoints_to_buf(w: &[Option<PositEarthUnits>; MAX_WAYPOINTS]) -> [u8; WAYPOINTS_SIZE] {
     let mut result = [0; WAYPOINTS_SIZE];
 
     for i in 0..MAX_WAYPOINTS {
@@ -343,8 +345,9 @@ fn waypoints_to_buf(w: &[Option<Location>; MAX_WAYPOINTS]) -> [u8; WAYPOINTS_SIZ
             Some(wp) => {
                 result[wp_start_i] = 1;
 
-                result[wp_start_i + 1..wp_start_i + 1 + WAYPOINT_MAX_NAME_LEN]
-                    .clone_from_slice(&wp.name);
+                // todo: Put back etc.
+                // result[wp_start_i + 1..wp_start_i + 1 + WAYPOINT_MAX_NAME_LEN]
+                //     .clone_from_slice(&wp.name);
 
                 let coords_start_i = wp_start_i + 1 + WAYPOINT_MAX_NAME_LEN;
 
@@ -354,7 +357,7 @@ fn waypoints_to_buf(w: &[Option<Location>; MAX_WAYPOINTS]) -> [u8; WAYPOINTS_SIZ
                 //     .clone_from_slice(&wp.lat.to_be_bytes());
 
                 result[coords_start_i + 8..coords_start_i + 12]
-                    .clone_from_slice(&wp.alt_msl.to_be_bytes());
+                    .clone_from_slice(&wp.elevation_msl.to_be_bytes());
             }
             None => {
                 result[wp_start_i] = 0;
@@ -382,7 +385,7 @@ pub fn handle_rx(
     esc_current: f32,
     controls: &Option<ChannelData>,
     link_stats: &LinkStats,
-    waypoints: &[Option<Location>; MAX_WAYPOINTS],
+    waypoints: &[Option<PositEarthUnits>; MAX_WAYPOINTS],
     sys_status: &SystemStatus,
     arm_status: &mut ArmStatus,
     op_mode: &mut OperationMode,
