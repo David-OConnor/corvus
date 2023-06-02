@@ -76,7 +76,7 @@ impl _Torque {
     }
 }
 
-/// Construct 3 euler-representation angular velocities from 2 quaternions, and the time the rotation takes.
+/// Construct a by-axis representation angular velocities from 2 quaternions, and the time the rotation takes.
 /// This assumes less than a full rotation between updates.
 pub fn ang_v_from_attitudes(
     att_prev: Quaternion,
@@ -85,9 +85,14 @@ pub fn ang_v_from_attitudes(
 ) -> (f32, f32, f32) {
     let rotation = att_this * att_prev.inverse();
 
-    let euler = rotation.to_euler();
+    let axis = rotation.attitude.axis();
+    let angle = rotation.attitude.angle();
 
-    (euler.pitch * dt, euler.roll * dt, euler.yaw * dt)
+    let x_component = (axis.project_to_vec(RIGHT) * angle).magnitude();
+    let y_component = (axis.project_to_vec(FORWARD) * angle).magnitude();
+    let z_component = (axis.project_to_vec(UP) * angle).magnitude();
+
+    (x_component * dt, y_component * dt, z_component * dt)
 }
 
 // The motor RPM of each motor will not go below this. We use this for both quad and fixed-wing motors.
@@ -355,41 +360,26 @@ pub fn ctrl_mix_from_att(
     // let target_attitude = Quaternion::from_axis_angle(RIGHT, 0.2);
 
     // This is the rotation we need to create to arrive at the target attitude from the current one.
-    // Note: This isn't the recipe I imagined, but the one that seems to work due to trial+error.
-    // it's possible you have flipped quaternion multiplication in your impl, or something.
     let rotation_cmd = params.attitude * target_attitude.inverse();
 
-    // todo: It looks like our new API uses the target eulers directly...
-    // let target_euler = target_attitude.to_euler();
+    let axis = rotation_cmd.attitude.axis();
+    let angle = rotation_cmd.attitude.angle();
 
-    // todo: Is this logic correct?
+    let θ_x = (axis.project_to_vec(RIGHT) * angle).magnitude();
+    let θ_y = (axis.project_to_vec(FORWARD) * angle).magnitude();
+    let θ_z = (axis.project_to_vec(UP) * angle).magnitude();
 
-    // We arrive at a target attitude, and target angular velocity.
-
-    // todo: Why the assymetry; why is target angular velocity represented as a torque,
-    // todo but params are as a euler angle? Possibly because params comes directly from gyros,
-    // todo but target comes from a change in quaternions.
-    // todo: YOu might skip torque and convert the quaternion diff direclty to euler angles.
-    // let target_ω_pitch = target_torque.axis.dot(RIGHT) * target_torque.angular_velocity;
-    // let target_ω_roll = target_torque.axis.dot(FWD) * target_torque.angular_velocity;
-    // let target_ω_yaw = target_torque.axis.dot(UP) * target_torque.angular_velocity;
-
+    // todo: QC where you're getting these target angular accels.
     let (target_ω_pitch, target_ω_roll, target_ω_yaw) = target_ω;
     let dω_pitch = target_ω_pitch - params.v_pitch;
     let dω_roll = target_ω_roll - params.v_roll;
     let dω_yaw = target_ω_yaw - params.v_yaw;
 
-    // let dω_pitch = (target_torque.axis.x) * target_torque.angular_velocity - params.v_pitch;
-    // let dω_roll = (target_torque.axis.z) * target_torque.angular_velocity - params.v_roll;
-    // let dω_yaw = (target_torque.axis.y) * target_torque.angular_velocity - params.v_yaw;
-
     let pitch = find_ctrl_setting(
         0.,
         params.v_pitch,
         params.a_pitch,
-        69.,
-        // rot_euler.pitch,
-        // dω_pitch,
+        θ_x,
         *target_ω_pitch,
         coeffs,
         drag_coeffs.pitch,
@@ -401,9 +391,7 @@ pub fn ctrl_mix_from_att(
         0.,
         params.v_roll,
         params.a_roll,
-        69.,
-        // rot_euler.roll,
-        // dω_roll,
+        θ_y,
         *target_ω_roll,
         coeffs,
         drag_coeffs.roll,
@@ -415,8 +403,7 @@ pub fn ctrl_mix_from_att(
         0.,
         params.v_yaw,
         params.a_yaw,
-        // rot_euler.yaw,
-        69.,
+        θ_z,
         *target_ω_yaw,
         coeffs,
         drag_coeffs.yaw,
