@@ -394,10 +394,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-        // let spi_flash_pac = dp.OCTOSPI1;
-        let spi_flash_pac = dp.QUADSPI;
+            // let spi_flash_pac = dp.OCTOSPI1;
+            let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-        let spi_flash_pac = dp.SPI2;
+            let spi_flash_pac = dp.SPI2;
 
         let mut can = setup::setup_can(dp.FDCAN1);
 
@@ -456,10 +456,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -644,8 +644,13 @@ mod app {
             ..Default::default()
         }; // todo - load from flash
 
-        // let ahrs = Ahrs::new(&ahrs_settings, UPDATE_RATE_FLIGHT_CTRLS as u32);
-        let ahrs = Ahrs::new(DT_FLIGHT_CTRLS);
+        let mut ahrs = Ahrs::new(DT_FLIGHT_CTRLS);
+
+        // todo: Store in config; see GNSS for ref.
+        ahrs.config.calibration  = ImuCalibration {
+            acc_intercept_z: -0.31,
+            ..Default::default()
+        };
 
         // Allow ESC to warm up and the radio to connect before starting the main loop.
         // delay.delay_ms(WARMUP_TIME);
@@ -657,21 +662,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-        // todo: Wrong. You need to do this by number; apply your pin mapping.
-        let motors_reversed = (
+            // todo: Wrong. You need to do this by number; apply your pin mapping.
+            let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -844,8 +849,8 @@ mod app {
                  // rpm_readings,
                  // rpms_commanded
                 | {
-        let mut imu_data =
-           ImuReadings::from_buffer(unsafe { &imu_shared::IMU_READINGS }, imu_shared::ACCEL_FULLSCALE, imu_shared::GYRO_FULLSCALE);
+                    let mut imu_data =
+                        ImuReadings::from_buffer(unsafe { &imu_shared::IMU_READINGS }, imu_shared::ACCEL_FULLSCALE, imu_shared::GYRO_FULLSCALE);
 
                     cx.shared.imu_filters.lock(|imu_filters| {
                         imu_filters.apply(&mut imu_data);
@@ -867,9 +872,7 @@ mod app {
                     // todo: Update params each IMU update, or at FC interval?
                     *cx.local.params_prev = params.clone();
 
-                    let att = ahrs::get_attitude(cx.local.ahrs, &imu_data, None);
-                    let accel_cal = Default::default();
-                    params.update_from_imu_readings(&imu_data, None, att, &accel_cal, DT_FLIGHT_CTRLS);
+                    params.update_from_imu_readings(&imu_data, None, cx.local.ahrs, DT_FLIGHT_CTRLS);
 
                     let mut rpm_fault = false;
 

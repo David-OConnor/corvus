@@ -5,8 +5,6 @@
 
 use stm32_hal2::i2c;
 
-use cortex_m::delay::Delay;
-
 use defmt::println;
 
 use crate::setup::I2cMag;
@@ -101,12 +99,13 @@ pub fn setup(i2c: &mut I2cMag) -> Result<(), MagNotConnectedError> {
         return Err(MagNotConnectedError {});
     }
 
-    // Disable temp sensor. Set fast Output Data Register, in ultra-high-performance mode.
+    // Disable temp sensor. Set fast Output Data Register, with X and Y axes in
+    // ultra-high-performance mode.
     // This leads to a 155Hz refresh rate on the ODR.
-    // todo: Do you want perhaps HP or MP mode at a higher rate?
+    // An alternative approach would be a higher data rate, with software filtering.
     i2c.write(ADDR, &[Reg::Ctrl1 as u8, 0b0110_0010])?;
 
-    // Set fullscale range.
+    // Set fullscale range
     let ctrl2_val = (FULL_SCALE_DEFLECTION as u8) << 5;
     i2c.write(ADDR, &[Reg::Ctrl2 as u8, ctrl2_val])?;
 

@@ -85,14 +85,9 @@ pub fn ang_v_from_attitudes(
 ) -> (f32, f32, f32) {
     let rotation = att_this * att_prev.inverse();
 
-    let axis = rotation.attitude.axis();
-    let angle = rotation.attitude.angle();
+    let (x_comp, y_comp, z_comp) = ahrs::attitude::att_to_axes(rotation);
 
-    let x_component = (axis.project_to_vec(RIGHT) * angle).magnitude();
-    let y_component = (axis.project_to_vec(FORWARD) * angle).magnitude();
-    let z_component = (axis.project_to_vec(UP) * angle).magnitude();
-
-    (x_component * dt, y_component * dt, z_component * dt)
+    (x_comp * dt, y_comp * dt, z_comp * dt)
 }
 
 // The motor RPM of each motor will not go below this. We use this for both quad and fixed-wing motors.
@@ -362,8 +357,8 @@ pub fn ctrl_mix_from_att(
     // This is the rotation we need to create to arrive at the target attitude from the current one.
     let rotation_cmd = params.attitude * target_attitude.inverse();
 
-    let axis = rotation_cmd.attitude.axis();
-    let angle = rotation_cmd.attitude.angle();
+    let axis = rotation_cmd.axis();
+    let angle = rotation_cmd.angle();
 
     let θ_x = (axis.project_to_vec(RIGHT) * angle).magnitude();
     let θ_y = (axis.project_to_vec(FORWARD) * angle).magnitude();
