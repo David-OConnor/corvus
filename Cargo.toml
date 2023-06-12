@@ -45,7 +45,8 @@ packed_struct = {version = "^0.10.1", default_features = false }
 # To parse enums from their integer repr
 num_enum = { version = "^0.6.0", default_features = false }
 
-dronecan = {path = "../dronecan", features = ["hal"] }
+dronecan = { path = "../dronecan", features = ["hal"] }
+anyleaf_usb = { path = "../anyleaf_usb" }
 
 half = { version = "^2.2.1", default_features = false } # f16 for DroneCAN
 

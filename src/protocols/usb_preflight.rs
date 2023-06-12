@@ -12,6 +12,16 @@
 
 use core::sync::atomic::Ordering;
 
+use anyleaf_usb::{self, MessageType, CRC_LEN, DEVICE_CODE_CORVUS, MSG_START, PAYLOAD_START_I};
+
+use ahrs::ppks::PositEarthUnits;
+
+use defmt::println;
+
+use lin_alg2::f32::Quaternion;
+
+use cfg_if::cfg_if;
+
 use crate::{
     control_interface::ChannelData,
     dshot::{self, Motor},
@@ -25,14 +35,6 @@ use crate::{
     system_status::{self, SystemStatus},
     util,
 };
-
-use ahrs::ppks::PositEarthUnits;
-
-use defmt::println;
-
-use lin_alg2::f32::Quaternion;
-
-use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
@@ -128,8 +130,12 @@ pub enum MsgType {
     SetMotorRpms = 21,
 }
 
-impl MsgType {
-    pub fn payload_size(&self) -> usize {
+impl MessageType for MsgType {
+    fn val(&self) -> u8 {
+        *self as u8
+    }
+
+    fn payload_size(&self) -> usize {
         match self {
             Self::Params => PARAMS_SIZE,
             Self::SetMotorDirs => 1, // Packed bits: motors 1-4, R-L. True = CW.
@@ -395,7 +401,12 @@ pub fn handle_rx(
     motor_servo_state: &mut MotorServoState,
     preflight_motors_running: &mut bool,
 ) {
-    let rx_msg_type: MsgType = match rx_buf[0].try_into() {
+    if rx_buf[0] != MSG_START {
+        println!("Invalid start byte rec");
+        return;
+    }
+
+    let rx_msg_type: MsgType = match rx_buf[2].try_into() {
         Ok(d) => d,
         Err(_) => {
             println!("Invalid message type received over USB");
@@ -403,18 +414,7 @@ pub fn handle_rx(
         }
     };
 
-    let payload_size_rx = rx_msg_type.payload_size();
-    let crc_read = rx_buf[payload_size_rx + 1];
-
-    // Calculate the CRC starting at the beginning of the packet, and ending at the end of the payload.
-    // (This is everything except the CRC byte itself.)
-    let crx_expected_rx = util::calc_crc(
-        &CRC_LUT,
-        &rx_buf[..payload_size_rx + 1],
-        payload_size_rx as u8 + 1,
-    );
-
-    if crc_read != crx_expected_rx {
+    if !anyleaf_usb::check_crc(&rx_buf, rx_msg_type.payload_size() + PAYLOAD_START_I) {
         println!("Incorrect inbound CRC on {} message", rx_buf[0]);
         // todo: return here.
     }
@@ -454,17 +454,29 @@ pub fn handle_rx(
                 aircraft_type,
             );
 
-            send_payload::<{ PARAMS_SIZE + 2 }>(MsgType::Params, &payload, usb_serial);
+            send_payload::<{ PARAMS_SIZE + PAYLOAD_START_I + CRC_LEN }>(
+                MsgType::Params,
+                &payload,
+                usb_serial,
+            );
         }
         MsgType::Ack => {}
         MsgType::ReqControls => {
             let payload: [u8; CONTROLS_SIZE] = channel_data_to_bytes(controls);
-            send_payload::<{ CONTROLS_SIZE + 2 }>(MsgType::Controls, &payload, usb_serial);
+            send_payload::<{ CONTROLS_SIZE + PAYLOAD_START_I + CRC_LEN }>(
+                MsgType::Controls,
+                &payload,
+                usb_serial,
+            );
         }
         MsgType::Controls => {}
         MsgType::ReqLinkStats => {
             let payload: [u8; LINK_STATS_SIZE] = link_stats.into();
-            send_payload::<{ LINK_STATS_SIZE + 2 }>(MsgType::LinkStats, &payload, usb_serial);
+            send_payload::<{ LINK_STATS_SIZE + PAYLOAD_START_I + CRC_LEN }>(
+                MsgType::LinkStats,
+                &payload,
+                usb_serial,
+            );
         }
         MsgType::LinkStats => {}
         MsgType::ArmMotors => {
@@ -535,7 +547,11 @@ pub fn handle_rx(
         }
         MsgType::ReqWaypoints => {
             let payload: [u8; WAYPOINTS_SIZE] = waypoints_to_buf(waypoints);
-            send_payload::<{ WAYPOINTS_SIZE + 2 }>(MsgType::Waypoints, &payload, usb_serial);
+            send_payload::<{ WAYPOINTS_SIZE + PAYLOAD_START_I + CRC_LEN }>(
+                MsgType::Waypoints,
+                &payload,
+                usb_serial,
+            );
         }
         MsgType::Waypoints => {}
         MsgType::Updatewaypoints => {}
@@ -567,7 +583,11 @@ pub fn handle_rx(
         MsgType::ReqSysApStatus => {
             // todo: Just sys status for now; do AP too.
             let payload: [u8; SYS_AP_STATUS_SIZE] = sys_status.into();
-            send_payload::<{ SYS_AP_STATUS_SIZE + 2 }>(MsgType::SysApStatus, &payload, usb_serial);
+            send_payload::<{ SYS_AP_STATUS_SIZE + PAYLOAD_START_I + CRC_LEN }>(
+                MsgType::SysApStatus,
+                &payload,
+                usb_serial,
+            );
         }
         MsgType::SysApStatus => {}
         MsgType::ReqControlMapping => {
@@ -595,7 +615,7 @@ pub fn handle_rx(
                     | ((m.frontleft_aftright_dir as u8) << 4),
             ];
 
-            send_payload::<{ CONTROL_MAPPING_SIZE + 2 }>(
+            send_payload::<{ CONTROL_MAPPING_SIZE + PAYLOAD_START_I + CRC_LEN }>(
                 MsgType::ControlMapping,
                 &payload,
                 usb_serial,
@@ -644,12 +664,16 @@ fn send_payload<const N: usize>(
     let mut tx_buf = [0; N];
 
     tx_buf[0] = msg_type as u8;
-    tx_buf[1..(payload_size + 1)].copy_from_slice(&payload);
+    tx_buf[1] = DEVICE_CODE_CORVUS;
+    tx_buf[2] = msg_type as u8;
 
-    tx_buf[payload_size + 1] = util::calc_crc(
-        &CRC_LUT,
-        &tx_buf[..payload_size + 1],
-        payload_size as u8 + 1,
+    tx_buf[PAYLOAD_START_I..(payload_size + PAYLOAD_START_I)]
+        .copy_from_slice(&payload[..payload_size]);
+
+    tx_buf[payload_size + PAYLOAD_START_I] = anyleaf_usb::calc_crc(
+        &anyleaf_usb::CRC_LUT,
+        &tx_buf[..payload_size + PAYLOAD_START_I],
+        (payload_size + PAYLOAD_START_I) as u8,
     );
 
     usb_serial.write(&tx_buf).ok();
