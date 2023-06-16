@@ -438,10 +438,8 @@ pub fn handle_rx(
             // todo: current behavior is to set preflight at first params request, and never set
             // todo it back. This could potentially be dangerous.
             *op_mode = OperationMode::Preflight;
-
             let payload = params_to_bytes(
                 attitude,
-                // todo: Pass more than just the quat, here and in prelfight.
                 attitude_commanded.quat,
                 altitude_baro,
                 pressure_static,
@@ -582,6 +580,7 @@ pub fn handle_rx(
         }
         MsgType::ReqSysApStatus => {
             // todo: Just sys status for now; do AP too.
+            // todo: YOu may need to update this.
             let payload: [u8; SYS_AP_STATUS_SIZE] = sys_status.into();
             send_payload::<{ SYS_AP_STATUS_SIZE + PAYLOAD_START_I + CRC_LEN }>(
                 MsgType::SysApStatus,

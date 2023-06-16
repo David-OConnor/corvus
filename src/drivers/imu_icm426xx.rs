@@ -135,7 +135,7 @@ pub const READINGS_START_ADDR: u8 = 0x80 | 0x1F; // (AccelDataX1)
 // https://github.com/pms67/Attitude-Estimation
 
 /// Utility function to read a single byte.
-fn read_one(reg: Reg, spi: &mut SpiImu, cs: &mut Pin) -> Result<u8, ImuError> {
+pub fn read_one(reg: Reg, spi: &mut SpiImu, cs: &mut Pin) -> Result<u8, ImuError> {
     let mut buf = [reg.read_addr(), 0];
 
     cs.set_low();
@@ -244,7 +244,7 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
         return Err(ImuError::NotConnected);
     }
 
-    // An external cyrstal is connected on othe H7 FC, but not the G4.
+    // An external crystal is connected on the H7 FC, but not the G4.
     set_bank(Reg::Bank1(RegBank1::GyroConfigStatic3), spi, cs)?; // todo dummy val
     #[cfg(feature = "h7")]
     write_one(Reg::Bank1(RegBank1::IntfConfig5), 0b0000_0100, spi, cs)?;
@@ -345,4 +345,4 @@ pub fn _read_temp(spi: &mut SpiImu, cs: &mut Pin) -> Result<f32, ImuError> {
 //         v_roll,
 //         v_yaw,
 //     })
-// }
+// // }

@@ -144,14 +144,14 @@ static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 // If IMU updates at 8kHz and ratio is 4, the flight control loop operates at 2kHz.
 
 #[cfg(feature = "quad")]
-const FLIGHT_CTRL_IMU_RATIO: usize = 4; // Likely values: 1, 2, 4, 8.
+const FLIGHT_CTRL_IMU_RATIO: u32 = 4; // Likely values: 1, 2, 4, 8.
 
 #[cfg(feature = "fixed-wing")]
-const FLIGHT_CTRL_IMU_RATIO: usize = 8; // Likely values: 4, 8, 16.
+const FLIGHT_CTRL_IMU_RATIO: u32 = 8; // Likely values: 4, 8, 16.
 
 const UPDATE_RATE_IMU: f32 = 8_000.;
 const DT_IMU: f32 = 1. / UPDATE_RATE_IMU;
-const NUM_IMU_LOOP_TASKS: usize = 6; // We cycle through lower-priority tasks in the main loop.
+const NUM_IMU_LOOP_TASKS: u32 = 6; // We cycle through lower-priority tasks in the main loop.
 
 // todo: Move this A/R if you end up using it.
 static mut RX_BUF_CAN: [u8; 64] = [0; 64];
@@ -193,26 +193,21 @@ const DT_MAIN_LOOP: f32 = 1. / UPDATE_RATE_MAIN_LOOP;
 // every update loop. Updating this once every few updates creates a larger difference
 // in quaternion commanded, to compensate. A higher value will be more resistant
 // to numerical precision problems, but may cause sluggish behavior.
-const ATT_CMD_UPDATE_RATIO: usize = 20;
+const ATT_CMD_UPDATE_RATIO: u32 = 20;
 
 // Every x main update loops, log parameters etc to flash.
-const LOGGING_UPDATE_RATIO: usize = 100;
+const LOGGING_UPDATE_RATIO: u32 = 100;
 
 // Every x IMU loops, print system status and sensor readings to console,
 // if enabled with the `print-status` feature.
-const PRINT_STATUS_RATIO: usize = 16_000;
+const PRINT_STATUS_RATIO: u32 = 16_000;
 
 // Every x main loops, log RPM (or servo posit) to angular accel (thrust) data.
-const THRUST_LOG_RATIO: usize = 20;
+const THRUST_LOG_RATIO: u32 = 20;
 
 #[cfg(feature = "h7")]
 static mut USB_EP_MEMORY: [u32; 1024] = [0; 1024];
 
-// We use `LOOP_I` to manage sequencing the velocity-update PID from within the attitude-update PID
-// loop.
-// const VELOCITY_ATTITUDE_UPDATE_RATIO: usize = 4;
-// todo: Currently unused.
-const FIXED_WING_RATE_UPDATE_RATIO: usize = 16; // 8k IMU update rate / 16 / 500Hz; apt for servos.
 
 // todo: Temp as we switch from PID to other controls; we still will have
 // todo params that can be adjusetd in flight.
@@ -289,7 +284,7 @@ mod app {
         /// We use this counter to subdivide the main loop into longer intervals,
         /// for various tasks like logging, and outer loops.
         // update_isr_loop_i: usize,
-        imu_isr_loop_i: usize,
+        imu_isr_loop_i: u32,
         // aux_loop_i: usize, // todo temp
         ctrl_coeff_adj_timer: Timer<TIM1>,
         uart_osd: setup::UartOsd, // for our DJI OSD, via MSP protocol
@@ -394,10 +389,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-        // let spi_flash_pac = dp.OCTOSPI1;
-        let spi_flash_pac = dp.QUADSPI;
+            // let spi_flash_pac = dp.OCTOSPI1;
+            let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-        let spi_flash_pac = dp.SPI2;
+            let spi_flash_pac = dp.SPI2;
 
         let mut can = setup::setup_can(dp.FDCAN1);
 
@@ -456,10 +451,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -662,21 +657,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+            .manufacturer("Anyleaf")
+            .product("Mercury")
+            // We use `serial_number` to identify the device to the PC. If it's too long,
+            // we get permissions errors on the PC.
+            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-        // todo: Wrong. You need to do this by number; apply your pin mapping.
-        let motors_reversed = (
+            // todo: Wrong. You need to do this by number; apply your pin mapping.
+            let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -779,6 +774,8 @@ mod app {
         #[cfg(feature = "g4")]
         gpio::clear_exti_interrupt(13); // PC13
 
+        // println!("IMU r");
+
         cx.shared.spi1.lock(|spi| {
             imu_shared::read_imu(imu::READINGS_START_ADDR, spi, setup::IMU_DMA_PERIPH);
         });
@@ -804,12 +801,13 @@ mod app {
             setup::IMU_RX_CH,
             DmaInterrupt::TransferComplete,
         );
+        // println!("IMU T");
 
         cx.local.cs_imu.set_high();
 
         cx.shared.spi1.lock(|spi1| {
             // Note that this step is mandatory, per STM32 RM.
-            spi1.stop_dma(setup::IMU_TX_CH, Some(setup::IMU_RX_CH), DmaPeriph::Dma1);
+            spi1.stop_dma(setup::IMU_TX_CH, Some(setup::IMU_RX_CH), setup::IMU_DMA_PERIPH);
         });
 
         *cx.local.imu_isr_loop_i += 1;
@@ -829,8 +827,6 @@ mod app {
             cx.shared.state_volatile,
             cx.shared.flight_ctrl_filters,
             cx.shared.system_status,
-            // cx.shared.rpm_readings,
-            // cx.shared.rpms_commanded,
         )
             .lock(
                 |params,
@@ -846,8 +842,6 @@ mod app {
                  state_volatile,
                  flight_ctrl_filters,
                  system_status,
-                 // rpm_readings,
-                 // rpms_commanded
                 | {
                     let mut imu_data =
                         ImuReadings::from_buffer(unsafe { &imu_shared::IMU_READINGS }, imu_shared::ACCEL_FULLSCALE, imu_shared::GYRO_FULLSCALE);
@@ -856,23 +850,13 @@ mod app {
                         imu_filters.apply(&mut imu_data);
                     });
 
-                    // Update our flight control logic and motors a fraction of IMU updates, but
-                    // apply filter data to all.
-                    // todo: Consider a different approach; all you need to do each time is
-                    // todo read and filter.
-
-                    // Don't execute any other code if not at our determined radio of the IMU's
-                    // 8kHz update rate. The code above this excecutes at the full IMU rate; this is
-                    // mainly DMA cleanup, and applying IMU data filters.
-                    if i % FLIGHT_CTRL_IMU_RATIO != 0 {
-                        return
-                    }
-
                     // Update `params_prev` with past-update data prior to updating params
                     // todo: Update params each IMU update, or at FC interval?
                     *cx.local.params_prev = params.clone();
 
                     params.update_from_imu_readings(&imu_data, None, cx.local.ahrs, DT_FLIGHT_CTRLS);
+
+                    // println!("Att: {} {} {} {}", params.attitude.w, params.attitude.x, params.attitude.y, params.attitude.z);
 
                     let mut rpm_fault = false;
 
@@ -909,7 +893,7 @@ mod app {
                         system_status::RPM_FAULT.store(true, Ordering::Release);
                     }
 
-                    if let OperationMode::Preflight = state_volatile.op_mode {
+                    if state_volatile.op_mode == OperationMode::Preflight {
                         // todo: Figure out where this preflight motor-spin up code should be in this ISR.
                         // todo: Here should be fine, but maybe somewhere else is better.
                         if state_volatile.preflight_motors_running {
@@ -917,6 +901,7 @@ mod app {
                             // println!("Motor pow fl: {:?}", state_volatile.motor_servo_state.rotor_front_left.cmd.power());
                             state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
                         } else {
+                            // todo: Does this interfere with USB reads?
                             dshot::stop_all(motor_timer);
                         }
                     }
@@ -999,17 +984,19 @@ mod app {
                     // todo: Here, or in a subfunction, blend in autopiot commands! Currently not applied,
                     // todo other than throttle.
 
-                    if state_volatile.op_mode != OperationMode::Preflight {
-                        // todo: Should this be before the optional sections? Probably.
-                        flight_ctrls::run(
-                            params,
-                            cx.local.params_prev,
-                            state_volatile,
-                            control_channel_data,
-                            &cfg.ctrl_coeffs,
-                            flight_ctrl_filters,
-                            motor_timer,
-                        );
+                    if i % FLIGHT_CTRL_IMU_RATIO == 0 {
+                        if state_volatile.op_mode != OperationMode::Preflight {
+                            // todo: Should this be before the optional sections? Probably.
+                            flight_ctrls::run(
+                                params,
+                                cx.local.params_prev,
+                                state_volatile,
+                                control_channel_data,
+                                &cfg.ctrl_coeffs,
+                                flight_ctrl_filters,
+                                motor_timer,
+                            );
+                        }
                     }
 
                     // todo: These staggered tasks. should probably be after the flight control logic
@@ -1058,7 +1045,7 @@ mod app {
                         state_volatile.batt_v = batt_v;
                         state_volatile.esc_current = esc_current;
                     } else if (i_compensated - 1) % NUM_IMU_LOOP_TASKS == 0 {
-                        if let OperationMode::Preflight = state_volatile.op_mode {
+                        if state_volatile.op_mode == OperationMode::Preflight {
                             return;
                         }
 
@@ -1128,7 +1115,7 @@ mod app {
                         // todo: put back
                         // osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH,&osd_data);
                     } else if (i_compensated - 3) % NUM_IMU_LOOP_TASKS == 0 {
-                        if let OperationMode::Preflight = state_volatile.op_mode {
+                        if state_volatile.op_mode == OperationMode::Preflight {
                             return;
                         }
 
@@ -1160,10 +1147,10 @@ mod app {
                             state_volatile.autopilot_commands = ap_cmds;
                         }
 
-                        // if let OperationMode::Preflight = state_volatile.op_mode {
-                        //     // exit this fn during preflight *after* measuring voltages using ADCs.
-                        //     return;
-                        // }
+                        if  state_volatile.op_mode == OperationMode::Preflight {
+                            // exit this fn during preflight *after* measuring voltages using ADCs.
+                            return;
+                        }
                     } else if (i_compensated - 4) % NUM_IMU_LOOP_TASKS == 0 {
                         // if *cx.local.update_isr_loop_i % LOGGING_UPDATE_RATIO == 0 {
                         // todo: Eg log params to flash etc.
@@ -1217,9 +1204,12 @@ mod app {
     #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, current_params, control_channel_data,
     link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer],
-    local = [], priority = 2)]
+    local = [], priority = 6)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
-    /// application.
+    /// application. It should be a high priority, or the host may disconnect the device for not responding
+    /// quickly enough. If the priority is too low, the PC interface software will behave strangely,
+    /// so this is somewhat self-critiquing.
+    /// *It appears we need to set this to be a lower priority than IMU data, but higher than IMU TC.
     fn usb_isr(cx: usb_isr::Context) {
         // todo: Do we want to use an approach where we push stats, or this approach where
         // todo respond only?

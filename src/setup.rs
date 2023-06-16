@@ -104,7 +104,6 @@ pub const GNSS_RX_CH: DmaChannel = DmaChannel::C7;
 // automatically when we set burst len = 4 in the DMA write and read.
 // Calculate by taking the Adddress Offset for the associated CCR channel in the
 // RM register table, and dividing by 4.
-// todo: Is this valid for H7 as well?
 pub const DSHOT_BASE_DIR_OFFSET: u8 = 0x34 / 4;
 
 // Update frequency: 600kHz
@@ -525,7 +524,7 @@ pub fn setup_dma() {
     dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c2Tx);
     dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c2Rx);
 
-    // todo: Put back!
+    // todo: Put back?
     // dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_TX_CH, DmaInput::I2c1Tx);
     // dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_RX_CH, DmaInput::I2c1Rx);
 
@@ -611,8 +610,7 @@ pub fn setup_busses(
     // may have fewer line-interference issues)
     let i2c_external_sensors_cfg = I2cConfig {
         // Lower speeds may work better on external runs, hence not 400khz here.
-        speed: I2cSpeed::Standard100K, // todo T!
-        // speed: I2cSpeed::Fast400K,
+        speed: I2cSpeed::Standard100K,
         ..Default::default()
     };
 
