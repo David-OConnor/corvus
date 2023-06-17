@@ -639,7 +639,8 @@ mod app {
             ..Default::default()
         }; // todo - load from flash
 
-        let mut ahrs = Ahrs::new(DT_FLIGHT_CTRLS);
+        // todo: If you only update attitude on the fligth-control loop, change this accordinly.
+        let mut ahrs = Ahrs::new(DT_IMU);
 
         // todo: Store in config; see GNSS for ref.
         ahrs.config.calibration = ImuCalibration {
@@ -854,7 +855,9 @@ mod app {
                     // todo: Update params each IMU update, or at FC interval?
                     *cx.local.params_prev = params.clone();
 
-                    params.update_from_imu_readings(&imu_data, None, cx.local.ahrs, DT_FLIGHT_CTRLS);
+                    // todo: We probably don't need to update AHRS each IMU update, but that's what
+                    // todo we're currently doing, since that's updated in `update_from_imu_readings`.
+                    params.update_from_imu_readings(&imu_data, None, cx.local.ahrs, DT_IMU);
 
                     // println!("Att: {} {} {} {}", params.attitude.w, params.attitude.x, params.attitude.y, params.attitude.z);
 
@@ -902,7 +905,8 @@ mod app {
                             state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
                         } else {
                             // todo: Does this interfere with USB reads?
-                            dshot::stop_all(motor_timer);
+                            // todo: Experiment and reason this out, if you should do this.
+                            // dshot::stop_all(motor_timer);
                         }
                     }
 
