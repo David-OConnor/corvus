@@ -6,7 +6,7 @@
 
 use core::sync::atomic::AtomicBool;
 
-use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
+use num_enum::TryFromPrimitiveError;
 
 use stm32_hal2::{
     clocks::Clocks,
@@ -15,7 +15,7 @@ use stm32_hal2::{
 
 use ahrs::{Fix, FixType};
 
-use chrono::{Datelike, NaiveDate, NaiveDateTime, Timelike};
+use chrono::NaiveDate;
 
 use defmt::println;
 
@@ -547,8 +547,8 @@ fn calc_checksum(buffer: &[u8]) -> (u8, u8) {
     let mut ck_a = 0;
     let mut ck_b = 0;
 
-    for i in 0..buffer.len() {
-        ck_a += buffer[i];
+    for val in buffer {
+        ck_a += val;
         ck_b += ck_a;
     }
 

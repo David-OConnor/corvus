@@ -27,7 +27,7 @@ use defmt::println;
 use defmt_rtt as _;
 use panic_probe as _;
 
-use ahrs::{ppks, ppks::PositEarthUnits, Ahrs, ImuCalibration, ImuReadings, Params};
+use ahrs::{ppks, ppks::PositEarthUnits, Ahrs, ImuReadings, Params};
 use lin_alg2::f32::Quaternion;
 
 use stm32_hal2::{
@@ -208,7 +208,6 @@ const THRUST_LOG_RATIO: u32 = 20;
 #[cfg(feature = "h7")]
 static mut USB_EP_MEMORY: [u32; 1024] = [0; 1024];
 
-
 // todo: Temp as we switch from PID to other controls; we still will have
 // todo params that can be adjusetd in flight.
 const CTRL_COEFF_ADJ_TIMEOUT: f32 = 0.3; // seconds
@@ -260,7 +259,6 @@ mod app {
         flight_ctrl_filters: FlightCtrlFilters,
         // Note: We don't currently haveh PID filters, since we're not using a D term for the
         // RPM PID.
-        imu_calibration: ImuCalibration,
         ext_sensor_active: ExtSensor,
         pwr_maps: AccelMaps,
         // /// Store rotor RPM: (M1, M2, M3, M4). Quad only, but we can't feature gate
@@ -389,10 +387,10 @@ mod app {
         // todo: End SPI3/ELRs rad test
 
         #[cfg(feature = "h7")]
-            // let spi_flash_pac = dp.OCTOSPI1;
-            let spi_flash_pac = dp.QUADSPI;
+        // let spi_flash_pac = dp.OCTOSPI1;
+        let spi_flash_pac = dp.QUADSPI;
         #[cfg(feature = "g4")]
-            let spi_flash_pac = dp.SPI2;
+        let spi_flash_pac = dp.SPI2;
 
         let mut can = setup::setup_can(dp.FDCAN1);
 
@@ -451,10 +449,10 @@ mod app {
         };
 
         #[cfg(feature = "h7")]
-            let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
         #[cfg(feature = "g4")]
-            let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
         // With non-timing-critical continuous reads, we can set a long sample time.
         batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -621,32 +619,9 @@ mod app {
             system_status.tof == SensorStatus::Pass,
         );
 
-        // todo: Calibation proecedure, either in air or on ground.
-        // let ahrs_settings = ahrs::Settings::new(UPDATE_RATE_IMU);
-
-        // Note: Calibration and offsets ares handled handled by their defaults currently.
-        let imu_calibration = ImuCalibration {
-            // gyro_misalignment: Mat3 {
-            //     data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
-            // },
-            // gyro_sensitivity: Vec3::new(1.0, 1.0, 1.0),
-            // gyro_offset: Vec3::new(0.0, 0.0, 0.0),
-            // accel_misalignment: Mat3 {
-            //     data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
-            // },
-            // accel_sensitivity: Vec3::new(1.0, 1.0, 1.0),
-            // accel_offset: Vec3::new(0.0, 0.0, 0.0),
-            ..Default::default()
-        }; // todo - load from flash
-
-        // todo: If you only update attitude on the fligth-control loop, change this accordinly.
+        // todo: If you only update attitude on the fligth-control loop, change DT here accordinly.
         let mut ahrs = Ahrs::new(DT_IMU);
-
-        // todo: Store in config; see GNSS for ref.
-        ahrs.config.calibration = ImuCalibration {
-            acc_intercept_z: -0.31,
-            ..Default::default()
-        };
+        // todo: Store AHRS IMU cal in config; see GNSS for ref.
 
         // Allow ESC to warm up and the radio to connect before starting the main loop.
         // delay.delay_ms(WARMUP_TIME);
@@ -658,21 +633,21 @@ mod app {
             unsafe { USB_BUS.as_ref().unwrap() },
             UsbVidPid(0x16c0, 0x27dd),
         )
-            .manufacturer("Anyleaf")
-            .product("Mercury")
-            // We use `serial_number` to identify the device to the PC. If it's too long,
-            // we get permissions errors on the PC.
-            .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        .manufacturer("Anyleaf")
+        .product("Mercury")
+        // We use `serial_number` to identify the device to the PC. If it's too long,
+        // we get permissions errors on the PC.
+        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
         // warmpup time.
 
         // Set up motor direction; do this once the warmup time has elapsed.
         #[cfg(feature = "quad")]
-            // todo: Wrong. You need to do this by number; apply your pin mapping.
-            let motors_reversed = (
+        // todo: Wrong. You need to do this by number; apply your pin mapping.
+        let motors_reversed = (
             state_volatile.motor_servo_state.rotor_aft_right.reversed,
             state_volatile.motor_servo_state.rotor_front_right.reversed,
             state_volatile.motor_servo_state.rotor_aft_left.reversed,
@@ -725,7 +700,6 @@ mod app {
                 power_used: 0.,
                 imu_filters: Default::default(),
                 flight_ctrl_filters: Default::default(),
-                imu_calibration,
                 ext_sensor_active: ExtSensor::Mag,
                 pwr_maps: Default::default(),
                 motor_pid_state: Default::default(),
@@ -808,7 +782,11 @@ mod app {
 
         cx.shared.spi1.lock(|spi1| {
             // Note that this step is mandatory, per STM32 RM.
-            spi1.stop_dma(setup::IMU_TX_CH, Some(setup::IMU_RX_CH), setup::IMU_DMA_PERIPH);
+            spi1.stop_dma(
+                setup::IMU_TX_CH,
+                Some(setup::IMU_RX_CH),
+                setup::IMU_DMA_PERIPH,
+            );
         });
 
         *cx.local.imu_isr_loop_i += 1;
@@ -842,10 +820,12 @@ mod app {
                  cfg,
                  state_volatile,
                  flight_ctrl_filters,
-                 system_status,
-                | {
-                    let mut imu_data =
-                        ImuReadings::from_buffer(unsafe { &imu_shared::IMU_READINGS }, imu_shared::ACCEL_FULLSCALE, imu_shared::GYRO_FULLSCALE);
+                 system_status| {
+                    let mut imu_data = ImuReadings::from_buffer(
+                        unsafe { &imu_shared::IMU_READINGS },
+                        imu_shared::ACCEL_FULLSCALE,
+                        imu_shared::GYRO_FULLSCALE,
+                    );
 
                     cx.shared.imu_filters.lock(|imu_filters| {
                         imu_filters.apply(&mut imu_data);
@@ -869,9 +849,12 @@ mod app {
                     // Update RPMs here, so we don't have to lock the read ISR.
                     // cx.shared.rotor_rpms.lock(|rotor_rpms| {
                     // let (rpm1_status, rpm2_status, rpm3_status, rpm4_status) = rpm_reception::update_rpms(rpms, &mut rpm_fault, cfg.pole_count);
-                    let rpm_readings = rpm_reception::rpm_readings_from_bufs(&mut rpm_fault, cfg.motor_pole_count);
+                    let rpm_readings =
+                        rpm_reception::rpm_readings_from_bufs(&mut rpm_fault, cfg.motor_pole_count);
 
-                    state_volatile.motor_servo_state.update_rpm_readings(&rpm_readings);
+                    state_volatile
+                        .motor_servo_state
+                        .update_rpm_readings(&rpm_readings);
 
                     system_status.esc_rpm = SensorStatus::Pass;
 
@@ -879,15 +862,18 @@ mod app {
                     // RPM is unavailable.
                     #[cfg(feature = "quad")]
                     {
-                        if rpm_readings.front_left.is_none() | rpm_readings.front_right.is_none() ||
-                            rpm_readings.aft_left.is_none() || rpm_readings.aft_right.is_none() {
+                        if rpm_readings.front_left.is_none() | rpm_readings.front_right.is_none()
+                            || rpm_readings.aft_left.is_none()
+                            || rpm_readings.aft_right.is_none()
+                        {
                             system_status.esc_rpm = SensorStatus::NotConnected;
                         }
                     }
 
                     #[cfg(feature = "fixed-wing")]
                     {
-                        if rpm_readings.motor_thrust1.is_none() { // todo: Motor 2?
+                        if rpm_readings.motor_thrust1.is_none() {
+                            // todo: Motor 2?
                             system_status.esc_rpm = SensorStatus::NotConnected;
                         }
                     }
@@ -902,7 +888,9 @@ mod app {
                         if state_volatile.preflight_motors_running {
                             // todo: Use actual arm status!!
                             // println!("Motor pow fl: {:?}", state_volatile.motor_servo_state.rotor_front_left.cmd.power());
-                            state_volatile.motor_servo_state.send_to_rotors(ArmStatus::Armed, motor_timer);
+                            state_volatile
+                                .motor_servo_state
+                                .send_to_rotors(ArmStatus::Armed, motor_timer);
                         } else {
                             // todo: Does this interfere with USB reads?
                             // todo: Experiment and reason this out, if you should do this.
@@ -954,11 +942,14 @@ mod app {
                                     let att_cmd_prev = state_volatile.attitude_commanded.quat;
                                     // }
 
-                                    state_volatile.attitude_commanded.quat = ctrl_logic::modify_att_target(
-                                        state_volatile.attitude_commanded.quat,
-                                        pitch_rate_cmd, roll_rate_cmd, yaw_rate_cmd,
-                                        DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
-                                    );
+                                    state_volatile.attitude_commanded.quat =
+                                        ctrl_logic::modify_att_target(
+                                            state_volatile.attitude_commanded.quat,
+                                            pitch_rate_cmd,
+                                            roll_rate_cmd,
+                                            yaw_rate_cmd,
+                                            DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
+                                        );
 
                                     // todo: Instead of skipping ones not on the update ratio, you could store
                                     // todo a buffer of attitudes, and look that far back.
@@ -969,11 +960,12 @@ mod app {
                                     //     DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
                                     // );
 
-                                    state_volatile.attitude_commanded.quat_dt = ctrl_logic::ang_v_from_attitudes(
-                                        att_cmd_prev,
-                                        state_volatile.attitude_commanded.quat,
-                                        DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
-                                    );
+                                    state_volatile.attitude_commanded.quat_dt =
+                                        ctrl_logic::ang_v_from_attitudes(
+                                            att_cmd_prev,
+                                            state_volatile.attitude_commanded.quat,
+                                            DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
+                                        );
                                 }
                             } else {
                                 state_volatile.attitude_commanded.quat = cfg.takeoff_attitude;
@@ -1038,9 +1030,15 @@ mod app {
                     if (i_compensated - 0) % NUM_IMU_LOOP_TASKS == 0 {
                         let mut batt_v = 0.;
                         let mut curr_v = 0.;
-                        batt_v = cx.local.batt_curr_adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[0])
+                        batt_v = cx
+                            .local
+                            .batt_curr_adc
+                            .reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[0])
                             * sensors_shared::ADC_BATT_V_DIV;
-                        curr_v = cx.local.batt_curr_adc.reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[1])
+                        curr_v = cx
+                            .local
+                            .batt_curr_adc
+                            .reading_to_voltage(unsafe { V_A_ADC_READ_BUF }[1])
                             * sensors_shared::ADC_CURR_DIV;
 
                         // todo: Find the current conversion factor. Probably slope + y int
@@ -1078,13 +1076,24 @@ mod app {
                         // Loads channel data and link stats into our shared structures,
                         // from the DMA buffer.
                         // todo
-                        if !crsf::TRANSFER_IN_PROG.load(Ordering::Acquire) && crsf::NEW_PACKET_RECEIVED.load(Ordering::Acquire) {
-                            control_interface::handle_crsf_data(control_channel_data, link_stats, system_status, lost_link_timer);
+                        if !crsf::TRANSFER_IN_PROG.load(Ordering::Acquire)
+                            && crsf::NEW_PACKET_RECEIVED.load(Ordering::Acquire)
+                        {
+                            control_interface::handle_crsf_data(
+                                control_channel_data,
+                                link_stats,
+                                system_status,
+                                lost_link_timer,
+                            );
                         }
 
                         #[cfg(feature = "quad")]
                         if let Some(ch_data) = control_channel_data {
-                            flight_ctrls::set_input_mode(ch_data.input_mode, state_volatile, system_status);
+                            flight_ctrls::set_input_mode(
+                                ch_data.input_mode,
+                                state_volatile,
+                                system_status,
+                            );
                         }
                     } else if (i_compensated - 2) % NUM_IMU_LOOP_TASKS == 0 {
                         let euler = params.attitude.to_euler();
@@ -1151,7 +1160,7 @@ mod app {
                             state_volatile.autopilot_commands = ap_cmds;
                         }
 
-                        if  state_volatile.op_mode == OperationMode::Preflight {
+                        if state_volatile.op_mode == OperationMode::Preflight {
                             // exit this fn during preflight *after* measuring voltages using ADCs.
                             return;
                         }
@@ -1198,7 +1207,8 @@ mod app {
                             );
                         }
                     });
-                });
+                },
+            );
     }
 
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)

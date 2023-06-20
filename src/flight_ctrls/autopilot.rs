@@ -289,8 +289,10 @@ impl AutopilotStatus {
             if system_status.gnss == SensorStatus::Pass {}
         } else if let Some(pt) = &self.direct_to_point {
             if system_status.gnss == SensorStatus::Pass {
-                let target_heading =
-                    find_bearing((params.lat_e8, params.lon_e8), (pt.lat_e8, pt.lon_e8));
+                let target_heading = find_bearing(
+                    (params.posit_fused.lat_e8, params.posit_fused.lon_e8),
+                    (pt.lat_e8, pt.lon_e8),
+                );
 
                 autopilot_commands.yaw = Some(target_heading);
             }
@@ -496,8 +498,9 @@ impl AutopilotStatus {
             AutopilotSwitchA::LoiterOrbit => {
                 self.orbit = Some(Orbit {
                     shape: Default::default(),
-                    center_lat: params.lat,
-                    center_lon: params.lon,
+                    // todo qc these
+                    center_lat: params.posit_fused.lat_e8 as f32 / 10_000_000.,
+                    center_lon: params.posit_fused.lat_e8 as f32 / 10_000_000.,
                     radius: ORBIT_DEFAULT_RADIUS,
                     ground_speed: ORBIT_DEFAULT_GROUNDSPEED,
                     direction: Default::default(),
@@ -506,8 +509,8 @@ impl AutopilotStatus {
             #[cfg(feature = "quad")]
             AutopilotSwitchA::LoiterOrbit => {
                 self.loiter = Some(PositEarthUnits {
-                    lat_e8: params.lat_e8,
-                    lon_e8: params.lon_e8,
+                    lat_e8: params.posit_fused.lat_e8,
+                    lon_e8: params.posit_fused.lon_e8,
                     elevation_msl: params.alt_msl_baro,
                 });
             }

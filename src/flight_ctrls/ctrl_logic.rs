@@ -85,7 +85,7 @@ pub fn ang_v_from_attitudes(
 ) -> (f32, f32, f32) {
     let rotation = att_this * att_prev.inverse();
 
-    let (x_comp, y_comp, z_comp) = ahrs::attitude::att_to_axes(rotation);
+    let (x_comp, y_comp, z_comp) = rotation.to_axes();
 
     (x_comp * dt, y_comp * dt, z_comp * dt)
 }
@@ -109,7 +109,7 @@ pub struct CtrlCoeffs {
     /// Units: s/rad
     pub ttc_per_dθ: f32,
     /// If the calculated ttc from the continous-accel calculation is over this,
-    // use the discontinous logic. In rad/s
+    /// use the discontinous logic. In rad/s
     pub max_ttc_per_dθ: f32,
 }
 
@@ -266,10 +266,18 @@ fn find_ctrl_setting(
             // If it would take too longer to perform the correction, calculate a new
             // angular acceleration that fits the criteria.
             if ttc > coeffs.max_ttc_per_dθ * (θ_tgt - θ_0).abs() {
+                if unsafe { i } % 4_000 == 0 {
+                    println!("unable to correct in time");
+                }
+
                 α_from_ttc(θ_0, ω_0, θ_tgt, ω_tgt, coeffs.ttc_per_dθ)
                 // If the time to correction is sufficiently small, apply a constant jerk, which
                 // should be roughly the previous jerk if part way through a maneuver.
             } else {
+                if unsafe { i } % 4_000 == 0 {
+                    println!("Can correct in time");
+                }
+
                 // Calculate the (~constant for a given correction) change in angular acceleration.
                 // let j = 6. * (2. * θ_0 + ttc * ω_0) / ttc.powi(3);
                 let j = 6. / ttc.powi(3) * (2. * θ_0 + ttc * ω_0 - 2. * θ_tgt + ttc * ω_tgt);
@@ -322,6 +330,10 @@ fn find_ctrl_setting(
     //     println!("Tgt accel: {}", α_target);
     // }
 
+    if unsafe { i } % 4_000 == 0 {
+        println!("TTC: {}, Pitch acc tgt: {}", time_to_correct, α_target);
+    }
+
     accel_map.interpolate(α_target)
 }
 
@@ -354,15 +366,13 @@ pub fn ctrl_mix_from_att(
     // todo thing is all wrong! (Rotation along the RIGHT vec is showing it's a roll, vice pitch...
     // let target_attitude = Quaternion::from_axis_angle(RIGHT, 0.2);
 
+    let att_axes = params.attitude.to_axes();
+    let target_axes = target_attitude.to_axes();
+
+    // todo: Unused??
     // This is the rotation we need to create to arrive at the target attitude from the current one.
-    let rotation_cmd = params.attitude * target_attitude.inverse();
-
-    let axis = rotation_cmd.axis();
-    let angle = rotation_cmd.angle();
-
-    let θ_x = (axis.project_to_vec(RIGHT) * angle).magnitude();
-    let θ_y = (axis.project_to_vec(FORWARD) * angle).magnitude();
-    let θ_z = (axis.project_to_vec(UP) * angle).magnitude();
+    let rotation_cmd = target_attitude * params.attitude.inverse();
+    let rot_cmd_axes = rotation_cmd.to_axes();
 
     // todo: QC where you're getting these target angular accels.
     let (target_ω_pitch, target_ω_roll, target_ω_yaw) = target_ω;
@@ -370,11 +380,13 @@ pub fn ctrl_mix_from_att(
     let dω_roll = target_ω_roll - params.v_roll;
     let dω_yaw = target_ω_yaw - params.v_yaw;
 
+    // todo: It's possible thetas should be 0, and theta target should be the rot cmd.
+
     let pitch = find_ctrl_setting(
-        0.,
+        att_axes.0,
         params.v_pitch,
         params.a_pitch,
-        θ_x,
+        target_axes.0,
         *target_ω_pitch,
         coeffs,
         drag_coeffs.pitch,
@@ -382,29 +394,33 @@ pub fn ctrl_mix_from_att(
         dt,
     );
 
-    let roll = find_ctrl_setting(
-        0.,
-        params.v_roll,
-        params.a_roll,
-        θ_y,
-        *target_ω_roll,
-        coeffs,
-        drag_coeffs.roll,
-        &accel_maps.map_roll,
-        dt,
-    );
+    // let roll = find_ctrl_setting(
+    //       att_axes.1,
+    //     params.v_roll,
+    //     params.a_roll,
+    //     target_axes.1,
+    //     *target_ω_roll,
+    //     coeffs,
+    //     drag_coeffs.roll,
+    //     &accel_maps.map_roll,
+    //     dt,
+    // );
+    //
+    // let yaw = find_ctrl_setting(
+    //       att_axes.2,
+    //     params.v_yaw,
+    //     params.a_yaw,
+    //   target_axes.2,
+    //     *target_ω_yaw,
+    //     coeffs,
+    //     drag_coeffs.yaw,
+    //     &accel_maps.map_yaw,
+    //     dt,
+    // );
 
-    let yaw = find_ctrl_setting(
-        0.,
-        params.v_yaw,
-        params.a_yaw,
-        θ_z,
-        *target_ω_yaw,
-        coeffs,
-        drag_coeffs.yaw,
-        &accel_maps.map_yaw,
-        dt,
-    );
+    // todo: Temp while debugging
+    let roll = 0.;
+    let yaw = 0.;
 
     let mut result = CtrlMix {
         pitch,
@@ -419,17 +435,24 @@ pub fn ctrl_mix_from_att(
         // let c = params.attitude_quat.to_euler();
 
         println!("\n***Attitude***");
-        // println!("Current: p{} r{} y{}", c.pitch, c.roll, c.yaw);
-        let euler = params.attitude.to_euler();
-        // println!("Current p{} r{} y{}", euler.pitch, euler.roll, euler.yaw,);
-        // println!(
-        //     "Target: p{} r{} y{}",
-        //     target_euler.pitch, target_euler.roll, target_euler.yaw
-        // );
-        // println!(
-        //     "Required rot: p{} r{} y{}",
-        //     rot_euler.pitch, rot_euler.roll, rot_euler.yaw
-        // );
+
+        let (x_component, y_component, z_component) = params.attitude.to_axes();
+        println!(
+            "Current att: x{} y{} z{}",
+            x_component, y_component, z_component
+        );
+
+        let (x_component, y_component, z_component) = target_attitude.to_axes();
+        println!(
+            "Target att: x{} y{} z{}",
+            x_component, y_component, z_component
+        );
+
+        let (x_component, y_component, z_component) = rotation_cmd.to_axes();
+        println!(
+            "Rot fm att: x{} y{} z{}",
+            x_component, y_component, z_component
+        );
 
         println!("\n***Ang Velocity***");
         println!(

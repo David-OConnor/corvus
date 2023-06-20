@@ -178,8 +178,6 @@ pub struct Altimeter {
     hardware_coeff_cal: HardwareCoeffCal,
 }
 
-use cortex_m::delay::Delay;
-
 impl Altimeter {
     /// Configure settings, including pressure mreasurement rate, and return an instance.
     /// And load calibration data.
@@ -264,7 +262,7 @@ impl Altimeter {
         cal.c00 as f32
             + p_raw_sc * (cal.c10 as f32 + p_raw_sc * (cal.c20 as f32 + p_raw_sc * cal.c30 as f32))
             + t_raw_sc * cal.c01 as f32
-            + t_raw_sc * p_raw_sc as f32 * (cal.c11 as f32 + p_raw_sc * cal.c21 as f32)
+            + t_raw_sc * p_raw_sc * (cal.c11 as f32 + p_raw_sc * cal.c21 as f32)
     }
 
     /// Datasheet, section 4.9.2. Returns temperature in K.
@@ -272,6 +270,7 @@ impl Altimeter {
     fn temp_from_raw_sc(&self, t_raw_sc: f32) -> f32 {
         (self.hardware_coeff_cal.c0 as f32 * 0.5 + self.hardware_coeff_cal.c1 as f32 * t_raw_sc)
             + 273.15
+        // (self.hardware_coeff_cal.c0 as f32 * 0.5 + self.hardware_coeff_cal.c1 as f32 * t_raw_sc) * 100.
     }
 
     /// Given readings taken from registers directly, calcualte pressure.
