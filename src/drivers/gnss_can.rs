@@ -13,11 +13,10 @@ use dronecan::{
     gnss::{EcefPositionVelocity, FixDronecan, FixStatus, GnssMode, GnssSubMode, GnssTimeStandard},
     CanError, ConfigCommon, HardwareVersion, MsgPriority, SoftwareVersion,
     PAYLOAD_SIZE_CONFIG_COMMON,
+    f16
 };
 
 use crate::gnss::Covariance;
-
-use half::f16;
 
 use ahrs::{Fix, FixType};
 
@@ -143,8 +142,8 @@ pub fn can_fix_from_ublox_fix(fix: &Fix, cov: &Covariance) -> FixDronecan {
         num_leap_seconds: 0, // todo
         // We must multiply by 10 due to the higher precion format used
         // in DroneCan.
-        longitude_deg_1e8: (fix.lon as i64) * 10,
-        latitude_deg_1e8: (fix.lat as i64) * 10,
+        longitude_deg_1e8: (fix.lon_e7 as i64) * 10,
+        latitude_deg_1e8: (fix.lat_e7 as i64) * 10,
         height_ellipsoid_mm: fix.elevation_hae,
         height_msl_mm: fix.elevation_msl,
         ned_velocity,

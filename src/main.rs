@@ -27,7 +27,7 @@ use defmt::println;
 use defmt_rtt as _;
 use panic_probe as _;
 
-use ahrs::{ppks, ppks::PositEarthUnits, Ahrs, ImuReadings, Params};
+use ahrs::{ppks, ppks::PositVelEarthUnits, Ahrs, ImuReadings, Params};
 use lin_alg2::f32::Quaternion;
 
 use stm32_hal2::{
@@ -48,7 +48,6 @@ use stm32_hal2::{
 use usb_device::{bus::UsbBusAllocator, prelude::*};
 use usbd_serial::{self, SerialPort};
 
-use half::f16;
 use packed_struct::PackedStruct;
 
 use fdcan::{
@@ -58,7 +57,7 @@ use fdcan::{
     FdCan, ReceiveOverrun,
 };
 
-use dronecan;
+use dronecan::{self, f16};
 
 mod atmos_model;
 mod cfg_storage;
@@ -392,7 +391,16 @@ mod app {
         #[cfg(feature = "g4")]
         let spi_flash_pac = dp.SPI2;
 
-        let mut can = setup::setup_can(dp.FDCAN1);
+        #[cfg(feature = "h7")]
+        can::set_message_ram_layout(); // Must be called explicitly; for H7.
+
+        #[cfg(feature = "h7")]
+                let can_clock = dronecan::hardware::CanClock::Mhz160;
+
+        #[cfg(feature = "g4")]
+        let can_clock = dronecan::hardware::CanClock::Mhz160;
+
+        let mut can = dronecan::hardware::setup_can(dp.FDCAN1, can_clock, dronecan::CanBitrate::B1M);
 
         let (
             mut spi1,
@@ -1103,7 +1111,7 @@ mod app {
                             battery_voltage: state_volatile.batt_v,
                             current_draw: state_volatile.esc_current,
                             alt_msl_baro: params.alt_msl_baro,
-                            gps_fix: PositEarthUnits::default(),
+                            gps_fix: PositVelEarthUnits::default(),
                             pitch: euler.pitch,
                             roll: euler.roll,
                             yaw: euler.yaw,
@@ -1837,18 +1845,19 @@ mod app {
                                 println!("Pressure: {} kPa", pressure / 1_000.);
                             }
                             1_029 => {
-                                let temp =
-                                    f32::from(f16::from_le_bytes(rx_buf[0..2].try_into().unwrap()));
-                                println!("Temp: {} K", temp);
+                                // let temp =
+                                //     f32::from(f16::from_le_bytes(rx_buf[0..2].try_into().unwrap()));
+                                // println!("Temp: {} K", temp);
                             }
                             1_002 => {
-                                let x =
-                                    f32::from(f16::from_le_bytes(rx_buf[1..3].try_into().unwrap()));
-                                let y =
-                                    f32::from(f16::from_le_bytes(rx_buf[3..5].try_into().unwrap()));
-                                let z =
-                                    f32::from(f16::from_le_bytes(rx_buf[5..7].try_into().unwrap()));
-                                println!("Mag. x: {}, y: {}, z: {}", x, y, z);
+                                // todo
+                                // let x =
+                                //     f32::from(f16::from_le_bytes(rx_buf[1..3].try_into().unwrap()));
+                                // let y =
+                                //     f32::from(f16::from_le_bytes(rx_buf[3..5].try_into().unwrap()));
+                                // let z =
+                                //     f32::from(f16::from_le_bytes(rx_buf[5..7].try_into().unwrap()));
+                                // println!("Mag. x: {}, y: {}, z: {}", x, y, z);
                             }
                             341 => {
                                 let uptime = u32::from_le_bytes(rx_buf[0..4].try_into().unwrap());

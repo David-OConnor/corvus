@@ -17,7 +17,7 @@ use crate::{
     system_status::{SensorStatus, SystemStatus},
 };
 
-use ahrs::{ppks::PositEarthUnits, Fix, Params};
+use ahrs::{ppks::PositVelEarthUnits, Fix, Params};
 
 use lin_alg2::f32::Quaternion;
 
@@ -113,7 +113,7 @@ pub struct UserCfg {
     // pub launch_pt_msl: f32,
     // Pressure at the surface at the launch point, in Pa.
     // pub altimeter_setting: f32,
-    pub waypoints: [Option<PositEarthUnits>; MAX_WAYPOINTS],
+    pub waypoints: [Option<PositVelEarthUnits>; MAX_WAYPOINTS],
     /// The (index of the) waypoint we are currently steering to.
     pub active_waypoint: usize,
     pub landing_cfg: LandingCfg,
@@ -125,12 +125,12 @@ pub struct UserCfg {
     pub batt_cell_count: BattCellCount,
     /// Number of poles in each motor. Can be counted by hand, or by referencing motor datasheets.
     pub motor_pole_count: u8,
-    pub base_pt: PositEarthUnits,
+    pub base_pt: PositVelEarthUnits,
 }
 
 impl Default for UserCfg {
     fn default() -> Self {
-        let waypoints = [(); MAX_WAYPOINTS].map(|_| Option::<PositEarthUnits>::default());
+        let waypoints = [(); MAX_WAYPOINTS].map(|_| Option::<PositVelEarthUnits>::default());
 
         Self {
             // aircraft_type: AircraftType::Quadcopter,
@@ -199,7 +199,7 @@ pub struct StateVolatile {
     // For now, we use "link lost" to include never having been connected.
     // connected_to_controller: bool,
     /// Base point - generally takeoff location.
-    pub base_point: PositEarthUnits, // todo: user cfg varianit too?
+    pub base_point: PositVelEarthUnits, // todo: user cfg varianit too?
     /// The commanded attitude. Used in attitude mode, and a variant of rate mode.
     /// For attitude mode, and modified rate mode.
     pub attitude_commanded: AttitudeCommanded,

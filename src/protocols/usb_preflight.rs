@@ -14,7 +14,7 @@ use core::sync::atomic::Ordering;
 
 use anyleaf_usb::{self, MessageType, CRC_LEN, DEVICE_CODE_CORVUS, MSG_START, PAYLOAD_START_I};
 
-use ahrs::ppks::PositEarthUnits;
+use ahrs::ppks::PositVelEarthUnits;
 
 use defmt::println;
 
@@ -341,7 +341,7 @@ impl From<&SystemStatus> for [u8; SYS_STATUS_SIZE] {
 
 // impl From<[Option<Location>; MAX_WAYPOINTS]> for [u8; WAYPOINTS_SIZE] {
 /// Standalone fn instead of impl due to a Rust restriction.
-fn waypoints_to_buf(w: &[Option<PositEarthUnits>; MAX_WAYPOINTS]) -> [u8; WAYPOINTS_SIZE] {
+fn waypoints_to_buf(w: &[Option<PositVelEarthUnits>; MAX_WAYPOINTS]) -> [u8; WAYPOINTS_SIZE] {
     let mut result = [0; WAYPOINTS_SIZE];
 
     for i in 0..MAX_WAYPOINTS {
@@ -391,7 +391,7 @@ pub fn handle_rx(
     esc_current: f32,
     controls: &Option<ChannelData>,
     link_stats: &LinkStats,
-    waypoints: &[Option<PositEarthUnits>; MAX_WAYPOINTS],
+    waypoints: &[Option<PositVelEarthUnits>; MAX_WAYPOINTS],
     sys_status: &SystemStatus,
     arm_status: &mut ArmStatus,
     op_mode: &mut OperationMode,

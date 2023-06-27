@@ -21,7 +21,7 @@ use crate::{
     setup::{self, UartOsd},
 };
 
-use ahrs::ppks::PositEarthUnits;
+use ahrs::ppks::PositVelEarthUnits;
 
 use stm32_hal2::dma::DmaChannel;
 
@@ -109,7 +109,7 @@ pub struct OsdData {
     pub battery_voltage: f32,
     pub current_draw: f32, // mA
     pub alt_msl_baro: f32, // m
-    pub gps_fix: PositEarthUnits,
+    pub gps_fix: PositVelEarthUnits,
     pub pitch: f32,
     pub roll: f32,
     pub yaw: f32,

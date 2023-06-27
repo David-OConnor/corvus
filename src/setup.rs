@@ -32,7 +32,7 @@ use fdcan::{
     ExternalLoopbackMode, FdCan, NormalOperationMode,
 };
 
-use ahrs::{ppks::PositEarthUnits, Params};
+use ahrs::{ppks::PositVelEarthUnits, Params};
 
 #[cfg(feature = "h7")]
 use stm32_hal2::qspi::Qspi;
@@ -190,7 +190,7 @@ cfg_if! {
 /// todo: Periodically check these sensor statuses after init.
 pub fn init_sensors(
     params: &mut Params,
-    base_pt: &mut PositEarthUnits,
+    base_pt: &mut PositVelEarthUnits,
     spi1: &mut Spi<SPI1>,
     spi_flash: &mut SpiFlash,
     i2c1: &mut I2c<I2C1>,
@@ -753,88 +753,3 @@ pub fn setup_motor_timers(motor_timer: &mut MotorTimer, servo_timer: &mut ServoT
     }
 }
 
-pub fn setup_can(can_pac: pac::FDCAN1) -> Can_ {
-    let mut can = FdCan::new(Can::new(can_pac)).into_config_mode();
-
-    #[cfg(feature = "h7")]
-    can::set_message_ram_layout(); // Must be called explicitly; for H7.
-
-    cfg_if! {
-        if #[cfg(feature = "h7")] {
-            // 120Mhz CAN clock
-            let nominal_bit_timing = can_config::NominalBitTiming {
-                prescaler: NonZeroU16::new(10).unwrap(), // for 100Mhz
-                // prescaler: NonZeroU16::new(8).unwrap(), // for 120Mhz
-                // number of time quanta: 10 (50Mhz
-                seg1: NonZeroU8::new(8).unwrap(), // 100Mhz
-                // seg1: NonZeroU8::new(12).unwrap(),
-                seg2: NonZeroU8::new(1).unwrap(), // 100Mhz
-                // seg2: NonZeroU8::new(2).unwrap(),
-                sync_jump_width: NonZeroU8::new(1).unwrap(),
-            };
-
-            // Kernel Clock 120MHz, Bit rate: 1MBit/s, Sample Point 87.5%
-            // Value was calculated with http://www.bittiming.can-wiki.info/
-            // TODO: use the can_bit_timings crate
-            let data_bit_timing = can_config::DataBitTiming {
-                prescaler: NonZeroU8::new(10).unwrap(),  // 100Mhz
-                // prescaler: NonZeroU8::new(8).unwrap(),
-                seg1: NonZeroU8::new(8).unwrap(),  // 100Mhz
-                // seg1: NonZeroU8::new(12).unwrap(),
-                seg2: NonZeroU8::new(1).unwrap(),  // 100Mhz
-                // seg2: NonZeroU8::new(2).unwrap(),
-                sync_jump_width: NonZeroU8::new(1).unwrap(),
-                transceiver_delay_compensation: true,
-            };
-        } else {
-            // Kernel Clock 170MHz, Bit rate: 1MBit/s, Sample Point 87.5%
-            // Value was calculated with http://www.bittiming.can-wiki.info/
-            // Some values from https://dronecan.github.io/Specification/8._Hardware_design_recommendations/
-            // TODO: use the can_bit_timings crate
-            let nominal_bit_timing = can_config::NominalBitTiming {
-                prescaler: NonZeroU16::new(10).unwrap(),
-                // number of time quanta: 17
-                seg1: NonZeroU8::new(14).unwrap(),
-                seg2: NonZeroU8::new(2).unwrap(),
-                sync_jump_width: NonZeroU8::new(1).unwrap(),
-            };
-
-            // Kernel Clock 170MHz, Bit rate: 1MBit/s, Sample Point 87.5%
-            // Value was calculated with http://www.bittiming.can-wiki.info/
-            // TODO: use the can_bit_timings crate
-            let data_bit_timing = can_config::DataBitTiming {
-                prescaler: NonZeroU8::new(10).unwrap(),
-                seg1: NonZeroU8::new(14).unwrap(),
-                seg2: NonZeroU8::new(2).unwrap(),
-                sync_jump_width: NonZeroU8::new(1).unwrap(),
-                transceiver_delay_compensation: true,
-            };
-        }
-    }
-
-    can.set_protocol_exception_handling(false); // todo?
-    can.set_nominal_bit_timing(nominal_bit_timing);
-    can.set_data_bit_timing(data_bit_timing);
-
-    let filter_: FilterType<u16, i8> = FilterType::Range {
-        from: 0,
-        to: 10_000,
-    };
-    //
-    // let filter = Filter {
-    //     filter: filter_,
-    //     action: Action::StoreInFifo0,
-    // };
-
-    can.set_extended_filter(
-        ExtendedFilterSlot::_0,
-        ExtendedFilter::accept_all_into_fifo0(),
-    );
-
-    can.set_frame_transmit(can_config::FrameTransmissionConfig::AllowFdCanAndBRS);
-
-    can.enable_interrupt(Interrupt::RxFifo0NewMsg);
-    can.enable_interrupt_line(InterruptLine::_0, true);
-
-    can.into_normal()
-}
