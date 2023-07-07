@@ -28,7 +28,13 @@ static mut FILTER_STATE_GYRO_YAW: [f32; 4] = [0.; 4];
 //     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
 
 #[allow(clippy::excessive_precision)]
-static COEFFS_LP_ACCEL: [f32; 5] = [0.037804754170896473, 0.037804754170896473, 0.0, 0.9243904916582071, -0.0];
+static COEFFS_LP_ACCEL: [f32; 5] = [
+    0.037804754170896473,
+    0.037804754170896473,
+    0.0,
+    0.9243904916582071,
+    -0.0,
+];
 
 #[allow(clippy::excessive_precision)]
 static COEFFS_LP_GYRO: [f32; 5] = [

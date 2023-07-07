@@ -16,8 +16,6 @@ use crate::{
 
 use stm32_hal2::{pac::TIM17, timer::Timer};
 
-use num_enum::TryFromPrimitive; // Enum from integer
-
 use cfg_if::cfg_if;
 
 use defmt::println;

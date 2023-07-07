@@ -12,25 +12,21 @@ use cfg_if::cfg_if;
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
-    can::{self, Can},
+    can::Can,
     clocks::Clocks,
     dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
     pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, SPI2, USART1, USART2, USART3},
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
-    timer::{OutputCompare, TimChannel, Timer, TimerInterrupt},
+    timer::{
+        BasicTimer, MasterModeSelection, OutputCompare, TimChannel, Timer, TimerConfig,
+        TimerInterrupt,
+    },
     usart::{OverSampling, Usart, UsartConfig},
 };
 
-use fdcan::{
-    config as can_config,
-    filter::{Action, ExtendedFilter, ExtendedFilterSlot, Filter, FilterId, FilterType},
-    frame::{FrameFormat, TxFrameHeader},
-    id::{Id, StandardId},
-    interrupt::{Interrupt, InterruptLine},
-    ExternalLoopbackMode, FdCan, NormalOperationMode,
-};
+use fdcan::{FdCan, NormalOperationMode};
 
 use ahrs::{ppks::PositVelEarthUnits, Params};
 
@@ -46,14 +42,20 @@ use crate::{
     atmos_model::AltitudeCalPt,
     crsf,
     drivers::{
-        baro_dps310 as baro, flash_spi, gps_ublox as gps, imu_icm426xx as imu, mag_lis3mdl as mag,
-        tof_vl53l1 as tof,
+        baro_dps310 as baro,
+        flash_spi,
+        gps_ublox as gps,
+        imu_icm426xx as imu,
+        mag_lis3mdl as mag,
+        // tof_vl53l1 as tof,
     },
     // flight_ctrls::common::Motor,
     protocols::{
         dshot::{self, Motor},
         servo,
     },
+    safety,
+    sensors_shared,
     system_status::{SensorStatus, SystemStatus},
 };
 
@@ -704,6 +706,63 @@ pub fn setup_busses(
     )
 }
 
+/// Set up misc timers.
+pub fn setup_timers(
+    tim1_pac: pac::TIM1,
+    tim17_pac: pac::TIM17,
+    tim5_pac: pac::TIM5,
+    tim6_pac: pac::TIM6,
+    clock_cfg: &Clocks,
+) -> (
+    Timer<pac::TIM1>,
+    Timer<pac::TIM17>,
+    Timer<pac::TIM5>,
+    BasicTimer<pac::TIM6>,
+) {
+    let ctrl_coeff_adj_timer = Timer::new_tim1(
+        tim1_pac,
+        1. / crate::CTRL_COEFF_ADJ_TIMEOUT,
+        TimerConfig {
+            one_pulse_mode: true,
+            ..Default::default()
+        },
+        &clock_cfg,
+    );
+
+    let mut lost_link_timer = Timer::new_tim17(
+        tim17_pac,
+        1. / safety::LOST_LINK_TIMEOUT,
+        TimerConfig {
+            one_pulse_mode: true,
+            ..Default::default()
+        },
+        &clock_cfg,
+    );
+    lost_link_timer.enable_interrupt(TimerInterrupt::Update);
+
+    // We use this timer to maintain a time since bootup.
+    // A shorter timeout period will allow higher resolution measurements, while a longer one
+    // will command an interrupt less often. (The interrupt only increments an atomic overflow counter).
+    let mut tick_timer = Timer::new_tim5(
+        tim5_pac,
+        1. / crate::TICK_TIMER_PERIOD,
+        Default::default(),
+        &clock_cfg,
+    );
+    // todo: Maybe manually set ARR and PSC, since ARR is what controls precision?
+    tick_timer.enable_interrupt(TimerInterrupt::Update);
+
+    // Set up a basic timer that will trigger our ADC reads, at a fixed rate.
+    // If you wish to sample at a fixed rate, consider using a basic timer (TIM6 or TIM7)
+    let mut adc_timer = BasicTimer::new(tim6_pac, sensors_shared::ADC_SAMPLE_FREQ, &clock_cfg);
+
+    // The update event is selected as a trigger output (TRGO). For instance a
+    // master timer can then be used as a prescaler for a slave timer.
+    adc_timer.set_mastermode(MasterModeSelection::Update);
+
+    (ctrl_coeff_adj_timer, lost_link_timer, tick_timer, adc_timer)
+}
+
 /// Configures all 4 motor timers for quadcopters, or combinations of motors and servos
 /// for fixed-wing
 pub fn setup_motor_timers(motor_timer: &mut MotorTimer, servo_timer: &mut ServoTimer) {
@@ -752,4 +811,3 @@ pub fn setup_motor_timers(motor_timer: &mut MotorTimer, servo_timer: &mut ServoT
         }
     }
 }
-

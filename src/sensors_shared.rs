@@ -1,11 +1,7 @@
 //! This module contains code shared between sensors. Currently this is
 //! regarding DMA operations on the barometer and external sensors I2C lines.
 
-use stm32_hal2::{
-    dma::{self, DmaChannel},
-    i2c::I2c,
-    pac::{I2C1, I2C2},
-};
+use stm32_hal2::{dma, i2c::I2c};
 
 use crate::{
     baro, gnss, mag,

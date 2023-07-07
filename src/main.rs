@@ -395,12 +395,13 @@ mod app {
         can::set_message_ram_layout(); // Must be called explicitly; for H7.
 
         #[cfg(feature = "h7")]
-                let can_clock = dronecan::hardware::CanClock::Mhz160;
+        let can_clock = dronecan::hardware::CanClock::Mhz120;
 
         #[cfg(feature = "g4")]
         let can_clock = dronecan::hardware::CanClock::Mhz160;
 
-        let mut can = dronecan::hardware::setup_can(dp.FDCAN1, can_clock, dronecan::CanBitrate::B1M);
+        let mut can =
+            dronecan::hardware::setup_can(dp.FDCAN1, can_clock, dronecan::CanBitrate::B1m);
 
         let (
             mut spi1,
@@ -470,14 +471,6 @@ mod app {
         // todo temp while we sort out HAL. We've fudged this to make the number come out correctly.
         batt_curr_adc.vdda_calibrated = 3.6;
 
-        // Set up a basic timer that will trigger our ADC reads, at a fixed rate.
-        // If you wish to sample at a fixed rate, consider using a basic timer (TIM6 or TIM7)
-        let mut adc_timer = BasicTimer::new(dp.TIM6, sensors_shared::ADC_SAMPLE_FREQ, &clock_cfg);
-
-        // The update event is selected as a trigger output (TRGO). For instance a
-        // master timer can then be used as a prescaler for a slave timer.
-        adc_timer.set_mastermode(MasterModeSelection::Update);
-
         // let mut update_timer = Timer::new_tim15(
         //     dp.TIM15,
         //     UPDATE_RATE_MAIN_LOOP,
@@ -486,30 +479,8 @@ mod app {
         // );
         // update_timer.enable_interrupt(TimerInterrupt::Update);
 
-        // We use this timer to maintain a time since bootup.
-        // A shorter timeout period will allow higher resolution measurements, while a longer one
-        // will command an interrupt less often. (The interrupt only increments an atomic overflow counter).
-        let mut tick_timer = Timer::new_tim5(
-            dp.TIM5,
-            1. / TICK_TIMER_PERIOD,
-            Default::default(),
-            &clock_cfg,
-        );
-        // todo: Maybe manually set ARR and PSC, since ARR is what controls precision?
-        tick_timer.enable_interrupt(TimerInterrupt::Update);
-
         // We use this PID adjustment timer to indicate the interval for updating PID from a controller
         // while the switch or button is held. (Equivalently, the min allowed time between actuations)
-
-        let ctrl_coeff_adj_timer = Timer::new_tim1(
-            dp.TIM1,
-            1. / CTRL_COEFF_ADJ_TIMEOUT,
-            TimerConfig {
-                one_pulse_mode: true,
-                ..Default::default()
-            },
-            &clock_cfg,
-        );
 
         let motor_timer_cfg = TimerConfig {
             // We use ARPE since we change duty with the timer running.
@@ -533,16 +504,8 @@ mod app {
         dshot_read_timer.set_auto_reload(setup::DSHOT_ARR_READ);
         dshot_read_timer.enable_interrupt(TimerInterrupt::Update);
 
-        let mut lost_link_timer = Timer::new_tim17(
-            dp.TIM17,
-            1. / safety::LOST_LINK_TIMEOUT,
-            TimerConfig {
-                one_pulse_mode: true,
-                ..Default::default()
-            },
-            &clock_cfg,
-        );
-        lost_link_timer.enable_interrupt(TimerInterrupt::Update);
+        let (ctrl_coeff_adj_timer, lost_link_timer, mut tick_timer, mut adc_timer) =
+            setup::setup_timers(dp.TIM1, dp.TIM17, dp.TIM5, dp.TIM6, &clock_cfg);
 
         let mut user_cfg = UserCfg::default();
 
@@ -1485,6 +1448,9 @@ mod app {
     fn crsf_isr(mut cx: crsf_isr::Context) {
         let uart = &mut cx.local.uart_crsf; // Code shortener
 
+        // Before clearing
+        let start_of_message = unsafe { uart.regs.isr.read().cmf().bit_is_set() };
+
         uart.clear_interrupt(UsartInterrupt::CharDetect(None));
         uart.clear_interrupt(UsartInterrupt::Idle);
 
@@ -1501,7 +1467,10 @@ mod app {
         //     .is_ok()
         // {
 
-        if crsf::TRANSFER_IN_PROG.load(Ordering::Acquire) == false {
+        let transfer_in_prog = crsf::TRANSFER_IN_PROG.load(Ordering::Acquire);
+
+        // Not esure why we need the additional message start check here.
+        if transfer_in_prog == false && start_of_message {
             crsf::TRANSFER_IN_PROG.store(true, Ordering::Release);
 
             // Don't allow the starting char, as used in the middle of a message,
@@ -1520,7 +1489,7 @@ mod app {
                     setup::CRSF_DMA_PERIPH,
                 );
             }
-        } else {
+        } else if transfer_in_prog == true {
             crsf::TRANSFER_IN_PROG.store(false, Ordering::Release);
             // Line is idle.
 
@@ -1528,6 +1497,8 @@ mod app {
             uart.enable_interrupt(UsartInterrupt::CharDetect(None));
 
             crsf::NEW_PACKET_RECEIVED.store(true, Ordering::Release);
+        } else {
+            println!("Spurious IDLE on CRSF reception");
         }
     }
 

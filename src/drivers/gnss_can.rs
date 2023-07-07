@@ -10,10 +10,9 @@ use core::sync::atomic::AtomicUsize;
 use packed_struct::{prelude::*, PackedStruct};
 
 use dronecan::{
+    f16,
     gnss::{EcefPositionVelocity, FixDronecan, FixStatus, GnssMode, GnssSubMode, GnssTimeStandard},
-    CanError, ConfigCommon, HardwareVersion, MsgPriority, SoftwareVersion,
-    PAYLOAD_SIZE_CONFIG_COMMON,
-    f16
+    ConfigCommon, PAYLOAD_SIZE_CONFIG_COMMON,
 };
 
 use crate::gnss::Covariance;

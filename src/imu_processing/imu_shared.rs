@@ -6,8 +6,6 @@ use stm32_hal2::{
     gpio::{self, Port},
 };
 
-use lin_alg2::f32::{Mat3, Vec3};
-
 use crate::setup::{SpiImu, IMU_RX_CH, IMU_TX_CH};
 
 use ahrs::ImuReadings;
