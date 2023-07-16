@@ -4,6 +4,7 @@
 /// User-configurable settings. These get saved to and loaded from internal flash.
 use crate::{
     control_interface::InputModeSwitch,
+    flight_ctrls,
     flight_ctrls::{
         autopilot::LandingCfg,
         common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap},
@@ -16,6 +17,9 @@ use crate::{
     sensors_shared::BattCellCount,
     system_status::{SensorStatus, SystemStatus},
 };
+
+#[cfg(feature = "fixed-wing")]
+use flight_ctrls::{ControlSurfaceConfig, YawControl};
 
 use ahrs::{ppks::PositVelEarthUnits, Fix, Params};
 
@@ -85,6 +89,8 @@ impl Default for OperationMode {
 
 /// Persistent state; saved to onboard flash memory. Contains user-configurable settings.
 pub struct UserCfg {
+    #[cfg(feature = "fixed-wing")]
+    pub control_surface_config: ControlSurfaceConfig,
     /// Set a ceiling the aircraft won't exceed. Defaults to 400' (Legal limit in US for drones).
     /// In meters.
     pub ceiling: Option<f32>,
@@ -133,6 +139,8 @@ impl Default for UserCfg {
         let waypoints = [(); MAX_WAYPOINTS].map(|_| Option::<PositVelEarthUnits>::default());
 
         Self {
+            #[cfg(feature = "fixed-wing")]
+            control_surface_config: ControlSurfaceConfig::default(),
             // aircraft_type: AircraftType::Quadcopter,
             ceiling: Some(122.),
             // todo: Do we want max angle and vel here? Do we use them, vice settings in InpuMap?

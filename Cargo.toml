@@ -34,8 +34,7 @@ synopsys-usb-otg = { version = "^0.3.0", optional = true}
 usb-device = "^0.2.9"
 usbd-serial = "^0.1.1"
 
-#fdcan = { version = "0.1.2", optional = true }
-fdcan = { version = "^0.1.2" }
+fdcan = "^0.2.0"
 
 # `Chrono` for GNSS timestamp
 chrono = { version = "^0.4.23", default-features = false }
@@ -45,13 +44,14 @@ packed_struct = {version = "^0.10.1", default_features = false }
 # To parse enums from their integer repr
 num_enum = { version = "^0.6.0", default_features = false }
 
-dronecan = { path = "../dronecan", features = ["hal"] }
+dronecan = { path = "../dronecan", optional = true }
 anyleaf_usb = { path = "../anyleaf_usb" }
 
 # Use these features to specify GPIO mapping, and which peripherals to use.
 [features]
-g4 = ["stm32-hal2/g4rt", "stm32-hal2/g473", "stm32-hal2/usb", "stm32-hal2/can_fd_g", "stm32-usbd"]
-h7 = ["stm32-hal2/h7rt", "stm32-hal2/h743v", "stm32-hal2/can_fd_h", "stm32-hal2/usbotg_hs", "stm32-hal2/can_fd_h", "synopsys-usb-otg", ]
+g4 = ["stm32-hal2/g4rt", "stm32-hal2/g473", "stm32-hal2/usb", "stm32-hal2/can_fd_g", "stm32-usbd", "dronecan/hal_g473"]
+h7 = ["stm32-hal2/h7rt", "stm32-hal2/h743v", "stm32-hal2/can_fd_h", "stm32-hal2/usbotg_hs",
+    "stm32-hal2/can_fd_h", "synopsys-usb-otg", "dronecan/hal_h7" ]
 
 quad = [] # For quadcopter aircraft
 fixed-wing = [] # For fixed-wing aircraft

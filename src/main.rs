@@ -403,6 +403,9 @@ mod app {
         let mut can =
             dronecan::hardware::setup_can(dp.FDCAN1, can_clock, dronecan::CanBitrate::B1m);
 
+        // todo: Configure acceptance filters for Fix2, AHRS, IMU, baro, mag, node status, and possibly others.
+        // todo: on G4, you may need to be clever to avoid running out of filters.
+
         let (
             mut spi1,
             mut flash_spi,
@@ -763,19 +766,17 @@ mod app {
         *cx.local.imu_isr_loop_i += 1;
         let i = *cx.local.imu_isr_loop_i; // code shortener.
 
+        // todo: Split up this lock
         (
             cx.shared.current_params,
             cx.shared.control_channel_data,
             cx.shared.link_stats,
             cx.shared.lost_link_timer,
             cx.shared.autopilot_status,
-            cx.shared.motor_timer,
-            cx.shared.servo_timer,
             cx.shared.motor_pid_state,
-            cx.shared.motor_pid_coeffs,
+            // cx.shared.motor_pid_coeffs,
             cx.shared.user_cfg,
             cx.shared.state_volatile,
-            cx.shared.flight_ctrl_filters,
             cx.shared.system_status,
         )
             .lock(
@@ -784,13 +785,10 @@ mod app {
                  link_stats,
                  lost_link_timer,
                  autopilot_status,
-                 motor_timer,
-                 servo_timer,
                  pid_state,
-                 pid_coeffs,
+                 // pid_coeffs,
                  cfg,
                  state_volatile,
-                 flight_ctrl_filters,
                  system_status| {
                     let mut imu_data = ImuReadings::from_buffer(
                         unsafe { &imu_shared::IMU_READINGS },
@@ -856,17 +854,20 @@ mod app {
                     if state_volatile.op_mode == OperationMode::Preflight {
                         // todo: Figure out where this preflight motor-spin up code should be in this ISR.
                         // todo: Here should be fine, but maybe somewhere else is better.
-                        if state_volatile.preflight_motors_running {
-                            // todo: Use actual arm status!!
-                            // println!("Motor pow fl: {:?}", state_volatile.motor_servo_state.rotor_front_left.cmd.power());
-                            state_volatile
-                                .motor_servo_state
-                                .send_to_rotors(ArmStatus::Armed, motor_timer);
-                        } else {
-                            // todo: Does this interfere with USB reads?
-                            // todo: Experiment and reason this out, if you should do this.
-                            // dshot::stop_all(motor_timer);
-                        }
+                        cx.shared.motor_timer.lock(|motor_timer| {
+                            if state_volatile.preflight_motors_running {
+                                // todo: Use actual arm status!!
+                                // println!("Motor pow fl: {:?}", state_volatile.motor_servo_state.rotor_front_left.cmd.power());
+
+                                state_volatile
+                                    .motor_servo_state
+                                    .send_to_rotors(ArmStatus::Armed, motor_timer);
+                            } else {
+                                // todo: Does this interfere with USB reads?
+                                // todo: Experiment and reason this out, if you should do this.
+                                // dshot::stop_all(motor_timer);
+                            }
+                        });
                     }
 
                     // todo: Impl once you've sorted out your control logic.
@@ -954,14 +955,19 @@ mod app {
                     if i % FLIGHT_CTRL_IMU_RATIO == 0 {
                         if state_volatile.op_mode != OperationMode::Preflight {
                             // todo: Should this be before the optional sections? Probably.
-                            flight_ctrls::run(
-                                params,
-                                cx.local.params_prev,
-                                state_volatile,
-                                control_channel_data,
-                                &cfg.ctrl_coeffs,
-                                flight_ctrl_filters,
-                                motor_timer,
+
+                            (cx.shared.flight_ctrl_filters, cx.shared.motor_timer).lock(
+                                |flight_ctrl_filters, motor_timer| {
+                                    flight_ctrls::run(
+                                        params,
+                                        cx.local.params_prev,
+                                        state_volatile,
+                                        control_channel_data,
+                                        &cfg.ctrl_coeffs,
+                                        flight_ctrl_filters,
+                                        motor_timer,
+                                    );
+                                },
                             );
                         }
                     }
@@ -1717,13 +1723,11 @@ mod app {
     shared = [can], priority = 4)] // todo: Temp high prio
     /// Ext sensors write complete; start read of the next sensor in sequence.
     fn can_isr(mut cx: can_isr::Context) {
-        // todo: Use CAN hardware filters.
+        // todo: Set up appropriate hardware filters, like Fix2, AHRS, IMU etc.
         // println!("\nCAN ISR");
 
         cx.shared.can.lock(|can| {
             can.clear_interrupt(Interrupt::RxFifo0NewMsg);
-
-            // atomic::compiler_fence(Ordering::SeqCst);
 
             let rx_buf = unsafe { &mut RX_BUF_CAN }; // todo
 

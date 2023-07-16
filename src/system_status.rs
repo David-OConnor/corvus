@@ -13,25 +13,28 @@ pub static RPM_FAULT: AtomicBool = AtomicBool::new(false);
 #[derive(Default)]
 pub struct SystemStatus {
     pub imu: SensorStatus,
+    pub imu_can: SensorStatus,
+    pub ahrs_can: SensorStatus,
     pub baro: SensorStatus,
     /// The GPS module is connected. Detected on init.
     pub gnss: SensorStatus,
+    pub gnss_can: SensorStatus,
     /// The time-of-flight sensor module is connected. Detected on init.
     pub tof: SensorStatus,
     ///  magnetometer is connected. Likely on the same module as GPS. Detected on init.
     pub magnetometer: SensorStatus,
+    pub magnetometer_can: SensorStatus,
     pub esc_telemetry: SensorStatus,
     pub esc_rpm: SensorStatus,
+    pub esc_can: SensorStatus,
     pub rf_control_link: SensorStatus, // todo: For now, we use `link_lost` instead.
+    pub rf_control_link_can: SensorStatus,
     // todo: Consider a separate faults struct if this grows in complexity
     // todo: You should have more specific faults than this. Eg what went wrong.
     // pub rf_control_fault: bool,
     // pub esc_rpm_fault: bool,
     /// SPI flash, which we may use in the future for data logging.
     pub flash_spi: SensorStatus,
-    pub rf_control_link_can: SensorStatus,
-    pub gnss_can: SensorStatus,
-    pub esc_can: SensorStatus,
 }
 
 #[derive(Clone, Copy, PartialEq)]

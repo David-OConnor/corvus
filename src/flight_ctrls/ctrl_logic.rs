@@ -374,6 +374,13 @@ pub fn ctrl_mix_from_att(
     let rotation_cmd = target_attitude * params.attitude.inverse();
     let rot_cmd_axes = rotation_cmd.to_axes();
 
+    // I don't think it makes sense to apply a TTC to the quat directly, since the multiple dimensions
+    // involved means it's very likely on an intercept course.
+    // radians / (rad/s) = s
+    let time_to_correct_x = rot_cmd_axes.0 / (params.v_pitch - target_ω.0);
+    let time_to_correct_y = rot_cmd_axes.1 / (params.v_roll - target_ω.1);
+    let time_to_correct_z = rot_cmd_axes.2 / (params.v_yaw - target_ω.2);
+
     // todo: QC where you're getting these target angular accels.
     let (target_ω_pitch, target_ω_roll, target_ω_yaw) = target_ω;
     let dω_pitch = target_ω_pitch - params.v_pitch;
@@ -382,17 +389,32 @@ pub fn ctrl_mix_from_att(
 
     // todo: It's possible thetas should be 0, and theta target should be the rot cmd.
 
-    let pitch = find_ctrl_setting(
-        att_axes.0,
-        params.v_pitch,
-        params.a_pitch,
-        target_axes.0,
-        *target_ω_pitch,
-        coeffs,
-        drag_coeffs.pitch,
-        &accel_maps.map_pitch,
-        dt,
-    );
+    //
+    let amt = 1_000.;
+    // todo: Testing alternative, more intuitive approach
+
+    // todo: DO we want to multiply by dt here?
+    let rot_to_apply = Quaternion::new_identity().slerp(rotation_cmd, amt * dt);
+
+    let (x, y, z) = rot_to_apply.to_axes();
+
+    // todo: Take into account dω!
+    // todo: Is this essentially a P-only PID loop?
+    let pitch = x;
+    let roll = y;
+    let yaw = z;
+
+    // let pitch = find_ctrl_setting(
+    //     att_axes.0,
+    //     params.v_pitch,
+    //     params.a_pitch,
+    //     target_axes.0,
+    //     *target_ω_pitch,
+    //     coeffs,
+    //     drag_coeffs.pitch,
+    //     &accel_maps.map_pitch,
+    //     dt,
+    // );
 
     // let roll = find_ctrl_setting(
     //       att_axes.1,
@@ -419,8 +441,8 @@ pub fn ctrl_mix_from_att(
     // );
 
     // todo: Temp while debugging
-    let roll = 0.;
-    let yaw = 0.;
+    // let roll = 0.;
+    // let yaw = 0.;
 
     let mut result = CtrlMix {
         pitch,
@@ -432,27 +454,11 @@ pub fn ctrl_mix_from_att(
     static mut i: u32 = 0;
     unsafe { i += 1 };
     if unsafe { i } % 4_000 == 0 {
-        // let c = params.attitude_quat.to_euler();
-
         println!("\n***Attitude***");
 
-        let (x_component, y_component, z_component) = params.attitude.to_axes();
-        println!(
-            "Current att: x{} y{} z{}",
-            x_component, y_component, z_component
-        );
-
-        let (x_component, y_component, z_component) = target_attitude.to_axes();
-        println!(
-            "Target att: x{} y{} z{}",
-            x_component, y_component, z_component
-        );
-
-        let (x_component, y_component, z_component) = rotation_cmd.to_axes();
-        println!(
-            "Rot fm att: x{} y{} z{}",
-            x_component, y_component, z_component
-        );
+        ahrs::print_quat(params.attitude, "Current att");
+        ahrs::print_quat(target_attitude, "Target att");
+        ahrs::print_quat(rotation_cmd, "Rot cmd");
 
         println!("\n***Ang Velocity***");
         println!(
@@ -466,6 +472,11 @@ pub fn ctrl_mix_from_att(
 
         println!("Required dω: p{}, r{}, y{}", dω_pitch, dω_roll, dω_yaw);
 
+        println!(
+            "TTC x{}, y{}, z{}",
+            time_to_correct_x, time_to_correct_y, time_to_correct_z,
+        );
+
         // println!(
         //     "Target torque: x{}, y{}, z{} v{} ",
         //     target_torque.axis.x,
@@ -475,6 +486,8 @@ pub fn ctrl_mix_from_att(
         // );
 
         println!("\n***Command generated:***");
+
+        // ahrs::print_quat(rot_to_apply, "Rot to apply");
         println!(
             "Mix. p{} r{} y{} t{}\n\n\n",
             result.pitch, result.roll, result.yaw, result.throttle

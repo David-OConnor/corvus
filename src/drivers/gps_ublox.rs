@@ -703,18 +703,18 @@ pub fn setup(uart: &mut UartGnss, clock_cfg: &Clocks) -> Result<(), GnssError> {
     let mut cfg_write_buf = [0; CFG_BUF_SIZE];
     cfg_msg.to_buf(&mut cfg_write_buf);
 
-    uart.write(&cfg_write_buf);
+    uart.write(&cfg_write_buf)?;
 
     // We've written the configuration: Now check for an acknolwedgement from the device.
     let mut read_buf = [0; MSG_SIZE_WITHOUT_PAYLOAD + PAYLOAD_LEN_ACK_NAK];
 
     // The GNSS sends its ack at the new baud, so set it before reading.
-    uart.set_baud(BAUD, clock_cfg);
+    uart.set_baud(BAUD, clock_cfg)?;
 
     // todo: loop/timeout?
     // "Output upon processing of an input message. A UBX-ACK-ACK is sent as soon as possible but at
     // least within one second."
-    uart.read(&mut read_buf);
+    uart.read(&mut read_buf)?;
 
     let response = Message::from_buf(&read_buf)?;
 

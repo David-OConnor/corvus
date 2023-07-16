@@ -43,3 +43,30 @@ impl Default for InputMap {
         }
     }
 }
+
+#[derive(Clone, Copy)]
+pub enum YawControl {
+    None,
+    Rudder,
+    DualProps,
+    Both,
+}
+
+pub struct ControlSurfaceConfig {
+    /// If elevator is not present, we assume the ailerons are stabilators.
+    pub elevator: bool,
+    /// Currently unused. For when both stabilzators and ailerons are present.
+    pub stabilators: bool,
+    pub yaw_control: YawControl,
+}
+
+impl Default for ControlSurfaceConfig {
+    /// Dual-elevon config
+    fn default() -> Self {
+        Self {
+            elevator: false,
+            stabilators: false,
+            yaw_control: YawControl::None,
+        }
+    }
+}
