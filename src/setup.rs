@@ -427,8 +427,7 @@ pub fn setup_pins() {
     // Pull up the CRSF RX line. Without this, our idle interrupt fires spuratically in
     // some conditions, like when touching the (even outside) of the wires if an Rx
     // module isn't connected.
-    // todo???
-    // uart_crsf_rx.pull(Pull::Up);
+    uart_crsf_rx.pull(Pull::Up);
 
     let _uart_osd_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
     let mut uart_osd_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
@@ -526,7 +525,6 @@ pub fn setup_dma() {
     dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c2Tx);
     dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c2Rx);
 
-    // todo: Put back?
     // dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_TX_CH, DmaInput::I2c1Tx);
     // dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_RX_CH, DmaInput::I2c1Rx);
 
@@ -694,7 +692,7 @@ pub fn setup_busses(
         uart_crsf_pac,
         crsf::BAUD,
         UsartConfig {
-            // todo: We're having a struggle with overruns. Must leave disabled.
+            // We're having a struggle with overruns. Must leave disabled.
             overrun_disabled: true,
             ..Default::default()
         },

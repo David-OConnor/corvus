@@ -27,7 +27,7 @@ use defmt::println;
 use defmt_rtt as _;
 use panic_probe as _;
 
-use ahrs::{ppks, ppks::PositVelEarthUnits, Ahrs, ImuReadings, Params};
+use ahrs::{ppks, ppks::PositVelEarthUnits, Ahrs, DeviceOrientation, ImuReadings, Params};
 use lin_alg2::f32::Quaternion;
 
 use stm32_hal2::{
@@ -594,7 +594,7 @@ mod app {
         );
 
         // todo: If you only update attitude on the fligth-control loop, change DT here accordinly.
-        let mut ahrs = Ahrs::new(DT_IMU);
+        let mut ahrs = Ahrs::new(DT_IMU, DeviceOrientation::default());
         // todo: Store AHRS IMU cal in config; see GNSS for ref.
 
         // Allow ESC to warm up and the radio to connect before starting the main loop.
@@ -771,7 +771,6 @@ mod app {
             cx.shared.current_params,
             cx.shared.control_channel_data,
             cx.shared.link_stats,
-            cx.shared.lost_link_timer,
             cx.shared.autopilot_status,
             cx.shared.motor_pid_state,
             // cx.shared.motor_pid_coeffs,
@@ -783,7 +782,6 @@ mod app {
                 |params,
                  control_channel_data,
                  link_stats,
-                 lost_link_timer,
                  autopilot_status,
                  pid_state,
                  // pid_coeffs,
@@ -886,62 +884,18 @@ mod app {
                     // Update our commanded attitude
                     match control_channel_data {
                         Some(ch_data) => {
-                            // let rates_commanded = RatesCommanded {
-                            //     pitch: Some(cfg.input_map.calc_pitch_rate(ch_data.pitch)),
-                            //     roll: Some(cfg.input_map.calc_roll_rate(ch_data.roll)),
-                            //     yaw: Some(cfg.input_map.calc_yaw_rate(ch_data.yaw)),
-                            // };
+                            if i % ATT_CMD_UPDATE_RATIO == 0 {
+                                let (attitude_commanded, attitude_commanded_dt) =
+                                    ctrl_logic::update_att_commanded(
+                                        ch_data,
+                                        &cfg.input_map,
+                                        state_volatile.attitude_commanded.quat,
+                                        state_volatile.has_taken_off,
+                                        cfg.takeoff_attitude,
+                                    );
 
-                            // Negative on pitch, since we want pulling down (back) on the stick to raise
-                            // the nose.
-                            let pitch_rate_cmd = cfg.input_map.calc_pitch_rate(-ch_data.pitch);
-                            let roll_rate_cmd = cfg.input_map.calc_roll_rate(ch_data.roll);
-                            let yaw_rate_cmd = cfg.input_map.calc_yaw_rate(ch_data.yaw);
-
-                            // todo: Temp for testing flight control logic!! Take away this hard set.
-                            state_volatile.has_taken_off = true;
-
-                            // todo: Should attitude commanded regress to current attitude if it hasn't changed??
-
-                            // If we haven't taken off, apply the attitude lock.
-
-                            // Don't update attitude commanded, or the change in attitude commanded
-                            // each loop. We don't get control commands that rapidly, and more importantly,
-                            // doing it every loop leads to numerical precision issues due to how small
-                            // the changes are.
-                            if state_volatile.has_taken_off {
-                                if i % ATT_CMD_UPDATE_RATIO == 0 {
-                                    let att_cmd_prev = state_volatile.attitude_commanded.quat;
-                                    // }
-
-                                    state_volatile.attitude_commanded.quat =
-                                        ctrl_logic::modify_att_target(
-                                            state_volatile.attitude_commanded.quat,
-                                            pitch_rate_cmd,
-                                            roll_rate_cmd,
-                                            yaw_rate_cmd,
-                                            DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
-                                        );
-
-                                    // todo: Instead of skipping ones not on the update ratio, you could store
-                                    // todo a buffer of attitudes, and look that far back.
-                                    // if i % ATT_CMD_UPDATE_RATIO == 0 {
-                                    // state_volatile.attitude_commanded.quat_dt = Torque::from_attitudes(
-                                    //     att_cmd_prev,
-                                    //     state_volatile.attitude_commanded.quat,
-                                    //     DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
-                                    // );
-
-                                    state_volatile.attitude_commanded.quat_dt =
-                                        ctrl_logic::ang_v_from_attitudes(
-                                            att_cmd_prev,
-                                            state_volatile.attitude_commanded.quat,
-                                            DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
-                                        );
-                                }
-                            } else {
-                                state_volatile.attitude_commanded.quat = cfg.takeoff_attitude;
-                                state_volatile.attitude_commanded.quat_dt = (0., 0., 0.);
+                                state_volatile.attitude_commanded.quat = attitude_commanded;
+                                state_volatile.attitude_commanded.quat_dt = attitude_commanded_dt;
                             }
                         }
                         None => {}
@@ -954,8 +908,6 @@ mod app {
 
                     if i % FLIGHT_CTRL_IMU_RATIO == 0 {
                         if state_volatile.op_mode != OperationMode::Preflight {
-                            // todo: Should this be before the optional sections? Probably.
-
                             (cx.shared.flight_ctrl_filters, cx.shared.motor_timer).lock(
                                 |flight_ctrl_filters, motor_timer| {
                                     flight_ctrls::run(
@@ -971,8 +923,6 @@ mod app {
                             );
                         }
                     }
-
-                    // todo: These staggered tasks. should probably be after the flight control logic
 
                     // todo: Global const
                     //
@@ -1056,12 +1006,14 @@ mod app {
                         if !crsf::TRANSFER_IN_PROG.load(Ordering::Acquire)
                             && crsf::NEW_PACKET_RECEIVED.load(Ordering::Acquire)
                         {
-                            control_interface::handle_crsf_data(
-                                control_channel_data,
-                                link_stats,
-                                system_status,
-                                lost_link_timer,
-                            );
+                            cx.shared.lost_link_timer.lock(|timer| {
+                                control_interface::handle_crsf_data(
+                                    control_channel_data,
+                                    link_stats,
+                                    system_status,
+                                    timer,
+                                );
+                            });
                         }
 
                         #[cfg(feature = "quad")]
@@ -1459,6 +1411,9 @@ mod app {
 
         uart.clear_interrupt(UsartInterrupt::CharDetect(None));
         uart.clear_interrupt(UsartInterrupt::Idle);
+
+        println!("CRSF yo");
+        return; // todo Temp!
 
         // todo: Store link stats and control channel data in an intermediate variable.
         // todo: Don't lock it. At least, you don't want any delay when starting the read,

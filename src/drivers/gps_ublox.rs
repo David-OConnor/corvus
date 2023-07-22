@@ -633,8 +633,6 @@ pub fn setup(uart: &mut UartGnss, clock_cfg: &Clocks) -> Result<(), GnssError> {
     // todo: You should enable sensor fusion mode, eg to get heading?
     // todo: Enable dead-recoking.
 
-    // todo: Consider, if failing? try the new, and or reset baud here.
-
     uart.enable_interrupt(UsartInterrupt::CharDetect(Some(PREAMBLE_1)));
     uart.enable_interrupt(UsartInterrupt::Idle);
 
@@ -664,8 +662,6 @@ pub fn setup(uart: &mut UartGnss, clock_cfg: &Clocks) -> Result<(), GnssError> {
     let key_id_cov_rate: u32 = 0x2091_0084;
     let val_cov_rate: u8 = 1;
 
-    // todo: We could also report COV matrices.
-
     // "Configuration data is the binary representation of a list of Key ID and Value pairs. It is formed by
     // concatenating keys (U4 values) and values (variable type) without any padding. This format is used
     // in the UBX-CFG-VALSET and UBX-CFG-VALGET messages."
@@ -677,7 +673,8 @@ pub fn setup(uart: &mut UartGnss, clock_cfg: &Clocks) -> Result<(), GnssError> {
     // as RAM. Bytes 2-3 are reserved.
     cfg_payload[1] = 0b001;
 
-    cfg_payload[CFG_PAYLOAD_START_I..8].clone_from_slice(&key_id_baud.to_le_bytes());
+    cfg_payload[CFG_PAYLOAD_START_I..CFG_PAYLOAD_START_I + 4]
+        .clone_from_slice(&key_id_baud.to_le_bytes());
     cfg_payload[8..12].clone_from_slice(&val_baud.to_le_bytes());
 
     cfg_payload[12..16].clone_from_slice(&key_id_pvt_rate.to_le_bytes());
@@ -705,29 +702,9 @@ pub fn setup(uart: &mut UartGnss, clock_cfg: &Clocks) -> Result<(), GnssError> {
 
     uart.write(&cfg_write_buf)?;
 
-    // We've written the configuration: Now check for an acknolwedgement from the device.
-    let mut read_buf = [0; MSG_SIZE_WITHOUT_PAYLOAD + PAYLOAD_LEN_ACK_NAK];
-
     // The GNSS sends its ack at the new baud, so set it before reading.
     uart.set_baud(BAUD, clock_cfg)?;
 
-    // todo: loop/timeout?
-    // "Output upon processing of an input message. A UBX-ACK-ACK is sent as soon as possible but at
-    // least within one second."
-    uart.read(&mut read_buf)?;
-
-    let response = Message::from_buf(&read_buf)?;
-
-    // The Payload of an `ack` or `nack` is the class and ID of the send message.
-    let (cfg_class, cfg_id) = cfg_msg.class_id.to_vals();
-
-    if response.class_id != MsgClassId::AckAck
-        || response.payload[0] != cfg_class
-        || response.payload[1] != cfg_id
-    {
-        println!("Nack");
-        return Err(GnssError::NoAck);
-    }
-
+    // Due to the delay on possible responses, don't check here.
     Ok(())
 }

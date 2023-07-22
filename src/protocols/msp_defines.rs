@@ -4,7 +4,7 @@
 //!
 //! Some items have been updated with rust naming conventions, while others haven't. Some have
 //! code for creating a buffer to send, while others haven't. Ideally, all should, but we've only
-//! implmented ones currently used.
+//! implemented ones currently used.
 //!
 //! https://github.com/chris1seto/PX4-Autopilot/blob/turbotimber/src/modules/msp_osd/msp_defines.h
 //! (From that: Found on https://github.com/d3ngit/djihdfpv_mavlink_to_msp_V2/blob/master/Arduino_libraries/MSP/MSP.h)

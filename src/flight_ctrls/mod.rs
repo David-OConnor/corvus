@@ -73,7 +73,7 @@ pub fn run(
                     DT_IMU,
                 );
 
-                ctrl_mix.throttle = 0.2; // todo: Testing before we set up controller
+                // ctrl_mix.throttle = 0.2; // todo: Testing before we set up controller
                 let power_commanded = MotorPower::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
 
                   static mut i: u32 = 0;
@@ -89,20 +89,9 @@ pub fn run(
                 //     pid_coeffs,
                 // );
 
-                // static mut i: u32 = 0;
-                // unsafe { i += 1 };
-                // if unsafe { i } % 4000 == 0 {
-                //     println!("\n\nMix. pitch: {} roll: {} yaw: {} throttle: {}", ctrl_mix.pitch, ctrl_mix.roll, ctrl_mix.yaw, ctrl_mix.throttle);
-                //
-                //     println!("Power comm. FL: {} FR: {} AL: {} AR: {}", power_commanded.front_left, power_commanded.front_right,
-                //     power_commanded.aft_left, power_commanded.aft_right);
-                // }
-
                 state_volatile.ctrl_mix = ctrl_mix;
 
                 state_volatile.motor_servo_state.set_cmds_from_power(&power_commanded);
-
-                // This is what causes the actual change in motor speed, via DSHOT.
 
                 // state_volatile.motor_servo_state.send_to_rotors(state_volatile.arm_status, motor_timer);
             } else {
