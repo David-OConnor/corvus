@@ -362,7 +362,7 @@ mod app {
         let dma_ = Dma::new(dp.DMA1);
         let dma2_ = Dma::new(dp.DMA2);
 
-        // todo: Note that the HAL currently won't enable DMA2's RCC wihtout using a struct like this.
+        // Note that the HAL currently won't enable DMA2's RCC wihtout using a struct like this.
         let _dma2_ch1 = dma::Dma2Ch1::new();
 
         setup::setup_dma();
@@ -377,14 +377,6 @@ mod app {
                 let uart_osd_pac = dp.UART4;
             }
         }
-
-        // loop {
-        //     println!("test");
-        //     delay.delay_ms(1000);
-        // }
-
-        // todo: End SPI3/ELRs rad test
-
         #[cfg(feature = "h7")]
         // let spi_flash_pac = dp.OCTOSPI1;
         let spi_flash_pac = dp.QUADSPI;
@@ -750,7 +742,6 @@ mod app {
             setup::IMU_RX_CH,
             DmaInterrupt::TransferComplete,
         );
-        // println!("IMU T");
 
         cx.local.cs_imu.set_high();
 
@@ -765,6 +756,12 @@ mod app {
 
         *cx.local.imu_isr_loop_i += 1;
         let i = *cx.local.imu_isr_loop_i; // code shortener.
+
+        // todo: TS
+        // if i % 2000 == 0 {
+        //     let regs = unsafe { &(*pac::USART2::ptr()) };
+        //     println!("UART2 SR: {:?}", regs.isr.read().bits());
+        // };
 
         // todo: Split up this lock
         (
@@ -880,6 +877,21 @@ mod app {
                     // todo: This whole section between here and the `ctrl_logic` calls is janky!
                     // todo you need to properly blend manual controls and autopilot, and handle
                     // todo lost-link procedures properly (Which may have been encoded in autopilot elsewhere)
+
+                    // Loads channel data and link stats into our shared structures,
+                    // from the DMA buffer.
+                    if !crsf::TRANSFER_IN_PROG.load(Ordering::Acquire)
+                        && crsf::NEW_PACKET_RECEIVED.load(Ordering::Acquire)
+                    {
+                        cx.shared.lost_link_timer.lock(|timer| {
+                            control_interface::handle_crsf_data(
+                                control_channel_data,
+                                link_stats,
+                                system_status,
+                                timer,
+                            );
+                        });
+                    }
 
                     // Update our commanded attitude
                     match control_channel_data {
@@ -998,22 +1010,6 @@ mod app {
                                 &mut state_volatile.has_taken_off,
                                 DT_MAIN_LOOP,
                             );
-                        }
-
-                        // Loads channel data and link stats into our shared structures,
-                        // from the DMA buffer.
-                        // todo
-                        if !crsf::TRANSFER_IN_PROG.load(Ordering::Acquire)
-                            && crsf::NEW_PACKET_RECEIVED.load(Ordering::Acquire)
-                        {
-                            cx.shared.lost_link_timer.lock(|timer| {
-                                control_interface::handle_crsf_data(
-                                    control_channel_data,
-                                    link_stats,
-                                    system_status,
-                                    timer,
-                                );
-                            });
                         }
 
                         #[cfg(feature = "quad")]
@@ -1389,10 +1385,9 @@ mod app {
     // todo: Evaluate priority.
     // #[task(binds = UART7,
     #[task(binds = USART3,
-// #[task(binds = USART2,
+    // #[task(binds = USART2,
 // shared = [control_channel_data, link_stats, system_status,
 // lost_link_timer], local = [uart_crsf], priority = 8)]
-
     shared = [], local = [uart_crsf], priority = 8)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
     /// and message ends. For message starts, it begins a DMA transfer. For message ends, it
@@ -1406,21 +1401,17 @@ mod app {
     fn crsf_isr(mut cx: crsf_isr::Context) {
         let uart = &mut cx.local.uart_crsf; // Code shortener
 
-        // Before clearing
         let start_of_message = unsafe { uart.regs.isr.read().cmf().bit_is_set() };
 
         uart.clear_interrupt(UsartInterrupt::CharDetect(None));
         uart.clear_interrupt(UsartInterrupt::Idle);
-
-        println!("CRSF yo");
-        return; // todo Temp!
 
         // todo: Store link stats and control channel data in an intermediate variable.
         // todo: Don't lock it. At least, you don't want any delay when starting the read,
         // todo although a delay on finishing the read is fine.
 
         // Stop the DMA read, since it will likely not have filled the buffer, due
-        // to the variable message sizes.
+        // to the variable message sizies.
         dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
 
         // if crsf::TRANSFER_IN_PROG
@@ -1430,7 +1421,7 @@ mod app {
 
         let transfer_in_prog = crsf::TRANSFER_IN_PROG.load(Ordering::Acquire);
 
-        // Not esure why we need the additional message start check here.
+        // Not sure why we need the additional message start check here.
         if transfer_in_prog == false && start_of_message {
             crsf::TRANSFER_IN_PROG.store(true, Ordering::Release);
 

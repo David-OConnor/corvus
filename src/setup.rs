@@ -405,22 +405,47 @@ pub fn setup_pins() {
             let _uart_crsf_tx = Pin::new(Port::B, 4, PinMode::Alt(11));
             let mut uart_crsf_rx = Pin::new(Port::B, 3, PinMode::Alt(11));
         } else {
+            // todo: TS
+            let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Analog);
+            let pwr = unsafe { &(*pac::PWR::ptr()) };
+            let rcc = unsafe { &(*pac::RCC::ptr()) };
+
+            rcc.apb1enr2.modify(|_, w| w.ucpd1en().set_bit());
+            rcc.apb1enr1.modify(|_, w| w.pwren().set_bit());
+            rcc.apb1enr2.modify(|_, w| w.ucpd1en().set_bit());
+            pwr.cr3.modify(|_, w| w.ucpd1_dbdis().set_bit());
+
+            let mut pa10 = Pin::new(Port::A, 10, PinMode::Output);
+            pa10.set_low();
+
             // We use UART 2 for ELRS on G4.
-            // let mut uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
-            // let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
+            let mut uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
+            let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
 
             // Undo settings on PB3 and PB4 that are due to initial debug-pin config.
-            // uart_crsf_tx.pull(Pull::Floating);
-            // uart_crsf_tx.output_speed(OutputSpeed::Low);
-            // uart_crsf_rx.output_speed(OutputSpeed::Low);
+            uart_crsf_tx.pull(Pull::Floating);
+            uart_crsf_rx.pull(Pull::Floating);
+            uart_crsf_tx.output_speed(OutputSpeed::Low);
+            uart_crsf_rx.output_speed(OutputSpeed::Low);
 
-            // todo: TS
-            // let pwr = unsafe { &(*pac::PWR::ptr()) };
-            // pwr.cr3.modify(|_, w| w.ucpd1_dbdis().set_bit());
+            // let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Input); // todo: Temp
+            // uart_crsf_rx.enable_interrupt(Edge::Falling);
 
             // Usart 3 TS
             let _uart_crsf_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
             let mut uart_crsf_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
+
+            // let mut rx_test = Pin::new(Port::B, 4, PinMode::Output);
+            // let cp = unsafe { cortex_m::Peripherals::steal() };
+            // let mut delay = Delay::new(cp.SYST, 170_000_000);
+            //
+            // println!("Entering PB4 test loop");
+            // loop {
+            //     delay.delay_ms(2000);
+            //     rx_test.toggle();
+            // }
+
+            // loop {}
         }
     }
 

@@ -370,7 +370,6 @@ pub fn ctrl_mix_from_att(
     // let att_axes = params.attitude.to_axes();
     // let target_axes = target_attitude.to_axes();
 
-    // todo: Unused??
     // This is the rotation we need to create to arrive at the target attitude from the current one.
     let rotation_cmd = target_attitude * params.attitude.inverse();
     let rot_cmd_axes = rotation_cmd.to_axes();
@@ -381,8 +380,9 @@ pub fn ctrl_mix_from_att(
         static mut integral_y: f32 = 0.;
         static mut integral_z: f32 = 0.;
 
-        let p_term = 5_000.;
-        let i_term = 400.;
+        let p_term = 1.;
+        // let i_term = 400.;
+        let i_term = 0.;
 
         // todo: DO we want to multiply by dt here?
         // let rot_to_apply = Quaternion::new_identity().slerp(rotation_cmd, p_term * dt);
@@ -432,7 +432,7 @@ pub fn ctrl_mix_from_att(
 
     // If there is a positive TTC, we should apply a weaker correction.
     // If there is a negative TTC, we apply a stronger one.
-    let corr_factor = 0.3;
+    // let corr_factor = 0.3;
     // todo: You probably want an additive factor, not multiplicative.
     // let v_correction_x = map_linear(time_to_correct_x, (-5., 5.), (1. + corr_factor, 1. - corr_factor));
 
@@ -488,6 +488,7 @@ pub fn ctrl_mix_from_att(
         yaw,
         throttle,
     };
+    result.clamp();
 
     static mut i: u32 = 0;
     unsafe { i += 1 };
@@ -537,7 +538,6 @@ pub fn ctrl_mix_from_att(
         );
     }
 
-    result.clamp();
     result
 }
 

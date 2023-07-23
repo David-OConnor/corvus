@@ -244,7 +244,7 @@ impl Packet {
         let dest_addr: DestAddr = match buf[0].try_into() {
             Ok(d) => d,
             Err(_) => {
-                println!("Dest Addr error");
+                // println!("Dest Addr error");
                 return Err(DecodeError {});
             }
         };
