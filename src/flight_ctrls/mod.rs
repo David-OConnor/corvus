@@ -73,27 +73,21 @@ pub fn run(
                     DT_IMU,
                 );
 
-                // ctrl_mix.throttle = 0.2; // todo: Testing before we set up controller
                 let power_commanded = MotorPower::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);
 
                   static mut i: u32 = 0;
                     unsafe { i += 1 };
                     if unsafe { i } % 4_000 == 0 {
-                        println!("Pwr cmd: fl{:?} fr{} al{} ar{}", power_commanded.front_left, power_commanded.front_right, power_commanded.aft_left,
+                    // if false {
+                        println!("Pwr cmd: fl{:?} fr{} al{} ar{}\n\n\n", power_commanded.front_left, power_commanded.front_right, power_commanded.aft_left,
                     power_commanded.aft_right);
                     }
-
-                // state_volatile.motor_servo_state.set_cmds_from_rpms(
-                //     &rpms_commanded,
-                //     pid_state,
-                //     pid_coeffs,
-                // );
 
                 state_volatile.ctrl_mix = ctrl_mix;
 
                 state_volatile.motor_servo_state.set_cmds_from_power(&power_commanded);
 
-                // state_volatile.motor_servo_state.send_to_rotors(state_volatile.arm_status, motor_timer);
+                state_volatile.motor_servo_state.send_to_rotors(state_volatile.arm_status, motor_timer);
             } else {
             let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
                 state_volatile.attitude_commanded.quat.unwrap(),
@@ -134,9 +128,9 @@ pub fn log_accel_pts(state_volatile: &mut StateVolatile, params: &Params, timest
     // Log angular accel from RPM or servo posit delta.
     // Code-shorteners
     #[cfg(feature = "quad")]
-    let ctrl_cmds = state_volatile.motor_servo_state.get_power_settings();
+        let ctrl_cmds = state_volatile.motor_servo_state.get_power_settings();
     #[cfg(feature = "fixed-wing")]
-    let ctrl_cmds = state_volatile.motor_servo_state.get_ctrl_positions();
+        let ctrl_cmds = state_volatile.motor_servo_state.get_ctrl_positions();
 
     state_volatile.accel_maps.log_pt(
         AccelMapPt {

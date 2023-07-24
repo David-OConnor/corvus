@@ -898,11 +898,11 @@ impl MotorPower {
         let half_roll = mix.roll / 2.;
         let half_yaw = mix.yaw / 2.;
 
-        // Nose down for positive pitch.
-        front_left -= half_pitch;
-        front_right -= half_pitch;
-        aft_left += half_pitch;
-        aft_right += half_pitch;
+        // Nose up for positive pitch.
+        front_left += half_pitch;
+        front_right += half_pitch;
+        aft_left -= half_pitch;
+        aft_right -= half_pitch;
 
         // Left side up for positive roll
         front_left += half_roll;
@@ -925,12 +925,17 @@ impl MotorPower {
         aft_left -= yaw;
         aft_right += yaw;
 
-        Self {
+        let mut result = Self {
             front_left,
             front_right,
             aft_left,
             aft_right,
-        }
+        };
+
+        // Note: We may also apply this clamp downstream.
+        // result.clamp_cmds();
+
+        result
     }
 }
 

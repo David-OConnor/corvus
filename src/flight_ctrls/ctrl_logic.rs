@@ -363,9 +363,8 @@ pub fn ctrl_mix_from_att(
     filters: &mut FlightCtrlFilters,
     dt: f32, // seconds
 ) -> CtrlMix {
-    // todo: Comfirming rotations work as expected. They appear to, although this axis-angle
-    // todo thing is all wrong! (Rotation along the RIGHT vec is showing it's a roll, vice pitch...
-    // let target_attitude = Quaternion::from_axis_angle(RIGHT, 0.2);
+    let target_attitude = Quaternion::new_identity(); // todo temp; issue with commadned att
+    // todo: Test commanded att in Preflight
 
     // let att_axes = params.attitude.to_axes();
     // let target_axes = target_attitude.to_axes();
@@ -380,9 +379,8 @@ pub fn ctrl_mix_from_att(
         static mut integral_y: f32 = 0.;
         static mut integral_z: f32 = 0.;
 
-        let p_term = 1.;
-        // let i_term = 400.;
-        let i_term = 0.;
+        let p_term = 0.7;
+        let i_term = 0.001;
 
         // todo: DO we want to multiply by dt here?
         // let rot_to_apply = Quaternion::new_identity().slerp(rotation_cmd, p_term * dt);
@@ -488,33 +486,38 @@ pub fn ctrl_mix_from_att(
         yaw,
         throttle,
     };
+
     result.clamp();
+    result.yaw = 0.; // todo: Temp
 
     static mut i: u32 = 0;
     unsafe { i += 1 };
     if unsafe { i } % 4_000 == 0 {
+    // if false {
         println!("\n***Attitude***");
 
         ahrs::print_quat(params.attitude, "Current att");
         ahrs::print_quat(target_attitude, "Target att");
         ahrs::print_quat(rotation_cmd, "Rot cmd");
 
-        println!("\n***Ang Velocity***");
-        println!(
-            "Current: v_p{} v_r{} v_y{}",
-            params.v_pitch, params.v_roll, params.v_yaw
-        );
-        println!(
-            "Target ω p{}, r{}, y{}",
-            target_ω_pitch, target_ω_roll, target_ω_yaw
-        );
+        println!("Throttle: {:?}", throttle);
 
-        println!("Required dω: p{}, r{}, y{}", dω_pitch, dω_roll, dω_yaw);
-
-        println!(
-            "TTC x{}, y{}, z{}",
-            time_to_correct_x, time_to_correct_y, time_to_correct_z,
-        );
+        // println!("\n***Ang Velocity***");
+        // println!(
+        //     "Current: v_p{} v_r{} v_y{}",
+        //     params.v_pitch, params.v_roll, params.v_yaw
+        // );
+        // println!(
+        //     "Target ω p{}, r{}, y{}",
+        //     target_ω_pitch, target_ω_roll, target_ω_yaw
+        // );
+        //
+        // println!("Required dω: p{}, r{}, y{}", dω_pitch, dω_roll, dω_yaw);
+        //
+        // println!(
+        //     "TTC x{}, y{}, z{}",
+        //     time_to_correct_x, time_to_correct_y, time_to_correct_z,
+        // );
 
         // println!(
         //     "d TTC x{}, y{}, z{}",
@@ -533,7 +536,7 @@ pub fn ctrl_mix_from_att(
 
         // ahrs::print_quat(rot_to_apply, "Rot to apply");
         println!(
-            "Mix. p{} r{} y{} t{}\n\n\n",
+            "Mix. p{} r{} y{} t{}\n",
             result.pitch, result.roll, result.yaw, result.throttle
         );
     }
