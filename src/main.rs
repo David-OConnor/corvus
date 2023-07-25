@@ -21,6 +21,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use cfg_if::cfg_if;
 
 use cortex_m::{self, asm, delay::Delay};
+use rtic::app;
 
 use defmt::println;
 use defmt_rtt as _;
@@ -30,26 +31,25 @@ use ahrs::{Ahrs, DeviceOrientation, Params};
 
 use stm32_hal2::{
     self,
-    adc::{self, Adc, AdcConfig, AdcDevice},
-    clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
-    dma::{self, ChannelCfg, Dma, DmaInterrupt, DmaPeriph},
-    flash::{Bank, Flash},
+    adc::Adc,
+    dma::{self, ChannelCfg, DmaInterrupt},
+    flash::Flash,
     gpio::{self, Pin},
     i2c::I2c,
-    pac::{self, I2C1, I2C2, SPI1, TIM1, TIM16, TIM17, TIM2, TIM5},
+    pac::{self, I2C1, I2C2, SPI1, TIM1, TIM17, TIM2, TIM5},
     spi::Spi,
-    timer::{Timer, TimerConfig, TimerInterrupt},
+    timer::{Timer, TimerInterrupt},
     usart::UsartInterrupt,
 };
 
-use usb_device::{bus::UsbBusAllocator, prelude::*};
+use usb_device::prelude::*;
 use usbd_serial::{self, SerialPort};
 
 use packed_struct::PackedStruct;
 
 use fdcan::{id::Id, interrupt::Interrupt};
 
-use dronecan::{self, f16};
+use dronecan::{self};
 
 mod atmos_model;
 mod cfg_storage;
@@ -57,6 +57,7 @@ mod control_interface;
 mod drivers;
 mod flight_ctrls;
 mod imu_processing;
+mod init;
 mod main_loop;
 mod protocols;
 mod safety;
@@ -83,7 +84,7 @@ use crate::{
         crsf::{self, LinkStats},
         dshot, usb_preflight,
     },
-    sensors_shared::{ExtSensor, V_A_ADC_READ_BUF},
+    sensors_shared::ExtSensor,
     state::{StateVolatile, UserCfg},
     system_status::{SensorStatus, SystemStatus},
 };
@@ -103,7 +104,7 @@ cfg_if! {
         pub use stm32_hal2::pac::{ADC1 as ADC};
     } else if #[cfg(feature = "g4")] {
         use stm32_hal2::{
-            usb::{self, UsbBus, UsbBusType},
+            usb::{ UsbBusType},
         };
 
         pub use stm32_hal2::pac::{UART4, ADC2 as ADC};
@@ -116,10 +117,6 @@ cfg_if! {
     } else {
     }
 }
-
-// Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
-// In practice, we only mutate it at initialization.
-static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 // todo: Can't get startup code working separately since Shared and Local must be private per an RTIC restriction.
 // todo: See this GH issue: https://github.com/rtic-rs/cortex-m-rtic/issues/505
@@ -173,470 +170,72 @@ mod app {
     use super::*;
 
     #[shared]
-    struct Shared {
-        user_cfg: UserCfg,
-        state_volatile: StateVolatile,
-        system_status: SystemStatus,
-        autopilot_status: AutopilotStatus,
-        current_params: Params,
+    pub struct Shared {
+        pub user_cfg: UserCfg,
+        pub state_volatile: StateVolatile,
+        pub system_status: SystemStatus,
+        pub autopilot_status: AutopilotStatus,
+        pub current_params: Params,
         // None if the data is stale. eg lost link, no link established.
-        control_channel_data: Option<ChannelData>,
+        pub control_channel_data: Option<ChannelData>,
         /// Link statistics, including Received Signal Strength Indicator (RSSI) from the controller's radio.
-        link_stats: LinkStats,
-        spi1: Spi<SPI1>,
-        i2c1: I2c<I2C1>,
-        i2c2: I2c<I2C2>,
-        altimeter: baro::Altimeter,
-        flash_onboard: Flash,
-        lost_link_timer: Timer<TIM17>,
-        motor_timer: setup::MotorTimer,
-        servo_timer: setup::ServoTimer,
-        usb_dev: UsbDevice<'static, UsbBusType>,
-        usb_serial: SerialPort<'static, UsbBusType>,
+        pub link_stats: LinkStats,
+        pub spi1: Spi<SPI1>,
+        pub i2c1: I2c<I2C1>,
+        pub i2c2: I2c<I2C2>,
+        pub altimeter: baro::Altimeter,
+        pub flash_onboard: Flash,
+        pub lost_link_timer: Timer<TIM17>,
+        pub motor_timer: setup::MotorTimer,
+        pub servo_timer: setup::ServoTimer,
+        pub usb_dev: UsbDevice<'static, UsbBusType>,
+        pub usb_serial: SerialPort<'static, UsbBusType>,
         /// `power_used` is in rotor power (0. to 1. scale), summed for each rotor x milliseconds.
-        power_used: f32,
-        imu_filters: ImuFilters,
-        flight_ctrl_filters: FlightCtrlFilters,
+        pub power_used: f32,
+        pub imu_filters: ImuFilters,
+        pub flight_ctrl_filters: FlightCtrlFilters,
         // Note: We don't currently haveh PID filters, since we're not using a D term for the
         // RPM PID.
-        ext_sensor_active: ExtSensor,
-        pwr_maps: AccelMaps,
+        pub ext_sensor_active: ExtSensor,
+        pub pwr_maps: AccelMaps,
         // /// Store rotor RPM: (M1, M2, M3, M4). Quad only, but we can't feature gate
         // /// shared fields.
         // rpm_readings: RpmReadings,
         // rpms_commanded: MotorRpm,
-        motor_pid_state: MotorPidGroup,
+        pub motor_pid_state: MotorPidGroup,
         /// PID motor coefficients
-        motor_pid_coeffs: MotorCoeffs,
-        tick_timer: Timer<TIM5>,
-        can: setup::Can_,
+        pub motor_pid_coeffs: MotorCoeffs,
+        pub tick_timer: Timer<TIM5>,
+        pub can: setup::Can_,
     }
 
     #[local]
-    struct Local {
+    pub struct Local {
         // update_timer: Timer<TIM15>,
-        uart_crsf: setup::UartCrsf, // for ELRS over CRSF.
+        pub uart_crsf: setup::UartCrsf, // for ELRS over CRSF.
         // spi_flash: SpiFlash,  // todo: Fix flash in HAL, then do this.
-        arm_signals_received: u8, // todo: Put sharedin state volatile.
-        disarm_signals_received: u8,
+        pub arm_signals_received: u8, // todo: Put sharedin state volatile.
+        pub disarm_signals_received: u8,
         /// We use this counter to subdivide the main loop into longer intervals,
         /// for various tasks like logging, and outer loops.
         // update_isr_loop_i: usize,
-        imu_isr_loop_i: u32,
+        pub imu_isr_loop_i: u32,
         // aux_loop_i: usize, // todo temp
-        ctrl_coeff_adj_timer: Timer<TIM1>,
-        uart_osd: setup::UartOsd, // for our DJI OSD, via MSP protocol
-        time_with_high_throttle: f32,
-        ahrs: Ahrs,
-        dshot_read_timer: Timer<TIM2>,
-        cs_imu: Pin,
+        pub ctrl_coeff_adj_timer: Timer<TIM1>,
+        pub uart_osd: setup::UartOsd, // for our DJI OSD, via MSP protocol
+        pub time_with_high_throttle: f32,
+        pub ahrs: Ahrs,
+        pub dshot_read_timer: Timer<TIM2>,
+        pub cs_imu: Pin,
         // todo: `params_prev` is an experimental var used in our alternative/experimental
         // todo flight controls code as a derivative.
-        params_prev: Params,
-        batt_curr_adc: Adc<ADC>,
+        pub params_prev: Params,
+        pub batt_curr_adc: Adc<ADC>,
     }
 
     #[init]
-    fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
-        // todo: Error re Shared and Local being private. Might be resolved in
-        // Rtic 2.
-        // init::run(cx);
-
-        let mut cp = cx.core;
-        let mut dp = pac::Peripherals::take().unwrap();
-
-        // Improves performance, at a cost of slightly increased power use.
-        // Note that these enable fns should automatically invalidate prior.
-
-        // Todo: Enable these caches once the program basicallyw orks on H7; don't want
-        // todo subtle concurrency bugs from the caches confusing things.
-        // #[cfg(feature = "h7")]
-        // cp.SCB.enable_icache();
-        // #[cfg(feature = "h7")]
-        // cp.SCB.enable_dcache(&mut cp.CPUID);
-
-        let pll_src = PllSrc::Hse(16_000_000);
-        cfg_if! {
-            if #[cfg(feature = "h7")] {
-                let clock_cfg = Clocks {
-                    // Config for H723 at 520Mhz, or H743 at 480Mhz.
-                    // Note: to get H723 working at 550Mhz. You'll need to increase divn to 275,
-                    // and set CPU_FREQ_BOOST: "The CPU frequency boost can be enabled through the
-                    // CPUFREQ_BOOST option byte in the FLASH_OPTSR2_PRG register."
-                    pll_src,
-                    pll1: PllCfg {
-                        divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
-                        pllq_en: true, // PLLQ for Spi1 and CAN clocks. Its default div of 8 is fine.
-                        ..Default::default()
-                    },
-                    hsi48_on: true,
-                    // todo: Why is full speed not always working?
-                    // ..Clocks::full_speed()
-                    ..Default::default()
-                };
-            } else {
-                let clock_cfg = Clocks {
-                    input_src: InputSrc::Pll(pll_src),
-                    hsi48_on: true,
-                    ..Default::default()
-                };
-            }
-        }
-
-        println!("Pre clock setup");
-        clock_cfg.setup().unwrap();
-
-        println!("Clock config success");
-
-        // Enable the Clock Recovery System, which improves HSI48 accuracy.
-
-        // todo: Put this back once done USB TS.
-        #[cfg(feature = "h7")]
-        clocks::enable_crs(CrsSyncSrc::OtgHs);
-        #[cfg(feature = "g4")]
-        clocks::enable_crs(CrsSyncSrc::Usb);
-
-        let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
-
-        // Set up pins with appropriate modes.
-        setup::setup_pins();
-
-        let dma_ = Dma::new(dp.DMA1);
-        let dma2_ = Dma::new(dp.DMA2);
-
-        // Note that the HAL currently won't enable DMA2's RCC wihtout using a struct like this.
-        let _dma2_ch1 = dma::Dma2Ch1::new();
-
-        setup::setup_dma();
-
-        cfg_if! {
-            if #[cfg(feature = "h7")] {
-                let uart_crsf_pac = dp.UART7;
-                let uart_osd_pac = dp.USART2;
-            } else {
-                // let uart_crsf_pac = dp.USART2;
-                let uart_crsf_pac = dp.USART3;
-                let uart_osd_pac = dp.UART4;
-            }
-        }
-        #[cfg(feature = "h7")]
-        // let spi_flash_pac = dp.OCTOSPI1;
-        let spi_flash_pac = dp.QUADSPI;
-        #[cfg(feature = "g4")]
-        let spi_flash_pac = dp.SPI2;
-
-        #[cfg(feature = "h7")]
-        can::set_message_ram_layout(); // Must be called explicitly; for H7.
-
-        #[cfg(feature = "h7")]
-        let can_clock = dronecan::hardware::CanClock::Mhz120;
-
-        #[cfg(feature = "g4")]
-        let can_clock = dronecan::hardware::CanClock::Mhz160;
-
-        let mut can =
-            dronecan::hardware::setup_can(dp.FDCAN1, can_clock, dronecan::CanBitrate::B1m);
-
-        // todo: Configure acceptance filters for Fix2, AHRS, IMU, baro, mag, node status, and possibly others.
-        // todo: on G4, you may need to be clever to avoid running out of filters.
-
-        let (
-            mut spi1,
-            mut flash_spi,
-            mut cs_imu,
-            mut cs_flash,
-            mut i2c1,
-            mut i2c2,
-            uart_osd,
-            mut uart_crsf,
-        ) = setup::setup_busses(
-            dp.SPI1,
-            spi_flash_pac,
-            dp.I2C1,
-            dp.I2C2,
-            uart_osd_pac,
-            uart_crsf_pac,
-            &clock_cfg,
-        );
-
-        // todo start I2c test
-        // println!("Starting I2c/SPI test loop");
-        //
-        // // let x = unsafe {
-        // //     (*pac::RCC::ptr()).apb2enr.read().spi1en().bit_is_set()
-        // // };
-        //
-        // let x = spi1.regs.cr1.read().spe().bit_is_set();
-        //
-        // println!("RCC TEST: {}", x);
-        // //
-        // loop {
-        //     // let mut buf = [0];
-        //     // i2c1.write_read(0x77, &[0x0d], &mut buf).ok();
-        //
-        //     let mut buf = [0x75, 0, 0];
-        //
-        //     cs_imu.set_low();
-        //     spi1.transfer(&mut buf);
-        //
-        //     cs_imu.set_high();
-        //     println!("Buf: {:?}", buf[0]);
-        //     delay.delay_ms(500);
-        // }
-        // todo end I2c test
-
-        // We use the RTC to assist with power use measurement.
-        // let rtc = Rtc::new(dp.RTC, Default::default());
-
-        // We use the ADC to measure battery voltage and ESC current.
-        let adc_cfg = AdcConfig {
-            operation_mode: adc::OperationMode::Continuous,
-            ..Default::default()
-        };
-
-        #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
-
-        #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
-
-        // With non-timing-critical continuous reads, we can set a long sample time.
-        batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
-        // todo: Which edge should it be?
-        batt_curr_adc.set_trigger(adc::Trigger::Tim6Trgo, adc::TriggerEdge::HardwareRising);
-
-        // todo temp while we sort out HAL. We've fudged this to make the number come out correctly.
-        batt_curr_adc.vdda_calibrated = 3.6;
-
-        // let mut update_timer = Timer::new_tim15(
-        //     dp.TIM15,
-        //     UPDATE_RATE_MAIN_LOOP,
-        //     Default::default(),
-        //     &clock_cfg,
-        // );
-        // update_timer.enable_interrupt(TimerInterrupt::Update);
-
-        // We use this PID adjustment timer to indicate the interval for updating PID from a controller
-        // while the switch or button is held. (Equivalently, the min allowed time between actuations)
-
-        let motor_timer_cfg = TimerConfig {
-            // We use ARPE since we change duty with the timer running.
-            auto_reload_preload: true,
-            ..Default::default()
-        };
-
-        // Frequency here can be arbitrary; we set manually using PSC and ARR below.
-        let mut motor_timer = Timer::new_tim3(dp.TIM3, 1., motor_timer_cfg.clone(), &clock_cfg);
-
-        // For fixed wing on H7; need a separate timer from the 4 used for DSHOT.
-        let mut servo_timer = Timer::new_tim8(dp.TIM8, 1., motor_timer_cfg, &clock_cfg);
-
-        setup::setup_motor_timers(&mut motor_timer, &mut servo_timer);
-
-        // This timer periodically fire. When it does, we read the value of each of the 4 motor lines
-        // in its ISR.
-        let mut dshot_read_timer = Timer::new_tim2(dp.TIM2, 1., Default::default(), &clock_cfg);
-
-        dshot_read_timer.set_prescaler(dshot::PSC_DSHOT);
-        dshot_read_timer.set_auto_reload(setup::DSHOT_ARR_READ);
-        dshot_read_timer.enable_interrupt(TimerInterrupt::Update);
-
-        let (ctrl_coeff_adj_timer, lost_link_timer, mut tick_timer, mut adc_timer) =
-            setup::setup_timers(dp.TIM1, dp.TIM17, dp.TIM5, dp.TIM6, &clock_cfg);
-
-        let mut user_cfg = UserCfg::default();
-
-        // Note: With this circular DMA approach, we discard many readings,
-        // but shouldn't have consequences other than higher power use, compared to commanding
-        // conversions when needed.
-
-        unsafe {
-            batt_curr_adc.read_dma(
-                &mut V_A_ADC_READ_BUF,
-                &[setup::BATT_ADC_CH, setup::CURR_ADC_CH],
-                setup::BATT_CURR_DMA_CH,
-                ChannelCfg {
-                    circular: dma::Circular::Enabled,
-                    ..Default::default()
-                },
-                setup::BATT_CURR_DMA_PERIPH,
-            );
-        }
-
-        // todo: ID connected sensors etc by checking their device ID etc.
-        let mut state_volatile = StateVolatile::default();
-
-        cfg_if! {
-            // todo: Probably OTG1 on H723.
-            // On H743, PA11 and PA12 are connected to OTG2 AKA OTG_FS. There are naming inconsistencies
-            // on ST's docs.
-            if #[cfg(feature = "h7")] {
-                let usb = Usb2::new(
-                    dp.OTG2_HS_GLOBAL,
-                    dp.OTG2_HS_DEVICE,
-                    dp.OTG2_HS_PWRCLK,
-                    clock_cfg.hclk(),
-                    // 240_000_000, // todo temp hardcoded
-                );
-
-                unsafe { USB_BUS = Some(UsbBus::new(usb, unsafe { &mut USB_EP_MEMORY })) };
-            } else {
-                let usb = usb::Peripheral { regs: dp.USB };
-
-                unsafe { USB_BUS = Some(UsbBus::new(usb)) };
-            }
-        }
-
-        let usb_serial = SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
-
-        // todo: Note that you may need to either increment the flash page offset, or cycle flash pages, to
-        // todo avoid wear on a given sector from erasing each time. Note that you can still probably get 10k
-        // todo erase/write cycles per sector, so this is low priority.
-        let mut flash_onboard = Flash::new(dp.FLASH);
-
-        // todo: Testing flash
-        let mut flash_buf = [0; 8];
-        // let cfg_data =
-        #[cfg(feature = "h7")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
-        #[cfg(feature = "g4")]
-        flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
-
-        let mut params = Default::default();
-
-        // todo: For params, consider raw readings without DMA. Currently you're just passign in the
-        // todo default; not going to cut it.?
-        let (system_status, altimeter) = setup::init_sensors(
-            &mut params,
-            &mut state_volatile.base_point,
-            &mut spi1,
-            &mut flash_spi,
-            &mut i2c1,
-            &mut i2c2,
-            &mut cs_imu,
-            &mut cs_flash,
-            &mut delay,
-        );
-
-        println!(
-            "System status:\n IMU: {}, Baro: {}, Mag: {}, GPS: {}, TOF: {}",
-            system_status.imu == SensorStatus::Pass,
-            system_status.baro == SensorStatus::Pass,
-            system_status.magnetometer == SensorStatus::Pass,
-            system_status.gnss == SensorStatus::Pass,
-            system_status.tof == SensorStatus::Pass,
-        );
-
-        // todo: If you only update attitude on the fligth-control loop, change DT here accordinly.
-        let mut ahrs = Ahrs::new(main_loop::DT_IMU, DeviceOrientation::default());
-        // todo: Store AHRS IMU cal in config; see GNSS for ref.
-
-        // Allow ESC to warm up and the radio to connect before starting the main loop.
-        // delay.delay_ms(WARMUP_TIME);
-
-        // We must set up the USB device after the warmup delay, since its long blocking delay
-        // leads the host (PC) to terminate the connection. The (short, repeated) blocking delays
-        // in the motor dir config appear to be acceptable.
-        let usb_dev = UsbDeviceBuilder::new(
-            unsafe { USB_BUS.as_ref().unwrap() },
-            UsbVidPid(0x16c0, 0x27dd),
-        )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
-
-        // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
-        // warmpup time.
-
-        // Set up motor direction; do this once the warmup time has elapsed.
-        #[cfg(feature = "quad")]
-        // todo: Wrong. You need to do this by number; apply your pin mapping.
-        let motors_reversed = (
-            state_volatile.motor_servo_state.rotor_aft_right.reversed,
-            state_volatile.motor_servo_state.rotor_front_right.reversed,
-            state_volatile.motor_servo_state.rotor_aft_left.reversed,
-            state_volatile.motor_servo_state.rotor_front_left.reversed,
-            // user_cfg.control_mapping.m1_reversed,
-            // user_cfg.control_mapping.m2_reversed,
-            // user_cfg.control_mapping.m3_reversed,
-            // user_cfg.control_mapping.m4_reversed,
-        );
-
-        #[cfg(feature = "quad")]
-        dshot::setup_motor_dir(motors_reversed, &mut motor_timer);
-
-        crsf::setup(&mut uart_crsf);
-
-        // Start our main loop
-        // update_timer.enable();
-        adc_timer.enable();
-        tick_timer.enable();
-
-        println!("Init complete; starting main loops");
-
-        // Unmask the Systick interrupt here; doesn't appear to be handled by RTIC the same was
-        // as for STM32 peripherals. (Systick is a Cortex-M peripheral)
-        // unsafe { cortex_m::peripheral::NVIC::unmask(cortex_m::peripheral::syst); }
-
-        (
-            // todo: Make these local as able.
-            Shared {
-                user_cfg,
-                state_volatile,
-                system_status,
-                autopilot_status: Default::default(),
-                current_params: params.clone(),
-                control_channel_data: Default::default(),
-                link_stats: Default::default(),
-                // dma,
-                // dma2,
-                spi1,
-                i2c1,
-                i2c2,
-                altimeter,
-                // rtc,
-                lost_link_timer,
-                motor_timer,
-                servo_timer,
-                usb_dev,
-                usb_serial,
-                flash_onboard,
-                power_used: 0.,
-                imu_filters: Default::default(),
-                flight_ctrl_filters: Default::default(),
-                ext_sensor_active: ExtSensor::Mag,
-                pwr_maps: Default::default(),
-                motor_pid_state: Default::default(),
-                motor_pid_coeffs: Default::default(),
-                // rpm_readings: Default::default(),
-                // rpms_commanded: Default::default(),
-                tick_timer,
-                can,
-            },
-            Local {
-                // update_timer,
-                uart_crsf,
-                // spi_flash, // todo: Fix flash in HAL, then do this.
-                arm_signals_received: 0,
-                disarm_signals_received: 0,
-                // update_isr_loop_i: 0,
-                imu_isr_loop_i: 0,
-                // aux_loop_i: 0, // todo t
-                ctrl_coeff_adj_timer,
-                uart_osd,
-                time_with_high_throttle: 0.,
-                ahrs,
-                dshot_read_timer,
-                cs_imu,
-                params_prev: params,
-                batt_curr_adc,
-            },
-            init::Monotonics(),
-        )
+    fn init(cx: init::Context) -> (Shared, Local) {
+        crate::init::run(cx)
     }
 
     #[idle(shared = [], local = [])]
@@ -1107,57 +706,6 @@ mod app {
                 params.alt_msl_baro =
                     atmos_model::estimate_altitude_msl(pressure, temp, &altimeter.ground_cal)
             });
-    }
-
-    // #[task(binds = DMA2_STR3,
-    #[task(binds = DMA2_CH3,
-    shared = [i2c1, ext_sensor_active], priority = 2)]
-    /// External sensors write complete; start external sensors read.
-    fn ext_sensors_write_tc_isr(cx: ext_sensors_write_tc_isr::Context) {
-        dma::clear_interrupt(
-            setup::EXT_SENSORS_DMA_PERIPH,
-            setup::EXT_SENSORS_TX_CH,
-            DmaInterrupt::TransferComplete,
-        );
-
-        dma::stop(setup::EXT_SENSORS_DMA_PERIPH, setup::EXT_SENSORS_RX_CH);
-
-        println!("Ext sensors B");
-        (cx.shared.i2c1, cx.shared.ext_sensor_active).lock(|i2c1, ext_sensor_active| {
-            // todo: Skip sensors if marked as not connected?
-
-            // unsafe {
-            //     match ext_sensor_active {
-            //         ExtSensor::Mag => {
-            //             i2c1.read_dma(
-            //                 mag::ADDR,
-            //                 &mut sensors_shared::MAG_READINGS,
-            //                 setup::EXT_SENSORS_RX_CH,
-            //                 Default::default(),
-            //                 setup::EXT_SENSORS_DMA_PERIPH,
-            //             );
-            //         }
-            //         ExtSensor::Gps => {
-            //             i2c1.read_dma(
-            //                 gps::ADDR,
-            //                 &mut sensors_shared::GPS_READINGS,
-            //                 setup::EXT_SENSORS_RX_CH,
-            //                 Default::default(),
-            //                 setup::EXT_SENSORS_DMA_PERIPH,
-            //             );
-            //         }
-            //         ExtSensor::Tof => {
-            //             i2c1.read_dma(
-            //                 tof::ADDR,
-            //                 &mut sensors_shared::TOF_READINGS,
-            //                 setup::EXT_SENSORS_RX_CH,
-            //                 Default::default(),
-            //                 setup::EXT_SENSORS_DMA_PERIPH,
-            //             );
-            //         }
-            //     }
-            // }
-        });
     }
 
     // #[task(binds = FDCAN1_IT0,

@@ -1,31 +1,59 @@
 //! This module contains intialization code, run at power-up.
 
 use stm32_hal2::{
-	adc::{Adc, AdcDevice, AdcConfig},
-    clocks,
-    dma::{self, Dma, ChannelCfg},
-    flash::Flash,
-    timer::{Timer, TimerInterrupt},
-    usart::Usart2,
+    adc::{self, Adc, AdcConfig, AdcDevice},
+    clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
+    dma::{self, ChannelCfg, Dma},
+    flash::{Bank, Flash},
+    pac,
+    timer::{Timer, TimerConfig, TimerInterrupt},
 };
 
-use ahrs::Ahrs;
+use ahrs::{Ahrs, DeviceOrientation};
 
 use crate::{
-    app::{self, Local, init::Monotonics, Shared},
-    protocols::{crsf, dshot},
-    setup,
+    app::{self, Local, Shared},
     main_loop,
-    system_status::{SensorStatus},
+    protocols::{crsf, dshot},
+    sensors_shared::{ExtSensor, V_A_ADC_READ_BUF},
+    setup,
+    state::{StateVolatile, UserCfg},
+    system_status::SensorStatus,
 };
 
-use usbd_serial::SerialPort;
+use cortex_m::delay::Delay;
 
+use usb_device::{bus::UsbBusAllocator, prelude::*};
+use usbd_serial::{self, SerialPort};
+
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        use stm32_hal2::{
+            clocks::{PllCfg, VosRange},
+            // todo: USB1 on H723; USB2 on H743.
+            // usb::{Usb1, UsbBus, Usb1BusType as UsbBusType},
+            usb::{Usb2, UsbBus, Usb2BusType as UsbBusType},
+            // pac::OCTOSPI1,
+            pac::QUADSPI,
+            qspi::{Qspi},
+        };
+    } else if #[cfg(feature = "g4")] {
+        use stm32_hal2::{
+            usb::{self, UsbBus, UsbBusType},
+        };
+    }
+}
+
+use cfg_if::cfg_if;
 use defmt::println;
 
-pub fn run(mut cx: app::init::Context) -> (Shared, Local, Monotonics) {
+// Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
+// In practice, we only mutate it at initialization.
+static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
+
+pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     let mut cp = cx.core;
-    let mut dp = pac::Peripherals::take().unwrap();
+    let dp = pac::Peripherals::take().unwrap();
 
     // Improves performance, at a cost of slightly increased power use.
     // Note that these enable fns should automatically invalidate prior.
@@ -416,6 +444,5 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local, Monotonics) {
             params_prev: params,
             batt_curr_adc,
         },
-        Monotonics(),
     )
 }

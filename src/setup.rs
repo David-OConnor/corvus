@@ -232,7 +232,7 @@ pub fn init_sensors(
     //         return result;
     //     }
     // }
-    let mut altimeter = match baro::Altimeter::new(i2c2) {
+    let altimeter = match baro::Altimeter::new(i2c2) {
         Ok(mut alt) => {
             system_status.baro = SensorStatus::Pass;
             alt
@@ -404,7 +404,7 @@ pub fn setup_pins() {
             let mut uart_crsf_rx = Pin::new(Port::B, 3, PinMode::Alt(11));
         } else {
             // todo: TS
-            let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Analog);
+            let uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Analog);
             let pwr = unsafe { &(*pac::PWR::ptr()) };
             let rcc = unsafe { &(*pac::RCC::ptr()) };
 
@@ -649,7 +649,7 @@ pub fn setup_busses(
     let i2c1 = I2c::new(i2c1_pac, i2c_external_sensors_cfg, clock_cfg);
 
     // We use I2C2 for the onboard barometer (altimeter).
-    let mut i2c2 = I2c::new(i2c2_pac, i2c_baro_cfg, clock_cfg);
+    let i2c2 = I2c::new(i2c2_pac, i2c_baro_cfg, clock_cfg);
 
     // We use SPI2 for SPI flash on G4. On H7, we use octospi instead.
     // Max speed: 104Mhz (single, dual, or quad) for 8M variant, and 133Mhz for
