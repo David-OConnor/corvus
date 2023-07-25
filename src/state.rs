@@ -4,7 +4,6 @@
 /// User-configurable settings. These get saved to and loaded from internal flash.
 use crate::{
     control_interface::InputModeSwitch,
-    flight_ctrls,
     flight_ctrls::{
         autopilot::LandingCfg,
         common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap},
@@ -15,13 +14,12 @@ use crate::{
     },
     safety::ArmStatus,
     sensors_shared::BattCellCount,
-    system_status::{SensorStatus, SystemStatus},
 };
 
 #[cfg(feature = "fixed-wing")]
 use flight_ctrls::{ControlSurfaceConfig, YawControl};
 
-use ahrs::{ppks::PositVelEarthUnits, Fix, Params};
+use ahrs::ppks::PositVelEarthUnits;
 
 use lin_alg2::f32::Quaternion;
 

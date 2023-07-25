@@ -6,8 +6,8 @@
 
 use crate::{
     control_interface::ChannelData,
+    main_loop::{ATT_CMD_UPDATE_RATIO, DT_FLIGHT_CTRLS},
     util::{self, map_linear},
-    ATT_CMD_UPDATE_RATIO, DT_FLIGHT_CTRLS,
 };
 
 use super::{
@@ -364,7 +364,7 @@ pub fn ctrl_mix_from_att(
     dt: f32, // seconds
 ) -> CtrlMix {
     let target_attitude = Quaternion::new_identity(); // todo temp; issue with commadned att
-    // todo: Test commanded att in Preflight
+                                                      // todo: Test commanded att in Preflight
 
     // let att_axes = params.attitude.to_axes();
     // let target_axes = target_attitude.to_axes();
@@ -396,6 +396,16 @@ pub fn ctrl_mix_from_att(
             integral_x += error_x;
             integral_y += error_y;
             integral_z += error_z;
+        }
+
+        // The I-term builds up if corrections are unable to expeditiously converge.
+        // An example of when this can happen is when the aircraft is on the ground.
+        if throttle < 0.001 {
+            unsafe {
+                integral_x = 0.;
+                integral_y = 0.;
+                integral_z = 0.;
+            }
         }
 
         let pitch = p_term * error_x + i_term * unsafe { integral_x };
@@ -493,7 +503,7 @@ pub fn ctrl_mix_from_att(
     static mut i: u32 = 0;
     unsafe { i += 1 };
     if unsafe { i } % 4_000 == 0 {
-    // if false {
+        // if false {
         println!("\n***Attitude***");
 
         ahrs::print_quat(params.attitude, "Current att");

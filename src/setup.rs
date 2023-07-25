@@ -5,8 +5,6 @@
 //! This module is the source of definitions of Buses, binding busses named after use cases to
 //! specific hardware STM32 peripherals.
 
-use core::num::{NonZeroU16, NonZeroU8};
-
 use cfg_if::cfg_if;
 
 use cortex_m::delay::Delay;
@@ -14,16 +12,16 @@ use cortex_m::delay::Delay;
 use stm32_hal2::{
     can::Can,
     clocks::Clocks,
-    dma::{self, Dma, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
+    dma::{self, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, DMA1, DMA2, I2C1, I2C2, SPI1, SPI2, USART1, USART2, USART3},
+    pac::{self, I2C1, I2C2, SPI1, SPI2, USART1, USART2, USART3},
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{
         BasicTimer, MasterModeSelection, OutputCompare, TimChannel, Timer, TimerConfig,
         TimerInterrupt,
     },
-    usart::{OverSampling, Usart, UsartConfig},
+    usart::{Usart, UsartConfig},
 };
 
 use fdcan::{FdCan, NormalOperationMode};

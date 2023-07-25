@@ -3,10 +3,10 @@
 //! specific to a specific role. The aggregate structures are more specific.
 
 use crate::{
+    main_loop::DT_FLIGHT_CTRLS,
     protocols::{dshot, servo},
     safety::ArmStatus,
     setup::{MotorTimer, ServoTimer},
-    DT_FLIGHT_CTRLS,
 };
 
 use super::{common::CtrlMix, pid};

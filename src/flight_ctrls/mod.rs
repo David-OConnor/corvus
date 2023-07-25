@@ -13,7 +13,8 @@ pub mod motor_servo;
 pub mod pid;
 
 use crate::{
-    control_interface::ChannelData, setup::MotorTimer, state::StateVolatile, util, DT_IMU,
+    control_interface::ChannelData, main_loop::DT_IMU, setup::MotorTimer, state::StateVolatile,
+    util,
 };
 
 use {
@@ -128,9 +129,9 @@ pub fn log_accel_pts(state_volatile: &mut StateVolatile, params: &Params, timest
     // Log angular accel from RPM or servo posit delta.
     // Code-shorteners
     #[cfg(feature = "quad")]
-        let ctrl_cmds = state_volatile.motor_servo_state.get_power_settings();
+    let ctrl_cmds = state_volatile.motor_servo_state.get_power_settings();
     #[cfg(feature = "fixed-wing")]
-        let ctrl_cmds = state_volatile.motor_servo_state.get_ctrl_positions();
+    let ctrl_cmds = state_volatile.motor_servo_state.get_ctrl_positions();
 
     state_volatile.accel_maps.log_pt(
         AccelMapPt {
