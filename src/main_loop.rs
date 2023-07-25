@@ -1,3 +1,6 @@
+//! This module cnotains the main loop. It is likely triggered by either
+//! IMU data being ready, or at a regular interval determined by a timer etc.
+
 use core::sync::atomic::Ordering;
 
 use stm32_hal2::dma::{self, DmaInterrupt};
@@ -23,16 +26,12 @@ use ahrs::{self, ppks::PositVelEarthUnits, ImuReadings};
 use cfg_if::cfg_if;
 use defmt::println;
 
-const UPDATE_RATE_MAIN_LOOP: f32 = 600.; // todo: Experiment with this.
+// const UPDATE_RATE_MAIN_LOOP: f32 = 600.; // todo: Experiment with this.
+
+const UPDATE_RATE_IMU: f32 = 8_000.;
+pub const DT_IMU: f32 = 1. / UPDATE_RATE_IMU;
 
 pub const DT_FLIGHT_CTRLS: f32 = 1. / UPDATE_RATE_FLIGHT_CTRLS;
-pub const DT_MAIN_LOOP: f32 = 1. / UPDATE_RATE_MAIN_LOOP;
-
-// We run into numerical precision issues if diffing attitude commanded
-// every update loop. Updating this once every few updates creates a larger difference
-// in quaternion commanded, to compensate. A higher value will be more resistant
-// to numerical precision problems, but may cause sluggish behavior.
-pub const ATT_CMD_UPDATE_RATIO: u32 = 20;
 
 // Every x main update loops, log parameters etc to flash.
 const LOGGING_UPDATE_RATIO: u32 = 100;
@@ -50,9 +49,13 @@ const FLIGHT_CTRL_IMU_RATIO: u32 = 4; // Likely values: 1, 2, 4, 8.
 #[cfg(feature = "fixed-wing")]
 const FLIGHT_CTRL_IMU_RATIO: u32 = 8; // Likely values: 4, 8, 16.
 
-const UPDATE_RATE_IMU: f32 = 8_000.;
-pub const DT_IMU: f32 = 1. / UPDATE_RATE_IMU;
 const NUM_IMU_LOOP_TASKS: u32 = 6; // We cycle through lower-priority tasks in the main loop.
+
+// We run into numerical precision issues if diffing attitude commanded
+// every update loop. Updating this once every few updates creates a larger difference
+// in quaternion commanded, to compensate. A higher value will be more resistant
+// to numerical precision problems, but may cause sluggish behavior.
+pub const ATT_CMD_UPDATE_RATIO: u32 = 20;
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
@@ -341,7 +344,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                             throttle,
                             &mut cx.local.time_with_high_throttle,
                             &mut state_volatile.has_taken_off,
-                            DT_MAIN_LOOP,
+                            DT_IMU * NUM_IMU_LOOP_TASKS
                         );
                     }
 

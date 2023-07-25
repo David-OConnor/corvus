@@ -573,8 +573,7 @@ pub fn ctrl_mix_from_att(
 ) -> CtrlMix {
     // todo: Modulate based on airspeed.
 
-    let rotation_cmd = target_attitude * current_attitude.inverse();
-    let rot_euler = rotation_cmd.to_euler();
+    let rotation_cmd = target_attitude / current_attitude;
 
     let pitch = find_ctrl_setting(
         rot_euler.pitch,
