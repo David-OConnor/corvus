@@ -344,7 +344,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                             throttle,
                             &mut cx.local.time_with_high_throttle,
                             &mut state_volatile.has_taken_off,
-                            DT_IMU * NUM_IMU_LOOP_TASKS
+                            DT_IMU * NUM_IMU_LOOP_TASKS as f32,
                         );
                     }
 
