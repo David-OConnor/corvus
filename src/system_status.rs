@@ -27,6 +27,7 @@ pub struct SystemStatus {
     pub esc_telemetry: SensorStatus,
     pub esc_rpm: SensorStatus,
     pub esc_can: SensorStatus,
+    pub servos_can: SensorStatus,
     pub rf_control_link: SensorStatus, // todo: For now, we use `link_lost` instead.
     pub rf_control_link_can: SensorStatus,
     // todo: Consider a separate faults struct if this grows in complexity

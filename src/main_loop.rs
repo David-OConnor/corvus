@@ -5,7 +5,7 @@ use core::sync::atomic::Ordering;
 
 use stm32_hal2::dma::{self, DmaInterrupt};
 
-use rtic::mutex_prelude::*; // todo required trait
+use rtic::mutex_prelude::*;
 
 use crate::{
     app, control_interface,

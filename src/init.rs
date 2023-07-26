@@ -1,4 +1,5 @@
-//! This module contains intialization code, run at power-up.
+//! This module contains intialization code, run at power-up. Calls functions in the
+//! `setup` module as required.
 
 use stm32_hal2::{
     adc::{self, Adc, AdcConfig, AdcDevice},
