@@ -240,14 +240,12 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 if !crsf::TRANSFER_IN_PROG.load(Ordering::Acquire)
                     && crsf::NEW_PACKET_RECEIVED.load(Ordering::Acquire)
                 {
-                    cx.shared.lost_link_timer.lock(|timer| {
-                        control_interface::handle_crsf_data(
-                            control_channel_data,
-                            link_stats,
-                            system_status,
-                            timer,
-                        );
-                    });
+                    control_interface::handle_crsf_data(
+                        control_channel_data,
+                        link_stats,
+                        system_status,
+                        timestamp,
+                    );
                 }
 
                 // Update our commanded attitude
@@ -594,6 +592,24 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         }
                         None => {
                             system_status.gnss_can = SensorStatus::NotConnected;
+                        }
+                    }
+
+                    match system_status.update_timestamps.rf_control_link {
+                        Some(t) => {
+                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_RC_LINK {
+                                system_status.rf_control_link = SensorStatus::NotConnected;
+
+                                safety::excecute_link_lost(
+                                    system_status,
+                                    autopilot_status,
+                                    params,
+                                    &cfg.base_pt,
+                                );
+                            }
+                        }
+                        None => {
+                            system_status.rf_control_link = SensorStatus::NotConnected;
                         }
                     }
 

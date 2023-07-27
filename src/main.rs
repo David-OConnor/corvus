@@ -181,7 +181,7 @@ mod app {
         pub i2c2: I2c<I2C2>,
         pub altimeter: baro::Altimeter,
         pub flash_onboard: Flash,
-        pub lost_link_timer: Timer<TIM17>,
+        // pub lost_link_timer: Timer<TIM17>,
         pub motor_timer: setup::MotorTimer,
         pub servo_timer: setup::ServoTimer,
         pub usb_dev: UsbDevice<'static, UsbBusType>,
@@ -271,7 +271,7 @@ mod app {
     /// sequenced among each other.
     // #[task(binds = DMA1_STR2,
     #[task(binds = DMA1_CH2,
-    shared = [spi1, i2c1, i2c2, current_params, control_channel_data, link_stats, lost_link_timer,
+    shared = [spi1, i2c1, i2c2, current_params, control_channel_data, link_stats,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status, tick_timer],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
@@ -598,46 +598,6 @@ mod app {
         }
     }
 
-    /// If this triggers, it means we've received no radio control signals for a significant
-    ///period of time; we treat this as a lost-link situation.
-    /// (Note that this is for TIM17 on both variants)
-    // #[task(binds = TIM17,
-    #[task(binds = TIM1_TRG_COM,
-    shared = [lost_link_timer, state_volatile, autopilot_status,
-    current_params, system_status, control_channel_data], priority = 2)]
-    fn lost_link_isr(mut cx: lost_link_isr::Context) {
-        println!("Lost the link!");
-
-        cx.shared.lost_link_timer.lock(|timer| {
-            timer.clear_interrupt(TimerInterrupt::Update);
-            timer.disable();
-            timer.reset_count();
-        });
-
-        safety::LINK_LOST.store(true, Ordering::Release);
-
-        cx.shared.control_channel_data.lock(|ch_data| {
-            *ch_data = None;
-        });
-
-        (
-            cx.shared.state_volatile,
-            cx.shared.autopilot_status,
-            cx.shared.current_params,
-            cx.shared.system_status,
-        )
-            .lock(|state_volatile, autopilot_status, params, system_status| {
-                // We run this during the main loop, but here the `entering` flag is set to true,
-                // to initialize setup steps.
-                safety::link_lost(
-                    system_status,
-                    autopilot_status,
-                    params,
-                    &state_volatile.base_point,
-                );
-            });
-    }
-
     #[task(binds = TIM5, shared = [tick_timer], local = [], priority = 1)]
     /// Increments the tick overflow.
     fn tick_isr(mut cx: tick_isr::Context) {
@@ -645,7 +605,6 @@ mod app {
             // todo: Do this without locking.
             timer.clear_interrupt(TimerInterrupt::Update);
         });
-        // (*pac::TIM5::ptr())
 
         TICK_OVERFLOW_COUNT.fetch_add(1, Ordering::Relaxed);
     }

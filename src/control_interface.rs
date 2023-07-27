@@ -14,8 +14,6 @@ use crate::{
     util,
 };
 
-use stm32_hal2::{pac::TIM17, timer::Timer};
-
 use cfg_if::cfg_if;
 
 use defmt::println;
@@ -300,7 +298,7 @@ pub fn handle_crsf_data(
     control_channel_data: &mut Option<ChannelData>,
     link_stats: &mut LinkStats,
     system_status: &mut SystemStatus,
-    lost_link_timer: &mut Timer<TIM17>,
+    timestamp: f32,
 ) {
     let mut rx_fault = false;
 
@@ -309,22 +307,12 @@ pub fn handle_crsf_data(
             crsf::PacketData::ChannelData(data_crsf) => {
                 *control_channel_data = Some(ChannelData::from_crsf(&data_crsf));
 
-                // We've received a packet successfully - reset the lost-link timer.
-                lost_link_timer.disable();
-                lost_link_timer.reset_count();
-                lost_link_timer.enable();
-
-                if safety::LINK_LOST
-                    .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    println!("Link re-acquired");
-                    // todo: Execute re-acq procedure
-
-                    system_status.rf_control_link = SensorStatus::Pass;
-                }
-
                 crsf::NEW_PACKET_RECEIVED.store(false, Ordering::Release);
+
+                // A bit imprecise since this is synced to IMU loop time, but is good enough
+                // for this purpose.
+                system_status.update_timestamps.rf_control_link = Some(timestamp);
+                system_status.rf_control_link = SensorStatus::Pass;
             }
 
             crsf::PacketData::LinkStats(stats) => {

@@ -730,13 +730,13 @@ pub fn setup_busses(
 /// Set up misc timers.
 pub fn setup_timers(
     tim1_pac: pac::TIM1,
-    tim17_pac: pac::TIM17,
+    // tim17_pac: pac::TIM17,
     tim5_pac: pac::TIM5,
     tim6_pac: pac::TIM6,
     clock_cfg: &Clocks,
 ) -> (
     Timer<pac::TIM1>,
-    Timer<pac::TIM17>,
+    // Timer<pac::TIM17>,
     Timer<pac::TIM5>,
     BasicTimer<pac::TIM6>,
 ) {
@@ -750,16 +750,16 @@ pub fn setup_timers(
         &clock_cfg,
     );
 
-    let mut lost_link_timer = Timer::new_tim17(
-        tim17_pac,
-        1. / safety::LOST_LINK_TIMEOUT,
-        TimerConfig {
-            one_pulse_mode: true,
-            ..Default::default()
-        },
-        &clock_cfg,
-    );
-    lost_link_timer.enable_interrupt(TimerInterrupt::Update);
+    // let mut lost_link_timer = Timer::new_tim17(
+    //     tim17_pac,
+    //     1. / safety::LOST_LINK_TIMEOUT,
+    //     TimerConfig {
+    //         one_pulse_mode: true,
+    //         ..Default::default()
+    //     },
+    //     &clock_cfg,
+    // );
+    // lost_link_timer.enable_interrupt(TimerInterrupt::Update);
 
     // We use this timer to maintain a time since bootup.
     // A shorter timeout period will allow higher resolution measurements, while a longer one
@@ -781,7 +781,7 @@ pub fn setup_timers(
     // master timer can then be used as a prescaler for a slave timer.
     adc_timer.set_mastermode(MasterModeSelection::Update);
 
-    (ctrl_coeff_adj_timer, lost_link_timer, tick_timer, adc_timer)
+    (ctrl_coeff_adj_timer, tick_timer, adc_timer)
 }
 
 /// Configures all 4 motor timers for quadcopters, or combinations of motors and servos

@@ -14,6 +14,7 @@ pub const MAX_UPDATE_PERIOD_IMU: f32 = 1. / crate::main_loop::DT_IMU + 0.0001;
 pub const MAX_UPDATE_PERIOD_GNSS: f32 = 0.4;
 pub const MAX_UPDATE_PERIOD_BARO: f32 = 0.5;
 pub const MAX_UPDATE_PERIOD_MAG: f32 = 0.4;
+pub const MAX_UPDATE_PERIOD_RC_LINK: f32 = 0.3;
 
 // We have these faults as atomics so as to not require locking a more-generally-used struct.
 
@@ -75,4 +76,5 @@ pub struct UpdateTimestamps {
     pub mag_can: Option<f32>,
     pub imu_can: Option<f32>,
     pub ahrs_can: Option<f32>,
+    pub rf_control_link: Option<f32>,
 }

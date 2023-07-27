@@ -47,14 +47,6 @@ static ARM_COMMANDED_WITHOUT_IDLE: AtomicBool = AtomicBool::new(false);
 
 const THROTTLE_MAX_TO_ARM: f32 = 0.005;
 
-/// This tracks if we've lost the link. Note that we have (as of 2022-11-20)
-/// two related values, including part of `SystemStatus`. We update this
-/// in the CRSF ISR, and update system status from it later.
-pub static LINK_LOST: AtomicBool = AtomicBool::new(false);
-
-// Time in seconds between subsequent data received before we execute lost-link procedures.
-pub const LOST_LINK_TIMEOUT: f32 = 0.2;
-
 // Altitude to climb to while executing lost link procedure, in meters AGL. This altitude should keep
 // it clear of trees, while remaining below most legal drone limits. A higher alt may increase chances
 // of req-acquiring the link.
@@ -251,16 +243,16 @@ pub fn handle_arm_status(
     }
 }
 
-/// If we are lost link haven't received a radio signal in a certain amount of time, execute a lost-link
+/// If we are airborne and haven't received a radio signal in a certain amount of time,
+/// execute a lost-link
 /// procedure.
-pub fn link_lost(
+pub fn excecute_link_lost(
     system_status: &mut SystemStatus,
     autopilot_status: &mut AutopilotStatus,
-    // entering_lost_link: bool,
     params: &Params,
     base_pt: &PositVelEarthUnits,
 ) {
-    system_status.rf_control_link = SensorStatus::NotConnected;
+    println!("Link lost. Executing recovery.");
     // todo: Consider how you want to handle this, with and without GPS.
 
     // todo: To start, command an attitude-mode hover, with baro alt hold.

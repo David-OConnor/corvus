@@ -252,8 +252,8 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     dshot_read_timer.set_auto_reload(setup::DSHOT_ARR_READ);
     dshot_read_timer.enable_interrupt(TimerInterrupt::Update);
 
-    let (ctrl_coeff_adj_timer, lost_link_timer, mut tick_timer, mut adc_timer) =
-        setup::setup_timers(dp.TIM1, dp.TIM17, dp.TIM5, dp.TIM6, &clock_cfg);
+    let (ctrl_coeff_adj_timer, mut tick_timer, mut adc_timer) =
+        setup::setup_timers(dp.TIM1, dp.TIM5, dp.TIM6, &clock_cfg);
 
     let mut user_cfg = UserCfg::default();
 
@@ -410,7 +410,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
             i2c2,
             altimeter,
             // rtc,
-            lost_link_timer,
+            // lost_link_timer,
             motor_timer,
             servo_timer,
             usb_dev,
