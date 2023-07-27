@@ -227,6 +227,9 @@ mod app {
         // todo flight controls code as a derivative.
         pub params_prev: Params,
         pub batt_curr_adc: Adc<ADC>,
+        /// In seconds. Used to track main loop task durations. The 0 index is for the
+        /// part of the main loop that runs every time.
+        pub task_durations: main_loop::TaskDurations,
     }
 
     #[init]
@@ -675,7 +678,7 @@ mod app {
 
     // #[task(binds = DMA2_STR2,
     #[task(binds = DMA2_CH2,
-    shared = [altimeter, current_params, state_volatile], priority = 3)]
+    shared = [altimeter, current_params, state_volatile, system_status, tick_timer], priority = 3)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(cx: baro_read_tc_isr::Context) {
         dma::clear_interrupt(
@@ -702,6 +705,15 @@ mod app {
                 params.alt_msl_baro =
                     atmos_model::estimate_altitude_msl(pressure, temp, &altimeter.ground_cal)
             });
+
+        let elapsed = cx
+            .shared
+            .tick_timer
+            .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
+
+        let timestamp = util::tick_count_fm_overflows_s() + elapsed;
+
+        system_status.update_timestamps.baro = Some(timestamp);
     }
 
     // #[task(binds = FDCAN1_IT0,

@@ -11,6 +11,7 @@ use crate::{
         autopilot::AutopilotStatus,
         motor_servo::{MotorServoState, RpmReadings},
     },
+    main_loop::TaskDurations,
     safety::ArmStatus,
     sensors_shared::BattCellCount,
     state::StateVolatile,
@@ -203,6 +204,7 @@ pub fn print_status(
     autopilot_status: &AutopilotStatus,
     tick_timer: &mut Timer<TIM5>,
     // rpm_readings: &RpmReadings,
+    task_durations: &TaskDurations,
 ) {
     // todo: Flesh this out, and perhaps make it more like Preflight.
 
@@ -363,6 +365,12 @@ pub fn print_status(
         // rpms.front_left, rpms.front_right, rpms.aft_left, rpms.aft_right
         state_volatile.motor_servo_state.motor_thrust1.rpm_reading,
         state_volatile.motor_servo_state.motor_thrust2.rpm_reading,
+    );
+
+    println!(
+        "Task durations (Affected by printing...)\n
+        IMU: {}, FC: {} Tasks: {:?}",
+        task_durations.imu, task_durations.flight_ctrls, task_durations.tasks
     );
 
     // println!("Alt MSL: {}", params.alt_msl_baro);

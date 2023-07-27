@@ -15,6 +15,7 @@ use ahrs::{Ahrs, DeviceOrientation};
 use crate::{
     app::{self, Local, Shared},
     main_loop,
+    main_loop::TaskDurations,
     protocols::{crsf, dshot},
     sensors_shared::{ExtSensor, V_A_ADC_READ_BUF},
     setup,
@@ -444,6 +445,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
             cs_imu,
             params_prev: params,
             batt_curr_adc,
+            task_durations: Default::default(),
         },
     )
 }

@@ -57,6 +57,14 @@ const NUM_IMU_LOOP_TASKS: u32 = 6; // We cycle through lower-priority tasks in t
 // to numerical precision problems, but may cause sluggish behavior.
 pub const ATT_CMD_UPDATE_RATIO: u32 = 20;
 
+/// Used to track the duration of main loop tasks. Times are in seconds
+#[derive(Default)]
+pub struct TaskDurations {
+    pub EVERY_IMU_UPDATE: f32,
+    pub EVERY_FC_UPDATE: f32,
+    pub tasks: [f32; NUM_IMU_LOOP_TASKS],
+}
+
 cfg_if! {
     if #[cfg(feature = "h7")] {
         // The rate our main program updates, in Hz.
@@ -94,6 +102,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
     *cx.local.imu_isr_loop_i += 1;
     let i = *cx.local.imu_isr_loop_i; // code shortener.
 
+    // todo: Find a cleaner way. Macro?
     let elapsed = cx
         .shared
         .tick_timer
@@ -263,6 +272,15 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 // todo: Here, or in a subfunction, blend in autopiot commands! Currently not applied,
                 // todo other than throttle.
 
+                let elapsed = cx
+                    .shared
+                    .tick_timer
+                    .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
+
+                let timestamp_imu = util::tick_count_fm_overflows_s() + elapsed;
+
+                cx.local.task_durations.imu = timestamp_imu - timestamp;
+
                 if i % FLIGHT_CTRL_IMU_RATIO == 0
                     && state_volatile.op_mode != OperationMode::Preflight
                 {
@@ -281,6 +299,15 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     );
                 }
 
+                let elapsed = cx
+                    .shared
+                    .tick_timer
+                    .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
+
+                let timestamp_fc = util::tick_count_fm_overflows_s() + elapsed;
+
+                cx.local.task_durations.fc = timestamp_fc - timestamp_imu;
+
                 // todo: Time these tasks so that they're roughly even.
 
                 // Perform various lower priority tasks like updating altimeter data etc. Space
@@ -297,7 +324,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 // determined. Compared to performing them all together, this prevents
                 // the update loop from becoming too long.
 
-                // We're tracking tasks as ones that make it past the initial flight]
+                // We're tracking tasks as ones that make it past the initial flight
                 // control ratio filter, so factor that out.
                 let i_compensated = i / FLIGHT_CTRL_IMU_RATIO;
 
@@ -328,6 +355,15 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
 
                     state_volatile.batt_v = batt_v;
                     state_volatile.esc_current = esc_current;
+
+                    let elapsed = cx
+                        .shared
+                        .tick_timer
+                        .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
+
+                    let timestamp_task = util::tick_count_fm_overflows_s() + elapsed;
+
+                    cx.local.task_durations.tasks[0] = timestamp_task - timestamp_fc;
                 } else if (i_compensated - 1) % NUM_IMU_LOOP_TASKS == 0 {
                     if state_volatile.op_mode == OperationMode::Preflight {
                         return;
@@ -363,6 +399,15 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                             system_status,
                         );
                     }
+
+                    let elapsed = cx
+                        .shared
+                        .tick_timer
+                        .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
+
+                    let timestamp_task = util::tick_count_fm_overflows_s() + elapsed;
+
+                    cx.local.task_durations.tasks[1] = timestamp_task - timestamp_fc;
                 } else if (i_compensated - 2) % NUM_IMU_LOOP_TASKS == 0 {
                     let euler = params.attitude.to_euler();
 
@@ -395,6 +440,15 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
 
                     // todo: put back
                     // osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH,&osd_data);
+
+                    let elapsed = cx
+                        .shared
+                        .tick_timer
+                        .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
+
+                    let timestamp_task = util::tick_count_fm_overflows_s() + elapsed;
+
+                    cx.local.task_durations.tasks[2] = timestamp_task - timestamp_fc;
                 } else if (i_compensated - 3) % NUM_IMU_LOOP_TASKS == 0 {
                     if state_volatile.op_mode == OperationMode::Preflight {
                         return;
@@ -427,11 +481,14 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         // issue with teh direct approach.
                         state_volatile.autopilot_commands = ap_cmds;
                     }
+                    let elapsed = cx
+                        .shared
+                        .tick_timer
+                        .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
 
-                    if state_volatile.op_mode == OperationMode::Preflight {
-                        // exit this fn during preflight *after* measuring voltages using ADCs.
-                        return;
-                    }
+                    let timestamp_task = util::tick_count_fm_overflows_s() + elapsed;
+
+                    cx.local.task_durations.tasks[3] = timestamp_task - timestamp_fc;
                 } else if (i_compensated - 4) % NUM_IMU_LOOP_TASKS == 0 {
                     // if *cx.local.update_isr_loop_i % LOGGING_UPDATE_RATIO == 0 {
                     // todo: Eg log params to flash etc.
@@ -445,6 +502,15 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     if i % THRUST_LOG_RATIO == 0 {
                         flight_ctrls::log_accel_pts(state_volatile, params, timestamp);
                     }
+
+                    let elapsed = cx
+                        .shared
+                        .tick_timer
+                        .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
+
+                    let timestamp_task = util::tick_count_fm_overflows_s() + elapsed;
+
+                    cx.local.task_durations.tasks[4] = timestamp_task - timestamp_fc;
                 } else if (i_compensated - 5) % NUM_IMU_LOOP_TASKS == 0 {
                     (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
                         // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
@@ -527,6 +593,15 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                             system_status.gnss_can = SensorStatus::NotConnected;
                         }
                     }
+
+                    let elapsed = cx
+                        .shared
+                        .tick_timer
+                        .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
+
+                    let timestamp_task = util::tick_count_fm_overflows_s() + elapsed;
+
+                    cx.local.task_durations.tasks[5] = timestamp_task - timestamp_fc;
                 } else {
                     println!("No task");
                 }
