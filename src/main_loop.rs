@@ -94,6 +94,13 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
     *cx.local.imu_isr_loop_i += 1;
     let i = *cx.local.imu_isr_loop_i; // code shortener.
 
+    let elapsed = cx
+        .shared
+        .tick_timer
+        .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
+
+    let timestamp = util::tick_count_fm_overflows_s() + elapsed;
+
     // todo: TS
     // if i % 2000 == 0 {
     //     let regs = unsafe { &(*pac::USART2::ptr()) };
@@ -121,6 +128,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
              cfg,
              state_volatile,
              system_status| {
+                system_status.update_timestamps.imu = Some(timestamp);
+
                 let mut imu_data = ImuReadings::from_buffer(
                     unsafe { &imu_shared::IMU_READINGS },
                     imu_shared::ACCEL_FULLSCALE,
@@ -272,8 +281,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     );
                 }
 
-                // todo: Global const
-                //
                 // todo: Time these tasks so that they're roughly even.
 
                 // Perform various lower priority tasks like updating altimeter data etc. Space
@@ -436,13 +443,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     // todo: This should probably be delegatd to a fn; get it
                     // todo out here
                     if i % THRUST_LOG_RATIO == 0 {
-                        let elapsed = cx
-                            .shared
-                            .tick_timer
-                            .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
-
-                        let timestamp = util::tick_count_fm_overflows_s() + elapsed;
-
                         flight_ctrls::log_accel_pts(state_volatile, params, timestamp);
                     }
                 } else if (i_compensated - 5) % NUM_IMU_LOOP_TASKS == 0 {
@@ -451,6 +451,82 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         // DMA TC isrs are sequenced.
                         sensors_shared::start_transfers(i2c1, i2c2);
                     });
+
+                    match system_status.update_timestamps.imu {
+                        Some(t) => {
+                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_IMU {
+                                system_status.imu = SensorStatus::NotConnected;
+                            }
+                        }
+                        None => {
+                            system_status.imu = SensorStatus::NotConnected;
+                        }
+                    }
+
+                    match system_status.update_timestamps.baro {
+                        Some(t) => {
+                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_BARO {
+                                system_status.baro = SensorStatus::NotConnected;
+                            }
+                        }
+                        None => {
+                            system_status.baro = SensorStatus::NotConnected;
+                        }
+                    }
+                    match system_status.update_timestamps.baro_can {
+                        Some(t) => {
+                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_BARO {
+                                system_status.baro_can = SensorStatus::NotConnected;
+                            }
+                        }
+                        None => {
+                            system_status.baro_can = SensorStatus::NotConnected;
+                        }
+                    }
+
+                    match system_status.update_timestamps.mag {
+                        Some(t) => {
+                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_MAG {
+                                system_status.magnetometer = SensorStatus::NotConnected;
+                            }
+                        }
+                        None => {
+                            system_status.magnetometer = SensorStatus::NotConnected;
+                        }
+                    }
+
+                    match system_status.update_timestamps.mag_can {
+                        Some(t) => {
+                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_MAG {
+                                system_status.magnetometer_can = SensorStatus::NotConnected;
+                            }
+                        }
+                        None => {
+                            system_status.magnetometer_can = SensorStatus::NotConnected;
+                        }
+                    }
+
+                    match system_status.update_timestamps.gnss {
+                        Some(t) => {
+                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_GNSS {
+                                system_status.gnss = SensorStatus::NotConnected;
+                            }
+                        }
+                        None => {
+                            system_status.gnss = SensorStatus::NotConnected;
+                        }
+                    }
+
+                    match system_status.update_timestamps.gnss_can {
+                        Some(t) => {
+                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_GNSS {
+                                system_status.gnss_can = SensorStatus::NotConnected;
+                            }
+                        }
+                        None => {
+                            system_status.gnss_can = SensorStatus::NotConnected;
+                        }
+                    }
                 } else {
                     println!("No task");
                 }
@@ -469,5 +545,5 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     }
                 });
             },
-        );
+        )
 }

@@ -8,6 +8,13 @@ pub static RX_FAULT: AtomicBool = AtomicBool::new(false);
 // Eg a failed CRC or decoding of RPM data received from the ESC.
 pub static RPM_FAULT: AtomicBool = AtomicBool::new(false);
 
+// These times are used to trigger faults if it's been too long since a given
+// update. They are in seconds.
+pub const MAX_UPDATE_PERIOD_IMU: f32 = 1. / crate::main_loop::DT_IMU + 0.0001;
+pub const MAX_UPDATE_PERIOD_GNSS: f32 = 0.4;
+pub const MAX_UPDATE_PERIOD_BARO: f32 = 0.5;
+pub const MAX_UPDATE_PERIOD_MAG: f32 = 0.4;
+
 // We have these faults as atomics so as to not require locking a more-generally-used struct.
 
 #[derive(Default)]
@@ -16,6 +23,7 @@ pub struct SystemStatus {
     pub imu_can: SensorStatus,
     pub ahrs_can: SensorStatus,
     pub baro: SensorStatus,
+    pub baro_can: SensorStatus,
     /// The GPS module is connected. Detected on init.
     pub gnss: SensorStatus,
     pub gnss_can: SensorStatus,
@@ -36,6 +44,7 @@ pub struct SystemStatus {
     // pub esc_rpm_fault: bool,
     /// SPI flash, which we may use in the future for data logging.
     pub flash_spi: SensorStatus,
+    pub update_timestamps: UpdateTimestamps,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -51,4 +60,19 @@ impl Default for SensorStatus {
     fn default() -> Self {
         Self::NotConnected
     }
+}
+
+/// Times, in seconds since start, of the last valid reading received.
+/// A `None` value means have never received an update.
+#[derive(Default)]
+pub struct UpdateTimestamps {
+    pub imu: Option<f32>,
+    pub gnss: Option<f32>,
+    pub gnss_can: Option<f32>,
+    pub baro: Option<f32>,
+    pub baro_can: Option<f32>,
+    pub mag: Option<f32>,
+    pub mag_can: Option<f32>,
+    pub imu_can: Option<f32>,
+    pub ahrs_can: Option<f32>,
 }
