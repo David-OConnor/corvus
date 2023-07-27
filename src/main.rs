@@ -275,7 +275,7 @@ mod app {
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status, tick_timer],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
-    arm_signals_received, disarm_signals_received, batt_curr_adc], priority = 4)]
+    arm_signals_received, disarm_signals_received, batt_curr_adc, task_durations], priority = 4)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         main_loop::run(cx);
     }
@@ -680,7 +680,7 @@ mod app {
     #[task(binds = DMA2_CH2,
     shared = [altimeter, current_params, state_volatile, system_status, tick_timer], priority = 3)]
     /// Baro read complete; handle data, and start next write.
-    fn baro_read_tc_isr(cx: baro_read_tc_isr::Context) {
+    fn baro_read_tc_isr(mut cx: baro_read_tc_isr::Context) {
         dma::clear_interrupt(
             setup::BARO_DMA_PERIPH,
             setup::BARO_RX_CH,
@@ -713,7 +713,9 @@ mod app {
 
         let timestamp = util::tick_count_fm_overflows_s() + elapsed;
 
-        system_status.update_timestamps.baro = Some(timestamp);
+        cx.shared.system_status.lock(|status| {
+            status.update_timestamps.baro = Some(timestamp);
+        });
     }
 
     // #[task(binds = FDCAN1_IT0,

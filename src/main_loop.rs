@@ -60,9 +60,12 @@ pub const ATT_CMD_UPDATE_RATIO: u32 = 20;
 /// Used to track the duration of main loop tasks. Times are in seconds
 #[derive(Default)]
 pub struct TaskDurations {
-    pub EVERY_IMU_UPDATE: f32,
-    pub EVERY_FC_UPDATE: f32,
-    pub tasks: [f32; NUM_IMU_LOOP_TASKS],
+    /// Runs each IMU update
+    pub imu: f32,
+    /// Runs each flight control update; a portion of IMU updates
+    pub flight_ctrls: f32,
+    /// These tasks are run, with equal frequency, as a portion of flight control updates.
+    pub tasks: [f32; NUM_IMU_LOOP_TASKS as usize],
 }
 
 cfg_if! {
@@ -306,7 +309,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
 
                 let timestamp_fc = util::tick_count_fm_overflows_s() + elapsed;
 
-                cx.local.task_durations.fc = timestamp_fc - timestamp_imu;
+                cx.local.task_durations.flight_ctrls = timestamp_fc - timestamp_imu;
 
                 // todo: Time these tasks so that they're roughly even.
 
