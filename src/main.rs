@@ -665,12 +665,10 @@ mod app {
                     atmos_model::estimate_altitude_msl(pressure, temp, &altimeter.ground_cal)
             });
 
-        let elapsed = cx
+        let timestamp = cx
             .shared
             .tick_timer
-            .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
-
-        let timestamp = util::tick_count_fm_overflows_s() + elapsed;
+            .lock(|timer| util::get_timestamp(timer));
 
         cx.shared.system_status.lock(|status| {
             status.update_timestamps.baro = Some(timestamp);

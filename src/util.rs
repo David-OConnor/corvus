@@ -20,7 +20,10 @@ use crate::{
 
 use ahrs::Params;
 
-use stm32_hal2::{pac::TIM5, timer::Timer};
+use stm32_hal2::{
+    pac::{self, TIM5},
+    timer::Timer,
+};
 
 use num_traits::float::FloatCore;
 
@@ -186,8 +189,12 @@ pub fn batt_left_from_v(v: f32, cell_count: BattCellCount) -> f32 {
     port_through * (BATT_LUT[i + 1].1 - BATT_LUT[i].1) + BATT_LUT[i].1
 }
 
-// todo t
-use stm32_hal2::pac;
+/// Hard-coded to use our tick timer directly.
+pub fn get_timestamp(timer: &mut Timer<TIM5>) -> f32 {
+    let elapsed = timer.time_elapsed().as_secs();
+
+    tick_count_fm_overflows_s() + elapsed
+}
 
 /// Example use, to get seconds since start: `tick_count_fm_overflows_s() +
 /// tick_timer.time_elapsed().as_secs()`

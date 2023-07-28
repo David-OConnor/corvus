@@ -105,13 +105,10 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
     *cx.local.imu_isr_loop_i += 1;
     let i = *cx.local.imu_isr_loop_i; // code shortener.
 
-    // todo: Find a cleaner way. Macro?
-    let elapsed = cx
+    let timestamp = cx
         .shared
         .tick_timer
-        .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
-
-    let timestamp = util::tick_count_fm_overflows_s() + elapsed;
+        .lock(|timer| util::get_timestamp(timer));
 
     // todo: TS
     // if i % 2000 == 0 {
@@ -273,12 +270,10 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 // todo: Here, or in a subfunction, blend in autopiot commands! Currently not applied,
                 // todo other than throttle.
 
-                let elapsed = cx
+                let timestamp_imu = cx
                     .shared
                     .tick_timer
-                    .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
-
-                let timestamp_imu = util::tick_count_fm_overflows_s() + elapsed;
+                    .lock(|timer| util::get_timestamp(timer));
 
                 cx.local.task_durations.imu = timestamp_imu - timestamp;
 
@@ -300,12 +295,10 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     );
                 }
 
-                let elapsed = cx
+                let timestamp_fc = cx
                     .shared
                     .tick_timer
-                    .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
-
-                let timestamp_fc = util::tick_count_fm_overflows_s() + elapsed;
+                    .lock(|timer| util::get_timestamp(timer));
 
                 cx.local.task_durations.flight_ctrls = timestamp_fc - timestamp_imu;
 
@@ -357,12 +350,10 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     state_volatile.batt_v = batt_v;
                     state_volatile.esc_current = esc_current;
 
-                    let elapsed = cx
+                    let timestamp_task = cx
                         .shared
                         .tick_timer
-                        .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
-
-                    let timestamp_task = util::tick_count_fm_overflows_s() + elapsed;
+                        .lock(|timer| util::get_timestamp(timer));
 
                     cx.local.task_durations.tasks[0] = timestamp_task - timestamp_fc;
                 } else if (i_compensated - 1) % NUM_IMU_LOOP_TASKS == 0 {
@@ -401,12 +392,10 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         );
                     }
 
-                    let elapsed = cx
+                    let timestamp_task = cx
                         .shared
                         .tick_timer
-                        .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
-
-                    let timestamp_task = util::tick_count_fm_overflows_s() + elapsed;
+                        .lock(|timer| util::get_timestamp(timer));
 
                     cx.local.task_durations.tasks[1] = timestamp_task - timestamp_fc;
                 } else if (i_compensated - 2) % NUM_IMU_LOOP_TASKS == 0 {
@@ -442,12 +431,10 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     // todo: put back
                     // osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH,&osd_data);
 
-                    let elapsed = cx
+                    let timestamp_task = cx
                         .shared
                         .tick_timer
-                        .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
-
-                    let timestamp_task = util::tick_count_fm_overflows_s() + elapsed;
+                        .lock(|timer| util::get_timestamp(timer));
 
                     cx.local.task_durations.tasks[2] = timestamp_task - timestamp_fc;
                 } else if (i_compensated - 3) % NUM_IMU_LOOP_TASKS == 0 {
@@ -482,12 +469,11 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         // issue with teh direct approach.
                         state_volatile.autopilot_commands = ap_cmds;
                     }
-                    let elapsed = cx
+
+                    let timestamp_task = cx
                         .shared
                         .tick_timer
-                        .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
-
-                    let timestamp_task = util::tick_count_fm_overflows_s() + elapsed;
+                        .lock(|timer| util::get_timestamp(timer));
 
                     cx.local.task_durations.tasks[3] = timestamp_task - timestamp_fc;
                 } else if (i_compensated - 4) % NUM_IMU_LOOP_TASKS == 0 {
@@ -504,12 +490,10 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         flight_ctrls::log_accel_pts(state_volatile, params, timestamp);
                     }
 
-                    let elapsed = cx
+                    let timestamp_task = cx
                         .shared
                         .tick_timer
-                        .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
-
-                    let timestamp_task = util::tick_count_fm_overflows_s() + elapsed;
+                        .lock(|timer| util::get_timestamp(timer));
 
                     cx.local.task_durations.tasks[4] = timestamp_task - timestamp_fc;
                 } else if (i_compensated - 5) % NUM_IMU_LOOP_TASKS == 0 {
@@ -519,93 +503,23 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         sensors_shared::start_transfers(i2c1, i2c2);
                     });
 
-                    match system_status.update_timestamps.imu {
-                        Some(t) => {
-                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_IMU {
-                                system_status.imu = SensorStatus::NotConnected;
-                            }
-                        }
-                        None => {
-                            system_status.imu = SensorStatus::NotConnected;
-                        }
-                    }
+                    system_status.update_timestamps(timestamp);
 
-                    match system_status.update_timestamps.baro {
-                        Some(t) => {
-                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_BARO {
-                                system_status.baro = SensorStatus::NotConnected;
-                            }
-                        }
-                        None => {
-                            system_status.baro = SensorStatus::NotConnected;
-                        }
-                    }
-                    match system_status.update_timestamps.baro_can {
-                        Some(t) => {
-                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_BARO {
-                                system_status.baro_can = SensorStatus::NotConnected;
-                            }
-                        }
-                        None => {
-                            system_status.baro_can = SensorStatus::NotConnected;
-                        }
-                    }
-
-                    match system_status.update_timestamps.mag {
-                        Some(t) => {
-                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_MAG {
-                                system_status.magnetometer = SensorStatus::NotConnected;
-                            }
-                        }
-                        None => {
-                            system_status.magnetometer = SensorStatus::NotConnected;
-                        }
-                    }
-
-                    match system_status.update_timestamps.mag_can {
-                        Some(t) => {
-                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_MAG {
-                                system_status.magnetometer_can = SensorStatus::NotConnected;
-                            }
-                        }
-                        None => {
-                            system_status.magnetometer_can = SensorStatus::NotConnected;
-                        }
-                    }
-
-                    match system_status.update_timestamps.gnss {
-                        Some(t) => {
-                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_GNSS {
-                                system_status.gnss = SensorStatus::NotConnected;
-                            }
-                        }
-                        None => {
-                            system_status.gnss = SensorStatus::NotConnected;
-                        }
-                    }
-
-                    match system_status.update_timestamps.gnss_can {
-                        Some(t) => {
-                            if timestamp - t > system_status::MAX_UPDATE_PERIOD_GNSS {
-                                system_status.gnss_can = SensorStatus::NotConnected;
-                            }
-                        }
-                        None => {
-                            system_status.gnss_can = SensorStatus::NotConnected;
-                        }
-                    }
-
+                    // This isn't part of `update_from_timestamps` due to the params
+                    // in `execute_lost_link`.
                     match system_status.update_timestamps.rf_control_link {
                         Some(t) => {
                             if timestamp - t > system_status::MAX_UPDATE_PERIOD_RC_LINK {
                                 system_status.rf_control_link = SensorStatus::NotConnected;
 
-                                safety::excecute_link_lost(
-                                    system_status,
-                                    autopilot_status,
-                                    params,
-                                    &cfg.base_pt,
-                                );
+                                if state_volatile.has_taken_off {
+                                    safety::excecute_link_lost(
+                                        system_status,
+                                        autopilot_status,
+                                        params,
+                                        &cfg.base_pt,
+                                    );
+                                }
                             }
                         }
                         None => {
@@ -613,12 +527,10 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         }
                     }
 
-                    let elapsed = cx
+                    let timestamp_task = cx
                         .shared
                         .tick_timer
-                        .lock(|tick_timer| tick_timer.time_elapsed().as_secs());
-
-                    let timestamp_task = util::tick_count_fm_overflows_s() + elapsed;
+                        .lock(|timer| util::get_timestamp(timer));
 
                     cx.local.task_durations.tasks[5] = timestamp_task - timestamp_fc;
                 } else {

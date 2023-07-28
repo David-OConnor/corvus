@@ -48,6 +48,86 @@ pub struct SystemStatus {
     pub update_timestamps: UpdateTimestamps,
 }
 
+impl SystemStatus {
+    pub fn update_timestamps(&mut self, timestamp: f32) {
+        match self.update_timestamps.imu {
+            Some(t) => {
+                if timestamp - t > MAX_UPDATE_PERIOD_IMU {
+                    self.imu = SensorStatus::NotConnected;
+                }
+            }
+            None => {
+                self.imu = SensorStatus::NotConnected;
+            }
+        }
+
+        match self.update_timestamps.baro {
+            Some(t) => {
+                if timestamp - t > MAX_UPDATE_PERIOD_BARO {
+                    self.baro = SensorStatus::NotConnected;
+                }
+            }
+            None => {
+                self.baro = SensorStatus::NotConnected;
+            }
+        }
+        match self.update_timestamps.baro_can {
+            Some(t) => {
+                if timestamp - t > MAX_UPDATE_PERIOD_BARO {
+                    self.baro_can = SensorStatus::NotConnected;
+                }
+            }
+            None => {
+                self.baro_can = SensorStatus::NotConnected;
+            }
+        }
+
+        match self.update_timestamps.mag {
+            Some(t) => {
+                if timestamp - t > MAX_UPDATE_PERIOD_MAG {
+                    self.magnetometer = SensorStatus::NotConnected;
+                }
+            }
+            None => {
+                self.magnetometer = SensorStatus::NotConnected;
+            }
+        }
+
+        match self.update_timestamps.mag_can {
+            Some(t) => {
+                if timestamp - t > MAX_UPDATE_PERIOD_MAG {
+                    self.magnetometer_can = SensorStatus::NotConnected;
+                }
+            }
+            None => {
+                self.magnetometer_can = SensorStatus::NotConnected;
+            }
+        }
+
+        match self.update_timestamps.gnss {
+            Some(t) => {
+                if timestamp - t > MAX_UPDATE_PERIOD_GNSS {
+                    self.gnss = SensorStatus::NotConnected;
+                }
+            }
+            None => {
+                self.gnss = SensorStatus::NotConnected;
+            }
+        }
+
+        match self.update_timestamps.gnss_can {
+            Some(t) => {
+                if timestamp - t > MAX_UPDATE_PERIOD_GNSS {
+                    self.gnss_can = SensorStatus::NotConnected;
+                }
+            }
+            None => {
+                self.gnss_can = SensorStatus::NotConnected;
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u8)] // for USB ser
 pub enum SensorStatus {
