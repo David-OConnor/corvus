@@ -17,10 +17,7 @@ use stm32_hal2::{
     i2c::{I2c, I2cConfig, I2cSpeed},
     pac::{self, I2C1, I2C2, SPI1, SPI2, USART1, USART2, USART3},
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
-    timer::{
-        BasicTimer, MasterModeSelection, OutputCompare, TimChannel, Timer, TimerConfig,
-        TimerInterrupt,
-    },
+    timer::{BasicTimer, MasterModeSelection, TimChannel, Timer, TimerConfig, TimerInterrupt},
     usart::{Usart, UsartConfig},
 };
 
@@ -30,6 +27,9 @@ use ahrs::{ppks::PositVelEarthUnits, Params};
 
 #[cfg(feature = "h7")]
 use stm32_hal2::qspi::Qspi;
+
+#[cfg(feature = "fixed-wing")]
+use stm32_hal2::timer::OutputCompare;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
@@ -452,8 +452,8 @@ pub fn setup_pins() {
     // module isn't connected.
     uart_crsf_rx.pull(Pull::Up);
 
-    let _uart_osd_tx = Pin::new(Port::A, 2, PinMode::Alt(7));
-    let mut uart_osd_rx = Pin::new(Port::A, 3, PinMode::Alt(7));
+    let _uart_osd_tx = Pin::new(Port::C, 10, PinMode::Alt(5));
+    let mut uart_osd_rx = Pin::new(Port::C, 11, PinMode::Alt(5));
 
     uart_osd_rx.pull(Pull::Up);
 

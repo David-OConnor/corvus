@@ -166,8 +166,6 @@ fn set_bank(bank: Reg, spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
     write_one(Reg::Bank0(RegBank0::BankSel), val, spi, cs)
 }
 
-use defmt::println;
-
 /// Set up anti-alias filters. See DS, section 5.3. Reselect Bank 0 once complete.
 fn setup_aa_filters(spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
     // todo: What should these be?? Currently set to 997Hz.

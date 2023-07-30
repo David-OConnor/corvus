@@ -8,8 +8,6 @@ use stm32_hal2::{
 
 use crate::setup::{SpiImu, IMU_RX_CH, IMU_TX_CH};
 
-use ahrs::ImuReadings;
-
 const G: f32 = 9.8; // m/s
 
 pub const GYRO_FULLSCALE: f32 = 34.90659; // In radians per second; equals 2,000 degrees/sec

@@ -361,7 +361,8 @@ pub fn ctrl_mix_from_att(
     drag_coeffs: &DragCoeffs,
     accel_maps: &AccelMaps,
     filters: &mut FlightCtrlFilters,
-    dt: f32, // seconds
+    dt: f32,              // seconds
+    pry: (f32, f32, f32), // todo temp to TS
 ) -> CtrlMix {
     let target_attitude = Quaternion::new_identity(); // todo temp; issue with commadned att
                                                       // todo: Test commanded att in Preflight
@@ -379,8 +380,9 @@ pub fn ctrl_mix_from_att(
         static mut integral_y: f32 = 0.;
         static mut integral_z: f32 = 0.;
 
-        let p_term = 0.7;
-        let i_term = 0.001;
+        let p_term = 0.2;
+        let i_term = 0.0005;
+        let i_term = 0.000;
 
         // todo: DO we want to multiply by dt here?
         // let rot_to_apply = Quaternion::new_identity().slerp(rotation_cmd, p_term * dt);
@@ -388,9 +390,14 @@ pub fn ctrl_mix_from_att(
         // let (rot_x, rot_y, rot_z) = rot_to_apply.to_axes();
 
         // PID here; get this working, then refine as required, or get fancier
-        let error_x = rot_cmd_axes.0;
-        let error_y = rot_cmd_axes.1;
-        let error_z = rot_cmd_axes.2;
+        // let error_x = rot_cmd_axes.0;
+        // let error_y = rot_cmd_axes.1;
+        // let error_z = rot_cmd_axes.2;
+
+        // Attempting rate
+        let error_x = pry.0 - params.v_pitch;
+        let error_y = pry.1 - params.v_roll;
+        let error_z = pry.2 - params.v_yaw;
 
         unsafe {
             integral_x += error_x;
@@ -400,7 +407,8 @@ pub fn ctrl_mix_from_att(
 
         // The I-term builds up if corrections are unable to expeditiously converge.
         // An example of when this can happen is when the aircraft is on the ground.
-        if throttle < 0.001 {
+        // todo: Use `is_airborne` etc, vice idle throttle.
+        if throttle < 0.01 {
             unsafe {
                 integral_x = 0.;
                 integral_y = 0.;
@@ -498,13 +506,13 @@ pub fn ctrl_mix_from_att(
     };
 
     result.clamp();
-    result.yaw = 0.; // todo: Temp
+    // result.yaw = 0.; // todo: Temp
 
     static mut i: u32 = 0;
     unsafe { i += 1 };
     if unsafe { i } % 4_000 == 0 {
         // if false {
-        println!("\n***Attitude***");
+        // println!("\n***Attitude***");
 
         ahrs::print_quat(params.attitude, "Current att");
         ahrs::print_quat(target_attitude, "Target att");
@@ -542,7 +550,7 @@ pub fn ctrl_mix_from_att(
         //     target_torque.angular_velocity
         // );
 
-        println!("\n***Command generated:***");
+        // println!("\n***Command generated:***");
 
         // ahrs::print_quat(rot_to_apply, "Rot to apply");
         println!(

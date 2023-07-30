@@ -15,7 +15,6 @@ use ahrs::{Ahrs, DeviceOrientation};
 use crate::{
     app::{self, Local, Shared},
     main_loop,
-    main_loop::TaskDurations,
     protocols::{crsf, dshot},
     sensors_shared::{ExtSensor, V_A_ADC_READ_BUF},
     setup,

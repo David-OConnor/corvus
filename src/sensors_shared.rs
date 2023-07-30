@@ -1,15 +1,11 @@
 //! This module contains code shared between sensors. Currently this is
 //! regarding DMA operations on the barometer and external sensors I2C lines.
 
-use stm32_hal2::{dma, i2c::I2c};
+use stm32_hal2::dma;
 
 use crate::{
     baro, gnss, mag,
-    setup::{
-        self, I2cBaro, I2cMag, BARO_DMA_PERIPH, BARO_RX_CH, BARO_TX_CH, EXT_SENSORS_TX_CH,
-        IMU_DMA_PERIPH,
-    },
-    tof,
+    setup::{self, I2cBaro, I2cMag, BARO_DMA_PERIPH, BARO_RX_CH, BARO_TX_CH},
 };
 
 // Each of these values is register, value to write to register.

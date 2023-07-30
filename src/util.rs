@@ -198,7 +198,7 @@ pub fn get_timestamp(timer: &mut Timer<TIM5>) -> f32 {
 
 /// Example use, to get seconds since start: `tick_count_fm_overflows_s() +
 /// tick_timer.time_elapsed().as_secs()`
-pub fn tick_count_fm_overflows_s() -> f32 {
+fn tick_count_fm_overflows_s() -> f32 {
     crate::TICK_OVERFLOW_COUNT.load(Ordering::Acquire) as f32 * crate::TICK_TIMER_PERIOD
 }
 
@@ -375,9 +375,11 @@ pub fn print_status(
     );
 
     println!(
-        "Task durations (Affected by printing...)\n
+        "Task durations in ms.(Affected by printing...)\n
         IMU: {}, FC: {} Tasks: {:?}",
-        task_durations.imu, task_durations.flight_ctrls, task_durations.tasks
+        task_durations.imu * 1_000.,
+        task_durations.flight_ctrls * 1_000.,
+        task_durations.tasks
     );
 
     // println!("Alt MSL: {}", params.alt_msl_baro);

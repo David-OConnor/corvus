@@ -11,7 +11,6 @@
 use crate::{
     atmos_model::{AltitudeCalPt, POINT_0, POINT_1},
     setup::I2cBaro,
-    util,
 };
 
 use stm32_hal2::i2c;

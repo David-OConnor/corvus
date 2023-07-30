@@ -11,7 +11,7 @@ use crate::{
     app, control_interface,
     drivers::osd::{AutopilotData, OsdData},
     flight_ctrls::{self, ctrl_logic},
-    imu_shared,
+    imu_shared, osd,
     protocols::{crsf, rpm_reception, usb_preflight},
     safety::{self, ArmStatus},
     sensors_shared::{self, V_A_ADC_READ_BUF},
@@ -23,6 +23,8 @@ use crate::{
 
 use ahrs::{self, ppks::PositVelEarthUnits, ImuReadings};
 
+use crate::flight_ctrls::motor_servo::MotorServoState;
+use crate::system_status::SystemStatus;
 use cfg_if::cfg_if;
 use defmt::println;
 
@@ -84,6 +86,50 @@ cfg_if! {
     }
 }
 
+fn handle_rpm_readings(
+    motor_servo_state: &mut MotorServoState,
+    system_status: &mut SystemStatus,
+    motor_pole_count: u8,
+) {
+    let mut rpm_fault = false;
+
+    // todo: Clean up the Optionalble Status vs the non-optioned Rpms.
+    // todo: Consider using only the former.
+
+    // Update RPMs here, so we don't have to lock the read ISR.
+    // cx.shared.rotor_rpms.lock(|rotor_rpms| {
+    // let (rpm1_status, rpm2_status, rpm3_status, rpm4_status) = rpm_reception::update_rpms(rpms, &mut rpm_fault, cfg.pole_count);
+    let rpm_readings = rpm_reception::rpm_readings_from_bufs(&mut rpm_fault, motor_pole_count);
+
+    motor_servo_state.update_rpm_readings(&rpm_readings);
+
+    system_status.esc_rpm = SensorStatus::Pass;
+
+    // We currently set RPM readings status to fail if any rotor (or motor 1 for fixed-wing)
+    // RPM is unavailable.
+    #[cfg(feature = "quad")]
+    {
+        if rpm_readings.front_left.is_none() | rpm_readings.front_right.is_none()
+            || rpm_readings.aft_left.is_none()
+            || rpm_readings.aft_right.is_none()
+        {
+            system_status.esc_rpm = SensorStatus::NotConnected;
+        }
+    }
+
+    #[cfg(feature = "fixed-wing")]
+    {
+        if rpm_readings.motor_thrust1.is_none() {
+            // todo: Motor 2?
+            system_status.esc_rpm = SensorStatus::NotConnected;
+        }
+    }
+
+    if rpm_fault {
+        system_status::RPM_FAULT.store(true, Ordering::Release);
+    }
+}
+
 pub fn run(mut cx: app::imu_tc_isr::Context) {
     dma::clear_interrupt(
         setup::IMU_DMA_PERIPH,
@@ -119,9 +165,9 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
     // todo: Split up this lock
     (
         cx.shared.current_params,
+        cx.shared.autopilot_status,
         cx.shared.control_channel_data,
         cx.shared.link_stats,
-        cx.shared.autopilot_status,
         cx.shared.motor_pid_state,
         // cx.shared.motor_pid_coeffs,
         cx.shared.user_cfg,
@@ -130,9 +176,9 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
     )
         .lock(
             |params,
+             autopilot_status,
              control_channel_data,
              link_stats,
-             autopilot_status,
              pid_state,
              cfg,
              state_volatile,
@@ -157,48 +203,11 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 // todo we're currently doing, since that's updated in `update_from_imu_readings`.
                 params.update_from_imu_readings(&imu_data, None, cx.local.ahrs, DT_IMU);
 
-                // println!("Att: {} {} {} {}", params.attitude.w, params.attitude.x, params.attitude.y, params.attitude.z);
-
-                let mut rpm_fault = false;
-
-                // todo: Clean up the Optionalble Status vs the non-optioned Rpms.
-                // todo: Consider using only the former.
-
-                // Update RPMs here, so we don't have to lock the read ISR.
-                // cx.shared.rotor_rpms.lock(|rotor_rpms| {
-                // let (rpm1_status, rpm2_status, rpm3_status, rpm4_status) = rpm_reception::update_rpms(rpms, &mut rpm_fault, cfg.pole_count);
-                let rpm_readings =
-                    rpm_reception::rpm_readings_from_bufs(&mut rpm_fault, cfg.motor_pole_count);
-
-                state_volatile
-                    .motor_servo_state
-                    .update_rpm_readings(&rpm_readings);
-
-                system_status.esc_rpm = SensorStatus::Pass;
-
-                // We currently set RPM readings status to fail if any rotor (or motor 1 for fixed-wing)
-                // RPM is unavailable.
-                #[cfg(feature = "quad")]
-                {
-                    if rpm_readings.front_left.is_none() | rpm_readings.front_right.is_none()
-                        || rpm_readings.aft_left.is_none()
-                        || rpm_readings.aft_right.is_none()
-                    {
-                        system_status.esc_rpm = SensorStatus::NotConnected;
-                    }
-                }
-
-                #[cfg(feature = "fixed-wing")]
-                {
-                    if rpm_readings.motor_thrust1.is_none() {
-                        // todo: Motor 2?
-                        system_status.esc_rpm = SensorStatus::NotConnected;
-                    }
-                }
-
-                if rpm_fault {
-                    system_status::RPM_FAULT.store(true, Ordering::Release);
-                }
+                handle_rpm_readings(
+                    &mut state_volatile.motor_servo_state,
+                    system_status,
+                    cfg.motor_pole_count,
+                );
 
                 if state_volatile.op_mode == OperationMode::Preflight {
                     // todo: Figure out where this preflight motor-spin up code should be in this ISR.
@@ -270,12 +279,12 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 // todo: Here, or in a subfunction, blend in autopiot commands! Currently not applied,
                 // todo other than throttle.
 
-                let timestamp_imu = cx
+                let timestamp_imu_complete = cx
                     .shared
                     .tick_timer
                     .lock(|timer| util::get_timestamp(timer));
 
-                cx.local.task_durations.imu = timestamp_imu - timestamp;
+                cx.local.task_durations.imu = timestamp_imu_complete - timestamp;
 
                 if i % FLIGHT_CTRL_IMU_RATIO == 0
                     && state_volatile.op_mode != OperationMode::Preflight
@@ -295,14 +304,14 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     );
                 }
 
-                let timestamp_fc = cx
+                let timestamp_fc_complete = cx
                     .shared
                     .tick_timer
                     .lock(|timer| util::get_timestamp(timer));
 
-                cx.local.task_durations.flight_ctrls = timestamp_fc - timestamp_imu;
-
-                // todo: Time these tasks so that they're roughly even.
+                // todo: Handle this being ~0 for non-FC loops?
+                cx.local.task_durations.flight_ctrls =
+                    timestamp_fc_complete - timestamp_imu_complete;
 
                 // Perform various lower priority tasks like updating altimeter data etc. Space
                 // these out between updates to keep loop time relatively consistent, and
@@ -350,12 +359,13 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     state_volatile.batt_v = batt_v;
                     state_volatile.esc_current = esc_current;
 
-                    let timestamp_task = cx
+                    let timestamp_task_complete = cx
                         .shared
                         .tick_timer
                         .lock(|timer| util::get_timestamp(timer));
 
-                    cx.local.task_durations.tasks[0] = timestamp_task - timestamp_fc;
+                    cx.local.task_durations.tasks[0] =
+                        timestamp_task_complete - timestamp_fc_complete;
                 } else if (i_compensated - 1) % NUM_IMU_LOOP_TASKS == 0 {
                     if state_volatile.op_mode == OperationMode::Preflight {
                         return;
@@ -392,12 +402,13 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         );
                     }
 
-                    let timestamp_task = cx
+                    let timestamp_task_complete = cx
                         .shared
                         .tick_timer
                         .lock(|timer| util::get_timestamp(timer));
 
-                    cx.local.task_durations.tasks[1] = timestamp_task - timestamp_fc;
+                    cx.local.task_durations.tasks[1] =
+                        timestamp_task_complete - timestamp_fc_complete;
                 } else if (i_compensated - 2) % NUM_IMU_LOOP_TASKS == 0 {
                     let euler = params.attitude.to_euler();
 
@@ -406,37 +417,30 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         battery_voltage: state_volatile.batt_v,
                         current_draw: state_volatile.esc_current,
                         alt_msl_baro: params.alt_msl_baro,
-                        gps_fix: PositVelEarthUnits::default(),
+                        posit_vel: PositVelEarthUnits::default(),
                         pitch: euler.pitch,
                         roll: euler.roll,
                         yaw: euler.yaw,
                         // pid_p: coeffs.roll.k_p_rate,
                         // pid_i: coeffs.roll.k_i_rate,
                         // pid_d: coeffs.roll.k_d_rate,
-                        autopilot: AutopilotData {
-                            takeoff: autopilot_status.takeoff,
-                            land: autopilot_status.land.is_some(),
-                            direct_to_point: autopilot_status.direct_to_point.is_some(),
-                            #[cfg(feature = "fixed-wing")]
-                            orbit: autopilot_status.orbit.is_some(),
-                            alt_hold: autopilot_status.alt_hold.is_some(),
-                            #[cfg(feature = "quad")]
-                            loiter: autopilot_status.loiter.is_some(),
-                        },
+                        autopilot: AutopilotData::from_status(autopilot_status),
                         base_dist_bearing: (
                             0., 0., // todo: Fill these out
                         ),
+                        link_quality: link_stats.uplink_link_quality,
+                        num_satellites: 0, // todo temp
                     };
 
-                    // todo: put back
-                    // osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH,&osd_data);
+                    osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH, &osd_data);
 
-                    let timestamp_task = cx
+                    let timestamp_task_complete = cx
                         .shared
                         .tick_timer
                         .lock(|timer| util::get_timestamp(timer));
 
-                    cx.local.task_durations.tasks[2] = timestamp_task - timestamp_fc;
+                    cx.local.task_durations.tasks[2] =
+                        timestamp_task_complete - timestamp_fc_complete;
                 } else if (i_compensated - 3) % NUM_IMU_LOOP_TASKS == 0 {
                     if state_volatile.op_mode == OperationMode::Preflight {
                         return;
@@ -453,6 +457,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         // coeffs,
                         system_status,
                     );
+
                     //
                     // #[cfg(feature = "fixed-wing")]
                     //     let ap_cmds = autopilot_status.apply(
@@ -469,13 +474,13 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         // issue with teh direct approach.
                         state_volatile.autopilot_commands = ap_cmds;
                     }
-
-                    let timestamp_task = cx
+                    let timestamp_task_complete = cx
                         .shared
                         .tick_timer
                         .lock(|timer| util::get_timestamp(timer));
 
-                    cx.local.task_durations.tasks[3] = timestamp_task - timestamp_fc;
+                    cx.local.task_durations.tasks[3] =
+                        timestamp_task_complete - timestamp_fc_complete;
                 } else if (i_compensated - 4) % NUM_IMU_LOOP_TASKS == 0 {
                     // if *cx.local.update_isr_loop_i % LOGGING_UPDATE_RATIO == 0 {
                     // todo: Eg log params to flash etc.
@@ -490,12 +495,13 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         flight_ctrls::log_accel_pts(state_volatile, params, timestamp);
                     }
 
-                    let timestamp_task = cx
+                    let timestamp_task_complete = cx
                         .shared
                         .tick_timer
                         .lock(|timer| util::get_timestamp(timer));
 
-                    cx.local.task_durations.tasks[4] = timestamp_task - timestamp_fc;
+                    cx.local.task_durations.tasks[4] =
+                        timestamp_task_complete - timestamp_fc_complete;
                 } else if (i_compensated - 5) % NUM_IMU_LOOP_TASKS == 0 {
                     (cx.shared.i2c1, cx.shared.i2c2).lock(|i2c1, i2c2| {
                         // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
@@ -503,7 +509,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         sensors_shared::start_transfers(i2c1, i2c2);
                     });
 
-                    system_status.update_timestamps(timestamp);
+                    system_status.update_from_timestamp(timestamp);
 
                     // This isn't part of `update_from_timestamps` due to the params
                     // in `execute_lost_link`.
@@ -527,12 +533,13 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         }
                     }
 
-                    let timestamp_task = cx
+                    let timestamp_task_complete = cx
                         .shared
                         .tick_timer
                         .lock(|timer| util::get_timestamp(timer));
 
-                    cx.local.task_durations.tasks[5] = timestamp_task - timestamp_fc;
+                    cx.local.task_durations.tasks[5] =
+                        timestamp_task_complete - timestamp_fc_complete;
                 } else {
                     println!("No task");
                 }
@@ -547,6 +554,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                             state_volatile,
                             autopilot_status,
                             tick_timer,
+                            &cx.local.task_durations,
                         );
                     }
                 });

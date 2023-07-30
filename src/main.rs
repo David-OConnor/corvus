@@ -18,16 +18,14 @@
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pFBqgd_6Bi7msgkWFKL33b
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use cfg_if::cfg_if;
-
-use cortex_m::{self, asm, delay::Delay};
+use cortex_m::{self, asm};
 use rtic::app;
 
 use defmt::println;
 use defmt_rtt as _;
 use panic_probe as _;
 
-use ahrs::{Ahrs, DeviceOrientation, Params};
+use ahrs::{Ahrs, Params};
 
 use stm32_hal2::{
     self,
@@ -36,7 +34,7 @@ use stm32_hal2::{
     flash::Flash,
     gpio::{self, Pin},
     i2c::I2c,
-    pac::{self, I2C1, I2C2, SPI1, TIM1, TIM17, TIM2, TIM5},
+    pac::{self, I2C1, I2C2, SPI1, TIM1, TIM2, TIM5},
     spi::Spi,
     timer::{Timer, TimerInterrupt},
     usart::UsartInterrupt,
@@ -45,9 +43,7 @@ use stm32_hal2::{
 use usb_device::prelude::*;
 use usbd_serial::{self, SerialPort};
 
-use packed_struct::PackedStruct;
-
-use dronecan::{self};
+use cfg_if::cfg_if;
 
 mod atmos_model;
 mod can_reception;
@@ -85,7 +81,7 @@ use crate::{
     },
     sensors_shared::ExtSensor,
     state::{StateVolatile, UserCfg},
-    system_status::{SensorStatus, SystemStatus},
+    system_status::SystemStatus,
 };
 
 cfg_if! {
@@ -181,7 +177,6 @@ mod app {
         pub i2c2: I2c<I2C2>,
         pub altimeter: baro::Altimeter,
         pub flash_onboard: Flash,
-        // pub lost_link_timer: Timer<TIM17>,
         pub motor_timer: setup::MotorTimer,
         pub servo_timer: setup::ServoTimer,
         pub usb_dev: UsbDevice<'static, UsbBusType>,
@@ -274,7 +269,7 @@ mod app {
     shared = [spi1, i2c1, i2c2, current_params, control_channel_data, link_stats,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status, tick_timer],
-    local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
+    local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle, uart_osd,
     arm_signals_received, disarm_signals_received, batt_curr_adc, task_durations], priority = 4)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         main_loop::run(cx);
@@ -531,7 +526,7 @@ mod app {
     #[task(binds = USART3,
     // #[task(binds = USART2,
 // shared = [control_channel_data, link_stats, system_status,
-// lost_link_timer], local = [uart_crsf], priority = 8)]
+//], local = [uart_crsf], priority = 8)]
     shared = [], local = [uart_crsf], priority = 8)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
     /// and message ends. For message starts, it begins a DMA transfer. For message ends, it

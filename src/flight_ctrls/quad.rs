@@ -14,7 +14,7 @@ use crate::{
     util,
 };
 
-use super::{common::InputMap, pid};
+use super::common::InputMap;
 
 // todo: Variabel/struct field found from cal routine that is power to hover.
 

@@ -49,7 +49,7 @@ pub struct SystemStatus {
 }
 
 impl SystemStatus {
-    pub fn update_timestamps(&mut self, timestamp: f32) {
+    pub fn update_from_timestamp(&mut self, timestamp: f32) {
         match self.update_timestamps.imu {
             Some(t) => {
                 if timestamp - t > MAX_UPDATE_PERIOD_IMU {

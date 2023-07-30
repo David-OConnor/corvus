@@ -5,8 +5,6 @@
 
 use stm32_hal2::i2c;
 
-use defmt::println;
-
 use crate::setup::I2cMag;
 
 use lin_alg2::f32::Vec3;
