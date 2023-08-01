@@ -175,6 +175,7 @@ mod app {
         pub spi1: Spi<SPI1>,
         pub i2c1: I2c<I2C1>,
         pub i2c2: I2c<I2C2>,
+        pub uart_osd: setup::UartOsd, // for our DJI OSD, via MSP protocol
         pub altimeter: baro::Altimeter,
         pub flash_onboard: Flash,
         pub motor_timer: setup::MotorTimer,
@@ -213,7 +214,6 @@ mod app {
         pub imu_isr_loop_i: u32,
         // aux_loop_i: usize, // todo temp
         pub ctrl_coeff_adj_timer: Timer<TIM1>,
-        pub uart_osd: setup::UartOsd, // for our DJI OSD, via MSP protocol
         pub time_with_high_throttle: f32,
         pub ahrs: Ahrs,
         pub dshot_read_timer: Timer<TIM2>,
@@ -268,8 +268,8 @@ mod app {
     #[task(binds = DMA1_CH2,
     shared = [spi1, i2c1, i2c2, current_params, control_channel_data, link_stats,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
-    motor_timer, servo_timer, state_volatile, system_status, tick_timer],
-    local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle, uart_osd,
+    motor_timer, servo_timer, state_volatile, system_status, tick_timer, uart_osd],
+    local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, task_durations], priority = 4)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         main_loop::run(cx);
@@ -282,7 +282,7 @@ mod app {
     #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, current_params, control_channel_data,
     link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer],
-    local = [], priority = 6)]
+    local = [], priority = 10)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application. It should be a high priority, or the host may disconnect the device for not responding
     /// quickly enough. If the priority is too low, the PC interface software will behave strangely,
@@ -540,7 +540,7 @@ mod app {
     fn crsf_isr(mut cx: crsf_isr::Context) {
         let uart = &mut cx.local.uart_crsf; // Code shortener
 
-        let start_of_message = unsafe { uart.regs.isr.read().cmf().bit_is_set() };
+        let start_of_message = uart.regs.isr.read().cmf().bit_is_set();
 
         uart.clear_interrupt(UsartInterrupt::CharDetect(None));
         uart.clear_interrupt(UsartInterrupt::Idle);
@@ -552,11 +552,6 @@ mod app {
         // Stop the DMA read, since it will likely not have filled the buffer, due
         // to the variable message sizies.
         dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
-
-        // if crsf::TRANSFER_IN_PROG
-        //     .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        //     .is_ok()
-        // {
 
         let transfer_in_prog = crsf::TRANSFER_IN_PROG.load(Ordering::Acquire);
 
@@ -591,6 +586,17 @@ mod app {
         } else {
             println!("Spurious IDLE on CRSF reception");
         }
+    }
+
+    // todo: Diff UART on H7
+    #[task(binds = UART4, shared = [uart_osd], local = [], priority = 1)]
+    fn osd_isr(mut cx: osd_isr::Context) {
+        cx.shared.uart_osd.lock(|uart| {
+            uart.clear_interrupt(UsartInterrupt::CharDetect(None));
+        });
+
+        println!("OSD Uart Rx");
+        // todo: Read and reply with status A/R.
     }
 
     #[task(binds = TIM5, shared = [tick_timer], local = [], priority = 1)]
@@ -660,10 +666,7 @@ mod app {
                     atmos_model::estimate_altitude_msl(pressure, temp, &altimeter.ground_cal)
             });
 
-        let timestamp = cx
-            .shared
-            .tick_timer
-            .lock(|timer| util::get_timestamp(timer));
+        let timestamp = cx.shared.tick_timer.lock(util::get_timestamp);
 
         cx.shared.system_status.lock(|status| {
             status.update_timestamps.baro = Some(timestamp);

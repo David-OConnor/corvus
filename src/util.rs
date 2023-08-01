@@ -376,10 +376,12 @@ pub fn print_status(
 
     println!(
         "Task durations in ms.(Affected by printing...)\n
-        IMU: {}, FC: {} Tasks: {:?}",
+        IMU: {}, FC: {} Tasks: {:?}. Main loop: {:?}Hz. Flight ctrls: {:?}Hz",
         task_durations.imu * 1_000.,
         task_durations.flight_ctrls * 1_000.,
-        task_durations.tasks
+        task_durations.tasks,
+        1. / task_durations.main_loop_interval,
+        1. / task_durations.flight_ctrl_interval,
     );
 
     // println!("Alt MSL: {}", params.alt_msl_baro);

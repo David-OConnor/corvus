@@ -15,11 +15,14 @@ use crate::{
     util,
 };
 
+use defmt::println;
+
 // const CRC_POLY: u8 = 0xd;
+// This is for V2.
 const CRC_POLY: u8 = 0x0; // todo: WHich one, this or the above?
 const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
 
-const PREAMBLE_0: u8 = 0x24; // aka $
+pub const PREAMBLE_0: u8 = 0x24; // aka $
 const PREAMBLE_1_V1: u8 = 0x4d; // aka M
 const PREAMBLE_1_V2: u8 = 0x58; // aka X
 
@@ -33,8 +36,6 @@ const CRC_SIZE_V2: usize = 2;
 // individual messages.
 pub const METADATA_SIZE_V1: usize = FRAME_START_I_V1 + CRC_SIZE_V1;
 pub const METADATA_SIZE_V2: usize = FRAME_START_I_V2 + CRC_SIZE_V2;
-
-// const CRC_SIZE: usize = 1;
 
 #[derive(Copy, Clone)]
 #[repr(u8)]
@@ -91,7 +92,8 @@ impl<'a> Packet<'a> {
 
         let mut crc = self.payload_size as u8 ^ (self.function as u8);
         for i in 0..self.payload_size as usize {
-            crc ^= buf[FRAME_START_I_V1 + i];
+            // crc ^= buf[FRAME_START_I_V1 + i];
+            crc ^= self.payload[i];
         }
 
         buf[FRAME_START_I_V1 + self.payload_size as usize] = crc;
@@ -121,6 +123,7 @@ impl<'a> Packet<'a> {
 
     pub fn send_v1(&self, buf: &mut [u8], uart: &mut UartOsd, dma_chan: DmaChannel) {
         self.to_buf_v1(buf);
+        // println!("BUF: {:?}", buf);
         // todo: Switch back to DMA.
         // unsafe { uart.write_dma(&buf, dma_chan, Default::default(), setup::OSD_DMA_PERIPH) };
         uart.write(buf);

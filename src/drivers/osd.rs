@@ -11,7 +11,10 @@
 //!
 //! [Reference for DisplayPort commands](https://betaflight.com/docs/development/API/DisplayPort)
 
-use core::f32::consts::TAU;
+use core::{
+    f32::consts::TAU,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use crate::{
     flight_ctrls::autopilot::AutopilotStatus,
@@ -27,9 +30,12 @@ use stm32_hal2::dma::DmaChannel;
 
 use defmt::println;
 
-pub const BAUD: u32 = 115_200;
+pub const BAUD: u32 = 115_200; // 230400 allowed if "Fast_serial" is enabled
 
 const MSP_CMD: u8 = 182;
+const ARM_CMD: u8 = 101;
+
+const METADATA_SIZE_WRITE_PACKET: usize = 4;
 
 // An OSD position of 234 indicates the element is not visible.
 // const NOT_VISIBLE: u16 = 234;
@@ -37,20 +43,31 @@ const MSP_CMD: u8 = 182;
 // These scale factors are used by MSP to store degrees as integers with suitable precision.
 const EULER_ANGLE_SCALE_FACTOR: f32 = 10.;
 
+pub static OSD_WRITE_IN_PROG: AtomicBool = AtomicBool::new(false);
+
 // // If you need more BF status flags, see the ref library above.
 // const ARM_ACRO_BF: u8 = 1;
 
 // const AUTOPILOT_DATA_SIZE: usize = NAME_SIZE;
 
+// todo: Periodically send heartbeat? Receive canvas?
+
 #[derive(Clone, Copy)]
 #[repr(u8)]
 enum SubCommand {
+    /// Prevent OSD Slave boards from displaying a 'disconnected' status
     Heartbeat = 0,
+    /// Clears the display and allows local rendering on the display device based on telemetry
+    /// informtation etc.
     Release = 1,
     ClearScreen = 2,
     WriteString = 3,
+    /// Triggers the display of a frame after it has been cleared/rendered
     DrawScreen = 4,
+    // todo: Use options to set resolution?
+    /// Sets display resolution.
     Options = 5,
+    /// Display system element displayportSystemElement_e at given coordinates
     Sys = 6,
 }
 
@@ -125,9 +142,6 @@ pub struct OsdData {
     pub current_draw: f32, // mA
     pub alt_msl_baro: f32, // m
     pub posit_vel: PositVelEarthUnits,
-    pub pitch: f32,
-    pub roll: f32,
-    pub yaw: f32,
     pub autopilot: AutopilotData,
     /// Distance and bearing to the base point (usually takeoff location), in m, radians respectively.
     pub base_dist_bearing: (f32, f32),
@@ -155,7 +169,8 @@ fn make_write_packet<'a>(
     payload[1] = row;
     payload[2] = col;
     payload[3] = attribute;
-    payload[4..4 + text.len()].copy_from_slice(text.as_bytes());
+    payload[METADATA_SIZE_WRITE_PACKET..METADATA_SIZE_WRITE_PACKET + text.len()]
+        .copy_from_slice(text.as_bytes());
 
     Packet::new(MsgType::Request, MSP_CMD as u16, 4 + text.len(), payload)
 }
@@ -183,18 +198,27 @@ pub fn send_osd_data(uart: &mut UartOsd, dma_chan: DmaChannel, data: &OsdData) {
     // - Symbols on home plate, steerpoint etc?
     // - Land point data
 
+    // todo: YOu need to send the Arming command for DJI compatibility. How?
     // todo: You're currently using blocking writes; use DMA.
+    let mut buf = [0; METADATA_SIZE_V1 + 1];
+    let arm_packet = Packet::new(
+        MsgType::Request,
+        ARM_CMD as u16,
+        1,
+        &[1], // 1 = armed
+    );
+    arm_packet.send_v1(&mut buf, uart, dma_chan);
 
     let mut buf = [0; METADATA_SIZE_V1 + 1];
     let clear_packet = make_clear_packet();
     clear_packet.send_v1(&mut buf, uart, dma_chan);
 
-    let mut buf = [0; 10 + METADATA_SIZE_V1];
-    let mut payload = [0; 10];
+    let mut buf = [0; METADATA_SIZE_V1 + METADATA_SIZE_WRITE_PACKET + 6];
+    let mut payload = [0; METADATA_SIZE_WRITE_PACKET + 6];
     let write_packet = make_write_packet(&mut payload, 3, 3, 0, "Corvus");
     write_packet.send_v1(&mut buf, uart, dma_chan);
 
-    let mut buf = [0; 1 + METADATA_SIZE_V1];
+    let mut buf = [0; METADATA_SIZE_V1 + 1];
     let draw_packet = make_draw_packet();
     draw_packet.send_v1(&mut buf, uart, dma_chan);
 

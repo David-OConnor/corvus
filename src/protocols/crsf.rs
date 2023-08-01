@@ -65,7 +65,7 @@ const RX_BUF_SIZE: usize = MAX_PACKET_SIZE + MAX_BUF_SHIFT;
 
 pub static mut RX_BUFFER: [u8; RX_BUF_SIZE] = [0; RX_BUF_SIZE];
 
-static mut TX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
+static mut _TX_BUFFER: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
 
 pub static TRANSFER_IN_PROG: AtomicBool = AtomicBool::new(false);
 
@@ -437,10 +437,10 @@ pub fn handle_packet(rx_chan: DmaChannel, rx_fault: &mut bool) -> Option<PacketD
                 ),
             };
 
-            unsafe {
-                // response.to_buf(&mut TX_BUFFER);
-                // uart.write_dma(&TX_BUFFER, tx_chan, Default::default(), dma);
-            }
+            // unsafe {
+            // response.to_buf(&mut TX_BUFFER);
+            // uart.write_dma(&TX_BUFFER, tx_chan, Default::default(), dma);
+            // }
         }
         FrameType::RcChannelsPacked => {
             // We expect a 22-byte payload of channel data, and no extended source or dest.

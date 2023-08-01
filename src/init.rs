@@ -337,7 +337,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         system_status.tof == SensorStatus::Pass,
     );
 
-    // todo: If you only update attitude on the fligth-control loop, change DT here accordinly.
     let mut ahrs = Ahrs::new(main_loop::DT_IMU, DeviceOrientation::default());
     // todo: Store AHRS IMU cal in config; see GNSS for ref.
 
@@ -407,6 +406,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
             spi1,
             i2c1,
             i2c2,
+            uart_osd,
             altimeter,
             // rtc,
             // lost_link_timer,
@@ -437,7 +437,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
             imu_isr_loop_i: 0,
             // aux_loop_i: 0, // todo t
             ctrl_coeff_adj_timer,
-            uart_osd,
             time_with_high_throttle: 0.,
             ahrs,
             dshot_read_timer,

@@ -7,30 +7,31 @@ use stm32_hal2::dma::{self, DmaInterrupt};
 
 use rtic::mutex_prelude::*;
 
+use ahrs::{self, ppks::PositVelEarthUnits, ImuReadings};
+
+use lin_alg2::f32::Quaternion;
+
+use num_traits::Float;
+
 use crate::{
     app, control_interface,
     drivers::osd::{AutopilotData, OsdData},
-    flight_ctrls::{self, ctrl_logic},
+    flight_ctrls::{self, ctrl_logic, motor_servo::MotorServoState},
     imu_shared, osd,
     protocols::{crsf, rpm_reception, usb_preflight},
     safety::{self, ArmStatus},
     sensors_shared::{self, V_A_ADC_READ_BUF},
     setup,
     state::OperationMode,
-    system_status::{self, SensorStatus},
+    system_status::{self, SensorStatus, SystemStatus},
     util,
 };
 
-use ahrs::{self, ppks::PositVelEarthUnits, ImuReadings};
-
-use crate::flight_ctrls::motor_servo::MotorServoState;
-use crate::system_status::SystemStatus;
 use cfg_if::cfg_if;
 use defmt::println;
 
-// const UPDATE_RATE_MAIN_LOOP: f32 = 600.; // todo: Experiment with this.
-
-const UPDATE_RATE_IMU: f32 = 8_000.;
+// const UPDATE_RATE_IMU: f32 = 8_000.;
+const UPDATE_RATE_IMU: f32 = 8_192.; // From measuring.
 pub const DT_IMU: f32 = 1. / UPDATE_RATE_IMU;
 
 pub const DT_FLIGHT_CTRLS: f32 = 1. / UPDATE_RATE_FLIGHT_CTRLS;
@@ -38,7 +39,7 @@ pub const DT_FLIGHT_CTRLS: f32 = 1. / UPDATE_RATE_FLIGHT_CTRLS;
 // Every x main update loops, log parameters etc to flash.
 const LOGGING_UPDATE_RATIO: u32 = 100;
 
-// Every x IMU loops, print system status and sensor readings to console,
+// Every x flight ctrl loops, print system status and sensor readings to console,
 // if enabled with the `print-status` feature.
 const PRINT_STATUS_RATIO: u32 = 16_000;
 
@@ -50,6 +51,24 @@ const FLIGHT_CTRL_IMU_RATIO: u32 = 4; // Likely values: 1, 2, 4, 8.
 
 #[cfg(feature = "fixed-wing")]
 const FLIGHT_CTRL_IMU_RATIO: u32 = 8; // Likely values: 4, 8, 16.
+
+// cfg_if! {
+//     if #[cfg(feature = "h7")] {
+//         // The rate our main program updates, in Hz.
+//         // todo note that we will have to scale up values slightly on teh H7 board with 32.768kHz oscillator:
+//         // ICM-42688 DS: The ODR values shown in the
+//         // datasheet are supported with external clock input frequency of 32kHz. For any other external
+//         // clock input frequency, these ODR values will scale by a factor of (External clock value in kHz / 32).
+//         // For example, if an external clock frequency of 32.768kHz is used,
+//         // instead of ODR value of 500Hz, it will be 500 * (32.768 / 32) = 512Hz.
+//         const UPDATE_RATE_FLIGHT_CTRLS: f32 = 8_192. / FLIGHT_CTRL_IMU_RATIO as f32;
+//     } else {
+//         // Todo: Measured: 8.042kHz (2022-10-26)
+//         const UPDATE_RATE_FLIGHT_CTRLS: f32 = UPDATE_RATE_IMU / FLIGHT_CTRL_IMU_RATIO as f32;
+//     }
+// }
+
+const UPDATE_RATE_FLIGHT_CTRLS: f32 = UPDATE_RATE_IMU / FLIGHT_CTRL_IMU_RATIO as f32;
 
 const NUM_IMU_LOOP_TASKS: u32 = 6; // We cycle through lower-priority tasks in the main loop.
 
@@ -68,22 +87,8 @@ pub struct TaskDurations {
     pub flight_ctrls: f32,
     /// These tasks are run, with equal frequency, as a portion of flight control updates.
     pub tasks: [f32; NUM_IMU_LOOP_TASKS as usize],
-}
-
-cfg_if! {
-    if #[cfg(feature = "h7")] {
-        // The rate our main program updates, in Hz.
-        // todo note that we will have to scale up values slightly on teh H7 board with 32.768kHz oscillator:
-        // ICM-42688 DS: The ODR values shown in the
-        // datasheet are supported with external clock input frequency of 32kHz. For any other external
-        // clock input frequency, these ODR values will scale by a factor of (External clock value in kHz / 32).
-        // For example, if an external clock frequency of 32.768kHz is used,
-        // instead of ODR value of 500Hz, it will be 500 * (32.768 / 32) = 512Hz.
-        const UPDATE_RATE_FLIGHT_CTRLS: f32 = 8_192. / FLIGHT_CTRL_IMU_RATIO as f32;
-    } else {
-        // Todo: Measured: 8.042kHz (2022-10-26)
-        const UPDATE_RATE_FLIGHT_CTRLS: f32 = UPDATE_RATE_IMU / FLIGHT_CTRL_IMU_RATIO as f32;
-    }
+    pub main_loop_interval: f32,   // seconds
+    pub flight_ctrl_interval: f32, // seconds
 }
 
 fn handle_rpm_readings(
@@ -162,7 +167,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
     //     println!("UART2 SR: {:?}", regs.isr.read().bits());
     // };
 
-    // todo: Split up this lock
     (
         cx.shared.current_params,
         cx.shared.autopilot_status,
@@ -183,6 +187,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
              cfg,
              state_volatile,
              system_status| {
+                cx.local.task_durations.main_loop_interval =
+                    timestamp - system_status.update_timestamps.imu.unwrap_or(0.);
                 system_status.update_timestamps.imu = Some(timestamp);
 
                 let mut imu_data = ImuReadings::from_buffer(
@@ -201,32 +207,13 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
 
                 // todo: We probably don't need to update AHRS each IMU update, but that's what
                 // todo we're currently doing, since that's updated in `update_from_imu_readings`.
-                params.update_from_imu_readings(&imu_data, None, cx.local.ahrs, DT_IMU);
+                params.update_from_imu_readings(&imu_data, None, cx.local.ahrs);
 
-                handle_rpm_readings(
-                    &mut state_volatile.motor_servo_state,
-                    system_status,
-                    cfg.motor_pole_count,
-                );
-
-                if state_volatile.op_mode == OperationMode::Preflight {
-                    // todo: Figure out where this preflight motor-spin up code should be in this ISR.
-                    // todo: Here should be fine, but maybe somewhere else is better.
-                    cx.shared.motor_timer.lock(|motor_timer| {
-                        if state_volatile.preflight_motors_running {
-                            // todo: Use actual arm status!!
-                            // println!("Motor pow fl: {:?}", state_volatile.motor_servo_state.rotor_front_left.cmd.power());
-
-                            state_volatile
-                                .motor_servo_state
-                                .send_to_rotors(ArmStatus::Armed, motor_timer);
-                        } else {
-                            // todo: Does this interfere with USB reads?
-                            // todo: Experiment and reason this out, if you should do this.
-                            // dshot::stop_all(motor_timer);
-                        }
-                    });
-                }
+                // handle_rpm_readings(
+                //     &mut state_volatile.motor_servo_state,
+                //     system_status,
+                //     cfg.motor_pole_count,
+                // );
 
                 // todo: Impl once you've sorted out your control logic.
                 // todo: Delegate this to another module, eg `attitude_ctrls`.
@@ -254,6 +241,16 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     );
                 }
 
+                // todo: Put this in a fn.
+                const GYRO_THRESH: f32 = 0.01;
+                const ANGLE_THRESH: f32 = 0.2;
+                // todo: ALso check for if roughly level.
+                let angle = params.attitude.rotate_vec(ahrs::UP).dot(ahrs::UP).acos();
+                state_volatile.has_taken_off = !(params.v_pitch.abs() < GYRO_THRESH
+                    && params.v_roll.abs() < GYRO_THRESH
+                    && params.v_yaw.abs() < GYRO_THRESH
+                    && angle < ANGLE_THRESH);
+
                 // Update our commanded attitude
                 match control_channel_data {
                     Some(ch_data) => {
@@ -266,6 +263,10 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     state_volatile.has_taken_off,
                                     cfg.takeoff_attitude,
                                 );
+
+                            {
+                                let attitude_commanded = Quaternion::new_identity();
+                            }
 
                             state_volatile.attitude_commanded.quat = attitude_commanded;
                             state_volatile.attitude_commanded.quat_dt = attitude_commanded_dt;
@@ -286,22 +287,43 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
 
                 cx.local.task_durations.imu = timestamp_imu_complete - timestamp;
 
-                if i % FLIGHT_CTRL_IMU_RATIO == 0
-                    && state_volatile.op_mode != OperationMode::Preflight
-                {
-                    (cx.shared.flight_ctrl_filters, cx.shared.motor_timer).lock(
-                        |flight_ctrl_filters, motor_timer| {
-                            flight_ctrls::run(
-                                params,
-                                cx.local.params_prev,
-                                state_volatile,
-                                control_channel_data,
-                                &cfg.ctrl_coeffs,
-                                flight_ctrl_filters,
-                                motor_timer,
-                            );
-                        },
-                    );
+                if i % FLIGHT_CTRL_IMU_RATIO == 0 {
+                    if state_volatile.op_mode == OperationMode::Preflight {
+                        // todo: Figure out where this preflight motor-spin up code should be in this ISR.
+                        // todo: Here should be fine, but maybe somewhere else is better.
+                        cx.shared.motor_timer.lock(|motor_timer| {
+                            if state_volatile.preflight_motors_running {
+                                // todo: Use actual arm status!!
+                                // println!("Motor pow fl: {:?}", state_volatile.motor_servo_state.rotor_front_left.cmd.power());
+
+                                state_volatile
+                                    .motor_servo_state
+                                    .send_to_rotors(ArmStatus::Armed, motor_timer);
+                            } else {
+                                // todo: Does this interfere with USB reads?
+                                // todo: Experiment and reason this out, if you should do this.
+                                // dshot::stop_all(motor_timer);
+                            }
+                        });
+                    } else {
+                        (cx.shared.flight_ctrl_filters, cx.shared.motor_timer).lock(
+                            |flight_ctrl_filters, motor_timer| {
+                                flight_ctrls::run(
+                                    params,
+                                    cx.local.params_prev,
+                                    state_volatile,
+                                    control_channel_data,
+                                    &cfg.ctrl_coeffs,
+                                    flight_ctrl_filters,
+                                    motor_timer,
+                                );
+                            },
+                        );
+                    }
+
+                    cx.local.task_durations.flight_ctrl_interval = timestamp_imu_complete
+                        - system_status.update_timestamps.flight_ctrls.unwrap_or(0.);
+                    system_status.update_timestamps.flight_ctrls = Some(timestamp_imu_complete);
                 }
 
                 let timestamp_fc_complete = cx
@@ -330,14 +352,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 // We're tracking tasks as ones that make it past the initial flight
                 // control ratio filter, so factor that out.
                 let i_compensated = i / FLIGHT_CTRL_IMU_RATIO;
-
-                // if i_compensated % 2_000 == 0 {
-                //     println!("Mix. T:{} P:{} R:{} Y:{}", state_volatile.ctrl_mix.throttle, state_volatile.ctrl_mix.pitch, state_volatile.ctrl_mix.roll, state_volatile.ctrl_mix.yaw);
-                //
-                //     let s = &state_volatile.motor_servo_state;
-                //     println!("P. FL: {} FR: {} AL: {} AR: {}", s.rotor_front_left.power_setting ,
-                //              s.rotor_front_right.power_setting, s.rotor_aft_left.power_setting, s.rotor_aft_right.power_setting);
-                // }
 
                 if (i_compensated - 0) % NUM_IMU_LOOP_TASKS == 0 {
                     let mut batt_v = 0.;
@@ -410,17 +424,12 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     cx.local.task_durations.tasks[1] =
                         timestamp_task_complete - timestamp_fc_complete;
                 } else if (i_compensated - 2) % NUM_IMU_LOOP_TASKS == 0 {
-                    let euler = params.attitude.to_euler();
-
                     let osd_data = OsdData {
                         arm_status: state_volatile.arm_status,
                         battery_voltage: state_volatile.batt_v,
                         current_draw: state_volatile.esc_current,
                         alt_msl_baro: params.alt_msl_baro,
                         posit_vel: PositVelEarthUnits::default(),
-                        pitch: euler.pitch,
-                        roll: euler.roll,
-                        yaw: euler.yaw,
                         // pid_p: coeffs.roll.k_p_rate,
                         // pid_i: coeffs.roll.k_i_rate,
                         // pid_d: coeffs.roll.k_d_rate,
@@ -432,7 +441,10 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         num_satellites: 0, // todo temp
                     };
 
-                    osd::send_osd_data(cx.local.uart_osd, setup::OSD_CH, &osd_data);
+                    // todo: Your blocking read here is breaking everything; use DMA.
+                    // cx.shared.uart_osd.lock(|uart_osd| {
+                    //     osd::send_osd_data(uart_osd, setup::OSD_CH, &osd_data);
+                    // });
 
                     let timestamp_task_complete = cx
                         .shared

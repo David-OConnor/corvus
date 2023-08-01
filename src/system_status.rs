@@ -157,4 +157,5 @@ pub struct UpdateTimestamps {
     pub imu_can: Option<f32>,
     pub ahrs_can: Option<f32>,
     pub rf_control_link: Option<f32>,
+    pub flight_ctrls: Option<f32>, // not really a sensor, but useful to track.
 }

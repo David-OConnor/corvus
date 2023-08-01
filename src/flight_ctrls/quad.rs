@@ -32,14 +32,15 @@ pub const THROTTLE_MIN_MNVR_CLAMP: f32 = 0.06;
 // todo: Calibration unimplemented
 // const MIN_CAL_ALT: f32 = 6.;
 
+// todo: Likely increase.
+const ACRO_RATE: f32 = 1.5;
+
 impl Default for InputMap {
-    // todo: move deafult impls to their respective moudles (quad, flying wing)?
     fn default() -> Self {
         Self {
-            // todo: Consider raising these once prototype is ready.
-            pitch_rate: (-5., 5.),
-            roll_rate: (-5., 5.),
-            yaw_rate: (-5., 5.),
+            pitch_rate: (-ACRO_RATE, ACRO_RATE),
+            roll_rate: (-ACRO_RATE, ACRO_RATE),
+            yaw_rate: (-ACRO_RATE, ACRO_RATE),
             throttle_clamped: (THROTTLE_MIN_MNVR_CLAMP, THROTTLE_MAX_MNVR_CLAMP),
             pitch_angle: (-TAU / 4., TAU / 4.),
             roll_angle: (-TAU / 4., TAU / 4.),

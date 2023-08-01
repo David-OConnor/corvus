@@ -50,7 +50,7 @@ use crate::{
     // flight_ctrls::common::Motor,
     protocols::{
         dshot::{self, Motor},
-        servo,
+        msp, servo,
     },
     safety,
     sensors_shared,
@@ -61,6 +61,7 @@ use crate::{
 use crate::drivers::{spi2_kludge::Spi2, uart4_kludge::Usart4};
 
 use defmt::println;
+use stm32_hal2::usart::UsartInterrupt;
 
 // Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.
 
@@ -682,13 +683,14 @@ pub fn setup_busses(
     );
 
     #[cfg(feature = "g4")]
-    let uart_osd = Usart4::new(
+    let mut uart_osd = Usart4::new(
         uart_osd_pac,
         crate::osd::BAUD,
         Default::default(),
         clock_cfg,
     );
 
+    uart_osd.enable_interrupt(UsartInterrupt::CharDetect(Some(msp::PREAMBLE_0)));
     // We use UART for the radio controller receiver, via CRSF protocol.
 
     //  * 420000 baud

@@ -252,7 +252,8 @@ pub fn excecute_link_lost(
     params: &Params,
     base_pt: &PositVelEarthUnits,
 ) {
-    println!("Link lost. Executing recovery.");
+    // todo: Put back. Getting this spammed in console. Is the link actually lost?
+    // println!("Link lost. Executing recovery.");
     // todo: Consider how you want to handle this, with and without GPS.
 
     // todo: To start, command an attitude-mode hover, with baro alt hold.

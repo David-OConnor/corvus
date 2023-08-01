@@ -198,8 +198,6 @@ pub fn setup_motor_dir(motors_reversed: (bool, bool, bool, bool), timer: &mut Mo
 
     delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
 
-    // println!("Setting up motor direction");
-
     // Spin dir commands need to be sent 6 times. (or 10?) We're using the "forced" spin dir commands,
     // ie not with respect to ESC configuration; although that would be acceptable as well.
     for _ in 0..REPEAT_COMMAND_COUNT {

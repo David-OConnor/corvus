@@ -85,8 +85,8 @@ pub fn run(
 
               static mut i: u32 = 0;
                 unsafe { i += 1 };
-                if unsafe { i } % 4_000 == 0 {
-                // if false {
+                // if unsafe { i } % 500 == 0 {
+                if false {
                     println!("Pwr cmd: fl{:?} fr{} al{} ar{}\n\n\n", power_commanded.front_left, power_commanded.front_right, power_commanded.aft_left,
                 power_commanded.aft_right);
                 }

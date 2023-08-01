@@ -240,14 +240,11 @@ impl Altimeter {
             temp,
         };
 
-        self.gps_cal_air = match gps_alt {
-            Some(alt_msl) => Some(AltitudeCalPt {
-                pressure,
-                altitude: alt_msl,
-                temp, // todo: Convert to K if required!
-            }),
-            None => None,
-        };
+        self.gps_cal_air = gps_alt.map(|alt_msl| AltitudeCalPt {
+            pressure,
+            altitude: alt_msl,
+            temp, // todo: Convert to K if required!
+        });
 
         Ok(())
     }
