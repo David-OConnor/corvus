@@ -271,7 +271,7 @@ mod app {
     motor_timer, servo_timer, state_volatile, system_status, tick_timer, uart_osd],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, task_durations], priority = 4)]
-    fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
+    fn imu_tc_isr(cx: imu_tc_isr::Context) {
         main_loop::run(cx);
     }
 
@@ -677,7 +677,7 @@ mod app {
     #[task(binds = FDCAN1_INTR0_IT,
     shared = [can], priority = 4)] // todo: Temp high prio
     /// Ext sensors write complete; start read of the next sensor in sequence.
-    fn can_isr(mut cx: can_isr::Context) {
+    fn can_isr(cx: can_isr::Context) {
         can_reception::run(cx);
     }
 }

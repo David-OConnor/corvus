@@ -240,20 +240,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         timestamp,
                     );
                 }
-
-                // todo: Put this in a fn.
-                const GYRO_THRESH: f32 = 0.01;
-                const ANGLE_THRESH: f32 = 0.2;
-                // todo: Needs lots of work.
-                let angle = params.attitude.rotate_vec(ahrs::UP).dot(ahrs::UP).acos();
-                state_volatile.has_taken_off = !(params.v_pitch.abs() < GYRO_THRESH
-                    && params.v_roll.abs() < GYRO_THRESH
-                    && params.v_yaw.abs() < GYRO_THRESH
-                    && angle < ANGLE_THRESH);
-
-                // todo: Use altitude for this in the future, and make a good esimtate from over time.
-                state_volatile.has_taken_off = true;
-
                 // Update our commanded attitude
                 match control_channel_data {
                     Some(ch_data) => {
@@ -398,15 +384,17 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         cx.local.disarm_signals_received,
                         controller_arm_status,
                         &mut state_volatile.arm_status,
+                        &mut state_volatile.has_taken_off,
                         throttle,
                     );
 
                     if !state_volatile.has_taken_off {
                         safety::handle_takeoff_attitude_lock(
+                            state_volatile.arm_status,
                             throttle,
                             &mut cx.local.time_with_high_throttle,
                             &mut state_volatile.has_taken_off,
-                            DT_IMU * NUM_IMU_LOOP_TASKS as f32,
+                            DT_FLIGHT_CTRLS * NUM_IMU_LOOP_TASKS as f32,
                         );
                     }
 
@@ -445,9 +433,9 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     };
 
                     // todo: Your blocking read here is breaking everything; use DMA.
-                    // cx.shared.uart_osd.lock(|uart_osd| {
-                    //     osd::send_osd_data(uart_osd, setup::OSD_CH, &osd_data);
-                    // });
+                    cx.shared.uart_osd.lock(|uart_osd| {
+                        osd::send_osd_data(uart_osd, &osd_data);
+                    });
 
                     let timestamp_task_complete = cx
                         .shared

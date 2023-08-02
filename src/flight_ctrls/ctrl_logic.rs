@@ -85,23 +85,17 @@ impl Default for CtrlCoeffs {
 /// The DT passed is the IMU update rate, since we update params_prev each IMU update.
 pub fn ctrl_mix_from_att(
     target_attitude: Quaternion,
-    // todo: Which do you want: A vector torque, or a rotation since last with DT?
-    // todo: Probably torque.
-    // target_torque: &Torque,
     target_ω: &(f32, f32, f32), // (pitch, roll, yaw)
-    // target_rotation_since_prev: Quaternion,
-    // current_attitude: Quaternion,
     throttle: f32,
     front_left_dir: RotationDir,
-    // todo: Params is just for current angular rates. Maybe just pass those?
+    // todo: Params is just for attitude. Maybe just pass those?
     params: &Params,
     params_prev: &Params,
     coeffs: &CtrlCoeffs,
     drag_coeffs: &DragCoeffs,
     accel_maps: &AccelMaps,
     filters: &mut FlightCtrlFilters,
-    dt: f32,              // seconds
-    pry: (f32, f32, f32), // todo temp to TS
+    dt: f32, // seconds
 ) -> CtrlMix {
     // todo: temp to make the throttle more manageable while flying indoors.
     let throttle = throttle / 2.;
@@ -110,52 +104,66 @@ pub fn ctrl_mix_from_att(
     let rotation_cmd = target_attitude * params.attitude.inverse();
     let rot_cmd_axes = rotation_cmd.to_axes();
 
+    #[allow(non_upper_case_globals)]
     let (pitch, roll, yaw) = {
         // todo: Sloppy
+        static mut error_x: f32 = 0.;
+        static mut error_y: f32 = 0.;
+        static mut error_z: f32 = 0.;
+
         static mut integral_x: f32 = 0.;
         static mut integral_y: f32 = 0.;
         static mut integral_z: f32 = 0.;
 
-        let p_term = 0.08;
-        let i_term = 0.00001;
+        const MAX_I_WINDUP: f32 = 1000.; // todo
+
+        let k_p = 0.20;
+        let k_i = 0.10;
+        let k_d = 0.05;
 
         // todo: DO we want to multiply by dt here?
         // let rot_to_apply = Quaternion::new_identity().slerp(rotation_cmd, p_term * dt);
 
         // let (rot_x, rot_y, rot_z) = rot_to_apply.to_axes();
 
-        // PID here; get this working, then refine as required, or get fancier
-        let error_x = rot_cmd_axes.0;
-        let error_y = rot_cmd_axes.1;
-        let error_z = rot_cmd_axes.2;
-
-        // Attempting rate
-        // let error_x = pry.0 - params.v_pitch;
-        // let error_y = pry.1 - params.v_roll;
-        // let error_z = pry.2 - params.v_yaw;
-
         unsafe {
+            let d_error_x = rot_cmd_axes.0 - error_x;
+            let d_error_y = rot_cmd_axes.1 - error_y;
+            let d_error_z = rot_cmd_axes.2 - error_z;
+
+            // PID here; get this working, then refine as required, or get fancier
+            error_x = rot_cmd_axes.0;
+            error_y = rot_cmd_axes.1;
+            error_z = rot_cmd_axes.2;
+
             integral_x += error_x;
             integral_y += error_y;
             integral_z += error_z;
-        }
 
-        // The I-term builds up if corrections are unable to expeditiously converge.
-        // An example of when this can happen is when the aircraft is on the ground.
-        // todo: Use `is_airborne` etc, vice idle throttle.
-        if throttle < 0.1 {
-            unsafe {
+            for i_term in &mut [integral_x, integral_y, integral_z] {
+                if *i_term > MAX_I_WINDUP {
+                    *i_term = MAX_I_WINDUP;
+                } else if *i_term < -MAX_I_WINDUP {
+                    *i_term = -MAX_I_WINDUP;
+                }
+            }
+
+            // The I-term builds up if corrections are unable to expeditiously converge.
+            // An example of when this can happen is when the aircraft is on the ground.
+            // todo: Use `is_airborne` etc, vice idle throttle.
+            if throttle < 0.1 {
                 integral_x = 0.;
                 integral_y = 0.;
                 integral_z = 0.;
             }
+
+            // todo: Clamp I term.
+            let pitch = k_p * error_x + k_i * integral_x * dt - k_d * d_error_x / dt;
+            let roll = k_p * error_y + k_i * integral_y * dt - k_d * error_y / dt;
+            let yaw = k_p * error_z + k_i * integral_z * dt - k_d * error_z / dt;
+
+            (pitch, roll, yaw)
         }
-
-        let pitch = p_term * error_x + i_term * unsafe { integral_x };
-        let roll = p_term * error_y + i_term * unsafe { integral_y };
-        let yaw = p_term * error_z + i_term * unsafe { integral_z };
-
-        (pitch, roll, yaw)
     };
 
     let mut result = CtrlMix {

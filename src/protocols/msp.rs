@@ -11,14 +11,14 @@
 use stm32_hal2::{dma::DmaChannel, pac::USART2, usart::Usart};
 
 use crate::{
-    setup::{UartOsd, OSD_DMA_PERIPH},
+    setup::{UartOsd, OSD_CH, OSD_DMA_PERIPH},
     util,
 };
 
 use defmt::println;
 
 // const CRC_POLY: u8 = 0xd;
-// This is for V2.
+// The poly and LUT are for V2.
 const CRC_POLY: u8 = 0x0; // todo: WHich one, this or the above?
 const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
 
@@ -80,6 +80,7 @@ impl<'a> Packet<'a> {
     /// Convert this payload to a buffer in MSP V1 format. See `to_buf` for
     /// a description and comments.
     pub fn to_buf_v1(&self, buf: &mut [u8]) {
+        // The first two bytes are a hard-set preamble.
         buf[0] = PREAMBLE_0;
         buf[1] = PREAMBLE_1_V1;
         buf[2] = self.message_type as u8;
@@ -92,7 +93,6 @@ impl<'a> Packet<'a> {
 
         let mut crc = self.payload_size as u8 ^ (self.function as u8);
         for i in 0..self.payload_size as usize {
-            // crc ^= buf[FRAME_START_I_V1 + i];
             crc ^= self.payload[i];
         }
 
@@ -102,7 +102,7 @@ impl<'a> Packet<'a> {
     /// Convert this payload to a buffer in MSP V2 format, modifying the argument
     /// `buf` in place. Payload is passed here instead of as a struct field
     /// due to its variable size.
-    pub fn to_buf_v2(&self, buf: &mut [u8]) {
+    pub fn _to_buf_v2(&self, buf: &mut [u8]) {
         // The first two bytes are a hard-set preamble.
         buf[0] = PREAMBLE_0;
         buf[1] = PREAMBLE_1_V2;
@@ -121,19 +121,15 @@ impl<'a> Packet<'a> {
         buf[FRAME_START_I_V2 + self.payload_size as usize] = crc;
     }
 
-    pub fn send_v1(&self, buf: &mut [u8], uart: &mut UartOsd, dma_chan: DmaChannel) {
+    pub fn send_v1(&self, buf: &mut [u8], uart: &mut UartOsd) {
         self.to_buf_v1(buf);
         // println!("BUF: {:?}", buf);
-        // todo: Switch back to DMA.
-        // unsafe { uart.write_dma(&buf, dma_chan, Default::default(), setup::OSD_DMA_PERIPH) };
-        uart.write(buf);
+        unsafe { uart.write_dma(&buf, OSD_CH, Default::default(), OSD_DMA_PERIPH) };
     }
 
     // todo: DRY
-    pub fn send_v2(&self, buf: &mut [u8], uart: &mut UartOsd, dma_chan: DmaChannel) {
-        self.to_buf_v2(buf);
-        // todo: Switch back to DMA.
-        // unsafe { uart.write_dma(&buf, dma_chan, Default::default(), setup::OSD_DMA_PERIPH) };
-        uart.write(buf);
+    pub fn _send_v2(&self, buf: &mut [u8], uart: &mut UartOsd) {
+        self._to_buf_v2(buf);
+        unsafe { uart.write_dma(&buf, OSD_CH, Default::default(), OSD_DMA_PERIPH) };
     }
 }

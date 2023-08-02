@@ -53,7 +53,7 @@ use defmt::println;
 static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
-    let mut cp = cx.core;
+    let cp = cx.core;
     let dp = pac::Peripherals::take().unwrap();
 
     // Improves performance, at a cost of slightly increased power use.
@@ -145,7 +145,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     #[cfg(feature = "g4")]
     let can_clock = dronecan::hardware::CanClock::Mhz160;
 
-    let mut can = dronecan::hardware::setup_can(dp.FDCAN1, can_clock, dronecan::CanBitrate::B1m);
+    let can = dronecan::hardware::setup_can(dp.FDCAN1, can_clock, dronecan::CanBitrate::B1m);
 
     // todo: Configure acceptance filters for Fix2, AHRS, IMU, baro, mag, node status, and possibly others.
     // todo: on G4, you may need to be clever to avoid running out of filters.
@@ -302,15 +302,15 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // todo: Note that you may need to either increment the flash page offset, or cycle flash pages, to
     // todo avoid wear on a given sector from erasing each time. Note that you can still probably get 10k
     // todo erase/write cycles per sector, so this is low priority.
-    let mut flash_onboard = Flash::new(dp.FLASH);
+    let flash_onboard = Flash::new(dp.FLASH);
 
-    // todo: Testing flash
     let mut flash_buf = [0; 8];
-    // let cfg_data =
     #[cfg(feature = "h7")]
     flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
     #[cfg(feature = "g4")]
     flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+
+    // todo: Copy from one of your CAN nodes: Save and load user cfg.
 
     let mut params = Default::default();
 
@@ -337,7 +337,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         system_status.tof == SensorStatus::Pass,
     );
 
-    let mut ahrs = Ahrs::new(main_loop::DT_IMU, DeviceOrientation::default());
+    let ahrs = Ahrs::new(main_loop::DT_IMU, DeviceOrientation::default());
     // todo: Store AHRS IMU cal in config; see GNSS for ref.
 
     // Allow ESC to warm up and the radio to connect before starting the main loop.

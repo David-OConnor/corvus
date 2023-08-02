@@ -56,15 +56,9 @@ pub fn run(
         },
     };
 
-    // todo: Temp using rate controls to TS flight control logic
-    let pry = match control_channel_data {
-        Some(ch_data) => (-ch_data.pitch, ch_data.roll, ch_data.yaw),
-        None => (0., 0., 0.),
-    };
-
     cfg_if! {
         if #[cfg(feature = "quad")] {
-            let mut ctrl_mix = ctrl_logic::ctrl_mix_from_att(
+            let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
                 state_volatile.attitude_commanded.quat,
                 &state_volatile.attitude_commanded.quat_dt,
                 // params.attitude_quat,
@@ -78,7 +72,6 @@ pub fn run(
                 flight_ctrl_filters,
                 // The DT passed is the IMU rate, since we update params_prev each IMU update.
                 DT_IMU,
-                pry, // todo temp
             );
 
             let power_commanded = MotorPower::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);

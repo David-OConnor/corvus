@@ -187,7 +187,7 @@ fn make_draw_packet<'a>() -> Packet<'a> {
 /// Sends data for all relevant elements to the OSD. Accepts a data struct built from select
 /// elements from the rest of our program, and sends to the display in OSD format, using
 /// only elements supported by DJI's MSP implementation.
-pub fn send_osd_data(uart: &mut UartOsd, dma_chan: DmaChannel, data: &OsdData) {
+pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     // todo: Running list of things to add. May be supported by MSP, or co-opt elements they're not
     // made for.
     // - AGL altitude
@@ -207,20 +207,20 @@ pub fn send_osd_data(uart: &mut UartOsd, dma_chan: DmaChannel, data: &OsdData) {
         1,
         &[1], // 1 = armed
     );
-    arm_packet.send_v1(&mut buf, uart, dma_chan);
+    arm_packet.send_v1(&mut buf, uart);
 
     let mut buf = [0; METADATA_SIZE_V1 + 1];
     let clear_packet = make_clear_packet();
-    clear_packet.send_v1(&mut buf, uart, dma_chan);
+    clear_packet.send_v1(&mut buf, uart);
 
     let mut buf = [0; METADATA_SIZE_V1 + METADATA_SIZE_WRITE_PACKET + 6];
     let mut payload = [0; METADATA_SIZE_WRITE_PACKET + 6];
     let write_packet = make_write_packet(&mut payload, 3, 3, 0, "Corvus");
-    write_packet.send_v1(&mut buf, uart, dma_chan);
+    write_packet.send_v1(&mut buf, uart);
 
     let mut buf = [0; METADATA_SIZE_V1 + 1];
     let draw_packet = make_draw_packet();
-    draw_packet.send_v1(&mut buf, uart, dma_chan);
+    draw_packet.send_v1(&mut buf, uart);
 
     static mut i: u32 = 0;
     unsafe {
@@ -231,16 +231,6 @@ pub fn send_osd_data(uart: &mut UartOsd, dma_chan: DmaChannel, data: &OsdData) {
             // println!("OSD buf: {:?}", buf);
         }
     }
-
-    // Send all the data we've compiled into the buffer.
-    // unsafe {
-    //     uart.write_dma(
-    //         &BUF_OSD,
-    //         dma_chan,
-    //         Default::default(),
-    //         setup::OSD_DMA_PERIPH,
-    //     )
-    // };
 
     // todo: End test
     //

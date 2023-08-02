@@ -345,7 +345,7 @@ pub fn print_status(
         euler.pitch, euler.roll, euler.yaw
     );
 
-    let mut uart_regs = unsafe { &(*pac::USART2::ptr()) };
+    let uart_regs = unsafe { &(*pac::USART2::ptr()) };
 
     // println!("USart en: {}", uart_regs.cr1.read().ue().bit_is_set());
     // println!("USart SR: {:b}", uart_regs.isr.read().bits());

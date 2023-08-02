@@ -58,7 +58,7 @@ const ALT_EPSILON_BEFORE_LATERAL: f32 = 20.;
 
 // If power has been higher than this power level for this time, consider teh craft airborne
 // for the purposes of the attitude lock.
-const TAKEOFF_POWER_THRESH: f32 = 0.3;
+const TAKEOFF_POWER_THRESH: f32 = 0.1;
 const TAKEOFF_POWER_TIME: f32 = 1.;
 
 // Block RX reception of packets coming in at a faster rate then this. This prevents external
@@ -164,13 +164,14 @@ fn disable_servos() {
     }
 }
 
-/// Arm or disarm the arm state (and therefor the motors, based on arm switch status and throttle.
+/// Arm or disarm the arm state (and therefor the motors), based on arm switch status and throttle.
 /// Arm switch must be set while throttle is idle.
 pub fn handle_arm_status(
     arm_signals_received: &mut u8,
     disarm_signals_received: &mut u8,
     controller_arm_status: ArmStatus,
     arm_status: &mut ArmStatus,
+    has_taken_off: &mut bool,
     throttle: f32,
 ) {
     match arm_status.clone() {
@@ -192,6 +193,8 @@ pub fn handle_arm_status(
                 // pid_rate.reset_integrator();
                 // pid_attitude.reset_integrator();
                 // pid_velocity.reset_integrator();
+
+                *has_taken_off = false;
 
                 println!("Aircraft motors disarmed.");
             }
@@ -285,13 +288,17 @@ pub fn excecute_link_lost(
 
 /// Unlock the takeoff attitude lock if motor power has exceed a certain power level for a
 /// certain amount of time. This is done by changing the `has_taken_off` variable.
+///
+/// todo: Perhaps take more factors into account. This is probably ok for now.
 pub fn handle_takeoff_attitude_lock(
+    arm_status: ArmStatus,
     throttle: f32,
     time_with_high_throttle: &mut f32,
     has_taken_off: &mut bool,
     dt: f32,
 ) {
-    if throttle >= TAKEOFF_POWER_THRESH {
+    if arm_status == MOTORS_ARMED && throttle >= TAKEOFF_POWER_THRESH {
+        // todo: Scope `time_with_high_throttle` locally.
         if *time_with_high_throttle >= TAKEOFF_POWER_TIME {
             *has_taken_off = true;
             *time_with_high_throttle = 0.;
