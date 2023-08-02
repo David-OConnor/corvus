@@ -103,10 +103,8 @@ pub fn ctrl_mix_from_att(
     dt: f32,              // seconds
     pry: (f32, f32, f32), // todo temp to TS
 ) -> CtrlMix {
-    // todo: Test commanded att in Preflight
-
-    // let att_axes = params.attitude.to_axes();
-    // let target_axes = target_attitude.to_axes();
+    // todo: temp to make the throttle more manageable while flying indoors.
+    let throttle = throttle / 2.;
 
     // This is the rotation we need to create to arrive at the target attitude from the current one.
     let rotation_cmd = target_attitude * params.attitude.inverse();
@@ -118,9 +116,8 @@ pub fn ctrl_mix_from_att(
         static mut integral_y: f32 = 0.;
         static mut integral_z: f32 = 0.;
 
-        let p_term = 0.15;
-        let i_term = 0.0001;
-        // let i_term = 0.001;
+        let p_term = 0.08;
+        let i_term = 0.00001;
 
         // todo: DO we want to multiply by dt here?
         // let rot_to_apply = Quaternion::new_identity().slerp(rotation_cmd, p_term * dt);
@@ -146,7 +143,7 @@ pub fn ctrl_mix_from_att(
         // The I-term builds up if corrections are unable to expeditiously converge.
         // An example of when this can happen is when the aircraft is on the ground.
         // todo: Use `is_airborne` etc, vice idle throttle.
-        if throttle < 0.01 {
+        if throttle < 0.1 {
             unsafe {
                 integral_x = 0.;
                 integral_y = 0.;
@@ -161,81 +158,6 @@ pub fn ctrl_mix_from_att(
         (pitch, roll, yaw)
     };
 
-    let ttc_target_per_rad = 0.2;
-
-    // I don't think it makes sense to apply a TTC to the quat directly, since the multiple dimensions
-    // involved means it's very likely on an intercept course.
-    // radians / (rad/s) = s
-    let time_to_correct_x = rot_cmd_axes.0 / (params.v_pitch - target_ω.0);
-    let time_to_correct_y = rot_cmd_axes.1 / (params.v_roll - target_ω.1);
-    let time_to_correct_z = rot_cmd_axes.2 / (params.v_yaw - target_ω.2);
-
-    // todo: QC where you're getting these target angular accels.
-    let (target_ω_pitch, target_ω_roll, target_ω_yaw) = target_ω;
-    let dω_pitch = target_ω_pitch - params.v_pitch;
-    let dω_roll = target_ω_roll - params.v_roll;
-    let dω_yaw = target_ω_yaw - params.v_yaw;
-
-    // todo: It's possible thetas should be 0, and theta target should be the rot cmd.
-
-    //
-
-    // todo: Testing alternative, more intuitive approach
-
-    // let amt_dv = 1.;
-
-    // If there is a positive TTC, we should apply a weaker correction.
-    // If there is a negative TTC, we apply a stronger one.
-    // let corr_factor = 0.3;
-    // todo: You probably want an additive factor, not multiplicative.
-    // let v_correction_x = map_linear(time_to_correct_x, (-5., 5.), (1. + corr_factor, 1. - corr_factor));
-
-    // let d_ttc_x = (time_to_correct_x - ttc_target_per_rad) * ;
-    // let d_ttc_y = (time_to_correct_y - ttc_target_per_rad);
-    // let d_ttc_z = (time_to_correct_z - ttc_target_per_rad);
-
-    // let = rot_cmd_axes.0
-
-    // Examples, reasoning this out:
-    // if there is a high TTC, We need to scale
-    // let v_correction_x = p_term *
-
-    // let pitch = find_ctrl_setting(
-    //     att_axes.0,
-    //     params.v_pitch,
-    //     params.a_pitch,
-    //     target_axes.0,
-    //     *target_ω_pitch,
-    //     coeffs,
-    //     drag_coeffs.pitch,
-    //     &accel_maps.map_pitch,
-    //     dt,
-    // );
-
-    // let roll = find_ctrl_setting(
-    //       att_axes.1,
-    //     params.v_roll,
-    //     params.a_roll,
-    //     target_axes.1,
-    //     *target_ω_roll,
-    //     coeffs,
-    //     drag_coeffs.roll,
-    //     &accel_maps.map_roll,
-    //     dt,
-    // );
-    //
-    // let yaw = find_ctrl_setting(
-    //       att_axes.2,
-    //     params.v_yaw,
-    //     params.a_yaw,
-    //   target_axes.2,
-    //     *target_ω_yaw,
-    //     coeffs,
-    //     drag_coeffs.yaw,
-    //     &accel_maps.map_yaw,
-    //     dt,
-    // );
-
     let mut result = CtrlMix {
         pitch,
         roll,
@@ -247,8 +169,8 @@ pub fn ctrl_mix_from_att(
 
     static mut i: u32 = 0;
     unsafe { i += 1 };
-    if unsafe { i } % 4_000 == 0 {
-        // if false {
+    // if unsafe { i } % 4_000 == 0 {
+    if false {
         // println!("\n***Attitude***");
 
         ahrs::print_quat(params.attitude, "Current att");
@@ -355,18 +277,6 @@ pub fn modify_att_target(
     yaw: f32,
     dt: f32,
 ) -> Quaternion {
-    // todo: Error handling on this?
-
-    // Rotate our basis vecs using the orientation, such that control inputs are relative to the
-    // aircraft's attitude.
-    let right_ac = orientation.rotate_vec(-RIGHT);
-    let fwd_ac = orientation.rotate_vec(-FORWARD);
-    let up_ac = orientation.rotate_vec(UP);
-
-    let rotation_pitch = Quaternion::from_axis_angle(right_ac, pitch * dt);
-    let rotation_roll = Quaternion::from_axis_angle(fwd_ac, roll * dt);
-    let rotation_yaw = Quaternion::from_axis_angle(up_ac, yaw * dt);
-
     // todo: This DEADZONE is to prevent f32(?) drift. We probably need a better way.
     // todo: This works for now though, at least when the stick is idle.
     const DEADZONE: f32 = 0.001;
@@ -374,12 +284,16 @@ pub fn modify_att_target(
     {
         return orientation;
     }
+    // todo: Error handling on this?
+
+    let rotation_pitch = Quaternion::from_axis_angle(RIGHT, -pitch * dt);
+    let rotation_roll = Quaternion::from_axis_angle(FORWARD, -roll * dt);
+    let rotation_yaw = Quaternion::from_axis_angle(UP, yaw * dt);
 
     // todo: Order?
-    // rotation_yaw * rotation_roll * rotation_pitch * orientation
     let rotation = (rotation_yaw * rotation_roll * rotation_pitch).to_normalized();
 
-    // todo: f32 precision issues?
+    // todo: f32 precision issues, fixed by the att update ratio?
 
     // Should already be normalized, but do this to avoid drift.
     (rotation * orientation).to_normalized()
@@ -418,6 +332,10 @@ pub fn update_att_commanded(
     has_taken_off: bool,
     takeoff_attitude: Quaternion,
 ) -> (Quaternion, (f32, f32, f32)) {
+    if !has_taken_off {
+        return (takeoff_attitude, (0., 0., 0.));
+    }
+
     // let rates_commanded = RatesCommanded {
     //     pitch: Some(cfg.input_map.calc_pitch_rate(ch_data.pitch)),
     //     roll: Some(cfg.input_map.calc_roll_rate(ch_data.roll)),
@@ -438,32 +356,29 @@ pub fn update_att_commanded(
     // each loop. We don't get control commands that rapidly, and more importantly,
     // doing it every loop leads to numerical precision issues due to how small
     // the changes are.
-    if has_taken_off {
-        let att_commanded_current = modify_att_target(
-            att_commanded_prev,
-            pitch_rate_cmd,
-            roll_rate_cmd,
-            yaw_rate_cmd,
-            DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
-        );
-        // todo: Instead of skipping ones not on the update ratio, you could store
-        // todo a buffer of attitudes, and look that far back.
-        // if i % ATT_CMD_UPDATE_RATIO == 0 {
-        // state_volatile.attitude_commanded.quat_dt = Torque::from_attitudes(
-        //     att_cmd_prev,
-        //     state_volatile.attitude_commanded.quat,
-        //     DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
-        // );
 
-        (
+    let att_commanded_current = modify_att_target(
+        att_commanded_prev,
+        pitch_rate_cmd,
+        roll_rate_cmd,
+        yaw_rate_cmd,
+        DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
+    );
+    // todo: Instead of skipping ones not on the update ratio, you could store
+    // todo a buffer of attitudes, and look that far back.
+    // if i % ATT_CMD_UPDATE_RATIO == 0 {
+    // state_volatile.attitude_commanded.quat_dt = Torque::from_attitudes(
+    //     att_cmd_prev,
+    //     state_volatile.attitude_commanded.quat,
+    //     DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
+    // );
+
+    (
+        att_commanded_current,
+        ang_v_from_attitudes(
+            att_commanded_prev,
             att_commanded_current,
-            ang_v_from_attitudes(
-                att_commanded_prev,
-                att_commanded_current,
-                DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
-            ),
-        )
-    } else {
-        (takeoff_attitude, (0., 0., 0.))
-    }
+            DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
+        ),
+    )
 }

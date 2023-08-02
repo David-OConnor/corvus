@@ -248,3 +248,85 @@ fn find_ctrl_setting(
 
     accel_map.interpolate(α_target)
 }
+
+
+
+
+
+
+
+
+    let ttc_target_per_rad = 0.2;
+
+    // I don't think it makes sense to apply a TTC to the quat directly, since the multiple dimensions
+    // involved means it's very likely on an intercept course.
+    // radians / (rad/s) = s
+    let time_to_correct_x = rot_cmd_axes.0 / (params.v_pitch - target_ω.0);
+    let time_to_correct_y = rot_cmd_axes.1 / (params.v_roll - target_ω.1);
+    let time_to_correct_z = rot_cmd_axes.2 / (params.v_yaw - target_ω.2);
+
+    // todo: QC where you're getting these target angular accels.
+    let (target_ω_pitch, target_ω_roll, target_ω_yaw) = target_ω;
+    let dω_pitch = target_ω_pitch - params.v_pitch;
+    let dω_roll = target_ω_roll - params.v_roll;
+    let dω_yaw = target_ω_yaw - params.v_yaw;
+
+    // todo: It's possible thetas should be 0, and theta target should be the rot cmd.
+
+    //
+
+    // todo: Testing alternative, more intuitive approach
+
+    let amt_dv = 1.;
+
+    If there is a positive TTC, we should apply a weaker correction.
+    If there is a negative TTC, we apply a stronger one.
+    let corr_factor = 0.3;
+    todo: You probably want an additive factor, not multiplicative.
+    let v_correction_x = map_linear(time_to_correct_x, (-5., 5.), (1. + corr_factor, 1. - corr_factor));
+
+    let d_ttc_x = (time_to_correct_x - ttc_target_per_rad) * ;
+    let d_ttc_y = (time_to_correct_y - ttc_target_per_rad);
+    let d_ttc_z = (time_to_correct_z - ttc_target_per_rad);
+
+    let = rot_cmd_axes.0
+
+    Examples, reasoning this out:
+    if there is a high TTC, We need to scale
+    let v_correction_x = p_term *
+
+    let pitch = find_ctrl_setting(
+        att_axes.0,
+        params.v_pitch,
+        params.a_pitch,
+        target_axes.0,
+        *target_ω_pitch,
+        coeffs,
+        drag_coeffs.pitch,
+        &accel_maps.map_pitch,
+        dt,
+    );
+
+    let roll = find_ctrl_setting(
+          att_axes.1,
+        params.v_roll,
+        params.a_roll,
+        target_axes.1,
+        *target_ω_roll,
+        coeffs,
+        drag_coeffs.roll,
+        &accel_maps.map_roll,
+        dt,
+    );
+
+    let yaw = find_ctrl_setting(
+          att_axes.2,
+        params.v_yaw,
+        params.a_yaw,
+      target_axes.2,
+        *target_ω_yaw,
+        coeffs,
+        drag_coeffs.yaw,
+        &accel_maps.map_yaw,
+        dt,
+    );

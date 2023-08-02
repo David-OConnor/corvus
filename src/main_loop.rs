@@ -244,12 +244,15 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 // todo: Put this in a fn.
                 const GYRO_THRESH: f32 = 0.01;
                 const ANGLE_THRESH: f32 = 0.2;
-                // todo: ALso check for if roughly level.
+                // todo: Needs lots of work.
                 let angle = params.attitude.rotate_vec(ahrs::UP).dot(ahrs::UP).acos();
                 state_volatile.has_taken_off = !(params.v_pitch.abs() < GYRO_THRESH
                     && params.v_roll.abs() < GYRO_THRESH
                     && params.v_yaw.abs() < GYRO_THRESH
                     && angle < ANGLE_THRESH);
+
+                // todo: Use altitude for this in the future, and make a good esimtate from over time.
+                state_volatile.has_taken_off = true;
 
                 // Update our commanded attitude
                 match control_channel_data {
