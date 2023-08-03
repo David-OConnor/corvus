@@ -106,7 +106,6 @@ pub fn ctrl_mix_from_att(
 
     #[allow(non_upper_case_globals)]
     let (pitch, roll, yaw) = {
-        // todo: Sloppy
         static mut error_x: f32 = 0.;
         static mut error_y: f32 = 0.;
         static mut error_z: f32 = 0.;
@@ -115,30 +114,27 @@ pub fn ctrl_mix_from_att(
         static mut integral_y: f32 = 0.;
         static mut integral_z: f32 = 0.;
 
-        const MAX_I_WINDUP: f32 = 1000.; // todo
+        // This should be on the order of the error term (Roughly radians)
+        const MAX_I_WINDUP: f32 = 1.;
 
-        let k_p = 0.20;
-        let k_i = 0.10;
-        let k_d = 0.05;
-
-        // todo: DO we want to multiply by dt here?
-        // let rot_to_apply = Quaternion::new_identity().slerp(rotation_cmd, p_term * dt);
-
-        // let (rot_x, rot_y, rot_z) = rot_to_apply.to_axes();
+        let k_p = 0.030;
+        let k_i = 0.100;
+        // let k_d = 0.001;
+        let k_d = 0.01;
 
         unsafe {
-            let d_error_x = rot_cmd_axes.0 - error_x;
-            let d_error_y = rot_cmd_axes.1 - error_y;
-            let d_error_z = rot_cmd_axes.2 - error_z;
+            let d_error_x = (rot_cmd_axes.0 - error_x) / dt;
+            let d_error_y = (rot_cmd_axes.1 - error_y) / dt;
+            let d_error_z = (rot_cmd_axes.2 - error_z) / dt;
 
             // PID here; get this working, then refine as required, or get fancier
             error_x = rot_cmd_axes.0;
             error_y = rot_cmd_axes.1;
             error_z = rot_cmd_axes.2;
 
-            integral_x += error_x;
-            integral_y += error_y;
-            integral_z += error_z;
+            integral_x += error_x * dt;
+            integral_y += error_y * dt;
+            integral_z += error_z * dt;
 
             for i_term in &mut [integral_x, integral_y, integral_z] {
                 if *i_term > MAX_I_WINDUP {
@@ -150,7 +146,7 @@ pub fn ctrl_mix_from_att(
 
             // The I-term builds up if corrections are unable to expeditiously converge.
             // An example of when this can happen is when the aircraft is on the ground.
-            // todo: Use `is_airborne` etc, vice idle throttle.
+            // todo: Use `is_airborne` etc, vice idle throttle?
             if throttle < 0.1 {
                 integral_x = 0.;
                 integral_y = 0.;
@@ -158,9 +154,9 @@ pub fn ctrl_mix_from_att(
             }
 
             // todo: Clamp I term.
-            let pitch = k_p * error_x + k_i * integral_x * dt - k_d * d_error_x / dt;
-            let roll = k_p * error_y + k_i * integral_y * dt - k_d * error_y / dt;
-            let yaw = k_p * error_z + k_i * integral_z * dt - k_d * error_z / dt;
+            let pitch = k_p * error_x + k_i * integral_x  + k_d * d_error_x;
+            let roll = k_p * error_y + k_i * integral_y  + k_d * error_y;
+            let yaw = k_p * error_z + k_i * integral_z  + k_d * error_z;
 
             (pitch, roll, yaw)
         }
