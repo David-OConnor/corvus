@@ -11,8 +11,6 @@ use ahrs::{self, ppks::PositVelEarthUnits, ImuReadings};
 
 use lin_alg2::f32::Quaternion;
 
-use num_traits::Float;
-
 use crate::{
     app, control_interface,
     drivers::osd::{AutopilotData, OsdData},
@@ -136,23 +134,6 @@ fn handle_rpm_readings(
 }
 
 pub fn run(mut cx: app::imu_tc_isr::Context) {
-    dma::clear_interrupt(
-        setup::IMU_DMA_PERIPH,
-        setup::IMU_RX_CH,
-        DmaInterrupt::TransferComplete,
-    );
-
-    cx.local.cs_imu.set_high();
-
-    cx.shared.spi1.lock(|spi1| {
-        // Note that this step is mandatory, per STM32 RM.
-        spi1.stop_dma(
-            setup::IMU_TX_CH,
-            Some(setup::IMU_RX_CH),
-            setup::IMU_DMA_PERIPH,
-        );
-    });
-
     *cx.local.imu_isr_loop_i += 1;
     let i = *cx.local.imu_isr_loop_i; // code shortener.
 
@@ -249,6 +230,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     ch_data,
                                     &cfg.input_map,
                                     state_volatile.attitude_commanded.quat,
+                                    params.attitude,
                                     state_volatile.has_taken_off,
                                     cfg.takeoff_attitude,
                                 );
@@ -305,6 +287,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     &cfg.ctrl_coeffs,
                                     flight_ctrl_filters,
                                     motor_timer,
+                                    &cfg.input_map,
                                 );
                             },
                         );
@@ -414,7 +397,9 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
 
                     cx.local.task_durations.tasks[1] =
                         timestamp_task_complete - timestamp_fc_complete;
-                } else if (i_compensated - 2) % NUM_IMU_LOOP_TASKS == 0 {
+                    // For OSD, we have a larger pause between writes so as not to saturate
+                    // the UART line.
+                } else if (i_compensated - 2) % (NUM_IMU_LOOP_TASKS * 5) == 0 {
                     let osd_data = OsdData {
                         arm_status: state_volatile.arm_status,
                         battery_voltage: state_volatile.batt_v,
@@ -543,8 +528,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
 
                     cx.local.task_durations.tasks[5] =
                         timestamp_task_complete - timestamp_fc_complete;
-                } else {
-                    println!("No task");
                 }
 
                 cx.shared.tick_timer.lock(|tick_timer| {

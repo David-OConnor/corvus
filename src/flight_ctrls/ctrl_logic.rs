@@ -95,14 +95,15 @@ pub fn ctrl_mix_from_att(
     drag_coeffs: &DragCoeffs,
     accel_maps: &AccelMaps,
     filters: &mut FlightCtrlFilters,
-    dt: f32, // seconds
+    dt: f32,              // seconds
+    pry: (f32, f32, f32), // todo temp
 ) -> CtrlMix {
-    // todo: temp to make the throttle more manageable while flying indoors.
-    let throttle = throttle / 2.;
-
     // This is the rotation we need to create to arrive at the target attitude from the current one.
-    let rotation_cmd = target_attitude * params.attitude.inverse();
-    let rot_cmd_axes = rotation_cmd.to_axes();
+    let rot_cmd_axes = (target_attitude / params.attitude).to_axes();
+
+    // todo: QC order on this
+    // let d_target_dt = target_attitude / target_attitude_prev;
+    // let d_att_dt = params.attitude / params_prev.attitude;
 
     #[allow(non_upper_case_globals)]
     let (pitch, roll, yaw) = {
@@ -117,20 +118,32 @@ pub fn ctrl_mix_from_att(
         // This should be on the order of the error term (Roughly radians)
         const MAX_I_WINDUP: f32 = 1.;
 
-        let k_p = 0.030;
-        let k_i = 0.100;
-        // let k_d = 0.001;
-        let k_d = 0.01;
+        let k_p = 0.070;
+        let k_i = 0.00;
+        let k_d = 0.000;
+
+        let (p, r, y) = pry;
 
         unsafe {
-            let d_error_x = (rot_cmd_axes.0 - error_x) / dt;
-            let d_error_y = (rot_cmd_axes.1 - error_y) / dt;
-            let d_error_z = (rot_cmd_axes.2 - error_z) / dt;
+            // Derivative smoothing/LP?
+            let d_error_x = ((p - params.v_pitch) - error_x) / dt;
+            let d_error_y = ((r - params.v_roll) - error_y) / dt;
+            let d_error_z = ((y - params.v_yaw) - error_z) / dt;
+
+            //             let d_error_x = (rot_cmd_axes.0 - error_x) / dt;
+            // let d_error_y = (rot_cmd_axes.1 - error_y) / dt;
+            // let d_error_z = (rot_cmd_axes.2 - error_z) / dt;
 
             // PID here; get this working, then refine as required, or get fancier
-            error_x = rot_cmd_axes.0;
-            error_y = rot_cmd_axes.1;
-            error_z = rot_cmd_axes.2;
+            // error_x = rot_cmd_axes.0;
+            // error_y = rot_cmd_axes.1;
+            // error_z = rot_cmd_axes.2;
+
+            // (error_x, error_y, error_z) = rot_cmd_axes;
+
+            error_x = p - params.v_pitch;
+            error_y = r - params.v_roll;
+            error_z = y - params.v_yaw;
 
             integral_x += error_x * dt;
             integral_y += error_y * dt;
@@ -154,9 +167,9 @@ pub fn ctrl_mix_from_att(
             }
 
             // todo: Clamp I term.
-            let pitch = k_p * error_x + k_i * integral_x  + k_d * d_error_x;
-            let roll = k_p * error_y + k_i * integral_y  + k_d * error_y;
-            let yaw = k_p * error_z + k_i * integral_z  + k_d * error_z;
+            let pitch = k_p * error_x + k_i * integral_x + k_d * d_error_x;
+            let roll = k_p * error_y + k_i * integral_y + k_d * d_error_y;
+            let yaw = k_p * error_z + k_i * integral_z + k_d * d_error_z;
 
             (pitch, roll, yaw)
         }
@@ -174,53 +187,7 @@ pub fn ctrl_mix_from_att(
     static mut i: u32 = 0;
     unsafe { i += 1 };
     // if unsafe { i } % 4_000 == 0 {
-    if false {
-        // println!("\n***Attitude***");
-
-        ahrs::print_quat(params.attitude, "Current att");
-        ahrs::print_quat(target_attitude, "Target att");
-        ahrs::print_quat(rotation_cmd, "Rot cmd");
-
-        println!("Throttle: {:?}", throttle);
-
-        // println!("\n***Ang Velocity***");
-        // println!(
-        //     "Current: v_p{} v_r{} v_y{}",
-        //     params.v_pitch, params.v_roll, params.v_yaw
-        // );
-        // println!(
-        //     "Target ω p{}, r{}, y{}",
-        //     target_ω_pitch, target_ω_roll, target_ω_yaw
-        // );
-        //
-        // println!("Required dω: p{}, r{}, y{}", dω_pitch, dω_roll, dω_yaw);
-        //
-        // println!(
-        //     "TTC x{}, y{}, z{}",
-        //     time_to_correct_x, time_to_correct_y, time_to_correct_z,
-        // );
-
-        // println!(
-        //     "d TTC x{}, y{}, z{}",
-        //    d_ttc_x, d_ttc_y, d_ttc_z,
-        // );
-
-        // println!(
-        //     "Target torque: x{}, y{}, z{} v{} ",
-        //     target_torque.axis.x,
-        //     target_torque.axis.y,
-        //     target_torque.axis.z,
-        //     target_torque.angular_velocity
-        // );
-
-        // println!("\n***Command generated:***");
-
-        // ahrs::print_quat(rot_to_apply, "Rot to apply");
-        println!(
-            "Mix. p{} r{} y{} t{}\n",
-            result.pitch, result.roll, result.yaw, result.throttle
-        );
-    }
+    if false {}
 
     result
 }
@@ -273,7 +240,7 @@ pub fn ctrl_mix_from_att(
     }
 }
 
-/// Modify our attitude commanded from rate-based user inputs. `ctrl_crates` are in radians/s, and `dt` is in s.
+/// Modify our attitude commanded from rate-based user inputs. ctrl_crates are in radians/s, and `dt` is in s.
 pub fn modify_att_target(
     orientation: Quaternion,
     pitch: f32,
@@ -297,7 +264,7 @@ pub fn modify_att_target(
     // todo: Order?
     let rotation = (rotation_yaw * rotation_roll * rotation_pitch).to_normalized();
 
-    // todo: f32 precision issues, fixed by the att update ratio?
+    // f32 precision issues, fixed by the att update ratio?
 
     // Should already be normalized, but do this to avoid drift.
     (rotation * orientation).to_normalized()
@@ -320,7 +287,7 @@ pub fn ang_v_from_attitudes(
     att_this: Quaternion,
     dt: f32,
 ) -> (f32, f32, f32) {
-    let rotation = att_this * att_prev.inverse();
+    let rotation = att_this / att_prev;
 
     let (x_comp, y_comp, z_comp) = rotation.to_axes();
 
@@ -333,11 +300,19 @@ pub fn update_att_commanded(
     ch_data: &ChannelData,
     input_map: &InputMap,
     att_commanded_prev: Quaternion,
+    current_att: Quaternion,
     has_taken_off: bool,
     takeoff_attitude: Quaternion,
 ) -> (Quaternion, (f32, f32, f32)) {
     if !has_taken_off {
-        return (takeoff_attitude, (0., 0., 0.));
+        // Prevent the aircraft from snapping north on takeoff. `takeoff_att` is only relevant for
+        // pitch and roll. This syncs the commadned attiude's yaw to current attitude's.
+        let aircraft_hdg = current_att.to_axes().2;
+
+        let heading_rotation = Quaternion::from_axis_angle(UP, -aircraft_hdg);
+
+        let att = heading_rotation * takeoff_attitude;
+        return (att, (0., 0., 0.));
     }
 
     // let rates_commanded = RatesCommanded {

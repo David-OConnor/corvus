@@ -271,7 +271,24 @@ mod app {
     motor_timer, servo_timer, state_volatile, system_status, tick_timer, uart_osd],
     local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, task_durations], priority = 4)]
-    fn imu_tc_isr(cx: imu_tc_isr::Context) {
+    fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
+        dma::clear_interrupt(
+            setup::IMU_DMA_PERIPH,
+            setup::IMU_RX_CH,
+            DmaInterrupt::TransferComplete,
+        );
+
+        cx.local.cs_imu.set_high();
+
+        cx.shared.spi1.lock(|spi1| {
+            // Note that this step is mandatory, per STM32 RM.
+            spi1.stop_dma(
+                setup::IMU_TX_CH,
+                Some(setup::IMU_RX_CH),
+                setup::IMU_DMA_PERIPH,
+            );
+        });
+
         main_loop::run(cx);
     }
 
@@ -590,13 +607,43 @@ mod app {
 
     // todo: Diff UART on H7
     #[task(binds = UART4, shared = [uart_osd], local = [], priority = 1)]
-    fn osd_isr(mut cx: osd_isr::Context) {
+    fn osd_rec_isr(mut cx: osd_rec_isr::Context) {
         cx.shared.uart_osd.lock(|uart| {
             uart.clear_interrupt(UsartInterrupt::CharDetect(None));
-        });
 
-        println!("OSD Uart Rx");
+            // Functions DJI O3 regulaerly sends:
+            // 3, 92, 101, 110, 112, 150, 10, 94, 105, 111, 130,
+            // todo T
+            let mut buf = [0; 6];
+
+            // todo: Don't block!!!
+            uart.read(&mut buf);
+
+            if buf[4] == protocols::msp::MSG_ID_STATUS {
+                println!("OSD STATUS");
+                let mut buf = [0; 11];
+                buf[6] = 1; // armed.
+                uart.write(&buf);
+            }
+
+            println!("OSD Uart Rx: {:?}", buf);
+        });
         // todo: Read and reply with status A/R.
+    }
+
+    // todo: LIkely tmep for OSD TS
+    #[task(binds = DMA1_CH6, shared = [], priority = 10)]
+    /// Baro write complete; start baro read.
+    fn osd_tx_isr(_cx: osd_tx_isr::Context) {
+        dma::clear_interrupt(
+            setup::OSD_DMA_PERIPH,
+            setup::OSD_TX_CH,
+            DmaInterrupt::TransferComplete,
+        );
+
+        // This appears to be a required step between UART DMA transmission.
+        dma::stop(setup::OSD_DMA_PERIPH, setup::OSD_TX_CH);
+        osd::OSD_WRITE_IN_PROGRESS.store(false, Ordering::Release);
     }
 
     #[task(binds = TIM5, shared = [tick_timer], local = [], priority = 1)]

@@ -5,13 +5,15 @@
 //! [Reference](https://github.com/iNavFlight/inav/wiki/MSP-V2)
 //!  Some general MSP example code:
 //! https://github.com/chris1seto/PX4-Autopilot/tree/turbotimber/src/modules/msp_osd
+//!
+//!List of message types: https://github.com/betaflight/betaflight/blob/5d29a0be0656303641b7004edcf8f22c770c5d22/src/main/msp/msp_protocol.h#L98
 
 #![allow(dead_code)] // todo: So we can comment-out the V2 or V1 code as required.
 
-use stm32_hal2::{dma::DmaChannel, pac::USART2, usart::Usart};
+use stm32_hal2::{dma::DmaChannel, pac, pac::USART2, usart::Usart};
 
 use crate::{
-    setup::{UartOsd, OSD_CH, OSD_DMA_PERIPH},
+    setup::{UartOsd, OSD_DMA_PERIPH, OSD_TX_CH},
     util,
 };
 
@@ -36,6 +38,9 @@ const CRC_SIZE_V2: usize = 2;
 // individual messages.
 pub const METADATA_SIZE_V1: usize = FRAME_START_I_V1 + CRC_SIZE_V1;
 pub const METADATA_SIZE_V2: usize = FRAME_START_I_V2 + CRC_SIZE_V2;
+
+pub const MSG_ID_DP: u8 = 182;
+pub const MSG_ID_STATUS: u8 = 101;
 
 #[derive(Copy, Clone)]
 #[repr(u8)]
@@ -123,13 +128,12 @@ impl<'a> Packet<'a> {
 
     pub fn send_v1(&self, buf: &mut [u8], uart: &mut UartOsd) {
         self.to_buf_v1(buf);
-        // println!("BUF: {:?}", buf);
-        unsafe { uart.write_dma(&buf, OSD_CH, Default::default(), OSD_DMA_PERIPH) };
+        unsafe { uart.write_dma(&buf, OSD_TX_CH, Default::default(), OSD_DMA_PERIPH) };
     }
 
     // todo: DRY
     pub fn _send_v2(&self, buf: &mut [u8], uart: &mut UartOsd) {
         self._to_buf_v2(buf);
-        unsafe { uart.write_dma(&buf, OSD_CH, Default::default(), OSD_DMA_PERIPH) };
+        unsafe { uart.write_dma(&buf, OSD_TX_CH, Default::default(), OSD_DMA_PERIPH) };
     }
 }

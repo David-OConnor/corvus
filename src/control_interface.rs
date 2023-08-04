@@ -7,8 +7,8 @@
 use core::sync::atomic::Ordering;
 
 use crate::{
-    protocols::crsf::{self, ChannelDataCrsf, LinkStats, TxPower},
-    safety::{self, ArmStatus},
+    protocols::crsf::{self, ChannelDataCrsf, LinkStats},
+    safety::ArmStatus,
     setup,
     system_status::{self, SensorStatus, SystemStatus},
     util,

@@ -14,7 +14,6 @@ pub mod pid;
 
 use crate::{
     control_interface::ChannelData, main_loop::DT_IMU, setup::MotorTimer, state::StateVolatile,
-    util,
 };
 
 use {
@@ -24,6 +23,7 @@ use {
 
 use ahrs::Params;
 
+use crate::flight_ctrls::common::InputMap;
 use cfg_if::cfg_if;
 use defmt::println;
 
@@ -47,6 +47,7 @@ pub fn run(
     ctrl_coeffs: &CtrlCoeffs,
     flight_ctrl_filters: &mut FlightCtrlFilters,
     motor_timer: &mut MotorTimer,
+    input_map: &InputMap, // todo TS
 ) {
     let throttle = match state_volatile.autopilot_commands.throttle {
         Some(t) => t,
@@ -54,6 +55,19 @@ pub fn run(
             Some(ch_data) => ch_data.throttle,
             None => 0.,
         },
+    };
+
+    // todo: Temp using rate controls to TS flight control logic
+    let pry = match control_channel_data {
+        Some(ch_data) => {
+            // temp trying traditional rate controls
+            let pitch_rate_cmd = input_map.calc_pitch_rate(ch_data.pitch);
+            let roll_rate_cmd = input_map.calc_roll_rate(ch_data.roll);
+            let yaw_rate_cmd = input_map.calc_yaw_rate(ch_data.yaw);
+
+            (pitch_rate_cmd, roll_rate_cmd, yaw_rate_cmd)
+        }
+        None => (0., 0., 0.),
     };
 
     cfg_if! {
@@ -72,6 +86,7 @@ pub fn run(
                 flight_ctrl_filters,
                 // The DT passed is the IMU rate, since we update params_prev each IMU update.
                 DT_IMU,
+                pry, // todo temp
             );
 
             let power_commanded = MotorPower::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);

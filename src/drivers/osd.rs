@@ -17,38 +17,35 @@ use core::{
 };
 
 use crate::{
-    flight_ctrls::autopilot::AutopilotStatus,
-    protocols::msp::{MsgType, Packet, METADATA_SIZE_V1},
+    flight_ctrls::autopilot::{self, AutopilotStatus},
+    protocols::msp::{MsgType, Packet, METADATA_SIZE_V1, MSG_ID_DP, MSG_ID_STATUS},
     safety::ArmStatus,
     setup::{self, UartOsd},
 };
 
 use ahrs::ppks::PositVelEarthUnits;
 
-use crate::flight_ctrls::autopilot;
 use stm32_hal2::dma::DmaChannel;
+
+// todo temp
+use stm32_hal2::pac::UART4;
 
 use defmt::println;
 
 pub const BAUD: u32 = 115_200; // 230400 allowed if "Fast_serial" is enabled
-
-const MSP_CMD: u8 = 182;
-const ARM_CMD: u8 = 101;
 
 const METADATA_SIZE_WRITE_PACKET: usize = 4;
 
 // An OSD position of 234 indicates the element is not visible.
 // const NOT_VISIBLE: u16 = 234;
 
-// These scale factors are used by MSP to store degrees as integers with suitable precision.
-const EULER_ANGLE_SCALE_FACTOR: f32 = 10.;
-
-pub static OSD_WRITE_IN_PROG: AtomicBool = AtomicBool::new(false);
-
 // // If you need more BF status flags, see the ref library above.
 // const ARM_ACRO_BF: u8 = 1;
 
 // const AUTOPILOT_DATA_SIZE: usize = NAME_SIZE;
+
+// We use this to make sure OSD writes don't step on each other.
+pub static OSD_WRITE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 // todo: Periodically send heartbeat? Receive canvas?
 
@@ -59,16 +56,39 @@ enum SubCommand {
     Heartbeat = 0,
     /// Clears the display and allows local rendering on the display device based on telemetry
     /// informtation etc.
-    Release = 1,
+    _Release = 1,
     ClearScreen = 2,
     WriteString = 3,
     /// Triggers the display of a frame after it has been cleared/rendered
     DrawScreen = 4,
     // todo: Use options to set resolution?
     /// Sets display resolution.
-    Options = 5,
+    _Options = 5,
     /// Display system element displayportSystemElement_e at given coordinates
-    Sys = 6,
+    _Sys = 6,
+}
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum ArmStatusMsp {
+    Disarmed = 0,
+    Armed = 1,
+}
+
+impl ArmStatusMsp {
+    fn from_arm_status(status: ArmStatus) -> Self {
+        #[cfg(feature = "quad")]
+        match status {
+            ArmStatus::Disarmed => Self::Disarmed,
+            ArmStatus::Armed => Self::Armed,
+        }
+
+        #[cfg(feature = "fixed-wing")]
+        match status {
+            ArmStatus::Disarmed => Self::Disarmed,
+            _ => Self::Armed,
+        }
+    }
 }
 
 /// Convert radians to degrees.
@@ -149,10 +169,19 @@ pub struct OsdData {
     pub num_satellites: u8,
 }
 
+fn make_heartbeat_packet<'a>() -> Packet<'a> {
+    Packet::new(
+        MsgType::Request,
+        MSG_ID_DP as u16,
+        1,
+        &[SubCommand::Heartbeat as u8],
+    )
+}
+
 fn make_clear_packet<'a>() -> Packet<'a> {
     Packet::new(
         MsgType::Request,
-        MSP_CMD as u16,
+        MSG_ID_DP as u16,
         1,
         &[SubCommand::ClearScreen as u8],
     )
@@ -172,13 +201,13 @@ fn make_write_packet<'a>(
     payload[METADATA_SIZE_WRITE_PACKET..METADATA_SIZE_WRITE_PACKET + text.len()]
         .copy_from_slice(text.as_bytes());
 
-    Packet::new(MsgType::Request, MSP_CMD as u16, 4 + text.len(), payload)
+    Packet::new(MsgType::Request, MSG_ID_DP as u16, 4 + text.len(), payload)
 }
 
 fn make_draw_packet<'a>() -> Packet<'a> {
     Packet::new(
         MsgType::Request,
-        MSP_CMD as u16,
+        MSG_ID_DP as u16,
         1,
         &[SubCommand::DrawScreen as u8],
     )
@@ -198,29 +227,50 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     // - Symbols on home plate, steerpoint etc?
     // - Land point data
 
+    if OSD_WRITE_IN_PROGRESS.load(Ordering::Acquire) {
+        // todo: Address
+        // println!("OSD write stepped on");
+        return;
+    }
+    // println!("Osd OK");
+
+    OSD_WRITE_IN_PROGRESS.store(true, Ordering::Release);
+
+    // todo: A bit sloppy; rate may vary depending on upstream settings.
+    static mut I: u32 = 0;
+    unsafe {
+        I += 1;
+        if I % 10 == 0 {
+            // todo: Exeperiment with timing.
+            let mut buf = [0; METADATA_SIZE_V1 + 1];
+            let packet = make_heartbeat_packet();
+            packet.send_v1(&mut buf, uart);
+        }
+    }
+
     // todo: YOu need to send the Arming command for DJI compatibility. How?
     // todo: You're currently using blocking writes; use DMA.
-    let mut buf = [0; METADATA_SIZE_V1 + 1];
-    let arm_packet = Packet::new(
-        MsgType::Request,
-        ARM_CMD as u16,
-        1,
-        &[1], // 1 = armed
-    );
-    arm_packet.send_v1(&mut buf, uart);
+    let mut buf = [0; METADATA_SIZE_V1 + 11]; // todo: Hard-coded to armed.
+    let mut payload = [0; 11]; // todo: What?
+
+    payload[6] = ArmStatusMsp::Armed as u8;
+    // payload[6] = ArmStatusMsp::from_arm_status(data.arm_status) as u8;
+
+    let packet = Packet::new(MsgType::Request, MSG_ID_STATUS as u16, 11, &payload);
+    packet.send_v1(&mut buf, uart);
 
     let mut buf = [0; METADATA_SIZE_V1 + 1];
-    let clear_packet = make_clear_packet();
-    clear_packet.send_v1(&mut buf, uart);
+    let packet = make_clear_packet();
+    packet.send_v1(&mut buf, uart);
 
     let mut buf = [0; METADATA_SIZE_V1 + METADATA_SIZE_WRITE_PACKET + 6];
     let mut payload = [0; METADATA_SIZE_WRITE_PACKET + 6];
-    let write_packet = make_write_packet(&mut payload, 3, 3, 0, "Corvus");
-    write_packet.send_v1(&mut buf, uart);
+    let packet = make_write_packet(&mut payload, 3, 6, 0, "Corvus");
+    packet.send_v1(&mut buf, uart);
 
     let mut buf = [0; METADATA_SIZE_V1 + 1];
-    let draw_packet = make_draw_packet();
-    draw_packet.send_v1(&mut buf, uart);
+    let packet = make_draw_packet();
+    packet.send_v1(&mut buf, uart);
 
     static mut i: u32 = 0;
     unsafe {

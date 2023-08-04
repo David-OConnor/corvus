@@ -68,11 +68,11 @@ use stm32_hal2::usart::UsartInterrupt;
 pub const IMU_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
 pub const MOTORS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
 pub const CRSF_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
+pub const OSD_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
 pub const BATT_CURR_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
 
 pub const BARO_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 pub const EXT_SENSORS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
-pub const OSD_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 pub const GNSS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 
 // DMA 1
@@ -84,6 +84,7 @@ pub const MOTOR_CH: DmaChannel = DmaChannel::C3;
 
 pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
 // pub const CRSF_TX_CH: DmaChannel = DmaChannel::C6; // Note: Unused
+pub const OSD_TX_CH: DmaChannel = DmaChannel::C6;
 
 pub const BATT_CURR_DMA_CH: DmaChannel = DmaChannel::C7;
 
@@ -94,7 +95,6 @@ pub const BARO_RX_CH: DmaChannel = DmaChannel::C2;
 // Channels for GPS, magnetometer, and TOF sensor.
 pub const EXT_SENSORS_TX_CH: DmaChannel = DmaChannel::C3;
 pub const EXT_SENSORS_RX_CH: DmaChannel = DmaChannel::C4;
-pub const OSD_CH: DmaChannel = DmaChannel::C5;
 
 pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
 
@@ -545,7 +545,7 @@ pub fn setup_dma() {
     // CRSF TX is currently unused.
     // dma::mux(CRSF_DMA_PERIPH, CRSF_TX_CH, DmaInput::Usart2Tx);
     dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, adc_dma_ip);
-    dma::mux(OSD_DMA_PERIPH, OSD_CH, osd_dma_ip);
+    dma::mux(OSD_DMA_PERIPH, OSD_TX_CH, osd_dma_ip);
     dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c2Tx);
     dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c2Rx);
 
@@ -566,6 +566,9 @@ pub fn setup_dma() {
     dma::enable_interrupt(BARO_DMA_PERIPH, BARO_RX_CH, DmaInterrupt::TransferComplete);
     // dma.enable_interrupt(EXT_SENSORS_TX_CH, DmaInterrupt::TransferComplete);
     // dma.enable_interrupt(EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);
+
+    // todo: TS: We don't really need this
+    dma::enable_interrupt(OSD_DMA_PERIPH, OSD_TX_CH, DmaInterrupt::TransferComplete);
 }
 
 /// Configure the SPI and I2C busses.
@@ -686,11 +689,17 @@ pub fn setup_busses(
     let mut uart_osd = Usart4::new(
         uart_osd_pac,
         crate::osd::BAUD,
-        Default::default(),
+        UsartConfig::default(),
+        // todo TS
+        // UsartConfig {
+        //     fifo_enabled: false,
+        //     ..UsartConfig::default()
+        // },
         clock_cfg,
     );
 
     uart_osd.enable_interrupt(UsartInterrupt::CharDetect(Some(msp::PREAMBLE_0)));
+
     // We use UART for the radio controller receiver, via CRSF protocol.
 
     //  * 420000 baud
