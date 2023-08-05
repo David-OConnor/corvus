@@ -614,19 +614,17 @@ mod app {
             // Functions DJI O3 regulaerly sends:
             // 3, 92, 101, 110, 112, 150, 10, 94, 105, 111, 130,
             // todo T
-            let mut buf = [0; 6];
+            // let mut buf = [0; 6];
 
-            // todo: Don't block!!!
-            uart.read(&mut buf);
-
-            if buf[4] == protocols::msp::MSG_ID_STATUS {
-                println!("OSD STATUS");
-                let mut buf = [0; 11];
-                buf[6] = 1; // armed.
-                uart.write(&buf);
-            }
-
-            println!("OSD Uart Rx: {:?}", buf);
+            // // todo: Don't block!!!
+            // uart.read(&mut buf);
+            //
+            // if buf[4] == protocols::msp::MSG_ID_STATUS {
+            //     println!("OSD STATUS");
+            //     let mut buf = [0; 11];
+            //     buf[6] = 1; // armed.
+            //     uart.write(&buf);
+            // }
         });
         // todo: Read and reply with status A/R.
     }

@@ -47,6 +47,8 @@ const METADATA_SIZE_WRITE_PACKET: usize = 4;
 // We use this to make sure OSD writes don't step on each other.
 pub static OSD_WRITE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
+static mut OSD_BUF: [u8; 300] = [0; 300]; // todo: size A/R
+
 // todo: Periodically send heartbeat? Receive canvas?
 
 #[derive(Clone, Copy)]
@@ -192,14 +194,16 @@ fn make_write_packet<'a>(
     row: u8,
     col: u8,
     attribute: u8,
-    text: &str,
+    // text: &str,
+    text: &[u8],
 ) -> Packet<'a> {
     payload[0] = SubCommand::WriteString as u8;
     payload[1] = row;
     payload[2] = col;
     payload[3] = attribute;
     payload[METADATA_SIZE_WRITE_PACKET..METADATA_SIZE_WRITE_PACKET + text.len()]
-        .copy_from_slice(text.as_bytes());
+        // .copy_from_slice(text.as_bytes());
+        .copy_from_slice(text);
 
     Packet::new(MsgType::Request, MSG_ID_DP as u16, 4 + text.len(), payload)
 }
@@ -211,6 +215,18 @@ fn make_draw_packet<'a>() -> Packet<'a> {
         1,
         &[SubCommand::DrawScreen as u8],
     )
+}
+
+// todo: Instead of const generic, could skip the Packet struct, etc.
+// fn add_to_write_buf<const N: usize>(buf: &mut [u8], row: u8, col: u8, text: &str, i: &mut usize) {
+fn add_to_write_buf<const N: usize>(buf: &mut [u8], row: u8, col: u8, text: &[u8], i: &mut usize) {
+    // let mut payload = [0; METADATA_SIZE_WRITE_PACKET + N];
+    let mut payload = [0; N];
+    let packet = make_write_packet(&mut payload, row, col, 0, text);
+
+    packet.to_buf_v1(&mut buf[*i..*i + METADATA_SIZE_V1 + METADATA_SIZE_WRITE_PACKET + N]);
+
+    *i += METADATA_SIZE_V1 + METADATA_SIZE_WRITE_PACKET + N;
 }
 
 /// Sends data for all relevant elements to the OSD. Accepts a data struct built from select
@@ -229,114 +245,65 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
 
     if OSD_WRITE_IN_PROGRESS.load(Ordering::Acquire) {
         // todo: Address
-        // println!("OSD write stepped on");
+        // todo: DO you need this?
         return;
     }
-    // println!("Osd OK");
-
     OSD_WRITE_IN_PROGRESS.store(true, Ordering::Release);
+
+    let buf = unsafe { &mut OSD_BUF };
+
+    let mut i = 0;
 
     // todo: A bit sloppy; rate may vary depending on upstream settings.
     static mut I: u32 = 0;
     unsafe {
         I += 1;
-        if I % 10 == 0 {
+        if I % 100 == 0 {
+            let mut payload = [0; 11];
+            let packet = Packet::new(MsgType::Response, MSG_ID_STATUS as u16, 11, &payload);
+
+            // packet.to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 11]);
+            // i += i + METADATA_SIZE_V1 + 11;
+
             // todo: Exeperiment with timing.
-            let mut buf = [0; METADATA_SIZE_V1 + 1];
-            let packet = make_heartbeat_packet();
-            packet.send_v1(&mut buf, uart);
+            // make_heartbeat_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
+            // i += i + METADATA_SIZE_V1 + 1;
         }
     }
 
-    // todo: YOu need to send the Arming command for DJI compatibility. How?
-    // todo: You're currently using blocking writes; use DMA.
-    let mut buf = [0; METADATA_SIZE_V1 + 11]; // todo: Hard-coded to armed.
-    let mut payload = [0; 11]; // todo: What?
-
+    // Send a status packet indicating it's armed. Not sure what the fields are.
+    let mut payload = [0; 11];
     payload[6] = ArmStatusMsp::Armed as u8;
     // payload[6] = ArmStatusMsp::from_arm_status(data.arm_status) as u8;
+    let packet = Packet::new(MsgType::Response, MSG_ID_STATUS as u16, 11, &payload);
 
-    let packet = Packet::new(MsgType::Request, MSG_ID_STATUS as u16, 11, &payload);
-    packet.send_v1(&mut buf, uart);
+    make_clear_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
+    i += i + METADATA_SIZE_V1 + 1;
 
-    let mut buf = [0; METADATA_SIZE_V1 + 1];
-    let packet = make_clear_packet();
-    packet.send_v1(&mut buf, uart);
+    add_to_write_buf::<{ 18 + METADATA_SIZE_WRITE_PACKET }>(
+        buf,
+        6,
+        3,
+        &[
+            9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+        ],
+        &mut i,
+    );
 
-    let mut buf = [0; METADATA_SIZE_V1 + METADATA_SIZE_WRITE_PACKET + 6];
-    let mut payload = [0; METADATA_SIZE_WRITE_PACKET + 6];
-    let packet = make_write_packet(&mut payload, 3, 6, 0, "Corvus");
-    packet.send_v1(&mut buf, uart);
+    let mut str_buf = [0; 3];
+    let voltage_int = (data.battery_voltage * 10.) as u8; // todo temp
+    add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 20, 6, "-._V".as_bytes(), &mut i);
 
-    let mut buf = [0; METADATA_SIZE_V1 + 1];
-    let packet = make_draw_packet();
-    packet.send_v1(&mut buf, uart);
+    // todo: Current?
 
-    static mut i: u32 = 0;
-    unsafe {
-        i += 1;
+    let mut str_buf = [0; 3];
+    let alt_int = (data.alt_msl_baro * 10.) as u8; // todo temp
+    add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 10, 10, "-._m".as_bytes(), &mut i);
 
-        if i % 4_000 == 0 {
-            // println!("OSD buf: {:?}", BUF_OSD);
-            // println!("OSD buf: {:?}", buf);
-        }
-    }
+    let mut str_buf = [0; 3];
+    let airspeed_int = (data.posit_vel.velocity.magnitude() * 10.) as u8; // todo temp
+    add_to_write_buf::<{ 6 + METADATA_SIZE_WRITE_PACKET }>(buf, 10, 2, "-._m/s".as_bytes(), &mut i);
 
-    // todo: End test
-    //
-    // // Asci digits. Digit, ASCII value
-    // // 0 	48
-    // // 1 	49
-    // // 2 	50
-    // // 3 	51
-    // // 4 	52
-    // // 5 	53
-    // // 6 	54
-    // // 7 	55
-    // // 8 	56
-    // // 9 	57
-    //
-    // // let pid_display: [u8; NAME_SIZE] = "test".to_buf();
-    //
-    // let mut buf = [0; NAME_SIZE + METADATA_SIZE_V1];
-    // add_to_buf(
-    //     Function::Name,
-    //     &data.autopilot.to_str(),
-    //     NAME_SIZE,
-    //     &mut buf,
-    //     &mut buf_i,
-    // );
-    //
-    // let status_bf = StatusBf {
-    //     flight_mode_flags: ARM_ACRO_BF as u32,
-    //     arming_disable_flags_count: 1,
-    //     arming_disable_flags: 0,
-    //     ..Default::default()
-    // };
-    //
-    // let mut buf = [0; STATUS_BF_SIZE + METADATA_SIZE_V1];
-    // add_to_buf(
-    //     Function::Status,
-    //     &status_bf.to_buf(),
-    //     STATUS_BF_SIZE,
-    //     &mut buf,
-    //     &mut buf_i,
-    // );
-    //
-    // let battery_state = BatteryState {
-    //     amperage: data.current_draw as u16, // todo: Find the conversion factor
-    //     battery_voltage: data.battery_voltage as u16, // todo: Find the conversion factor
-    //     ..Default::default()
-    // };
-    //
-    // let mut buf = [0; BATTERY_STATE_SIZE + METADATA_SIZE_V1];
-    // add_to_buf(
-    //     Function::BatteryState,
-    //     &battery_state.to_buf(),
-    //     BATTERY_STATE_SIZE,
-    //     &mut buf,
-    //     &mut buf_i,
-    // );
     //
     // // MSP format stores coordinates in 10^6 degrees. Our internal format is radians.
     // // TAU radians in 360 degrees. 1 degree = TAU/360 rad
@@ -371,12 +338,7 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     //     &mut buf_i,
     // );
     //
-    // let altitude = Altitude {
-    //     estimated_actual_position: 0,                   // todo
-    //     estimated_actual_velocity: 0,                   // todo
-    //     baro_latest_altitude: data.alt_msl_baro as i32, // todo: Find conversion factor, if there is one.
-    // };
-    //
+
     // let mut buf = [0; ALTITUDE_SIZE + METADATA_SIZE_V1];
     // add_to_buf(
     //     Function::Altitude,
@@ -404,81 +366,7 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     //
     // // Send initial configuration data to the display. This positions each element, and sets elements
     // // unsupported by the DJI MSP API to not visible.
-    //
-    // // OSD elements positions.
-    // // Horizontally 2048-2074(spacing 1),
-    // // vertically 2048-2528(spacing 32). 26 characters X 15 lines
-    // // todo: Clarify how this works.
-    // // in betaflight configurator set OSD elements to your desired positions and in CLI type
-    // // "set osd" to retreieve the numbers.
-    // let osd_config = OsdConfig {
-    //     units: 0,
-    //     item_count: 56,
-    //     stat_count: 24,
-    //     timer_count: 2,
-    //     warning_count: 16,     // 16
-    //     profile_count: 1,      // 1
-    //     osdprofileindex: 1,    // 1
-    //     overlay_radio_mode: 0, //  0
-    //     rssi_value_pos: 2_176,
-    //     main_batt_voltage_pos: 2073,
-    //     crosshairs_pos: NOT_VISIBLE,
-    //     artificial_horizon_pos: NOT_VISIBLE,
-    //     horizon_sidebars_pos: NOT_VISIBLE,
-    //     item_timer_1_pos: NOT_VISIBLE,
-    //     item_timer_2_pos: NOT_VISIBLE,
-    //     flymode_pos: NOT_VISIBLE,
-    //     craft_name_pos: 2_543,
-    //     throttle_pos_pos: NOT_VISIBLE,
-    //     vtx_channel_pos: NOT_VISIBLE,
-    //     current_draw_pos: 2_103,
-    //     mah_drawn_pos: 2_138,
-    //     gps_speed_pos: 2_475,
-    //     gps_sats_pos: 2_112,
-    //     altitude_pos: 2_476,
-    //     roll_pids_pos: NOT_VISIBLE,
-    //     pitch_pids_pos: NOT_VISIBLE,
-    //     yaw_pids_pos: NOT_VISIBLE,
-    //     power_pos: NOT_VISIBLE,
-    //     pidrate_profile_pos: NOT_VISIBLE,
-    //     warnings_pos: NOT_VISIBLE,
-    //     avg_cell_voltage_pos: NOT_VISIBLE,
-    //     gps_lon_pos: 2_080,
-    //     gps_lat_pos: 2_048,
-    //     debug_pos: NOT_VISIBLE,
-    //     pitch_angle_pos: NOT_VISIBLE,
-    //     roll_angle_pos: NOT_VISIBLE,
-    //     main_batt_usage_pos: NOT_VISIBLE,
-    //     disarmed_pos: 2_125,
-    //     home_dir_pos: 2_093,
-    //     home_dist_pos: 2_331,
-    //     numerical_heading_pos: NOT_VISIBLE,
-    //     numerical_vario_pos: 2_482,
-    //     compass_bar_pos: NOT_VISIBLE,
-    //     esc_tmp_pos: NOT_VISIBLE,
-    //     esc_rpm_pos: NOT_VISIBLE,
-    //     remaining_time_estimate_pos: NOT_VISIBLE,
-    //     rtc_datetime_pos: NOT_VISIBLE,
-    //     adjustment_range_pos: NOT_VISIBLE,
-    //     core_temperature_pos: NOT_VISIBLE,
-    //     anti_gravity_pos: NOT_VISIBLE,
-    //     g_force_pos: NOT_VISIBLE,
-    //     motor_diag_pos: NOT_VISIBLE,
-    //     log_status_pos: NOT_VISIBLE,
-    //     flip_arrow_pos: NOT_VISIBLE,
-    //     link_quality_pos: NOT_VISIBLE,
-    //     flight_dist_pos: NOT_VISIBLE,
-    //     stick_overlay_left_pos: NOT_VISIBLE,
-    //     stick_overlay_right_pos: NOT_VISIBLE,
-    //     display_name_pos: NOT_VISIBLE,
-    //     esc_rpm_freq_pos: NOT_VISIBLE,
-    //     rate_profile_name_pos: NOT_VISIBLE,
-    //     pid_profile_name_pos: NOT_VISIBLE,
-    //     profile_name_pos: NOT_VISIBLE,
-    //     rssi_dbm_value_pos: NOT_VISIBLE,
-    //     rc_channels_pos: NOT_VISIBLE,
-    //     ..Default::default()
-    // };
+
     //
     // let mut buf = [0; OSD_CONFIG_SIZE + METADATA_SIZE_V1];
     // add_to_buf(
@@ -507,4 +395,22 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     //         setup::OSD_DMA_PERIPH,
     //     )
     // };
+
+    make_draw_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
+    i += i + METADATA_SIZE_V1 + 1;
+
+    unsafe {
+        if I % 1000 == 0 {
+            println!("OSD buf len: {:?}", i);
+        }
+    }
+
+    unsafe {
+        uart.write_dma(
+            buf,
+            setup::OSD_TX_CH,
+            Default::default(),
+            setup::OSD_DMA_PERIPH,
+        )
+    };
 }

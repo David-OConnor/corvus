@@ -126,9 +126,10 @@ impl<'a> Packet<'a> {
         buf[FRAME_START_I_V2 + self.payload_size as usize] = crc;
     }
 
-    pub fn send_v1(&self, buf: &mut [u8], uart: &mut UartOsd) {
+    pub fn _send_v1(&self, buf: &mut [u8], uart: &mut UartOsd) {
         self.to_buf_v1(buf);
-        unsafe { uart.write_dma(&buf, OSD_TX_CH, Default::default(), OSD_DMA_PERIPH) };
+        // unsafe { uart.write_dma(&buf, OSD_TX_CH, Default::default(), OSD_DMA_PERIPH) };
+        uart.write(buf);
     }
 
     // todo: DRY

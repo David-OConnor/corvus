@@ -126,9 +126,13 @@ pub fn ctrl_mix_from_att(
 
         unsafe {
             // Derivative smoothing/LP?
-            let d_error_x = ((p - params.v_pitch) - error_x) / dt;
-            let d_error_y = ((r - params.v_roll) - error_y) / dt;
-            let d_error_z = ((y - params.v_yaw) - error_z) / dt;
+            // let d_error_x = ((p - params.v_pitch) - error_x) / dt;
+            // let d_error_y = ((r - params.v_roll) - error_y) / dt;
+            // let d_error_z = ((y - params.v_yaw) - error_z) / dt;
+
+            let d_error_x = ((target_ω.0 - params.v_pitch) - error_x) / dt;
+            let d_error_y = ((target_ω.1 - params.v_roll) - error_y) / dt;
+            let d_error_z = ((target_ω.2 - params.v_yaw) - error_z) / dt;
 
             //             let d_error_x = (rot_cmd_axes.0 - error_x) / dt;
             // let d_error_y = (rot_cmd_axes.1 - error_y) / dt;
@@ -140,10 +144,14 @@ pub fn ctrl_mix_from_att(
             // error_z = rot_cmd_axes.2;
 
             // (error_x, error_y, error_z) = rot_cmd_axes;
+            //
+            // error_x = p - params.v_pitch;
+            // error_y = r - params.v_roll;
+            // error_z = y - params.v_yaw;
 
-            error_x = p - params.v_pitch;
-            error_y = r - params.v_roll;
-            error_z = y - params.v_yaw;
+            error_x = target_ω.0 - params.v_pitch;
+            error_y = target_ω.1 - params.v_roll;
+            error_z = target_ω.2 - params.v_yaw;
 
             integral_x += error_x * dt;
             integral_y += error_y * dt;
