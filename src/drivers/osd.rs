@@ -258,150 +258,61 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     static mut I: u32 = 0;
     unsafe {
         I += 1;
-        if I % 100 == 0 {
-            let mut payload = [0; 11];
-            let packet = Packet::new(MsgType::Response, MSG_ID_STATUS as u16, 11, &payload);
-
-            // packet.to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 11]);
-            // i += i + METADATA_SIZE_V1 + 11;
-
+        if I % 20 == 0 {
             // todo: Exeperiment with timing.
-            // make_heartbeat_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
-            // i += i + METADATA_SIZE_V1 + 1;
+            // Send a status packet indicating it's armed. Not sure what the fields are.
+            let mut payload = [0; 11];
+            payload[6] = ArmStatusMsp::Armed as u8;
+            // payload[6] = ArmStatusMsp::from_arm_status(data.arm_status) as u8;
+            let packet = Packet::new(MsgType::Response, MSG_ID_STATUS as u16, 11, &payload);
+            // packet.add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 19, 6, "x100".as_bytes(), &mut i);
+
+            make_heartbeat_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
+            i += i + METADATA_SIZE_V1 + 1;
         }
     }
-
-    // Send a status packet indicating it's armed. Not sure what the fields are.
-    let mut payload = [0; 11];
-    payload[6] = ArmStatusMsp::Armed as u8;
-    // payload[6] = ArmStatusMsp::from_arm_status(data.arm_status) as u8;
-    let packet = Packet::new(MsgType::Response, MSG_ID_STATUS as u16, 11, &payload);
 
     make_clear_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
     i += i + METADATA_SIZE_V1 + 1;
 
-    add_to_write_buf::<{ 18 + METADATA_SIZE_WRITE_PACKET }>(
-        buf,
-        6,
-        3,
-        &[
-            9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-        ],
-        &mut i,
-    );
+    // DJI O3 font map
+    // a - 0: Arrows
+    // r - good velocity vector
+    // stufw: Carrot-sytyle arrows
+    // x: thermometer
+    // todo; Possibly need to shift these up to 3
+
+    // let mut str_buf = [0; 3];
+    // let voltage_int = (data.battery_voltage * 10.) as u8; // todo temp
+    // add_to_write_buf::<{ 2 + METADATA_SIZE_WRITE_PACKET }>(buf, 14, 14, "LQ".as_bytes(), &mut i);
 
     let mut str_buf = [0; 3];
     let voltage_int = (data.battery_voltage * 10.) as u8; // todo temp
-    add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 20, 6, "-._V".as_bytes(), &mut i);
+    add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 15, 14, "-._V".as_bytes(), &mut i);
 
     // todo: Current?
 
     let mut str_buf = [0; 3];
     let alt_int = (data.alt_msl_baro * 10.) as u8; // todo temp
-    add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 10, 10, "-._m".as_bytes(), &mut i);
+    add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 4, 24, "-._M".as_bytes(), &mut i);
 
     let mut str_buf = [0; 3];
     let airspeed_int = (data.posit_vel.velocity.magnitude() * 10.) as u8; // todo temp
-    add_to_write_buf::<{ 6 + METADATA_SIZE_WRITE_PACKET }>(buf, 10, 2, "-._m/s".as_bytes(), &mut i);
+    add_to_write_buf::<{ 6 + METADATA_SIZE_WRITE_PACKET }>(buf, 4, 1, "-._M/S".as_bytes(), &mut i);
 
-    //
-    // // MSP format stores coordinates in 10^6 degrees. Our internal format is radians.
-    // // TAU radians in 360 degrees. 1 degree = TAU/360 rad
-    // let raw_gps = RawGps {
-    //     lat: (data.posit_vel.lat_e8 / 10) as i32,
-    //     lon: (data.posit_vel.lon_e8 / 10) as i32,
-    //     alt: data.posit_vel.elevation_msl as i16,
-    //     ..Default::default()
-    // };
-    //
-    // let mut buf = [0; RAW_GPS_SIZE + METADATA_SIZE_V1];
-    // add_to_buf(
-    //     Function::RawGps,
-    //     &raw_gps.to_buf(),
-    //     RAW_GPS_SIZE,
-    //     &mut buf,
-    //     &mut buf_i,
-    // );
-    //
-    // let attitude = Attitude {
-    //     roll: (to_degrees(data.roll) * EULER_ANGLE_SCALE_FACTOR) as i16,
-    //     pitch: (to_degrees(data.pitch) * EULER_ANGLE_SCALE_FACTOR) as i16,
-    //     yaw: (to_degrees(data.yaw) * EULER_ANGLE_SCALE_FACTOR) as i16,
-    // };
-    //
-    // let mut buf = [0; ATTITUDE_SIZE + METADATA_SIZE_V1];
-    // add_to_buf(
-    //     Function::Attitude,
-    //     &attitude.to_buf(),
-    //     ATTITUDE_SIZE,
-    //     &mut buf,
-    //     &mut buf_i,
-    // );
-    //
+    let mut str_buf = [0; 3];
+    let airspeed_int = (data.posit_vel.velocity.magnitude() * 10.) as u8; // todo temp
+    add_to_write_buf::<{ 2 + METADATA_SIZE_WRITE_PACKET }>(buf, 1, 10, "#S".as_bytes(), &mut i);
 
-    // let mut buf = [0; ALTITUDE_SIZE + METADATA_SIZE_V1];
-    // add_to_buf(
-    //     Function::Altitude,
-    //     &altitude.to_buf(),
-    //     ALTITUDE_SIZE,
-    //     &mut buf,
-    //     &mut buf_i,
-    // );
-    //
-    // // todo: Fill this in once you have bidir dshot setup. Could add temp as well.
-    // let esc_sensor_data = EscSensorData {
-    //     motor_count: 0,
-    //     temperature: 0,
-    //     rpm: 0,
-    // };
-    //
-    // let mut buf = [0; EC_SENSOR_DATA_SIZE + METADATA_SIZE_V1];
-    // add_to_buf(
-    //     Function::EscSensorData,
-    //     &esc_sensor_data.to_buf(),
-    //     EC_SENSOR_DATA_SIZE,
-    //     &mut buf,
-    //     &mut buf_i,
-    // );
-    //
-    // // Send initial configuration data to the display. This positions each element, and sets elements
-    // // unsupported by the DJI MSP API to not visible.
-
-    //
-    // let mut buf = [0; OSD_CONFIG_SIZE + METADATA_SIZE_V1];
-    // add_to_buf(
-    //     Function::OsdConfig,
-    //     &osd_config.to_buf(),
-    //     OSD_CONFIG_SIZE,
-    //     &mut buf,
-    //     &mut buf_i,
-    // );
-    //
-    // static mut i: u32 = 0;
-    // unsafe {
-    //     i += 1;
-    //
-    //     if i % 4_000 == 0 {
-    //         println!("OSD buf: {:?}", BUF_OSD);
-    //     }
-    // }
-    //
-    // // Send all the data we've compiled into the buffer.
-    // unsafe {
-    //     uart.write_dma(
-    //         &BUF_OSD,
-    //         dma_chan,
-    //         Default::default(),
-    //         setup::OSD_DMA_PERIPH,
-    //     )
-    // };
+    // todo: Base dist/bearing, num sats, LQ
 
     make_draw_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
     i += i + METADATA_SIZE_V1 + 1;
 
     unsafe {
-        if I % 1000 == 0 {
+        if I % 10 == 0 {
             println!("OSD buf len: {:?}", i);
+            // println!("Buf: {:x}", buf);
         }
     }
 
@@ -414,3 +325,13 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
         )
     };
 }
+
+// /// Map an integer to a character (ASCII byte)
+// fn map_int_to_chars(num: u8, buf: &mut [u8]) -> u8 {
+//     let str = match num {
+//         0 => "0",
+//         _ => "-",
+//     };
+//
+//     .as_bytes()[0]
+// }
