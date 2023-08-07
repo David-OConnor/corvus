@@ -97,7 +97,7 @@ pub fn start_transfers(i2c_ext_sensors: &mut I2cMag, i2c_baro: &mut I2cBaro) {
             false,
             BARO_TX_CH,
             Default::default(),
-            setup::BARO_DMA_PERIPH,
+            BARO_DMA_PERIPH,
         );
 
         // todo: Put back; temp removed while testing Baro

@@ -11,6 +11,7 @@ use crate::{
         ctrl_logic::{CtrlCoeffs, DragCoeffs},
         // ControlMapping,
         motor_servo::MotorServoState,
+        pid::PidCoeffs,
     },
     safety::ArmStatus,
     sensors_shared::BattCellCount,
@@ -85,6 +86,7 @@ impl Default for OperationMode {
 //     }
 // }
 
+
 /// Persistent state; saved to onboard flash memory. Contains user-configurable settings.
 pub struct UserCfg {
     #[cfg(feature = "fixed-wing")]
@@ -130,6 +132,7 @@ pub struct UserCfg {
     /// Number of poles in each motor. Can be counted by hand, or by referencing motor datasheets.
     pub motor_pole_count: u8,
     pub base_pt: PositVelEarthUnits,
+    pub pid_coeffs: PidCoeffs
 }
 
 impl Default for UserCfg {
@@ -190,6 +193,7 @@ impl Default for UserCfg {
             batt_cell_count: Default::default(),
             motor_pole_count: 14,
             base_pt: Default::default(),
+            pid_coeffs: Default::default(),
         }
     }
 }

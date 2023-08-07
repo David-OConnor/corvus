@@ -15,6 +15,7 @@ use super::{
     ctrl_effect_est::{AccelMap, AccelMaps},
     filters::FlightCtrlFilters,
     motor_servo::{MotorServoState, RotationDir},
+    pid::PidCoeffs,
 };
 
 use ahrs::{Params, FORWARD, RIGHT, UP};
@@ -97,6 +98,7 @@ pub fn ctrl_mix_from_att(
     filters: &mut FlightCtrlFilters,
     dt: f32,              // seconds
     pry: (f32, f32, f32), // todo temp
+    pid_coeffs: &PidCoeffs,
 ) -> CtrlMix {
     // This is the rotation we need to create to arrive at the target attitude from the current one.
     let rot_cmd_axes = (target_attitude / params.attitude).to_axes();
@@ -105,8 +107,10 @@ pub fn ctrl_mix_from_att(
     // let d_target_dt = target_attitude / target_attitude_prev;
     // let d_att_dt = params.attitude / params_prev.attitude;
 
+    let (p, r, y) = pry;
+
     #[allow(non_upper_case_globals)]
-    let (pitch, roll, yaw) = {
+        let (pitch, roll, yaw) = {
         static mut error_x: f32 = 0.;
         static mut error_y: f32 = 0.;
         static mut error_z: f32 = 0.;
@@ -115,14 +119,9 @@ pub fn ctrl_mix_from_att(
         static mut integral_y: f32 = 0.;
         static mut integral_z: f32 = 0.;
 
-        // This should be on the order of the error term (Roughly radians)
+        // //  This should be on the order of the error term (Roughly radians)
+        // This should be on the order of the error term (Roughly radians/sec)
         const MAX_I_WINDUP: f32 = 1.;
-
-        let k_p = 0.070;
-        let k_i = 0.00;
-        let k_d = 0.000;
-
-        let (p, r, y) = pry;
 
         unsafe {
             // Derivative smoothing/LP?
@@ -130,28 +129,21 @@ pub fn ctrl_mix_from_att(
             // let d_error_y = ((r - params.v_roll) - error_y) / dt;
             // let d_error_z = ((y - params.v_yaw) - error_z) / dt;
 
-            let d_error_x = ((target_ω.0 - params.v_pitch) - error_x) / dt;
-            let d_error_y = ((target_ω.1 - params.v_roll) - error_y) / dt;
-            let d_error_z = ((target_ω.2 - params.v_yaw) - error_z) / dt;
+            // let d_error_x = ((target_ω.0 - params.v_pitch) - error_x) / dt;
+            // let d_error_y = ((target_ω.1 - params.v_roll) - error_y) / dt;
+            // let d_error_z = ((target_ω.2 - params.v_yaw) - error_z) / dt;
 
-            //             let d_error_x = (rot_cmd_axes.0 - error_x) / dt;
-            // let d_error_y = (rot_cmd_axes.1 - error_y) / dt;
-            // let d_error_z = (rot_cmd_axes.2 - error_z) / dt;
+            let error_x_prev = error_x;
+            let error_y_prev = error_y;
+            let error_z_prev = error_z;
 
-            // PID here; get this working, then refine as required, or get fancier
-            // error_x = rot_cmd_axes.0;
-            // error_y = rot_cmd_axes.1;
-            // error_z = rot_cmd_axes.2;
+            error_x = p - params.v_pitch;
+            error_y = r - params.v_roll;
+            error_z = y - params.v_yaw;
 
-            // (error_x, error_y, error_z) = rot_cmd_axes;
-            //
-            // error_x = p - params.v_pitch;
-            // error_y = r - params.v_roll;
-            // error_z = y - params.v_yaw;
-
-            error_x = target_ω.0 - params.v_pitch;
-            error_y = target_ω.1 - params.v_roll;
-            error_z = target_ω.2 - params.v_yaw;
+            let d_error_x = (error_x - error_x_prev) / dt;
+            let d_error_y = (error_y - error_y_prev) / dt;
+            let d_error_z = (error_z - error_z_prev) / dt;
 
             integral_x += error_x * dt;
             integral_y += error_y * dt;
@@ -174,10 +166,9 @@ pub fn ctrl_mix_from_att(
                 integral_z = 0.;
             }
 
-            // todo: Clamp I term.
-            let pitch = k_p * error_x + k_i * integral_x + k_d * d_error_x;
-            let roll = k_p * error_y + k_i * integral_y + k_d * d_error_y;
-            let yaw = k_p * error_z + k_i * integral_z + k_d * d_error_z;
+            let pitch = pid_coeffs.p * error_x + pid_coeffs.i * integral_x + pid_coeffs.d * d_error_x;
+            let roll = pid_coeffs.p * error_y + pid_coeffs.i * integral_y + pid_coeffs.d * d_error_y;
+            let yaw = pid_coeffs.p * error_z + pid_coeffs.i * integral_z + pid_coeffs.d * d_error_z;
 
             (pitch, roll, yaw)
         }
@@ -194,8 +185,11 @@ pub fn ctrl_mix_from_att(
 
     static mut i: u32 = 0;
     unsafe { i += 1 };
-    // if unsafe { i } % 4_000 == 0 {
-    if false {}
+    if unsafe { i } % 4_000 == 0 {
+
+        // println!("Input P{} R{} Y{}", p, r, y);
+        // println!("Output P{} R{} Y{}", pitch, roll, yaw);
+    }
 
     result
 }

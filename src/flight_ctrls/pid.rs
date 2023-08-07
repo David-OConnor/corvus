@@ -154,6 +154,22 @@ impl MotorPidGroup {
     }
 }
 
+pub struct PidCoeffs {
+    pub p: f32,
+    pub i: f32,
+    pub d: f32
+}
+
+impl Default for PidCoeffs {
+    fn default() -> Self {
+        Self {
+            p: 0.0700,
+            i: 0.0200,
+            d: 0.00001,
+        }
+    }
+}
+
 /// Proportional, Integral, Derivative error, for flight parameter control updates.
 /// For only a single set (s, v, a). Note that e is the error betweeen commanded
 /// and measured, while the other terms include the PID coefficients (K_P) etc.

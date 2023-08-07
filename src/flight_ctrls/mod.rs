@@ -14,16 +14,19 @@ pub mod pid;
 
 use crate::{
     control_interface::ChannelData, main_loop::DT_IMU, setup::MotorTimer, state::StateVolatile,
+    flight_ctrls::common::InputMap,
+
 };
 
-use {
-    ctrl_effect_est::AccelMapPt, ctrl_logic::CtrlCoeffs, filters::FlightCtrlFilters,
-    motor_servo::MotorPower,
+use {ctrl_effect_est::AccelMapPt,
+     ctrl_logic::CtrlCoeffs, filters::FlightCtrlFilters,
+     motor_servo::MotorPower,
+    pid::PidCoeffs
 };
+
 
 use ahrs::Params;
 
-use crate::flight_ctrls::common::InputMap;
 use cfg_if::cfg_if;
 use defmt::println;
 
@@ -48,6 +51,7 @@ pub fn run(
     flight_ctrl_filters: &mut FlightCtrlFilters,
     motor_timer: &mut MotorTimer,
     input_map: &InputMap, // todo TS
+    pid_coeffs: &PidCoeffs,
 ) {
     let throttle = match state_volatile.autopilot_commands.throttle {
         Some(t) => t,
@@ -61,9 +65,9 @@ pub fn run(
     let pry = match control_channel_data {
         Some(ch_data) => {
             // temp trying traditional rate controls
-            let pitch_rate_cmd = input_map.calc_pitch_rate(ch_data.pitch);
+            let pitch_rate_cmd = input_map.calc_pitch_rate(-ch_data.pitch);
             let roll_rate_cmd = input_map.calc_roll_rate(ch_data.roll);
-            let yaw_rate_cmd = input_map.calc_yaw_rate(ch_data.yaw);
+            let yaw_rate_cmd = input_map.calc_yaw_rate(-ch_data.yaw);
 
             (pitch_rate_cmd, roll_rate_cmd, yaw_rate_cmd)
         }
@@ -87,6 +91,7 @@ pub fn run(
                 // The DT passed is the IMU rate, since we update params_prev each IMU update.
                 DT_IMU,
                 pry, // todo temp
+                pid_coeffs,
             );
 
             let power_commanded = MotorPower::from_mix(&ctrl_mix, state_volatile.motor_servo_state.frontleft_aftright_dir);

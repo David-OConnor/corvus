@@ -94,10 +94,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         }
     }
 
-    println!("Pre clock setup");
     clock_cfg.setup().unwrap();
-
-    println!("Clock config success");
 
     // Enable the Clock Recovery System, which improves HSI48 accuracy.
 

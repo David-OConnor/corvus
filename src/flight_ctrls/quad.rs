@@ -33,7 +33,7 @@ pub const THROTTLE_MIN_MNVR_CLAMP: f32 = 0.06;
 // const MIN_CAL_ALT: f32 = 6.;
 
 // todo: Likely increase.
-const ACRO_RATE: f32 = 1.5;
+const ACRO_RATE: f32 = 3.;
 
 impl Default for InputMap {
     fn default() -> Self {

@@ -288,6 +288,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     flight_ctrl_filters,
                                     motor_timer,
                                     &cfg.input_map,
+                                    &cfg.pid_coeffs,
                                 );
                             },
                         );
@@ -415,6 +416,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         ),
                         link_quality: link_stats.uplink_link_quality,
                         num_satellites: 0, // todo temp
+                        batt_cell_count: cfg.batt_cell_count,
                     };
 
                     // todo: Your blocking read here is breaking everything; use DMA.

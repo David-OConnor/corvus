@@ -20,10 +20,15 @@ use crate::{
     flight_ctrls::autopilot::{self, AutopilotStatus},
     protocols::msp::{MsgType, Packet, METADATA_SIZE_V1, MSG_ID_DP, MSG_ID_STATUS},
     safety::ArmStatus,
+    sensors_shared::BattCellCount,
     setup::{self, UartOsd},
+    util,
 };
 
 use ahrs::ppks::PositVelEarthUnits;
+
+use num_traits::Float; // allows float rounding
+use numtoa::NumToA;
 
 use stm32_hal2::dma::DmaChannel;
 
@@ -47,9 +52,79 @@ const METADATA_SIZE_WRITE_PACKET: usize = 4;
 // We use this to make sure OSD writes don't step on each other.
 pub static OSD_WRITE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
-static mut OSD_BUF: [u8; 300] = [0; 300]; // todo: size A/R
+static mut OSD_TX_BUF: [u8; 300] = [0; 300]; // todo: size A/R
+
+// Just big enough to read the fucntion type, so we can reply if it's a status frame.
+pub static mut OSD_READ_BUF: [u8; 5] = [0; 5];
 
 // todo: Periodically send heartbeat? Receive canvas?
+//
+// /// Split a float at the decimal point, for use with integeral-to-string
+// /// heapless no_std conversions, like `numtoa`.
+// fn split_at_decimal(v: f32, precision: u8) -> (u16, u16) {
+//     let multiplier = 10_i16.pow(precision as u32); // 10^decimal precision
+//     let rhs = v % 1.;
+//
+//     let mut l = (v - rhs) as u16;
+//     let mut r = (rhs * multiplier as f32).round() as u16;
+//
+//     // This occurs for rhs >= .95 . We need to zero it, and round up the
+//     // LHS in this case.
+//     if r == 10 {
+//         r = 0;
+//         l += 1;
+//     }
+//
+//     (l, r)
+// }
+
+// /// Process a float into a pair of strings: left of decimal, right of decimal.
+// fn float_to_strs<'a>(
+//     v: f32,
+//     buffer_l: &'a mut [u8],
+//     buffer_r: &'a mut [u8],
+//     precision: u8,
+// ) -> (&'a str, &'a str) {
+//     let (lhs, rhs) = split_at_decimal(v, precision);
+//
+//     let result_l = lhs.numtoa_str(10, buffer_l);
+//     let result_r = rhs.numtoa_str(10, buffer_r);
+//
+//     (result_l, result_r)
+// }
+//
+// /// Process a float into a &str. Return the number of characters.
+// pub fn float_to_str<'a>(
+//     v: f32,
+//     buff_l: &'a mut [u8],
+//     buff_r: &'a mut [u8],
+//     buff_result: &'a mut [u8],
+//     precision: u8,
+// ) -> usize {
+//     let (l, r) = float_to_strs(v, buff_l, buff_r, precision);
+//
+//     // todo: This works, but is awk. Have it return the str if able, and
+//     // todo not require the post-processing. Running into ownership(?) issues.
+//
+//     // todo: 0-pad the rhs if required.
+//     let mut i = 0;
+//     for c in l.as_bytes() {
+//         buff_result[i] = *c;
+//         i += 1;
+//     }
+//
+//     if precision == 0 {
+//         return l.len();
+//     }
+//
+//     buff_result[i] = b"."[0];
+//     i += 1;
+//     for c in r.as_bytes() {
+//         buff_result[i] = *c;
+//         i += 1;
+//     }
+//     (l.len() + 1 + r.len()) as usize
+// }
 
 #[derive(Clone, Copy)]
 #[repr(u8)]
@@ -169,6 +244,7 @@ pub struct OsdData {
     pub base_dist_bearing: (f32, f32),
     pub link_quality: u8, // Same format as CRSF uses.
     pub num_satellites: u8,
+    pub batt_cell_count: BattCellCount,
 }
 
 fn make_heartbeat_packet<'a>() -> Packet<'a> {
@@ -244,15 +320,24 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     // - Land point data
 
     if OSD_WRITE_IN_PROGRESS.load(Ordering::Acquire) {
-        // todo: Address
-        // todo: DO you need this?
         return;
     }
     OSD_WRITE_IN_PROGRESS.store(true, Ordering::Release);
 
-    let buf = unsafe { &mut OSD_BUF };
+    let buf = unsafe { &mut OSD_TX_BUF };
 
     let mut i = 0;
+
+    // todo: Send this in response to a status packet.
+    // Send a status packet indicating it's armed. Not sure what the fields are.
+    let mut payload = [0; 11];
+    payload[6] = ArmStatusMsp::Armed as u8;
+    // payload[6] = ArmStatusMsp::from_arm_status(data.arm_status) as u8;
+    let packet = Packet::new(MsgType::Response, MSG_ID_STATUS as u16, 11, &payload);
+    packet.to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 11]);
+    i += METADATA_SIZE_V1 + 11;
+
+    // todo: TS arm status
 
     // todo: A bit sloppy; rate may vary depending on upstream settings.
     static mut I: u32 = 0;
@@ -260,13 +345,6 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
         I += 1;
         if I % 20 == 0 {
             // todo: Exeperiment with timing.
-            // Send a status packet indicating it's armed. Not sure what the fields are.
-            let mut payload = [0; 11];
-            payload[6] = ArmStatusMsp::Armed as u8;
-            // payload[6] = ArmStatusMsp::from_arm_status(data.arm_status) as u8;
-            let packet = Packet::new(MsgType::Response, MSG_ID_STATUS as u16, 11, &payload);
-            // packet.add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 19, 6, "x100".as_bytes(), &mut i);
-
             make_heartbeat_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
             i += i + METADATA_SIZE_V1 + 1;
         }
@@ -282,36 +360,80 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     // x: thermometer
     // todo; Possibly need to shift these up to 3
 
-    // let mut str_buf = [0; 3];
-    // let voltage_int = (data.battery_voltage * 10.) as u8; // todo temp
-    // add_to_write_buf::<{ 2 + METADATA_SIZE_WRITE_PACKET }>(buf, 14, 14, "LQ".as_bytes(), &mut i);
+    // Link quality
+    let mut lq_buf = [0; 4];
+    lq_buf[0] = "f".as_bytes()[0]; // todo: Find the correct icon in the font.
+    data.link_quality.numtoa_str(10, &mut lq_buf[1..4]);
+    add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 12, 13, &lq_buf, &mut i);
 
-    let mut str_buf = [0; 3];
-    let voltage_int = (data.battery_voltage * 10.) as u8; // todo temp
-    add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 15, 14, "-._V".as_bytes(), &mut i);
+    // Battery voltage and % remaining.
+    let mut buf_batt = [0; 9];
 
-    // todo: Current?
+    let batt_v = (data.battery_voltage * 10.) as u8;
+    batt_v.numtoa_str(10, &mut buf_batt[0..3]);
+    buf_batt[3] = "V".as_bytes()[0];
 
-    let mut str_buf = [0; 3];
-    let alt_int = (data.alt_msl_baro * 10.) as u8; // todo temp
-    add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 4, 24, "-._M".as_bytes(), &mut i);
+    let batt_life = util::batt_left_from_v(data.battery_voltage, data.batt_cell_count);
+    let batt_pct = (batt_life * 100.) as u8;
+    batt_pct.numtoa_str(10, &mut buf_batt[5..8]);
+    buf_batt[8] = "%".as_bytes()[0];
+    add_to_write_buf::<{ 9 + METADATA_SIZE_WRITE_PACKET }>(buf, 14, 11, &buf_batt, &mut i);
 
-    let mut str_buf = [0; 3];
-    let airspeed_int = (data.posit_vel.velocity.magnitude() * 10.) as u8; // todo temp
-    add_to_write_buf::<{ 6 + METADATA_SIZE_WRITE_PACKET }>(buf, 4, 1, "-._M/S".as_bytes(), &mut i);
+    // todo: ESC Current?
 
-    let mut str_buf = [0; 3];
-    let airspeed_int = (data.posit_vel.velocity.magnitude() * 10.) as u8; // todo temp
-    add_to_write_buf::<{ 2 + METADATA_SIZE_WRITE_PACKET }>(buf, 1, 10, "#S".as_bytes(), &mut i);
+    // Altitude
+    let mut alt_buf = [0; 5];
+    let altitude = data.alt_msl_baro as u16;
+    altitude.numtoa_str(10, &mut alt_buf[0..4]);
+    alt_buf[4] = "M".as_bytes()[0]; // lowercase available in font?
+    add_to_write_buf::<{ 5 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 25, &alt_buf, &mut i);
 
-    // todo: Base dist/bearing, num sats, LQ
+    // Airspeed
+    let mut airspeed_buf = [0; 6];
+    let airspeed = data.posit_vel.velocity.magnitude() as u16;
+    airspeed.numtoa_str(10, &mut airspeed_buf[0..3]);
+    airspeed_buf[3..6].clone_from_slice("M/S".as_bytes()); // lowercase available in font?
+    add_to_write_buf::<{ 6 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 0, &airspeed_buf, &mut i);
+
+    // Number of sattelites
+    let mut num_sats_buf = [0; 3];
+    num_sats_buf[0] = "e".as_bytes()[0]; // todo: Find the correct icon in the font.
+    // data.num_satellites.numtoa_str(10, &mut num_sats_buf[1..3]);
+    data.num_satellites.numtoa_str(10, &mut num_sats_buf[1..3]);
+    add_to_write_buf::<{ 3 + METADATA_SIZE_WRITE_PACKET }>(buf, 1, 14, &num_sats_buf, &mut i);
+
+    // todo: Test these once you verify working on O3.
+    #[cfg(feature = "quad")]
+    match data.arm_status {
+        ArmStatus::Armed => {
+            // add_to_write_buf::<{ 5 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 12, "ARMED".as_bytes(), &mut i);
+        }
+        ArmStatus::Disarmed => {
+            add_to_write_buf::<{ 8 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 12, "DISARMED".as_bytes(), &mut i);
+        }
+    }
+
+    #[cfg(feature = "fixed-wing")]
+    match data.arm_status {
+        ArmStatus::MotorsControlsArmed => {
+            // add_to_write_buf::<{ 5 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 12, "ARMED".as_bytes(), &mut i);
+        }
+        ArmStatus::ControlsArmed => {
+            add_to_write_buf::<{ 14 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 12, "CONTROLS ARMED".as_bytes(), &mut i);
+        }
+        ArmStatus::Disarmed => {
+            add_to_write_buf::<{ 8 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 12, "DISARMED".as_bytes(), &mut i);
+        }
+    }
+
+    // todo: Base dist/bearing
 
     make_draw_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
     i += i + METADATA_SIZE_V1 + 1;
 
     unsafe {
         if I % 10 == 0 {
-            println!("OSD buf len: {:?}", i);
+            // println!("OSD buf len: {:?}", i);
             // println!("Buf: {:x}", buf);
         }
     }

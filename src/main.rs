@@ -78,6 +78,7 @@ use crate::{
     protocols::{
         crsf::{self, LinkStats},
         dshot, usb_preflight,
+        msp,
     },
     sensors_shared::ExtSensor,
     state::{StateVolatile, UserCfg},
@@ -159,6 +160,7 @@ static mut CAN_BUF_RX: [u8; 64] = [0; 64];
 
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
+    use stm32_hal2::dma::DmaPeriph;
     use super::*;
 
     #[shared]
@@ -601,15 +603,63 @@ mod app {
 
             crsf::NEW_PACKET_RECEIVED.store(true, Ordering::Release);
         } else {
-            println!("Spurious IDLE on CRSF reception");
+            // println!("Spurious IDLE on CRSF reception");
         }
     }
 
     // todo: Diff UART on H7
-    #[task(binds = UART4, shared = [uart_osd], local = [], priority = 1)]
+    #[task(binds = UART4, shared = [uart_osd], local = [], priority = 12)]
     fn osd_rec_isr(mut cx: osd_rec_isr::Context) {
         cx.shared.uart_osd.lock(|uart| {
             uart.clear_interrupt(UsartInterrupt::CharDetect(None));
+
+            let mut buf = [0; 5];
+            // uart.read(&mut buf);
+            println!("Osd msg rec: {:?}", &buf);
+
+            return;
+            unsafe {
+                uart.read_dma(
+                    &mut osd::OSD_READ_BUF,
+                    setup::CRSF_RX_CH,
+                    ChannelCfg {
+                        // Take precedence over the ADC, but not motors.
+                        priority: dma::Priority::Medium,
+                        ..Default::default()
+                    },
+                    setup::CRSF_DMA_PERIPH,
+                );
+            }
+        });
+    }
+
+    #[task(binds = DMA2_CH3, shared = [], priority = 2)]
+    /// Baro write complete; start baro read.
+    fn osd_tx_isr(_cx: osd_tx_isr::Context) {
+        dma::clear_interrupt(
+            setup::OSD_DMA_PERIPH,
+            setup::OSD_TX_CH,
+            DmaInterrupt::TransferComplete,
+        );
+
+        // This appears to be a required step between UART DMA transmission.
+        dma::stop(setup::OSD_DMA_PERIPH, setup::OSD_TX_CH);
+        osd::OSD_WRITE_IN_PROGRESS.store(false, Ordering::Release);
+    }
+
+    #[task(binds = DMA2_CH4, shared = [], priority = 1)]
+    /// Baro write complete; start baro read.
+    fn osd_rx_isr(_cx: osd_rx_isr::Context) {
+        dma::clear_interrupt(
+            dma::DmaPeriph::Dma2,
+            setup::OSD_RX_CH,
+            DmaInterrupt::TransferComplete,
+        );
+        println!("Dma Rx complete.");
+
+        if unsafe { osd::OSD_READ_BUF[4] } == msp::MSG_ID_STATUS {
+            println!("Status request");
+        }
 
             // Functions DJI O3 regulaerly sends:
             // 3, 92, 101, 110, 112, 150, 10, 94, 105, 111, 130,
@@ -625,23 +675,9 @@ mod app {
             //     buf[6] = 1; // armed.
             //     uart.write(&buf);
             // }
-        });
-        // todo: Read and reply with status A/R.
-    }
-
-    // todo: LIkely tmep for OSD TS
-    #[task(binds = DMA1_CH6, shared = [], priority = 10)]
-    /// Baro write complete; start baro read.
-    fn osd_tx_isr(_cx: osd_tx_isr::Context) {
-        dma::clear_interrupt(
-            setup::OSD_DMA_PERIPH,
-            setup::OSD_TX_CH,
-            DmaInterrupt::TransferComplete,
-        );
 
         // This appears to be a required step between UART DMA transmission.
-        dma::stop(setup::OSD_DMA_PERIPH, setup::OSD_TX_CH);
-        osd::OSD_WRITE_IN_PROGRESS.store(false, Ordering::Release);
+        dma::stop(DmaPeriph::Dma2, setup::OSD_RX_CH);
     }
 
     #[task(binds = TIM5, shared = [tick_timer], local = [], priority = 1)]
@@ -666,7 +702,7 @@ mod app {
             DmaInterrupt::TransferComplete,
         );
 
-        dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_RX_CH);
+        // dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_RX_CH);
 
         cx.shared.i2c2.lock(|i2c| unsafe {
             i2c.read_dma(

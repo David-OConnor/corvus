@@ -6,7 +6,7 @@
 //!  Some general MSP example code:
 //! https://github.com/chris1seto/PX4-Autopilot/tree/turbotimber/src/modules/msp_osd
 //!
-//!List of message types: https://github.com/betaflight/betaflight/blob/5d29a0be0656303641b7004edcf8f22c770c5d22/src/main/msp/msp_protocol.h#L98
+//! List of message types: https://github.com/betaflight/betaflight/blob/5d29a0be0656303641b7004edcf8f22c770c5d22/src/main/msp/msp_protocol.h#L98
 
 #![allow(dead_code)] // todo: So we can comment-out the V2 or V1 code as required.
 
