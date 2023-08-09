@@ -637,8 +637,6 @@ mod app {
 
             osd::OSD_WRITE_IN_PROGRESS.store(true, Ordering::Release);
 
-            println!("Sending OSD status");
-
             cx.shared.state_volatile.lock(|state_volatile| {
                 osd::make_arm_status_buf(state_volatile.arm_status == safety::MOTORS_ARMED);
             });

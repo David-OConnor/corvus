@@ -19,6 +19,8 @@ pub const MAX_UPDATE_PERIOD_OSD: f32 = 1.;
 
 // We have these faults as atomics so as to not require locking a more-generally-used struct.
 
+use defmt::println;
+
 #[derive(Default)]
 pub struct SystemStatus {
     pub imu: SensorStatus,
@@ -56,6 +58,8 @@ impl SystemStatus {
             Some(t) => {
                 if timestamp - t > MAX_UPDATE_PERIOD_IMU {
                     self.imu = SensorStatus::NotConnected;
+                } else {
+                    self.imu = SensorStatus::Pass;
                 }
             }
             None => {
@@ -67,6 +71,8 @@ impl SystemStatus {
             Some(t) => {
                 if timestamp - t > MAX_UPDATE_PERIOD_BARO {
                     self.baro = SensorStatus::NotConnected;
+                } else {
+                    self.baro = SensorStatus::Pass;
                 }
             }
             None => {
@@ -77,6 +83,8 @@ impl SystemStatus {
             Some(t) => {
                 if timestamp - t > MAX_UPDATE_PERIOD_BARO {
                     self.baro_can = SensorStatus::NotConnected;
+                } else {
+                    self.baro_can = SensorStatus::Pass;
                 }
             }
             None => {
@@ -88,6 +96,8 @@ impl SystemStatus {
             Some(t) => {
                 if timestamp - t > MAX_UPDATE_PERIOD_MAG {
                     self.magnetometer = SensorStatus::NotConnected;
+                } else {
+                    self.magnetometer = SensorStatus::Pass;
                 }
             }
             None => {
@@ -99,6 +109,8 @@ impl SystemStatus {
             Some(t) => {
                 if timestamp - t > MAX_UPDATE_PERIOD_MAG {
                     self.magnetometer_can = SensorStatus::NotConnected;
+                } else {
+                    self.magnetometer_can = SensorStatus::Pass;
                 }
             }
             None => {
@@ -110,6 +122,8 @@ impl SystemStatus {
             Some(t) => {
                 if timestamp - t > MAX_UPDATE_PERIOD_GNSS {
                     self.gnss = SensorStatus::NotConnected;
+                } else {
+                    self.gnss = SensorStatus::Pass;
                 }
             }
             None => {
@@ -121,6 +135,8 @@ impl SystemStatus {
             Some(t) => {
                 if timestamp - t > MAX_UPDATE_PERIOD_GNSS {
                     self.gnss_can = SensorStatus::NotConnected;
+                } else {
+                    self.gnss_can = SensorStatus::Pass;
                 }
             }
             None => {
@@ -132,6 +148,8 @@ impl SystemStatus {
             Some(t) => {
                 if timestamp - t > MAX_UPDATE_PERIOD_OSD {
                     self.osd = SensorStatus::NotConnected;
+                } else {
+                    self.osd = SensorStatus::Pass;
                 }
             }
             None => {
