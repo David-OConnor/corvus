@@ -13,17 +13,14 @@ pub mod motor_servo;
 pub mod pid;
 
 use crate::{
-    control_interface::ChannelData, main_loop::DT_IMU, setup::MotorTimer, state::StateVolatile,
-    flight_ctrls::common::InputMap,
-
+    control_interface::ChannelData, flight_ctrls::common::InputMap, main_loop::DT_IMU,
+    setup::MotorTimer, state::StateVolatile,
 };
 
-use {ctrl_effect_est::AccelMapPt,
-     ctrl_logic::CtrlCoeffs, filters::FlightCtrlFilters,
-     motor_servo::MotorPower,
-    pid::PidCoeffs
+use {
+    ctrl_effect_est::AccelMapPt, ctrl_logic::CtrlCoeffs, filters::FlightCtrlFilters,
+    motor_servo::MotorPower, pid::PidCoeffs,
 };
-
 
 use ahrs::Params;
 

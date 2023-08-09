@@ -92,7 +92,7 @@ pub const BARO_TX_CH: DmaChannel = DmaChannel::C1;
 pub const BARO_RX_CH: DmaChannel = DmaChannel::C2;
 
 pub const OSD_TX_CH: DmaChannel = DmaChannel::C3;
-pub const OSD_RX_CH: DmaChannel = DmaChannel::C4;
+// pub const OSD_RX_CH: DmaChannel = DmaChannel::C4;
 
 pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
 
@@ -454,7 +454,7 @@ pub fn setup_pins() {
     let _uart_osd_tx = Pin::new(Port::C, 10, PinMode::Alt(5));
     let mut uart_osd_rx = Pin::new(Port::C, 11, PinMode::Alt(5));
 
-    // uart_osd_rx.pull(Pull::Up);
+    uart_osd_rx.pull(Pull::Up);
 
     // We use UARTs for misc external devices, including ESC telemetry,
     // and VTX OSD.
@@ -546,7 +546,7 @@ pub fn setup_dma() {
     // dma::mux(CRSF_DMA_PERIPH, CRSF_TX_CH, DmaInput::Usart2Tx);
     dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, adc_dma_ip);
     dma::mux(OSD_DMA_PERIPH, OSD_TX_CH, osd_dma_ip);
-    dma::mux(OSD_DMA_PERIPH, OSD_RX_CH, osd_dma_rx_ip);
+    // dma::mux(OSD_DMA_PERIPH, OSD_RX_CH, osd_dma_rx_ip);
     dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c2Tx);
     dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c2Rx);
 
@@ -569,7 +569,7 @@ pub fn setup_dma() {
     // dma.enable_interrupt(EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);
 
     dma::enable_interrupt(OSD_DMA_PERIPH, OSD_TX_CH, DmaInterrupt::TransferComplete);
-    dma::enable_interrupt(OSD_DMA_PERIPH, OSD_RX_CH, DmaInterrupt::TransferComplete);
+    // dma::enable_interrupt(OSD_DMA_PERIPH, OSD_RX_CH, DmaInterrupt::TransferComplete);
 }
 
 /// Configure the SPI and I2C busses.
@@ -690,16 +690,21 @@ pub fn setup_busses(
     let mut uart_osd = Usart4::new(
         uart_osd_pac,
         crate::osd::BAUD,
-        UsartConfig::default(),
+        // UsartConfig::default(),
         // todo TS
-        // UsartConfig {
-        //     fifo_enabled: false,
-        //     ..UsartConfig::default()
-        // },
+        UsartConfig {
+            overrun_disabled: true,
+            //     fifo_enabled: false,
+            ..UsartConfig::default()
+        },
         clock_cfg,
     );
 
-    uart_osd.enable_interrupt(UsartInterrupt::CharDetect(Some(msp::PREAMBLE_0)));
+    // uart_osd.enable_interrupt(UsartInterrupt::CharDetect(Some(msp::PREAMBLE_0)));
+    // We only use this read to identify a status message, so we can reply with arming status
+    // to enable the OSD to enter high power mode.
+    uart_osd.enable_interrupt(UsartInterrupt::CharDetect(Some(msp::MSG_ID_STATUS)));
+    // uart_osd.enable_interrupt(UsartInterrupt::Idle);
 
     // We use UART for the radio controller receiver, via CRSF protocol.
 

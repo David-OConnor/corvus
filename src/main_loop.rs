@@ -3,8 +3,6 @@
 
 use core::sync::atomic::Ordering;
 
-use stm32_hal2::dma::{self, DmaInterrupt};
-
 use rtic::mutex_prelude::*;
 
 use ahrs::{self, ppks::PositVelEarthUnits, ImuReadings};
@@ -16,16 +14,14 @@ use crate::{
     drivers::osd::{AutopilotData, OsdData},
     flight_ctrls::{self, ctrl_logic, motor_servo::MotorServoState},
     imu_shared, osd,
-    protocols::{crsf, rpm_reception, usb_preflight},
+    protocols::{crsf, rpm_reception},
     safety::{self, ArmStatus},
     sensors_shared::{self, V_A_ADC_READ_BUF},
-    setup,
     state::OperationMode,
     system_status::{self, SensorStatus, SystemStatus},
     util,
 };
 
-use cfg_if::cfg_if;
 use defmt::println;
 
 // const UPDATE_RATE_IMU: f32 = 8_000.;
@@ -401,6 +397,11 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     // For OSD, we have a larger pause between writes so as not to saturate
                     // the UART line.
                 } else if (i_compensated - 2) % (NUM_IMU_LOOP_TASKS * 5) == 0 {
+                    let throttle = match control_channel_data {
+                        Some(ch_data) => ch_data.throttle,
+                        None => 0.,
+                    };
+
                     let osd_data = OsdData {
                         arm_status: state_volatile.arm_status,
                         battery_voltage: state_volatile.batt_v,
@@ -417,6 +418,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         link_quality: link_stats.uplink_link_quality,
                         num_satellites: 0, // todo temp
                         batt_cell_count: cfg.batt_cell_count,
+                        throttle,
                     };
 
                     // todo: Your blocking read here is breaking everything; use DMA.

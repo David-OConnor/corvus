@@ -110,7 +110,7 @@ pub fn ctrl_mix_from_att(
     let (p, r, y) = pry;
 
     #[allow(non_upper_case_globals)]
-        let (pitch, roll, yaw) = {
+    let (pitch, roll, yaw) = {
         static mut error_x: f32 = 0.;
         static mut error_y: f32 = 0.;
         static mut error_z: f32 = 0.;
@@ -160,14 +160,18 @@ pub fn ctrl_mix_from_att(
             // The I-term builds up if corrections are unable to expeditiously converge.
             // An example of when this can happen is when the aircraft is on the ground.
             // todo: Use `is_airborne` etc, vice idle throttle?
-            if throttle < 0.1 {
+            if throttle < 0.07 {
                 integral_x = 0.;
                 integral_y = 0.;
                 integral_z = 0.;
             }
 
-            let pitch = pid_coeffs.p * error_x + pid_coeffs.i * integral_x + pid_coeffs.d * d_error_x;
-            let roll = pid_coeffs.p * error_y + pid_coeffs.i * integral_y + pid_coeffs.d * d_error_y;
+            let pitch =
+                pid_coeffs.p * error_x + pid_coeffs.i * integral_x + pid_coeffs.d * d_error_x;
+
+            let roll =
+                pid_coeffs.p * error_y + pid_coeffs.i * integral_y + pid_coeffs.d * d_error_y;
+
             let yaw = pid_coeffs.p * error_z + pid_coeffs.i * integral_z + pid_coeffs.d * d_error_z;
 
             (pitch, roll, yaw)

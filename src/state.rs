@@ -1,7 +1,23 @@
 //! This module contains code related to state, both config stored to flash, and volatile data
 //! specific to the current flight, and cleared when power is removed.
+use ahrs::ppks::PositVelEarthUnits;
 
-/// User-configurable settings. These get saved to and loaded from internal flash.
+use lin_alg2::f32::Quaternion;
+
+use stm32_hal2::flash::{Bank, Flash};
+
+use cfg_if::cfg_if;
+
+cfg_if! {
+    if #[cfg(feature = "fixed-wing")] {
+        use lin_alg2::f32::Vec3;
+    } else {
+        use crate::flight_ctrls::InputMode;
+    }
+}
+
+use defmt::println;
+
 use crate::{
     control_interface::InputModeSwitch,
     flight_ctrls::{
@@ -15,24 +31,11 @@ use crate::{
     },
     safety::ArmStatus,
     sensors_shared::BattCellCount,
+    usb_preflight::CONFIG_SIZE,
 };
 
 #[cfg(feature = "fixed-wing")]
-use flight_ctrls::{ControlSurfaceConfig, YawControl};
-
-use ahrs::ppks::PositVelEarthUnits;
-
-use lin_alg2::f32::Quaternion;
-
-use cfg_if::cfg_if;
-
-cfg_if! {
-    if #[cfg(feature = "fixed-wing")] {
-        use lin_alg2::f32::Vec3;
-    } else {
-        use crate::flight_ctrls::InputMode;
-    }
-}
+use crate::flight_ctrls::{ControlSurfaceConfig, YawControl};
 
 // The maximum number of waypoints available.
 pub const MAX_WAYPOINTS: usize = 30; // todo: Consider raising this.
@@ -86,9 +89,8 @@ impl Default for OperationMode {
 //     }
 // }
 
-
 /// Persistent state; saved to onboard flash memory. Contains user-configurable settings.
-pub struct UserCfg {
+pub struct UserConfig {
     #[cfg(feature = "fixed-wing")]
     pub control_surface_config: ControlSurfaceConfig,
     /// Set a ceiling the aircraft won't exceed. Defaults to 400' (Legal limit in US for drones).
@@ -132,10 +134,10 @@ pub struct UserCfg {
     /// Number of poles in each motor. Can be counted by hand, or by referencing motor datasheets.
     pub motor_pole_count: u8,
     pub base_pt: PositVelEarthUnits,
-    pub pid_coeffs: PidCoeffs
+    pub pid_coeffs: PidCoeffs,
 }
 
-impl Default for UserCfg {
+impl Default for UserConfig {
     fn default() -> Self {
         let waypoints = [(); MAX_WAYPOINTS].map(|_| Option::<PositVelEarthUnits>::default());
 
@@ -195,6 +197,47 @@ impl Default for UserCfg {
             base_pt: Default::default(),
             pid_coeffs: Default::default(),
         }
+    }
+}
+
+impl UserConfig {
+    /// For use with Preflight, via USB
+    pub fn from_bytes(buf: &[u8]) -> Self {
+        let pid_coeffs = PidCoeffs {
+            p: f32::from_be_bytes(buf[0..4].try_into().unwrap()),
+            i: f32::from_be_bytes(buf[4..8].try_into().unwrap()),
+            d: f32::from_be_bytes(buf[8..12].try_into().unwrap()),
+        };
+        Self {
+            pid_coeffs,
+            ..Default::default()
+        }
+    }
+
+    /// For use with Preflight, via USB
+    pub fn to_bytes(&self) -> [u8; CONFIG_SIZE] {
+        let mut result = [0; CONFIG_SIZE];
+
+        result[..4].clone_from_slice(&self.pid_coeffs.p.to_be_bytes());
+        result[4..8].clone_from_slice(&self.pid_coeffs.i.to_be_bytes());
+        result[8..12].clone_from_slice(&self.pid_coeffs.d.to_be_bytes());
+
+        result
+    }
+
+    pub fn save(&self, flash: &mut Flash) {
+        flash.erase_page(Bank::B1, crate::FLASH_CFG_PAGE).ok();
+
+        flash
+            .write_page(Bank::B1, crate::FLASH_CFG_PAGE, &self.to_bytes())
+            .ok();
+    }
+
+    pub fn load(flash: &mut Flash) -> Self {
+        let mut buf = [0; CONFIG_SIZE];
+        flash.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut buf);
+
+        Self::from_bytes(&buf)
     }
 }
 

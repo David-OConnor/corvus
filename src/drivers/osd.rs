@@ -52,10 +52,11 @@ const METADATA_SIZE_WRITE_PACKET: usize = 4;
 // We use this to make sure OSD writes don't step on each other.
 pub static OSD_WRITE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
-static mut OSD_TX_BUF: [u8; 300] = [0; 300]; // todo: size A/R
+static mut OSD_TX_BUF: [u8; 160] = [0; 160]; // todo: size A/R
 
 // Just big enough to read the fucntion type, so we can reply if it's a status frame.
-pub static mut OSD_READ_BUF: [u8; 5] = [0; 5];
+// pub static mut OSD_READ_BUF: [u8; 5] = [0; 5];
+pub static mut OSD_ARM_BUF: [u8; 21] = [0; 21];
 
 // todo: Periodically send heartbeat? Receive canvas?
 //
@@ -245,6 +246,7 @@ pub struct OsdData {
     pub link_quality: u8, // Same format as CRSF uses.
     pub num_satellites: u8,
     pub batt_cell_count: BattCellCount,
+    pub throttle: f32,
 }
 
 fn make_heartbeat_packet<'a>() -> Packet<'a> {
@@ -305,9 +307,26 @@ fn add_to_write_buf<const N: usize>(buf: &mut [u8], row: u8, col: u8, text: &[u8
     *i += METADATA_SIZE_V1 + METADATA_SIZE_WRITE_PACKET + N;
 }
 
+pub fn make_arm_status_buf(armed: bool) {
+    let buf = unsafe { &mut OSD_ARM_BUF };
+
+    let mut payload = [0; 11];
+    if armed {
+        payload[6] = ArmStatusMsp::Armed as u8;
+    } else {
+        payload[6] = ArmStatusMsp::Disarmed as u8;
+    }
+
+    // payload[6] = ArmStatusMsp::from_arm_status(data.arm_status) as u8;
+    let packet = Packet::new(MsgType::Response, MSG_ID_STATUS as u16, 11, &payload);
+    packet.to_buf_v1(&mut buf[..METADATA_SIZE_V1 + 11]);
+}
+
 /// Sends data for all relevant elements to the OSD. Accepts a data struct built from select
 /// elements from the rest of our program, and sends to the display in OSD format, using
 /// only elements supported by DJI's MSP implementation.
+///
+/// Note; You can use Mission Planner's UI to help with item placement.
 pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     // todo: Running list of things to add. May be supported by MSP, or co-opt elements they're not
     // made for.
@@ -319,23 +338,16 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     // - Symbols on home plate, steerpoint etc?
     // - Land point data
 
+    // This return must be before we increment I.
     if OSD_WRITE_IN_PROGRESS.load(Ordering::Acquire) {
         return;
     }
+
     OSD_WRITE_IN_PROGRESS.store(true, Ordering::Release);
 
     let buf = unsafe { &mut OSD_TX_BUF };
 
     let mut i = 0;
-
-    // todo: Send this in response to a status packet.
-    // Send a status packet indicating it's armed. Not sure what the fields are.
-    let mut payload = [0; 11];
-    payload[6] = ArmStatusMsp::Armed as u8;
-    // payload[6] = ArmStatusMsp::from_arm_status(data.arm_status) as u8;
-    let packet = Packet::new(MsgType::Response, MSG_ID_STATUS as u16, 11, &payload);
-    packet.to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 11]);
-    i += METADATA_SIZE_V1 + 11;
 
     // todo: TS arm status
 
@@ -345,13 +357,17 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
         I += 1;
         if I % 20 == 0 {
             // todo: Exeperiment with timing.
-            make_heartbeat_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
-            i += i + METADATA_SIZE_V1 + 1;
+            // make_heartbeat_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
+            // i += METADATA_SIZE_V1 + 1;
         }
     }
 
+    // todo: Every time?
+    make_heartbeat_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
+    i += METADATA_SIZE_V1 + 1;
+
     make_clear_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
-    i += i + METADATA_SIZE_V1 + 1;
+    i += METADATA_SIZE_V1 + 1;
 
     // DJI O3 font map
     // a - 0: Arrows
@@ -377,7 +393,7 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     let batt_pct = (batt_life * 100.) as u8;
     batt_pct.numtoa_str(10, &mut buf_batt[5..8]);
     buf_batt[8] = "%".as_bytes()[0];
-    add_to_write_buf::<{ 9 + METADATA_SIZE_WRITE_PACKET }>(buf, 14, 11, &buf_batt, &mut i);
+    add_to_write_buf::<{ 9 + METADATA_SIZE_WRITE_PACKET }>(buf, 14, 12, &buf_batt, &mut i);
 
     // todo: ESC Current?
 
@@ -398,9 +414,16 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     // Number of sattelites
     let mut num_sats_buf = [0; 3];
     num_sats_buf[0] = "e".as_bytes()[0]; // todo: Find the correct icon in the font.
-    // data.num_satellites.numtoa_str(10, &mut num_sats_buf[1..3]);
+                                         // data.num_satellites.numtoa_str(10, &mut num_sats_buf[1..3]);
     data.num_satellites.numtoa_str(10, &mut num_sats_buf[1..3]);
-    add_to_write_buf::<{ 3 + METADATA_SIZE_WRITE_PACKET }>(buf, 1, 14, &num_sats_buf, &mut i);
+    add_to_write_buf::<{ 3 + METADATA_SIZE_WRITE_PACKET }>(buf, 0, 13, &num_sats_buf, &mut i);
+
+    // Throttle display.
+    let mut throttle_buf = [0; 4];
+    let throttle = (data.throttle * 100.) as u8;
+    throttle.numtoa_str(10, &mut throttle_buf[1..4]);
+    throttle_buf[0] = "T".as_bytes()[0];
+    add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 14, 0, &throttle_buf, &mut i);
 
     // todo: Test these once you verify working on O3.
     #[cfg(feature = "quad")]
@@ -409,7 +432,13 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
             // add_to_write_buf::<{ 5 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 12, "ARMED".as_bytes(), &mut i);
         }
         ArmStatus::Disarmed => {
-            add_to_write_buf::<{ 8 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 12, "DISARMED".as_bytes(), &mut i);
+            add_to_write_buf::<{ 8 + METADATA_SIZE_WRITE_PACKET }>(
+                buf,
+                6,
+                11,
+                "DISARMED".as_bytes(),
+                &mut i,
+            );
         }
     }
 
@@ -419,17 +448,29 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
             // add_to_write_buf::<{ 5 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 12, "ARMED".as_bytes(), &mut i);
         }
         ArmStatus::ControlsArmed => {
-            add_to_write_buf::<{ 14 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 12, "CONTROLS ARMED".as_bytes(), &mut i);
+            add_to_write_buf::<{ 14 + METADATA_SIZE_WRITE_PACKET }>(
+                buf,
+                7,
+                12,
+                "CONTROLS ARMED".as_bytes(),
+                &mut i,
+            );
         }
         ArmStatus::Disarmed => {
-            add_to_write_buf::<{ 8 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 12, "DISARMED".as_bytes(), &mut i);
+            add_to_write_buf::<{ 8 + METADATA_SIZE_WRITE_PACKET }>(
+                buf,
+                7,
+                12,
+                "DISARMED".as_bytes(),
+                &mut i,
+            );
         }
     }
 
     // todo: Base dist/bearing
 
     make_draw_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
-    i += i + METADATA_SIZE_V1 + 1;
+    i += METADATA_SIZE_V1 + 1;
 
     unsafe {
         if I % 10 == 0 {
@@ -437,6 +478,8 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
             // println!("Buf: {:x}", buf);
         }
     }
+
+    // println!("OSD len: {:?}", i);
 
     unsafe {
         uart.write_dma(

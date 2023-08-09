@@ -10,8 +10,6 @@
 
 #![allow(dead_code)] // todo: So we can comment-out the V2 or V1 code as required.
 
-use stm32_hal2::{dma::DmaChannel, pac, pac::USART2, usart::Usart};
-
 use crate::{
     setup::{UartOsd, OSD_DMA_PERIPH, OSD_TX_CH},
     util,

@@ -12,6 +12,8 @@
 
 use core::sync::atomic::Ordering;
 
+use stm32_hal2::flash::Flash;
+
 use anyleaf_usb::{self, MessageType, CRC_LEN, DEVICE_CODE_CORVUS, MSG_START, PAYLOAD_START_I};
 
 use ahrs::ppks::PositVelEarthUnits;
@@ -31,7 +33,7 @@ use crate::{
     },
     safety::ArmStatus,
     setup,
-    state::{OperationMode, MAX_WAYPOINTS},
+    state::{OperationMode, UserConfig, MAX_WAYPOINTS},
     system_status::{self, SystemStatus},
     util,
 };
@@ -71,7 +73,7 @@ const WAYPOINT_MAX_NAME_LEN: usize = 12; // todo
 pub const WAYPOINT_SIZE: usize = F32_SIZE * 3 + WAYPOINT_MAX_NAME_LEN + 1;
 pub const WAYPOINTS_SIZE: usize = crate::state::MAX_WAYPOINTS * WAYPOINT_SIZE;
 pub const SET_SERVO_POSIT_SIZE: usize = 1 + F32_SIZE; // Servo num, value
-pub const SYS_STATUS_SIZE: usize = 11; // Sensor status (u8) * 11
+pub const SYS_STATUS_SIZE: usize = 12; // Sensor status (u8) * 12
 pub const AP_STATUS_SIZE: usize = 0; // todo
 pub const SYS_AP_STATUS_SIZE: usize = SYS_STATUS_SIZE + AP_STATUS_SIZE;
 #[cfg(feature = "quad")]
@@ -80,6 +82,8 @@ pub const CONTROL_MAPPING_SIZE: usize = 2; // Packed tightly!
 #[cfg(feature = "fixed-wing")]
 pub const CONTROL_MAPPING_SIZE: usize = 2; // Packed tightly! todo?
 pub const SET_MOTOR_POWER_SIZE: usize = F32_SIZE * 4;
+
+pub const CONFIG_SIZE: usize = F32_SIZE * 3; // todo: Currently PID only.
 
 // const START_BYTE: u8 =
 
@@ -128,6 +132,9 @@ pub enum MsgType {
     SetMotorPowers = 20,
     /// All 4
     SetMotorRpms = 21,
+    Config = 22,
+    ReqConfig = 23,
+    SaveConfig = 24,
 }
 
 impl MessageType for MsgType {
@@ -160,6 +167,9 @@ impl MessageType for MsgType {
             Self::ControlMapping => CONTROL_MAPPING_SIZE,
             Self::SetMotorPowers => SET_MOTOR_POWER_SIZE,
             Self::SetMotorRpms => SET_MOTOR_POWER_SIZE,
+            Self::Config => CONFIG_SIZE,
+            Self::ReqConfig => 0,
+            Self::SaveConfig => CONFIG_SIZE,
         }
     }
 }
@@ -303,6 +313,7 @@ impl From<&SystemStatus> for [u8; SYS_STATUS_SIZE] {
             p.esc_rpm as u8,
             p.rf_control_link as u8,
             p.flash_spi as u8,
+            p.osd as u8,
             system_status::RX_FAULT.load(Ordering::Acquire) as u8,
             system_status::RPM_FAULT.load(Ordering::Acquire) as u8,
         ]
@@ -391,7 +402,7 @@ pub fn handle_rx(
     esc_current: f32,
     controls: &Option<ChannelData>,
     link_stats: &LinkStats,
-    waypoints: &[Option<PositVelEarthUnits>; MAX_WAYPOINTS],
+    config: &mut UserConfig,
     sys_status: &SystemStatus,
     arm_status: &mut ArmStatus,
     op_mode: &mut OperationMode,
@@ -400,6 +411,7 @@ pub fn handle_rx(
     // rpm_status: &RpmReadings,
     motor_servo_state: &mut MotorServoState,
     preflight_motors_running: &mut bool,
+    flash: &mut Flash,
 ) {
     if rx_buf[0] != MSG_START {
         println!("Invalid start byte rec");
@@ -544,7 +556,7 @@ pub fn handle_rx(
             // }
         }
         MsgType::ReqWaypoints => {
-            let payload: [u8; WAYPOINTS_SIZE] = waypoints_to_buf(waypoints);
+            let payload: [u8; WAYPOINTS_SIZE] = waypoints_to_buf(&config.waypoints);
             send_payload::<{ WAYPOINTS_SIZE + PAYLOAD_START_I + CRC_LEN }>(
                 MsgType::Waypoints,
                 &payload,
@@ -649,6 +661,22 @@ pub fn handle_rx(
             //     motor_pid_coeffs,
             // );
         }
+        MsgType::Config => (),
+        MsgType::ReqConfig => {
+            let payload = config.to_bytes();
+
+            send_payload::<{ CONFIG_SIZE + PAYLOAD_START_I + CRC_LEN }>(
+                MsgType::Config,
+                &payload,
+                usb_serial,
+            );
+        }
+        MsgType::SaveConfig => {
+            println!("Save config received");
+            *config =
+                UserConfig::from_bytes(&rx_buf[PAYLOAD_START_I..PAYLOAD_START_I + CONFIG_SIZE]);
+            config.save(flash);
+        }
     }
 }
 
@@ -662,7 +690,7 @@ fn send_payload<const N: usize>(
 
     let mut tx_buf = [0; N];
 
-    tx_buf[0] = msg_type as u8;
+    tx_buf[0] = MSG_START;
     tx_buf[1] = DEVICE_CODE_CORVUS;
     tx_buf[2] = msg_type as u8;
 

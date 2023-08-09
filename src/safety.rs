@@ -68,9 +68,9 @@ pub const MAX_RF_UPDATE_RATE: f32 = 700.; // Hz
 
 // For abstracting over fixed-wing 3-position vs quad 2-position arm status.
 #[cfg(feature = "quad")]
-const MOTORS_ARMED: ArmStatus = ArmStatus::Armed;
+pub const MOTORS_ARMED: ArmStatus = ArmStatus::Armed;
 #[cfg(feature = "fixed-wing")]
-const MOTORS_ARMED: ArmStatus = ArmStatus::MotorsControlsArmed;
+pub const MOTORS_ARMED: ArmStatus = ArmStatus::MotorsControlsArmed;
 
 /// Indicates master motor arm status. Used for both pre arm, and arm. If either is
 /// set to `Disarmed`, the motors will not spin (or stop spinning immediately).

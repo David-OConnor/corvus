@@ -15,6 +15,7 @@ pub const MAX_UPDATE_PERIOD_GNSS: f32 = 0.4;
 pub const MAX_UPDATE_PERIOD_BARO: f32 = 0.5;
 pub const MAX_UPDATE_PERIOD_MAG: f32 = 0.4;
 pub const MAX_UPDATE_PERIOD_RC_LINK: f32 = 0.3;
+pub const MAX_UPDATE_PERIOD_OSD: f32 = 1.;
 
 // We have these faults as atomics so as to not require locking a more-generally-used struct.
 
@@ -45,6 +46,7 @@ pub struct SystemStatus {
     // pub esc_rpm_fault: bool,
     /// SPI flash, which we may use in the future for data logging.
     pub flash_spi: SensorStatus,
+    pub osd: SensorStatus,
     pub update_timestamps: UpdateTimestamps,
 }
 
@@ -125,6 +127,17 @@ impl SystemStatus {
                 self.gnss_can = SensorStatus::NotConnected;
             }
         }
+
+        match self.update_timestamps.osd {
+            Some(t) => {
+                if timestamp - t > MAX_UPDATE_PERIOD_OSD {
+                    self.osd = SensorStatus::NotConnected;
+                }
+            }
+            None => {
+                self.osd = SensorStatus::NotConnected;
+            }
+        }
     }
 }
 
@@ -158,4 +171,5 @@ pub struct UpdateTimestamps {
     pub ahrs_can: Option<f32>,
     pub rf_control_link: Option<f32>,
     pub flight_ctrls: Option<f32>, // not really a sensor, but useful to track.
+    pub osd: Option<f32>,          // not really a sensor, but useful to track.
 }

@@ -249,6 +249,7 @@ impl Covariance {
     }
 }
 
+#[allow(unused)]
 #[derive(Clone, Copy, PartialEq)]
 /// See Interface manual, section 3.8: UBX messages overview
 ///

@@ -157,14 +157,14 @@ impl MotorPidGroup {
 pub struct PidCoeffs {
     pub p: f32,
     pub i: f32,
-    pub d: f32
+    pub d: f32,
 }
 
 impl Default for PidCoeffs {
     fn default() -> Self {
         Self {
-            p: 0.0700,
-            i: 0.0200,
+            p: 0.1000,
+            i: 0.0300,
             d: 0.00001,
         }
     }

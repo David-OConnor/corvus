@@ -34,6 +34,7 @@ use stm32_hal2::{
     flash::Flash,
     gpio::{self, Pin},
     i2c::I2c,
+    iwdg,
     pac::{self, I2C1, I2C2, SPI1, TIM1, TIM2, TIM5},
     spi::Spi,
     timer::{Timer, TimerInterrupt},
@@ -47,7 +48,6 @@ use cfg_if::cfg_if;
 
 mod atmos_model;
 mod can_reception;
-mod cfg_storage;
 mod control_interface;
 mod drivers;
 mod flight_ctrls;
@@ -77,11 +77,10 @@ use crate::{
     imu_processing::{filter_imu::ImuFilters, imu_shared},
     protocols::{
         crsf::{self, LinkStats},
-        dshot, usb_preflight,
-        msp,
+        dshot, msp, usb_preflight,
     },
     sensors_shared::ExtSensor,
-    state::{StateVolatile, UserCfg},
+    state::{StateVolatile, UserConfig},
     system_status::SystemStatus,
 };
 
@@ -127,7 +126,7 @@ cfg_if! {
         // H723: 1Mb of flash, in one bank.
         // 8 sectors of 128kb each.
         // (H743 is similar, but may have 2 banks, each with those properties)
-        const FLASH_CFG_SECTOR: usize = 6;
+        const FLASH_CFG_PAGE: usize = 6; // called sector on H7.
         const FLASH_WAYPOINT_SECTOR: usize = 7;
     } else {
         // G47x/G48x: 512k flash.
@@ -160,12 +159,12 @@ static mut CAN_BUF_RX: [u8; 64] = [0; 64];
 
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
-    use stm32_hal2::dma::DmaPeriph;
     use super::*;
+    use stm32_hal2::dma::DmaPeriph;
 
     #[shared]
     pub struct Shared {
-        pub user_cfg: UserCfg,
+        pub user_cfg: UserConfig,
         pub state_volatile: StateVolatile,
         pub system_status: SystemStatus,
         pub autopilot_status: AutopilotStatus,
@@ -291,6 +290,8 @@ mod app {
             );
         });
 
+        iwdg::refresh();
+
         main_loop::run(cx);
     }
 
@@ -299,7 +300,7 @@ mod app {
     // #[task(binds = OTG_HS,
     // #[task(binds = OTG_FS,
     #[task(binds = USB_LP,
-    shared = [usb_dev, usb_serial, current_params, control_channel_data,
+    shared = [usb_dev, usb_serial, current_params, control_channel_data, flash_onboard,
     link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer],
     local = [], priority = 10)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
@@ -321,6 +322,7 @@ mod app {
             cx.shared.system_status,
             cx.shared.motor_timer,
             cx.shared.servo_timer,
+            cx.shared.flash_onboard,
             // cx.shared.rpm_readings,
         )
             .lock(
@@ -334,13 +336,14 @@ mod app {
                  system_status,
                  motor_timer,
                  servo_timer,
+                 flash,
                  // rpm_readings
                 | {
                     if !usb_dev.poll(&mut [usb_serial]) {
                         return;
                     }
 
-                    let mut buf = [0u8; 8];
+                    let mut buf = [0u8; 60]; // todo: Adjust this A/R!!!
                     match usb_serial.read(&mut buf) {
                         Ok(_count) => {
                             usb_preflight::handle_rx(
@@ -356,7 +359,7 @@ mod app {
                                 state_volatile.esc_current,
                                 ch_data,
                                 &link_stats,
-                                &user_cfg.waypoints,
+                                user_cfg,
                                 system_status,
                                 &mut state_volatile.arm_status,
                                 // &mut user_cfg.control_mapping,
@@ -365,6 +368,7 @@ mod app {
                                 servo_timer,
                                 &mut state_volatile.motor_servo_state,
                                 &mut state_volatile.preflight_motors_running,
+                                flash,
                             );
                         }
                         Err(_) => {
@@ -608,28 +612,46 @@ mod app {
     }
 
     // todo: Diff UART on H7
-    #[task(binds = UART4, shared = [uart_osd], local = [], priority = 12)]
+    #[task(binds = UART4, shared = [uart_osd, state_volatile, system_status, tick_timer], local = [], priority = 2)]
     fn osd_rec_isr(mut cx: osd_rec_isr::Context) {
         cx.shared.uart_osd.lock(|uart| {
             uart.clear_interrupt(UsartInterrupt::CharDetect(None));
 
-            let mut buf = [0; 5];
-            // uart.read(&mut buf);
-            println!("Osd msg rec: {:?}", &buf);
+            let timestamp = cx
+                .shared
+                .tick_timer
+                .lock(|timer| util::get_timestamp(timer));
 
-            return;
-            unsafe {
-                uart.read_dma(
-                    &mut osd::OSD_READ_BUF,
-                    setup::CRSF_RX_CH,
-                    ChannelCfg {
-                        // Take precedence over the ADC, but not motors.
-                        priority: dma::Priority::Medium,
-                        ..Default::default()
-                    },
-                    setup::CRSF_DMA_PERIPH,
-                );
+            cx.shared.system_status.lock(|status| {
+                status.update_timestamps.osd = Some(timestamp);
+            });
+
+            // This interrupt triggered by matching the status function;
+            // send a status indicating the device is armed.
+
+            if osd::OSD_WRITE_IN_PROGRESS.load(Ordering::Acquire) {
+                return;
             }
+
+            // todo: This can probably be set up once on init, since it never changes.
+
+            osd::OSD_WRITE_IN_PROGRESS.store(true, Ordering::Release);
+
+            println!("Sending OSD status");
+
+            cx.shared.state_volatile.lock(|state_volatile| {
+                osd::make_arm_status_buf(state_volatile.arm_status == safety::MOTORS_ARMED);
+            });
+
+            // todo: Put back
+            unsafe {
+                uart.write_dma(
+                    &osd::OSD_ARM_BUF,
+                    setup::OSD_TX_CH,
+                    Default::default(),
+                    setup::OSD_DMA_PERIPH,
+                )
+            };
         });
     }
 
@@ -645,39 +667,6 @@ mod app {
         // This appears to be a required step between UART DMA transmission.
         dma::stop(setup::OSD_DMA_PERIPH, setup::OSD_TX_CH);
         osd::OSD_WRITE_IN_PROGRESS.store(false, Ordering::Release);
-    }
-
-    #[task(binds = DMA2_CH4, shared = [], priority = 1)]
-    /// Baro write complete; start baro read.
-    fn osd_rx_isr(_cx: osd_rx_isr::Context) {
-        dma::clear_interrupt(
-            dma::DmaPeriph::Dma2,
-            setup::OSD_RX_CH,
-            DmaInterrupt::TransferComplete,
-        );
-        println!("Dma Rx complete.");
-
-        if unsafe { osd::OSD_READ_BUF[4] } == msp::MSG_ID_STATUS {
-            println!("Status request");
-        }
-
-            // Functions DJI O3 regulaerly sends:
-            // 3, 92, 101, 110, 112, 150, 10, 94, 105, 111, 130,
-            // todo T
-            // let mut buf = [0; 6];
-
-            // // todo: Don't block!!!
-            // uart.read(&mut buf);
-            //
-            // if buf[4] == protocols::msp::MSG_ID_STATUS {
-            //     println!("OSD STATUS");
-            //     let mut buf = [0; 11];
-            //     buf[6] = 1; // armed.
-            //     uart.write(&buf);
-            // }
-
-        // This appears to be a required step between UART DMA transmission.
-        dma::stop(DmaPeriph::Dma2, setup::OSD_RX_CH);
     }
 
     #[task(binds = TIM5, shared = [tick_timer], local = [], priority = 1)]

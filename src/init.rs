@@ -5,8 +5,8 @@ use stm32_hal2::{
     adc::{self, Adc, AdcConfig, AdcDevice},
     clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
     dma::{self, ChannelCfg, Dma},
-    flash::{Bank, Flash},
-    pac,
+    flash::Flash,
+    iwdg, pac,
     timer::{Timer, TimerConfig, TimerInterrupt},
 };
 
@@ -18,7 +18,7 @@ use crate::{
     protocols::{crsf, dshot},
     sensors_shared::{ExtSensor, V_A_ADC_READ_BUF},
     setup,
-    state::{StateVolatile, UserCfg},
+    state::{StateVolatile, UserConfig},
     system_status::SensorStatus,
 };
 
@@ -98,7 +98,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
 
     // Enable the Clock Recovery System, which improves HSI48 accuracy.
 
-    // todo: Put this back once done USB TS.
     #[cfg(feature = "h7")]
     clocks::enable_crs(CrsSyncSrc::OtgHs);
     #[cfg(feature = "g4")]
@@ -109,8 +108,8 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // Set up pins with appropriate modes.
     setup::setup_pins();
 
-    let dma_ = Dma::new(dp.DMA1);
-    let dma2_ = Dma::new(dp.DMA2);
+    let _dma = Dma::new(dp.DMA1);
+    let _dma = Dma::new(dp.DMA2);
 
     // Note that the HAL currently won't enable DMA2's RCC wihtout using a struct like this.
     let _dma2_ch1 = dma::Dma2Ch1::new();
@@ -251,8 +250,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     let (ctrl_coeff_adj_timer, mut tick_timer, mut adc_timer) =
         setup::setup_timers(dp.TIM1, dp.TIM5, dp.TIM6, &clock_cfg);
 
-    let mut user_cfg = UserCfg::default();
-
     // Note: With this circular DMA approach, we discard many readings,
     // but shouldn't have consequences other than higher power use, compared to commanding
     // conversions when needed.
@@ -299,20 +296,25 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // todo: Note that you may need to either increment the flash page offset, or cycle flash pages, to
     // todo avoid wear on a given sector from erasing each time. Note that you can still probably get 10k
     // todo erase/write cycles per sector, so this is low priority.
-    let flash_onboard = Flash::new(dp.FLASH);
+    let mut flash_onboard = Flash::new(dp.FLASH);
+    let mut user_cfg = UserConfig::load(&mut flash_onboard);
 
-    let mut flash_buf = [0; 8];
-    #[cfg(feature = "h7")]
-    flash_onboard.read(Bank::B1, crate::FLASH_CFG_SECTOR, 0, &mut flash_buf);
-    #[cfg(feature = "g4")]
-    flash_onboard.read(Bank::B1, crate::FLASH_CFG_PAGE, 0, &mut flash_buf);
+    // let mut user_cfg = UserConfig::default();
+    println!("CFG P: {:?}", user_cfg.pid_coeffs.p);
+    println!("CFG I: {:?}", user_cfg.pid_coeffs.i);
+    println!("CFG D: {:?}", user_cfg.pid_coeffs.d);
+    // For the initial config (Eg on a new device), 0xff in flash indicates the config
+    // hasn't been saved yet.
+    if user_cfg.pid_coeffs.p.is_nan() | user_cfg.pid_coeffs.i.is_nan() {
+        println!("Loading default cfg");
+        user_cfg = Default::default();
+        user_cfg.save(&mut flash_onboard);
+    }
 
-    // todo: Copy from one of your CAN nodes: Save and load user cfg.
+    user_cfg.save(&mut flash_onboard);
 
     let mut params = Default::default();
 
-    // todo: For params, consider raw readings without DMA. Currently you're just passign in the
-    // todo default; not going to cut it.?
     let (system_status, altimeter) = setup::init_sensors(
         &mut params,
         &mut state_volatile.base_point,
@@ -326,12 +328,13 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     );
 
     println!(
-        "System status:\n IMU: {}, Baro: {}, Mag: {}, GPS: {}, TOF: {}",
+        "System status:\n IMU: {}, Baro: {}, Mag: {}, GPS: {}, TOF: {}, OSD: {}",
         system_status.imu == SensorStatus::Pass,
         system_status.baro == SensorStatus::Pass,
         system_status.magnetometer == SensorStatus::Pass,
         system_status.gnss == SensorStatus::Pass,
         system_status.tof == SensorStatus::Pass,
+        system_status.osd == SensorStatus::Pass,
     );
 
     let ahrs = Ahrs::new(main_loop::DT_IMU, DeviceOrientation::default());
@@ -381,6 +384,8 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // update_timer.enable();
     adc_timer.enable();
     tick_timer.enable();
+
+    iwdg::setup(0.1);
 
     println!("Init complete; starting main loops");
 

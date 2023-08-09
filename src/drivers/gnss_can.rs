@@ -23,67 +23,9 @@ pub const GNSS_PAYLOAD_SIZE: usize = 38;
 
 pub const GNSS_FIX_ID: u16 = 1_063;
 
-pub const CONFIG_SIZE: usize = 4;
+pub const CONFIG_SIZE: usize = 4 + PAYLOAD_SIZE_CONFIG_COMMON;
 
 pub static TRANSFER_ID_FIX: AtomicUsize = AtomicUsize::new(0);
-
-// todo: Node status.
-
-pub struct Config {
-    pub common: ConfigCommon,
-    /// Hz. Maximum of 18Hz with a single constellation. Lower rates with fused data. For example,
-    /// GPS + GAL is 10Hz max.
-    pub broadcast_rate_gnss: u8,
-    /// Hz. Broadcasting the fused solution can occur at a much higher rate.
-    pub broadcast_rate_fused: u16,
-    /// Compatibility workaround; we normally send fused data in a condensed format,
-    /// with GNSS metadata removed. This sends it using the same packet. Helps compatibility
-    /// with FCs that don't support our format, but sends more data.
-    pub broadcast_rate_baro: u16,
-    pub broadcast_rate_mag: u16,
-    pub broadcast_fused_as_fix: bool,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            common: Default::default(),
-            broadcast_rate_gnss: 5,
-            broadcast_rate_fused: 100,
-            broadcast_rate_baro: 100,
-            broadcast_rate_mag: 100,
-            broadcast_fused_as_fix: true,
-        }
-    }
-}
-
-impl Config {
-    pub fn from_bytes(buf: &[u8]) -> Self {
-        const CCS: usize = PAYLOAD_SIZE_CONFIG_COMMON;
-        Self {
-            common: ConfigCommon::from_bytes(&buf[0..CCS]),
-            broadcast_rate_gnss: buf[CCS],
-            broadcast_rate_fused: u16::from_le_bytes(buf[CCS + 1..CCS + 3].try_into().unwrap()),
-            broadcast_rate_baro: u16::from_le_bytes(buf[CCS + 3..CCS + 5].try_into().unwrap()),
-            broadcast_rate_mag: u16::from_le_bytes(buf[CCS + 5..CCS + 7].try_into().unwrap()),
-            broadcast_fused_as_fix: buf[CCS + 7] != 0,
-        }
-    }
-
-    pub fn to_bytes(&self) -> [u8; CONFIG_SIZE] {
-        const CCS: usize = PAYLOAD_SIZE_CONFIG_COMMON;
-        let mut result = [0; CONFIG_SIZE];
-
-        result[0..CCS].clone_from_slice(&self.common.to_bytes());
-        result[CCS] = self.broadcast_rate_gnss;
-        result[CCS + 1..CCS + 3].copy_from_slice(&self.broadcast_rate_fused.to_le_bytes());
-        result[CCS + 3..CCS + 5].copy_from_slice(&self.broadcast_rate_baro.to_le_bytes());
-        result[CCS + 5..CCS + 7].copy_from_slice(&self.broadcast_rate_mag.to_le_bytes());
-        result[CCS + 7] = self.broadcast_fused_as_fix as u8;
-
-        result
-    }
-}
 
 /// Create a Dronecan Fix2 from our Fix format, based on Ublox's.
 pub fn can_fix_from_ublox_fix(fix: &Fix, cov: &Covariance) -> FixDronecan {
