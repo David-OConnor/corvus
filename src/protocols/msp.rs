@@ -2,7 +2,7 @@
 //! both V1 and V2.
 //! We use this to send data to OSD via MSP Displayport, but this module supports MSP broadly.
 //!
-//! [Reference](https://github.com/iNavFlight/inav/wiki/MSP-V2)
+//! [Reference](http://www.multiwii.com/wiki/index.php?title=Multiwii_Serial_Protocol)
 //!  Some general MSP example code:
 //! https://github.com/chris1seto/PX4-Autopilot/tree/turbotimber/src/modules/msp_osd
 //!
@@ -39,15 +39,16 @@ pub const METADATA_SIZE_V2: usize = FRAME_START_I_V2 + CRC_SIZE_V2;
 
 pub const MSG_ID_DP: u8 = 182;
 pub const MSG_ID_STATUS: u8 = 101;
+pub const MSG_ID_FC_TYPE: u8 = 3;
 
 #[derive(Copy, Clone)]
 #[repr(u8)]
 #[allow(dead_code)]
-pub enum MsgType {
-    /// Sent by master, processed by slave
-    Request = 0x3c, // aka <
-    /// Sent by slave, processed by master. Only sent in response to a request
-    Response = 0x3e, // aka >
+pub enum Direction {
+    /// Sent to the flight controller, by the transmitter
+    VtxToFc = 0x3c, // aka <
+    /// For all messages we send to the video transmitter
+    FcToVtx = 0x3e, // aka >
     /// Sent or processed by either. Response to receipt of data that cannot be processed
     /// (corrupt checksum, unknown function, message type that cannot be processed)
     Error = 0x21, // aka !
@@ -56,7 +57,7 @@ pub enum MsgType {
 /// A MSP packet (V1 or V2)
 pub struct Packet<'a> {
     /// Request, response, or error
-    pub message_type: MsgType,
+    pub direction: Direction,
     /// (little endian). 0 - 255 is the same function as V1 for backwards compatibility
     pub function: u16,
     /// (little endian) Payload size in bytes. (8-bits for V1)
@@ -67,13 +68,13 @@ pub struct Packet<'a> {
 
 impl<'a> Packet<'a> {
     pub fn new(
-        message_type: MsgType,
+        message_type: Direction,
         function: u16,
         payload_size: usize,
         payload: &'a [u8],
     ) -> Self {
         Self {
-            message_type,
+            direction: message_type,
             function,
             payload_size: payload_size as u16,
             payload,
@@ -86,7 +87,7 @@ impl<'a> Packet<'a> {
         // The first two bytes are a hard-set preamble.
         buf[0] = PREAMBLE_0;
         buf[1] = PREAMBLE_1_V1;
-        buf[2] = self.message_type as u8;
+        buf[2] = self.direction as u8;
         buf[3] = self.payload_size as u8;
         // `function` is called `message_id` in v1.
         buf[4] = self.function as u8;
@@ -109,7 +110,7 @@ impl<'a> Packet<'a> {
         // The first two bytes are a hard-set preamble.
         buf[0] = PREAMBLE_0;
         buf[1] = PREAMBLE_1_V2;
-        buf[2] = self.message_type as u8;
+        buf[2] = self.direction as u8;
         buf[3] = 0; // `Flag` is currently unimplemented in the protocol
         buf[4..5].clone_from_slice(&self.function.to_le_bytes());
         buf[5..6].clone_from_slice(&self.payload_size.to_le_bytes());

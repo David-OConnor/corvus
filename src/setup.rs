@@ -43,9 +43,10 @@ use crate::{
         baro_dps310 as baro,
         flash_spi,
         gps_ublox as gps,
+        gps_ublox as gnss,
+        // tof_vl53l1 as tof,
         imu_icm426xx as imu,
         mag_lis3mdl as mag,
-        // tof_vl53l1 as tof,
     },
     // flight_ctrls::common::Motor,
     protocols::{
@@ -149,6 +150,7 @@ pub type SpiImu = Spi<SPI1>;
 pub type I2cBaro = I2c<I2C2>;
 pub type I2cMag = I2c<I2C1>; // Currently unused.
 pub type UartGnss = Usart<USART1>;
+pub type UartGnssRegs = USART1;
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
@@ -192,11 +194,13 @@ pub fn init_sensors(
     base_pt: &mut PositVelEarthUnits,
     spi1: &mut Spi<SPI1>,
     spi_flash: &mut SpiFlash,
-    i2c1: &mut I2c<I2C1>,
-    i2c2: &mut I2c<I2C2>,
+    i2c_mag: &mut I2cMag,
+    i2c_baro: &mut I2cBaro,
+    uart_gnss: &mut UartGnss,
     cs_imu: &mut Pin,
     cs_flash: &mut Pin,
     delay: &mut Delay,
+    clock_cfg: &Clocks,
 ) -> (SystemStatus, baro::Altimeter) {
     let mut system_status = SystemStatus::default();
 
@@ -204,6 +208,39 @@ pub fn init_sensors(
         Ok(_) => system_status.imu = SensorStatus::Pass,
         Err(_) => system_status.imu = SensorStatus::NotConnected,
     };
+
+    // Heisenbugs, ie that only show up without debugger connected without at least a 150ms delay
+    // prior to GNSS setup.
+    // Because this is strange, we pad it to a higher value.
+    delay.delay_ms(200);
+
+    match gnss::setup(uart_gnss, clock_cfg) {
+        Ok(_) => {
+            println!("GNSS setup");
+            system_status.gnss = SensorStatus::Pass;
+        }
+        Err(_) => {
+            println!("GNSS error on first attempt");
+            // Try the runtime baud. This is likely when debugging, since we reset the MCU without
+            // resetting power to the GNSS.
+
+            if uart_gnss.set_baud(gnss::BAUD, clock_cfg).is_err() {
+                system_status.gnss = SensorStatus::NotConnected;
+                println!("Error setting runntime GNSS baud");
+            };
+
+            match gnss::setup(uart_gnss, clock_cfg) {
+                Ok(_) => {
+                    system_status.gnss = SensorStatus::Pass;
+                    println!("GNSS setup succeeded using runtime baud.");
+                }
+                Err(_) => {
+                    system_status.gnss = SensorStatus::NotConnected;
+                    println!("GNSS setup failed at runtime baud");
+                }
+            }
+        }
+    }
 
     // todo: Put these external sensor setups back once complete with baro TS
     // match gps::setup(i2c1) {
@@ -231,7 +268,7 @@ pub fn init_sensors(
     //         return result;
     //     }
     // }
-    let altimeter = match baro::Altimeter::new(i2c2) {
+    let altimeter = match baro::Altimeter::new(i2c_baro) {
         Ok(mut alt) => {
             system_status.baro = SensorStatus::Pass;
             alt
@@ -578,6 +615,7 @@ pub fn setup_busses(
     spi_flash_pac: SpiPacFlash,
     i2c1_pac: I2C1,
     i2c2_pac: I2C2,
+    uart_gnss_pac: UartGnssRegs,
     uart_osd_pac: UartOsdRegs,
     uart_crsf_pac: UartCrsfRegs,
     clock_cfg: &Clocks,
@@ -588,6 +626,7 @@ pub fn setup_busses(
     Pin,
     I2c<I2C1>,
     I2c<I2C2>,
+    UartGnss,
     UartOsd,
     UartCrsf,
 ) {
@@ -676,6 +715,13 @@ pub fn setup_busses(
 
     cs_flash.set_high();
 
+    let uart_cfg = UsartConfig {
+        overrun_disabled: true, // Seems to be required
+        ..Default::default()
+    };
+
+    let uart_gnss = Usart::new(uart_gnss_pac, gnss::BAUD_AT_RESET, uart_cfg, clock_cfg);
+
     // We use UART4 for the OSD, for DJI, via the MSP protocol.
     // todo: QC baud.
     #[cfg(feature = "h7")]
@@ -740,7 +786,7 @@ pub fn setup_busses(
     );
 
     (
-        spi_imu, spi_flash, cs_imu, cs_flash, i2c1, i2c2, uart_osd, uart_crsf,
+        spi_imu, spi_flash, cs_imu, cs_flash, i2c1, i2c2, uart_gnss, uart_osd, uart_crsf,
     )
 }
 

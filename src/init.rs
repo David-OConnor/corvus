@@ -153,6 +153,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         mut cs_flash,
         mut i2c1,
         mut i2c2,
+        mut uart_gnss,
         uart_osd,
         mut uart_crsf,
     ) = setup::setup_busses(
@@ -160,6 +161,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         spi_flash_pac,
         dp.I2C1,
         dp.I2C2,
+        dp.USART1,
         uart_osd_pac,
         uart_crsf_pac,
         &clock_cfg,
@@ -322,9 +324,11 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         &mut flash_spi,
         &mut i2c1,
         &mut i2c2,
+        &mut uart_gnss,
         &mut cs_imu,
         &mut cs_flash,
         &mut delay,
+        &clock_cfg,
     );
 
     println!(
@@ -432,6 +436,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         Local {
             // update_timer,
             uart_crsf,
+            uart_gnss,
             // spi_flash, // todo: Fix flash in HAL, then do this.
             arm_signals_received: 0,
             disarm_signals_received: 0,

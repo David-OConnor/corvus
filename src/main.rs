@@ -25,7 +25,7 @@ use defmt::println;
 use defmt_rtt as _;
 use panic_probe as _;
 
-use ahrs::{Ahrs, Params};
+use ahrs::{Ahrs, Fix, FixType, Params};
 
 use stm32_hal2::{
     self,
@@ -206,6 +206,7 @@ mod app {
     pub struct Local {
         // update_timer: Timer<TIM15>,
         pub uart_crsf: setup::UartCrsf, // for ELRS over CRSF.
+        pub uart_gnss: setup::UartGnss, // for ELRS over CRSF.
         // spi_flash: SpiFlash,  // todo: Fix flash in HAL, then do this.
         pub arm_signals_received: u8, // todo: Put sharedin state volatile.
         pub disarm_signals_received: u8,
@@ -626,6 +627,19 @@ mod app {
                 status.update_timestamps.osd = Some(timestamp);
             });
 
+            // Messages BF sends:
+            // 182: MSP_DISPLAYPORT, payload = 0 (heartbeat)
+
+            if osd::OSD_INTERRUPT_CYCLE.load(Ordering::Acquire) {
+                osd::OSD_INTERRUPT_CYCLE.store(false, Ordering::Release);
+                uart.disable_interrupt(UsartInterrupt::CharDetect(None));
+                uart.enable_interrupt(UsartInterrupt::CharDetect(Some(msp::MSG_ID_STATUS)));
+            } else {
+                osd::OSD_INTERRUPT_CYCLE.store(true, Ordering::Release);
+                uart.disable_interrupt(UsartInterrupt::CharDetect(None));
+                uart.enable_interrupt(UsartInterrupt::CharDetect(Some(msp::MSG_ID_FC_TYPE)));
+            }
+
             // This interrupt triggered by matching the status function;
             // send a status indicating the device is armed.
 
@@ -633,11 +647,10 @@ mod app {
                 return;
             }
 
-            // todo: This can probably be set up once on init, since it never changes.
-
             osd::OSD_WRITE_IN_PROGRESS.store(true, Ordering::Release);
 
             cx.shared.state_volatile.lock(|state_volatile| {
+                // todo: This can probably be set up once on init, since it never changes.
                 osd::make_arm_status_buf(state_volatile.arm_status == safety::MOTORS_ARMED);
             });
 
@@ -739,6 +752,146 @@ mod app {
         cx.shared.system_status.lock(|status| {
             status.update_timestamps.baro = Some(timestamp);
         });
+    }
+
+    #[task(binds = USART1, shared = [tick_timer, fix, params, ahrs, system_status],
+    local = [uart_gnss], priority = 10)]
+    fn gnss_isr(mut cx: gnss_isr::Context) {
+        let uart = cx.local.uart;
+
+        uart.clear_interrupt(UsartInterrupt::CharDetect(None));
+        uart.clear_interrupt(UsartInterrupt::Idle);
+
+        // Stop the DMA read, since it will likely not have filled the buffer, due
+        // to the variable message sizes.
+        dma::stop(setup::GNSS_DMA_PERIPH, setup::GNSS_RX_CH);
+
+        if !gnss::TRANSFER_IN_PROG.load(Ordering::Acquire) {
+            gnss::TRANSFER_IN_PROG.store(true, Ordering::Release);
+
+            uart.disable_interrupt(UsartInterrupt::CharDetect(None));
+
+            unsafe {
+                uart.read_dma(
+                    &mut gnss::RX_BUFFER,
+                    setup::GNSS_RX_CH,
+                    ChannelCfg {
+                        ..Default::default()
+                    },
+                    setup::GNSS_DMA_PERIPH,
+                );
+            }
+        } else {
+            gnss::TRANSFER_IN_PROG.store(false, Ordering::Release);
+
+            // A `None` value here re-enables the interrupt without changing the char to match.
+            uart.enable_interrupt(UsartInterrupt::CharDetect(None));
+
+            // Re-enable the char match interrupt. Avoids locking.
+            let uart_pac = unsafe { &(*pac::USART2::ptr()) };
+            uart_pac.cr1.modify(|_, w| w.cmie().set_bit());
+
+            // todo: TIck timer here appears broken.
+            let timestamp = cx.shared.tick_timer.lock(util::get_timestamp);
+
+            cx.shared.system_status.lock(|status| {
+                status.update_timestamps.gnss = Some(timestamp);
+            });
+
+            static mut I: u32 = 0;
+            let i = unsafe { I };
+
+            match gnss::Message::from_buf(unsafe { &gnss::RX_BUFFER }) {
+                Ok(m) => {
+                    cx.shared.gnss_covariance.lock(|covariance| {
+                        match m.class_id {
+                            gnss::MsgClassId::NavPvt => {
+                                match gnss::fix_from_payload(m.payload, timestamp) {
+                                    Ok(fix) => {
+                                        unsafe { I += 1 };
+
+                                        match fix.type_ {
+                                            FixType::Fix3d | FixType::Combined => {
+                                                StatusLed::Fix.turn_on();
+
+                                                cx.shared.posit_inertial.lock(|posit_inertial| {
+                                                    posit_inertial.update_anchor(&fix);
+                                                });
+
+                                                cx.shared.fix.lock(|fix_resource| {
+                                                    // todo: Maybe update method on Params for this? here for now.
+                                                    // todo while we test it.
+                                                    let dt_fix =
+                                                        fix.timestamp_s - fix_resource.timestamp_s;
+                                                    //
+                                                    // let gnss_acc_nse =
+                                                    //     (ahrs::ppks::ned_vel_to_xyz(
+                                                    //         fix.ned_velocity,
+                                                    //     ) - ahrs::ppks::ned_vel_to_xyz(
+                                                    //         fix_resource.ned_velocity,
+                                                    //     )) / dt_fix;
+
+                                                    cx.shared.ahrs.lock(|ahrs| {
+                                                        ahrs.update_from_fix(&fix);
+
+                                                        // ahrs::attitude::heading_from_gnss_acc(
+                                                        //     gnss_acc_nse,
+                                                        //     ahrs.linear_acc_estimate,
+                                                        // );
+                                                    });
+
+                                                    *fix_resource = fix;
+                                                });
+                                            }
+                                            _ => {
+                                                StatusLed::Fix.turn_off();
+                                            }
+                                        }
+                                    }
+                                    // Ie, a fault etc.
+                                    Err(_) => {
+                                        // todo: PUt back until solved. Decluttered for now.
+                                        // println!("GNSS error while reading a fix");
+                                    }
+                                }
+                            }
+                            gnss::MsgClassId::NavDop => {
+                                if let Ok(dop_) = gnss::DilutionOfPrecision::from_payload(m.payload)
+                                {
+                                    // cx.shared.dilution_of_precision.lock(|dop| {
+                                    //     *dop = dop_;
+                                    // });
+                                }
+                            }
+                            gnss::MsgClassId::NavCov => {
+                                // println!("Nav covariance");
+                                if let Ok(cov) = gnss::Covariance::from_payload(m.payload) {
+                                    // *covariance = cov;
+                                }
+                            }
+                            gnss::MsgClassId::AckAck => {
+                                println!("\n\n\nAck");
+                            }
+                            gnss::MsgClassId::AckNak => {
+                                println!("\n\n\nNACK");
+                            }
+                            _ => {
+                                println!(
+                                    "Unrecognized GNSS ID received. Class: {}. Id: {}",
+                                    m.class_id.to_vals().0,
+                                    m.class_id.to_vals().1
+                                );
+                            }
+                        }
+                    });
+                }
+                Err(_e) => {
+                    // todo: Put this back and troubleshoot it. Getting it a lot.
+                    // todo: Jitter?
+                    // println!("Error parsing GNSS message");
+                }
+            }
+        }
     }
 
     // #[task(binds = FDCAN1_IT0,

@@ -9,6 +9,8 @@ use ahrs::{self, ppks::PositVelEarthUnits, ImuReadings};
 
 use lin_alg2::f32::Quaternion;
 
+use num_traits::Float;
+
 use crate::{
     app, control_interface,
     drivers::osd::{AutopilotData, OsdData},
@@ -419,6 +421,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         num_satellites: 0, // todo temp
                         batt_cell_count: cfg.batt_cell_count,
                         throttle,
+                        total_acc: (params.a_x.powi(2) + params.a_y.powi(2) + params.a_z.powi(2))
+                            .sqrt(),
                     };
 
                     // todo: Your blocking read here is breaking everything; use DMA.

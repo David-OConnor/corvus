@@ -10,6 +10,10 @@
 //! Clean simple implemenation of OSD: https://github.com/catphish/openuav/blob/master/firmware/src/msp.c
 //!
 //! [Reference for DisplayPort commands](https://betaflight.com/docs/development/API/DisplayPort)
+//!
+//! Note: We use `response` packets for all messages, because that's what WTF-FPV requires.
+//! DJI's O3 can handle either. `request` makes more sense semantically, but there's no standard
+//! in place to enforce that.
 
 use core::{
     f32::consts::TAU,
@@ -18,7 +22,7 @@ use core::{
 
 use crate::{
     flight_ctrls::autopilot::{self, AutopilotStatus},
-    protocols::msp::{MsgType, Packet, METADATA_SIZE_V1, MSG_ID_DP, MSG_ID_STATUS},
+    protocols::msp::{Direction, Packet, METADATA_SIZE_V1, MSG_ID_DP, MSG_ID_STATUS},
     safety::ArmStatus,
     sensors_shared::BattCellCount,
     setup::{self, UartOsd},
@@ -40,6 +44,10 @@ use defmt::println;
 pub const BAUD: u32 = 115_200; // 230400 allowed if "Fast_serial" is enabled
 
 const METADATA_SIZE_WRITE_PACKET: usize = 4;
+
+// This is such a hack, but I'm not sure why I can't properly read the OSD rx UART.
+// instead we cyucle the interrupt.
+pub static OSD_INTERRUPT_CYCLE: AtomicBool = AtomicBool::new(false);
 
 // An OSD position of 234 indicates the element is not visible.
 // const NOT_VISIBLE: u16 = 234;
@@ -247,11 +255,12 @@ pub struct OsdData {
     pub num_satellites: u8,
     pub batt_cell_count: BattCellCount,
     pub throttle: f32,
+    pub total_acc: f32,
 }
 
 fn make_heartbeat_packet<'a>() -> Packet<'a> {
     Packet::new(
-        MsgType::Request,
+        Direction::FcToVtx,
         MSG_ID_DP as u16,
         1,
         &[SubCommand::Heartbeat as u8],
@@ -260,7 +269,7 @@ fn make_heartbeat_packet<'a>() -> Packet<'a> {
 
 fn make_clear_packet<'a>() -> Packet<'a> {
     Packet::new(
-        MsgType::Request,
+        Direction::FcToVtx,
         MSG_ID_DP as u16,
         1,
         &[SubCommand::ClearScreen as u8],
@@ -283,12 +292,17 @@ fn make_write_packet<'a>(
         // .copy_from_slice(text.as_bytes());
         .copy_from_slice(text);
 
-    Packet::new(MsgType::Request, MSG_ID_DP as u16, 4 + text.len(), payload)
+    Packet::new(
+        Direction::FcToVtx,
+        MSG_ID_DP as u16,
+        4 + text.len(),
+        payload,
+    )
 }
 
 fn make_draw_packet<'a>() -> Packet<'a> {
     Packet::new(
-        MsgType::Request,
+        Direction::FcToVtx,
         MSG_ID_DP as u16,
         1,
         &[SubCommand::DrawScreen as u8],
@@ -318,7 +332,7 @@ pub fn make_arm_status_buf(armed: bool) {
     }
 
     // payload[6] = ArmStatusMsp::from_arm_status(data.arm_status) as u8;
-    let packet = Packet::new(MsgType::Response, MSG_ID_STATUS as u16, 11, &payload);
+    let packet = Packet::new(Direction::FcToVtx, MSG_ID_STATUS as u16, 11, &payload);
     packet.to_buf_v1(&mut buf[..METADATA_SIZE_V1 + 11]);
 }
 
@@ -355,11 +369,11 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     static mut I: u32 = 0;
     unsafe {
         I += 1;
-        if I % 20 == 0 {
-            // todo: Exeperiment with timing.
-            // make_heartbeat_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
-            // i += METADATA_SIZE_V1 + 1;
-        }
+        // if I % 20 == 0 {
+        // todo: Exeperiment with timing.
+        // make_heartbeat_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
+        // i += METADATA_SIZE_V1 + 1;
+        // }
     }
 
     // todo: Every time?
@@ -425,6 +439,13 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     throttle_buf[0] = "T".as_bytes()[0];
     add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 14, 0, &throttle_buf, &mut i);
 
+    // Total acceleration (G force) display
+    let mut g_buf = [0; 3];
+    let g = (data.total_acc * 10.) as u8;
+    g.numtoa_str(10, &mut g_buf[0..2]);
+    throttle_buf[2] = "G".as_bytes()[0];
+    add_to_write_buf::<{ 3 + METADATA_SIZE_WRITE_PACKET }>(buf, 16, 0, &g_buf, &mut i);
+
     // todo: Test these once you verify working on O3.
     #[cfg(feature = "quad")]
     match data.arm_status {
@@ -473,8 +494,8 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     i += METADATA_SIZE_V1 + 1;
 
     unsafe {
-        if I % 10 == 0 {
-            // println!("OSD buf len: {:?}", i);
+        if I % 30 == 0 {
+            println!("OSD buf len: {:?}", i);
             // println!("Buf: {:x}", buf);
         }
     }
