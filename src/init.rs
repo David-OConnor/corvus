@@ -14,7 +14,7 @@ use ahrs::{Ahrs, DeviceOrientation};
 
 use crate::{
     app::{self, Local, Shared},
-    main_loop,
+    main_loop::{self, DT_IMU},
     protocols::{crsf, dshot},
     sensors_shared::{ExtSensor, V_A_ADC_READ_BUF},
     setup,
@@ -167,32 +167,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         &clock_cfg,
     );
 
-    // todo start I2c test
-    // println!("Starting I2c/SPI test loop");
-    //
-    // // let x = unsafe {
-    // //     (*pac::RCC::ptr()).apb2enr.read().spi1en().bit_is_set()
-    // // };
-    //
-    // let x = spi1.regs.cr1.read().spe().bit_is_set();
-    //
-    // println!("RCC TEST: {}", x);
-    // //
-    // loop {
-    //     // let mut buf = [0];
-    //     // i2c1.write_read(0x77, &[0x0d], &mut buf).ok();
-    //
-    //     let mut buf = [0x75, 0, 0];
-    //
-    //     cs_imu.set_low();
-    //     spi1.transfer(&mut buf);
-    //
-    //     cs_imu.set_high();
-    //     println!("Buf: {:?}", buf[0]);
-    //     delay.delay_ms(500);
-    // }
-    // todo end I2c test
-
     // We use the RTC to assist with power use measurement.
     // let rtc = Rtc::new(dp.RTC, Default::default());
 
@@ -315,6 +289,20 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
 
     user_cfg.save(&mut flash_onboard);
 
+    let mut ahrs = Ahrs::new(DT_IMU, DeviceOrientation::default());
+    // let mut ahrs = Ahrs::new(DT_IMU, user_cfg.orientation); // todo
+
+    // todo: Set up cal bias in foncif
+    // ahrs.cal.acc_bias = Vec3::new(
+    //     user_cfg.acc_cal_bias.0,
+    //     user_cfg.acc_cal_bias.1,
+    //     user_cfg.acc_cal_bias.2,
+    // );
+    //
+    // ahrs.cal.hard_iron = user_cfg.hard_iron;
+    // ahrs.cal.soft_iron = user_cfg.soft_iron.clone();
+    //
+
     let mut params = Default::default();
 
     let (system_status, altimeter) = setup::init_sensors(
@@ -340,9 +328,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         system_status.tof == SensorStatus::Pass,
         system_status.osd == SensorStatus::Pass,
     );
-
-    let ahrs = Ahrs::new(main_loop::DT_IMU, DeviceOrientation::default());
-    // todo: Store AHRS IMU cal in config; see GNSS for ref.
 
     // Allow ESC to warm up and the radio to connect before starting the main loop.
     // delay.delay_ms(WARMUP_TIME);
@@ -432,6 +417,9 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
             // rpms_commanded: Default::default(),
             tick_timer,
             can,
+            fix: Default::default(),
+            posit_inertial: Default::default(),
+            ahrs,
         },
         Local {
             // update_timer,
@@ -445,7 +433,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
             // aux_loop_i: 0, // todo t
             ctrl_coeff_adj_timer,
             time_with_high_throttle: 0.,
-            ahrs,
             dshot_read_timer,
             cs_imu,
             params_prev: params,

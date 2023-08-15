@@ -184,9 +184,11 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 // todo: Update params each IMU update, or at FC interval?
                 *cx.local.params_prev = params.clone();
 
-                // todo: We probably don't need to update AHRS each IMU update, but that's what
-                // todo we're currently doing, since that's updated in `update_from_imu_readings`.
-                params.update_from_imu_readings(&imu_data, None, cx.local.ahrs);
+                cx.shared.ahrs.lock(|ahrs| {
+                    // todo: We probably don't need to update AHRS each IMU update, but that's what
+                    // todo we're currently doing, since that's updated in `update_from_imu_readings`.
+                    params.update_from_imu_readings(&imu_data, None, ahrs);
+                });
 
                 // handle_rpm_readings(
                 //     &mut state_volatile.motor_servo_state,

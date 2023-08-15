@@ -60,11 +60,30 @@ pub static OSD_INTERRUPT_CYCLE: AtomicBool = AtomicBool::new(false);
 // We use this to make sure OSD writes don't step on each other.
 pub static OSD_WRITE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
-static mut OSD_TX_BUF: [u8; 160] = [0; 160]; // todo: size A/R
+static mut OSD_TX_BUF: [u8; 180] = [0; 180]; // Adjust size A/R as you adjust what's displayed.
 
 // Just big enough to read the fucntion type, so we can reply if it's a status frame.
 // pub static mut OSD_READ_BUF: [u8; 5] = [0; 5];
 pub static mut OSD_ARM_BUF: [u8; 21] = [0; 21];
+
+// WTF font map
+// font map. f: Directional arrow
+// font map. g: Directional arrow NNE
+// e w nw
+//h arrow fwd
+// p still an arrow
+// q and r are skippable
+// s: Velocity vector
+// u: up carret
+
+// DJI Jfont map
+
+// DJI O3 font map
+// a - 0: Arrows
+// r - good velocity vector
+// stufw: Carrot-sytyle arrows
+// x: thermometer
+// todo; Possibly need to shift these up to 3
 
 // todo: Periodically send heartbeat? Receive canvas?
 //
@@ -352,6 +371,8 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     // - Symbols on home plate, steerpoint etc?
     // - Land point data
 
+    let blank = " ".as_bytes()[0];
+
     // This return must be before we increment I.
     if OSD_WRITE_IN_PROGRESS.load(Ordering::Acquire) {
         return;
@@ -369,37 +390,29 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     static mut I: u32 = 0;
     unsafe {
         I += 1;
-        // if I % 20 == 0 {
-        // todo: Exeperiment with timing.
-        // make_heartbeat_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
-        // i += METADATA_SIZE_V1 + 1;
-        // }
+        if I % 20 == 0 {
+            // todo: Every time?
+        }
     }
 
-    // todo: Every time?
     make_heartbeat_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
     i += METADATA_SIZE_V1 + 1;
 
     make_clear_packet().to_buf_v1(&mut buf[i..i + METADATA_SIZE_V1 + 1]);
     i += METADATA_SIZE_V1 + 1;
 
-    // DJI O3 font map
-    // a - 0: Arrows
-    // r - good velocity vector
-    // stufw: Carrot-sytyle arrows
-    // x: thermometer
-    // todo; Possibly need to shift these up to 3
+    // todo: Anamolies on clear.
 
     // Link quality
-    let mut lq_buf = [0; 4];
-    lq_buf[0] = "f".as_bytes()[0]; // todo: Find the correct icon in the font.
+    let mut lq_buf = [blank; 4];
+    lq_buf[0] = "t".as_bytes()[0]; // todo: Find the correct icon in the font.
     data.link_quality.numtoa_str(10, &mut lq_buf[1..4]);
     add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 12, 13, &lq_buf, &mut i);
 
     // Battery voltage and % remaining.
-    let mut buf_batt = [0; 9];
+    let mut buf_batt = [blank; 9];
 
-    let batt_v = (data.battery_voltage * 10.) as u8;
+    let batt_v = (data.battery_voltage * 10. / data.batt_cell_count.num_cells()) as u8;
     batt_v.numtoa_str(10, &mut buf_batt[0..3]);
     buf_batt[3] = "V".as_bytes()[0];
 
@@ -407,44 +420,44 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     let batt_pct = (batt_life * 100.) as u8;
     batt_pct.numtoa_str(10, &mut buf_batt[5..8]);
     buf_batt[8] = "%".as_bytes()[0];
-    add_to_write_buf::<{ 9 + METADATA_SIZE_WRITE_PACKET }>(buf, 14, 12, &buf_batt, &mut i);
+    add_to_write_buf::<{ 9 + METADATA_SIZE_WRITE_PACKET }>(buf, 11, 10, &buf_batt, &mut i);
 
     // todo: ESC Current?
-
     // Altitude
-    let mut alt_buf = [0; 5];
+    let mut alt_buf = [blank; 5];
     let altitude = data.alt_msl_baro as u16;
     altitude.numtoa_str(10, &mut alt_buf[0..4]);
     alt_buf[4] = "M".as_bytes()[0]; // lowercase available in font?
     add_to_write_buf::<{ 5 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 25, &alt_buf, &mut i);
 
     // Airspeed
-    let mut airspeed_buf = [0; 6];
+    let mut airspeed_buf = [blank; 6];
     let airspeed = data.posit_vel.velocity.magnitude() as u16;
-    airspeed.numtoa_str(10, &mut airspeed_buf[0..3]);
+    // airspeed.numtoa_str(10, &mut airspeed_buf[0..3]);
     airspeed_buf[3..6].clone_from_slice("M/S".as_bytes()); // lowercase available in font?
     add_to_write_buf::<{ 6 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 0, &airspeed_buf, &mut i);
 
     // Number of sattelites
-    let mut num_sats_buf = [0; 3];
-    num_sats_buf[0] = "e".as_bytes()[0]; // todo: Find the correct icon in the font.
-                                         // data.num_satellites.numtoa_str(10, &mut num_sats_buf[1..3]);
+    let mut num_sats_buf = [blank; 3];
+    num_sats_buf[0] = "v".as_bytes()[0]; // todo: Find the correct icon in the font.
     data.num_satellites.numtoa_str(10, &mut num_sats_buf[1..3]);
     add_to_write_buf::<{ 3 + METADATA_SIZE_WRITE_PACKET }>(buf, 0, 13, &num_sats_buf, &mut i);
 
     // Throttle display.
-    let mut throttle_buf = [0; 4];
+    let mut throttle_buf = [blank; 4];
     let throttle = (data.throttle * 100.) as u8;
     throttle.numtoa_str(10, &mut throttle_buf[1..4]);
     throttle_buf[0] = "T".as_bytes()[0];
     add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 14, 0, &throttle_buf, &mut i);
 
+    // todo: THese `numtoa's` are a panic trap!! THey will panicn if you overrun the buf. Very bad
+    // todo behavior.
     // Total acceleration (G force) display
-    let mut g_buf = [0; 3];
-    let g = (data.total_acc * 10.) as u8;
-    g.numtoa_str(10, &mut g_buf[0..2]);
-    throttle_buf[2] = "G".as_bytes()[0];
-    add_to_write_buf::<{ 3 + METADATA_SIZE_WRITE_PACKET }>(buf, 16, 0, &g_buf, &mut i);
+    let mut g_buf = [blank; 4];
+    let g = (data.total_acc * 10. / 9.8) as u8;
+    g.numtoa_str(10, &mut g_buf[0..3]);
+    g_buf[3] = "G".as_bytes()[0];
+    add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 13, 0, &g_buf, &mut i);
 
     // todo: Test these once you verify working on O3.
     #[cfg(feature = "quad")]
@@ -499,8 +512,6 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
             // println!("Buf: {:x}", buf);
         }
     }
-
-    // println!("OSD len: {:?}", i);
 
     unsafe {
         uart.write_dma(

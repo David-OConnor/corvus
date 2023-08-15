@@ -160,6 +160,7 @@ static mut CAN_BUF_RX: [u8; 64] = [0; 64];
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
     use super::*;
+    use ahrs::ppks::PositInertial;
     use stm32_hal2::dma::DmaPeriph;
 
     #[shared]
@@ -200,6 +201,9 @@ mod app {
         pub motor_pid_coeffs: MotorCoeffs,
         pub tick_timer: Timer<TIM5>,
         pub can: setup::Can_,
+        pub fix: Fix,
+        pub ahrs: Ahrs,
+        pub posit_inertial: PositInertial,
     }
 
     #[local]
@@ -217,7 +221,6 @@ mod app {
         // aux_loop_i: usize, // todo temp
         pub ctrl_coeff_adj_timer: Timer<TIM1>,
         pub time_with_high_throttle: f32,
-        pub ahrs: Ahrs,
         pub dshot_read_timer: Timer<TIM2>,
         pub cs_imu: Pin,
         // todo: `params_prev` is an experimental var used in our alternative/experimental
@@ -268,10 +271,10 @@ mod app {
     /// sequenced among each other.
     // #[task(binds = DMA1_STR2,
     #[task(binds = DMA1_CH2,
-    shared = [spi1, i2c1, i2c2, current_params, control_channel_data, link_stats,
+    shared = [ahrs, spi1, i2c1, i2c2, current_params, control_channel_data, link_stats,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status, tick_timer, uart_osd],
-    local = [ahrs, imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
+    local = [imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, task_durations], priority = 4)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         dma::clear_interrupt(
@@ -754,10 +757,10 @@ mod app {
         });
     }
 
-    #[task(binds = USART1, shared = [tick_timer, fix, params, ahrs, system_status],
+    #[task(binds = USART1, shared = [tick_timer, fix, current_params, posit_inertial, ahrs, system_status],
     local = [uart_gnss], priority = 10)]
     fn gnss_isr(mut cx: gnss_isr::Context) {
-        let uart = cx.local.uart;
+        let uart = cx.local.uart_gnss;
 
         uart.clear_interrupt(UsartInterrupt::CharDetect(None));
         uart.clear_interrupt(UsartInterrupt::Idle);
@@ -803,87 +806,80 @@ mod app {
 
             match gnss::Message::from_buf(unsafe { &gnss::RX_BUFFER }) {
                 Ok(m) => {
-                    cx.shared.gnss_covariance.lock(|covariance| {
-                        match m.class_id {
-                            gnss::MsgClassId::NavPvt => {
-                                match gnss::fix_from_payload(m.payload, timestamp) {
-                                    Ok(fix) => {
-                                        unsafe { I += 1 };
+                    match m.class_id {
+                        gnss::MsgClassId::NavPvt => {
+                            match gnss::fix_from_payload(m.payload, timestamp) {
+                                Ok(fix) => {
+                                    unsafe { I += 1 };
 
-                                        match fix.type_ {
-                                            FixType::Fix3d | FixType::Combined => {
-                                                StatusLed::Fix.turn_on();
+                                    match fix.type_ {
+                                        FixType::Fix3d | FixType::Combined => {
+                                            cx.shared.posit_inertial.lock(|posit_inertial| {
+                                                posit_inertial.update_anchor(&fix);
+                                            });
 
-                                                cx.shared.posit_inertial.lock(|posit_inertial| {
-                                                    posit_inertial.update_anchor(&fix);
+                                            cx.shared.fix.lock(|fix_resource| {
+                                                // todo: Maybe update method on Params for this? here for now.
+                                                // todo while we test it.
+                                                let dt_fix =
+                                                    fix.timestamp_s - fix_resource.timestamp_s;
+                                                //
+                                                // let gnss_acc_nse =
+                                                //     (ahrs::ppks::ned_vel_to_xyz(
+                                                //         fix.ned_velocity,
+                                                //     ) - ahrs::ppks::ned_vel_to_xyz(
+                                                //         fix_resource.ned_velocity,
+                                                //     )) / dt_fix;
+
+                                                cx.shared.ahrs.lock(|ahrs| {
+                                                    ahrs.update_from_fix(&fix);
+
+                                                    // ahrs::attitude::heading_from_gnss_acc(
+                                                    //     gnss_acc_nse,
+                                                    //     ahrs.linear_acc_estimate,
+                                                    // );
                                                 });
 
-                                                cx.shared.fix.lock(|fix_resource| {
-                                                    // todo: Maybe update method on Params for this? here for now.
-                                                    // todo while we test it.
-                                                    let dt_fix =
-                                                        fix.timestamp_s - fix_resource.timestamp_s;
-                                                    //
-                                                    // let gnss_acc_nse =
-                                                    //     (ahrs::ppks::ned_vel_to_xyz(
-                                                    //         fix.ned_velocity,
-                                                    //     ) - ahrs::ppks::ned_vel_to_xyz(
-                                                    //         fix_resource.ned_velocity,
-                                                    //     )) / dt_fix;
-
-                                                    cx.shared.ahrs.lock(|ahrs| {
-                                                        ahrs.update_from_fix(&fix);
-
-                                                        // ahrs::attitude::heading_from_gnss_acc(
-                                                        //     gnss_acc_nse,
-                                                        //     ahrs.linear_acc_estimate,
-                                                        // );
-                                                    });
-
-                                                    *fix_resource = fix;
-                                                });
-                                            }
-                                            _ => {
-                                                StatusLed::Fix.turn_off();
-                                            }
+                                                *fix_resource = fix;
+                                            });
                                         }
-                                    }
-                                    // Ie, a fault etc.
-                                    Err(_) => {
-                                        // todo: PUt back until solved. Decluttered for now.
-                                        // println!("GNSS error while reading a fix");
+                                        _ => {}
                                     }
                                 }
-                            }
-                            gnss::MsgClassId::NavDop => {
-                                if let Ok(dop_) = gnss::DilutionOfPrecision::from_payload(m.payload)
-                                {
-                                    // cx.shared.dilution_of_precision.lock(|dop| {
-                                    //     *dop = dop_;
-                                    // });
+                                // Ie, a fault etc.
+                                Err(_) => {
+                                    // todo: PUt back until solved. Decluttered for now.
+                                    // println!("GNSS error while reading a fix");
                                 }
-                            }
-                            gnss::MsgClassId::NavCov => {
-                                // println!("Nav covariance");
-                                if let Ok(cov) = gnss::Covariance::from_payload(m.payload) {
-                                    // *covariance = cov;
-                                }
-                            }
-                            gnss::MsgClassId::AckAck => {
-                                println!("\n\n\nAck");
-                            }
-                            gnss::MsgClassId::AckNak => {
-                                println!("\n\n\nNACK");
-                            }
-                            _ => {
-                                println!(
-                                    "Unrecognized GNSS ID received. Class: {}. Id: {}",
-                                    m.class_id.to_vals().0,
-                                    m.class_id.to_vals().1
-                                );
                             }
                         }
-                    });
+                        gnss::MsgClassId::NavDop => {
+                            if let Ok(dop_) = gnss::DilutionOfPrecision::from_payload(m.payload) {
+                                // cx.shared.dilution_of_precision.lock(|dop| {
+                                //     *dop = dop_;
+                                // });
+                            }
+                        }
+                        gnss::MsgClassId::NavCov => {
+                            // println!("Nav covariance");
+                            if let Ok(cov) = gnss::Covariance::from_payload(m.payload) {
+                                // *covariance = cov;
+                            }
+                        }
+                        gnss::MsgClassId::AckAck => {
+                            println!("\n\n\nAck");
+                        }
+                        gnss::MsgClassId::AckNak => {
+                            println!("\n\n\nNACK");
+                        }
+                        _ => {
+                            println!(
+                                "Unrecognized GNSS ID received. Class: {}. Id: {}",
+                                m.class_id.to_vals().0,
+                                m.class_id.to_vals().1
+                            );
+                        }
+                    }
                 }
                 Err(_e) => {
                     // todo: Put this back and troubleshoot it. Getting it a lot.

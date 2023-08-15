@@ -127,8 +127,7 @@ impl<'a> Packet<'a> {
 
     pub fn _send_v1(&self, buf: &mut [u8], uart: &mut UartOsd) {
         self.to_buf_v1(buf);
-        // unsafe { uart.write_dma(&buf, OSD_TX_CH, Default::default(), OSD_DMA_PERIPH) };
-        uart.write(buf);
+        unsafe { uart.write_dma(&buf, OSD_TX_CH, Default::default(), OSD_DMA_PERIPH) };
     }
 
     // todo: DRY
