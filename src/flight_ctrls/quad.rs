@@ -32,7 +32,7 @@ pub const THROTTLE_MIN_MNVR_CLAMP: f32 = 0.06;
 // todo: Calibration unimplemented
 // const MIN_CAL_ALT: f32 = 6.;
 
-const ACRO_RATE: f32 = 6.;
+const ACRO_RATE: f32 = 10.;
 
 impl Default for InputMap {
     fn default() -> Self {
