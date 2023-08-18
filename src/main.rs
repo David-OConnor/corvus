@@ -695,8 +695,9 @@ mod app {
     }
 
     // #[task(binds = DMA2_STR1,
-    #[task(binds = DMA2_CH1,
-    shared = [i2c2], priority = 2)]
+    // #[task(binds = DMA2_CH1,
+    #[task(binds = DMA1_CH4,
+    shared = [i2c2], priority = 3)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
         dma::clear_interrupt(
@@ -705,7 +706,7 @@ mod app {
             DmaInterrupt::TransferComplete,
         );
 
-        // dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_RX_CH);
+        println!("Baro W TC");
 
         cx.shared.i2c2.lock(|i2c| unsafe {
             i2c.read_dma(
@@ -721,7 +722,8 @@ mod app {
     // todo: For now, we start new transfers in the main loop.
 
     // #[task(binds = DMA2_STR2,
-    #[task(binds = DMA2_CH2,
+    // #[task(binds = DMA2_CH2,
+    #[task(binds = DMA1_CH6,
     shared = [altimeter, current_params, state_volatile, system_status, tick_timer], priority = 3)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(mut cx: baro_read_tc_isr::Context) {
@@ -731,6 +733,8 @@ mod app {
             DmaInterrupt::TransferComplete,
         );
 
+        println!("BARO READ C");
+
         let buf = unsafe { &sensors_shared::READ_BUF_BARO };
 
         (
@@ -739,8 +743,6 @@ mod app {
             cx.shared.state_volatile,
         )
             .lock(|altimeter, params, state_volatile| {
-                // code shortener.
-
                 // todo: Process your baro reading here.
                 let (pressure, temp) = altimeter.pressure_temp_from_readings(buf);
 
@@ -770,9 +772,15 @@ mod app {
         dma::stop(setup::GNSS_DMA_PERIPH, setup::GNSS_RX_CH);
 
         if !gnss::TRANSFER_IN_PROG.load(Ordering::Acquire) {
+            // println!("GPS A");
             gnss::TRANSFER_IN_PROG.store(true, Ordering::Release);
 
             uart.disable_interrupt(UsartInterrupt::CharDetect(None));
+
+            let mut buf = [0; 20];
+            uart.read(&mut buf);
+            // println!("BUF: {:?}", buf);
+            return;
 
             unsafe {
                 uart.read_dma(
@@ -785,6 +793,7 @@ mod app {
                 );
             }
         } else {
+            // println!("GPS B");
             gnss::TRANSFER_IN_PROG.store(false, Ordering::Release);
 
             // A `None` value here re-enables the interrupt without changing the char to match.
@@ -806,10 +815,12 @@ mod app {
 
             match gnss::Message::from_buf(unsafe { &gnss::RX_BUFFER }) {
                 Ok(m) => {
+                    println!("OK GPS");
                     match m.class_id {
                         gnss::MsgClassId::NavPvt => {
                             match gnss::fix_from_payload(m.payload, timestamp) {
                                 Ok(fix) => {
+                                    println!("Fix received");
                                     unsafe { I += 1 };
 
                                     match fix.type_ {
@@ -882,6 +893,7 @@ mod app {
                     }
                 }
                 Err(_e) => {
+                    // println!("ERror GPS");
                     // todo: Put this back and troubleshoot it. Getting it a lot.
                     // todo: Jitter?
                     // println!("Error parsing GNSS message");

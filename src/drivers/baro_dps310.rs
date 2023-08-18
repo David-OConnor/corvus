@@ -12,6 +12,7 @@ use crate::{
     atmos_model::{AltitudeCalPt, POINT_0, POINT_1},
     setup::I2cBaro,
 };
+use defmt::println;
 
 use stm32_hal2::i2c;
 
@@ -176,7 +177,6 @@ pub struct Altimeter {
     gps_cal_air: Option<AltitudeCalPt>,
     hardware_coeff_cal: HardwareCoeffCal,
 }
-
 impl Altimeter {
     /// Configure settings, including pressure mreasurement rate, and return an instance.
     /// And load calibration data.

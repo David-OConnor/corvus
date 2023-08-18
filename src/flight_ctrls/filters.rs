@@ -12,11 +12,6 @@ static mut FILTER_STATE_DRAG_COEFF_YAW: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_D_TERM_X: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_D_TERM_Y: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_D_TERM_Z: [f32; 4] = [0.; 4];
-//
-// filter_ = signal.iirfilter(1, 80, btype="lowpass", ftype="bessel", output="sos", fs=1_600)
-// coeffs = []
-// for row in filter_:
-//     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
 
 #[allow(clippy::excessive_precision)]
 static COEFFS_CTRL_EFFECTIVENESS: [f32; 5] = [
@@ -27,26 +22,30 @@ static COEFFS_CTRL_EFFECTIVENESS: [f32; 5] = [
     -0.0,
 ];
 
-// filter_ = signal.iirfilter(1, 80, btype="lowpass", ftype="bessel", output="sos", fs=1_600)
+//
+// filter_ = signal.iirfilter(1, 100, btype="lowpass", ftype="bessel", output="sos", fs=2_048)
+// coeffs = []
+// for row in filter_:
+//     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
 // todo: Experiment here with diff frequencies.
 // Assumes updated every main loop; not IMU rate.
 #[allow(clippy::excessive_precision)]
 #[cfg(feature = "quad")]
 static COEFFS_D_TERM: [f32; 5] = [
-    0.24058238255001216,
-    0.24058238255001216,
+    0.13390872336157789,
+    0.13390872336157789,
     0.0,
-    0.5188352348999759,
+    0.7321825532768441,
     -0.0,
 ];
 
 #[allow(clippy::excessive_precision)]
 #[cfg(feature = "fixed-wing")]
 static COEFFS_D_TERM: [f32; 5] = [
-    0.41324176993107214,
-    0.41324176993107214,
+    0.24058238255001216,
+    0.24058238255001216,
     0.0,
-    0.17351646013785585,
+    0.5188352348999759,
     -0.0,
 ];
 

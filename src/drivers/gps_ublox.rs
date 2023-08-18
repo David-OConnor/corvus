@@ -578,6 +578,9 @@ impl<'a> Message<'a> {
 
     pub fn from_buf(buf: &'a [u8]) -> Result<Self, GnssError> {
         let mut shift: isize = 0;
+
+        // println!("GPS BUF: {:?}", buf);
+
         // Check if the message has been shifted left due to jitter;
         // if so, shift right accordingly.
         if buf[0] == PREAMBLE_2 {

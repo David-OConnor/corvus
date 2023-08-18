@@ -42,7 +42,6 @@ use crate::{
     drivers::{
         baro_dps310 as baro,
         flash_spi,
-        gps_ublox as gps,
         gps_ublox as gnss,
         // tof_vl53l1 as tof,
         imu_icm426xx as imu,
@@ -71,7 +70,8 @@ pub const MOTORS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
 pub const CRSF_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
 pub const BATT_CURR_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
 
-pub const BARO_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
+// pub const BARO_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
+pub const BARO_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1; // todo TS
 pub const OSD_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 pub const EXT_SENSORS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 pub const GNSS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
@@ -89,8 +89,10 @@ pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
 pub const BATT_CURR_DMA_CH: DmaChannel = DmaChannel::C7;
 
 // DMA 2
-pub const BARO_TX_CH: DmaChannel = DmaChannel::C1;
-pub const BARO_RX_CH: DmaChannel = DmaChannel::C2;
+// pub const BARO_TX_CH: DmaChannel = DmaChannel::C1;
+// pub const BARO_RX_CH: DmaChannel = DmaChannel::C2;
+pub const BARO_TX_CH: DmaChannel = DmaChannel::C4; // todo TS
+pub const BARO_RX_CH: DmaChannel = DmaChannel::C6;
 
 pub const OSD_TX_CH: DmaChannel = DmaChannel::C3;
 // pub const OSD_RX_CH: DmaChannel = DmaChannel::C4;
@@ -241,12 +243,6 @@ pub fn init_sensors(
             }
         }
     }
-
-    // todo: Put these external sensor setups back once complete with baro TS
-    // match gps::setup(i2c1) {
-    //     Ok(_) => system_status.gps = SensorStatus::Pass,
-    //     Err(_) => system_status.gps = SensorStatus::NotConnected,
-    // }
 
     // match mag::setup(i2c1) {
     //     Ok(_) => system_status.magnetometer = SensorStatus::Pass,
@@ -493,6 +489,10 @@ pub fn setup_pins() {
 
     uart_osd_rx.pull(Pull::Up);
 
+    // UART 1 , on G4.
+    let _uart_gnss_tx = Pin::new(Port::B, 6, PinMode::Alt(7));
+    let _uart_gnss_rx = Pin::new(Port::B, 7, PinMode::Alt(7));
+
     // We use UARTs for misc external devices, including ESC telemetry,
     // and VTX OSD.
 
@@ -584,6 +584,7 @@ pub fn setup_dma() {
     dma::mux(BATT_CURR_DMA_PERIPH, BATT_CURR_DMA_CH, adc_dma_ip);
     dma::mux(OSD_DMA_PERIPH, OSD_TX_CH, osd_dma_ip);
     // dma::mux(OSD_DMA_PERIPH, OSD_RX_CH, osd_dma_rx_ip);
+
     dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c2Tx);
     dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c2Rx);
 
@@ -602,8 +603,6 @@ pub fn setup_dma() {
     // and store reading data.
     dma::enable_interrupt(BARO_DMA_PERIPH, BARO_TX_CH, DmaInterrupt::TransferComplete);
     dma::enable_interrupt(BARO_DMA_PERIPH, BARO_RX_CH, DmaInterrupt::TransferComplete);
-    // dma.enable_interrupt(EXT_SENSORS_TX_CH, DmaInterrupt::TransferComplete);
-    // dma.enable_interrupt(EXT_SENSORS_RX_CH, DmaInterrupt::TransferComplete);
 
     dma::enable_interrupt(OSD_DMA_PERIPH, OSD_TX_CH, DmaInterrupt::TransferComplete);
     // dma::enable_interrupt(OSD_DMA_PERIPH, OSD_RX_CH, DmaInterrupt::TransferComplete);

@@ -37,21 +37,6 @@ static mut FILTER_STATE_FRONT_RIGHT: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_AFT_LEFT: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_AFT_RIGHT: [f32; 4] = [0.; 4];
 
-// filter_ = signal.iirfilter(1, 100, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
-// coeffs = []
-// for row in filter_:
-//     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
-
-// todo: Diff coeffs for diff diff parts, as required.
-#[allow(clippy::excessive_precision)]
-static COEFFS_D: [f32; 5] = [
-    0.037804754170896473,
-    0.037804754170896473,
-    0.0,
-    0.9243904916582071,
-    -0.0,
-];
-
 /// Cutoff frequency for our PID lowpass frequency, in Hz
 #[derive(Clone, Copy)]
 pub enum LowpassCutoff {
@@ -165,7 +150,7 @@ impl Default for PidCoeffs {
         Self {
             p: 0.1400,
             i: 0.0600,
-            d: 0.00001,
+            d: 0.00005,
         }
     }
 }
@@ -260,31 +245,31 @@ impl Default for DerivFilters {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
         };
-
-        unsafe {
-            // todo: Re-initialize fn?
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.rpm_front_left.inner,
-                &COEFFS_D,
-                &mut FILTER_STATE_FRONT_LEFT,
-            );
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.rpm_front_right.inner,
-                &COEFFS_D,
-                &mut FILTER_STATE_FRONT_RIGHT,
-            );
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.rpm_aft_left.inner,
-                &COEFFS_D,
-                &mut FILTER_STATE_AFT_LEFT,
-            );
-
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.rpm_aft_right.inner,
-                &COEFFS_D,
-                &mut FILTER_STATE_AFT_RIGHT,
-            );
-        }
+        //
+        // unsafe {
+        //     // todo: Re-initialize fn?
+        //     dsp_api::biquad_cascade_df1_init_f32(
+        //         &mut result.rpm_front_left.inner,
+        //         &COEFFS_D,
+        //         &mut FILTER_STATE_FRONT_LEFT,
+        //     );
+        //     dsp_api::biquad_cascade_df1_init_f32(
+        //         &mut result.rpm_front_right.inner,
+        //         &COEFFS_D,
+        //         &mut FILTER_STATE_FRONT_RIGHT,
+        //     );
+        //     dsp_api::biquad_cascade_df1_init_f32(
+        //         &mut result.rpm_aft_left.inner,
+        //         &COEFFS_D,
+        //         &mut FILTER_STATE_AFT_LEFT,
+        //     );
+        //
+        //     dsp_api::biquad_cascade_df1_init_f32(
+        //         &mut result.rpm_aft_right.inner,
+        //         &COEFFS_D,
+        //         &mut FILTER_STATE_AFT_RIGHT,
+        //     );
+        // }
 
         result
     }

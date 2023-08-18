@@ -145,7 +145,7 @@ pub fn ctrl_mix_from_att(
             let d_error_y = (error_y - error_y_prev) / dt;
             let d_error_z = (error_z - error_z_prev) / dt;
 
-            let (d_error_x, e_error_y, d_error_z) = filters.apply(d_error_x, d_error_y, d_error_z);
+            let (d_error_x, d_error_y, d_error_z) = filters.apply(d_error_x, d_error_y, d_error_z);
 
             integral_x += error_x * dt;
             integral_y += error_y * dt;
