@@ -508,8 +508,9 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
 
     unsafe {
         if I % 30 == 0 {
-            println!("OSD buf len: {:?}", i);
+            // println!("OSD buf len: {:?}", i);
             // println!("Buf: {:x}", buf);
+            // println!("Alt {}", data.alt_msl_baro );
         }
     }
 

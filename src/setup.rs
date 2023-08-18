@@ -70,8 +70,7 @@ pub const MOTORS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
 pub const CRSF_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
 pub const BATT_CURR_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
 
-// pub const BARO_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
-pub const BARO_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1; // todo TS
+pub const BARO_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 pub const OSD_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 pub const EXT_SENSORS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 pub const GNSS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
@@ -89,10 +88,8 @@ pub const CRSF_RX_CH: DmaChannel = DmaChannel::C5;
 pub const BATT_CURR_DMA_CH: DmaChannel = DmaChannel::C7;
 
 // DMA 2
-// pub const BARO_TX_CH: DmaChannel = DmaChannel::C1;
-// pub const BARO_RX_CH: DmaChannel = DmaChannel::C2;
-pub const BARO_TX_CH: DmaChannel = DmaChannel::C4; // todo TS
-pub const BARO_RX_CH: DmaChannel = DmaChannel::C6;
+pub const BARO_TX_CH: DmaChannel = DmaChannel::C1;
+pub const BARO_RX_CH: DmaChannel = DmaChannel::C2;
 
 pub const OSD_TX_CH: DmaChannel = DmaChannel::C3;
 // pub const OSD_RX_CH: DmaChannel = DmaChannel::C4;
@@ -587,9 +584,6 @@ pub fn setup_dma() {
 
     dma::mux(BARO_DMA_PERIPH, BARO_TX_CH, DmaInput::I2c2Tx);
     dma::mux(BARO_DMA_PERIPH, BARO_RX_CH, DmaInput::I2c2Rx);
-
-    // dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_TX_CH, DmaInput::I2c1Tx);
-    // dma::mux(EXT_SENSORS_DMA_PERIPH, EXT_SENSORS_RX_CH, DmaInput::I2c1Rx);
 
     // We use Spi transfer complete to know when our readings are ready - in its ISR,
     // we trigger the attitude-rates PID loop.

@@ -275,10 +275,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     let mut flash_onboard = Flash::new(dp.FLASH);
     let mut user_cfg = UserConfig::load(&mut flash_onboard);
 
-    // let mut user_cfg = UserConfig::default();
-    println!("CFG P: {:?}", user_cfg.pid_coeffs.p);
-    println!("CFG I: {:?}", user_cfg.pid_coeffs.i);
-    println!("CFG D: {:?}", user_cfg.pid_coeffs.d);
     // For the initial config (Eg on a new device), 0xff in flash indicates the config
     // hasn't been saved yet.
     if user_cfg.pid_coeffs.p.is_nan() | user_cfg.pid_coeffs.i.is_nan() {

@@ -9,13 +9,11 @@ use crate::{
 };
 
 // Each of these values is register, value to write to register.
-// todo: Populate these.
 // We sequence these using TC ISRs.
 pub static mut WRITE_BUF_BARO: [u8; 1] = [baro::Reg::PsrB2 as u8];
 pub static mut WRITE_BUF_MAG: [u8; 1] = [mag::Reg::OutXL as u8];
 pub static mut WRITE_BUF_TOF: [u8; 2] = [0; 2];
 
-pub static mut READ_BUF_GNSS: [u8; gnss::MAX_BUF_LEN] = [0; gnss::MAX_BUF_LEN];
 pub static mut READ_BUF_BARO: [u8; 6] = [0; 6]; // 3x pressure, 3x temperature.
 pub static mut READ_BUF_MAG: [u8; 6] = [0; 6]; // 2 mag for each dimension.
 pub static mut READ_BUF_TOF: [u8; 2] = [0; 2];
@@ -42,56 +40,16 @@ pub enum ExtSensor {
 
 // 3 sensors; each 16 bits.
 // pub static mut EXT_SENSORS_READINGS: [u8; 3 * 2] = [0; 3 * 2];
-
+use defmt::println;
 /// Start continous transfers for all sensors controlled by this module.
-pub fn start_transfers(i2c_ext_sensors: &mut I2cMag, i2c_baro: &mut I2cBaro) {
+pub fn start_transfers(i2c_baro: &mut I2cBaro) {
     unsafe {
-        // todo: Does this continuous/circular approach work for I2C/multiple sensors
-        // todo/these specific sensors?
-        // i2c2.write_read_dma(
-        //     baro::Addr,
-        //     &write_buf_baro,
-        //     &mut BARO_READINGS,
-        //     BARO_TX_CH,
-        //     BARO_RX_CH,
-        //     // ChannelCfg {
-        //     //     circular: dma::Circular::Enabled,
-        //     // ..Default::default()
-        //     // ..Default::default()
-        //     // },
-        //     Default::default(),
-        //     Default::default(),
-        // );
-        //
-        // i2c1.write_read_dma(
-        //     baro::ADDR, // todo??
-        //     &write_buf_ext_sensors,
-        //     &mut EXT_SENSORS_READINGS,
-        //     EXT_SENSORS_TX_CH,
-        //     EXT_SENSORS_RX_CH,
-        //     // ChannelCfg {
-        //     //     circular: dma::Circular::Enabled,
-        //     // ..Default::default()
-        //     // ..Default::default()
-        //     // },
-        //     Default::default(),
-        //     Default::default(),
-        // );
-
-        // todo: Or, maybe you have to sequence all reads and writes?
-
-        // Read seq for ext sensors: Mag, GPS,
-
         // In DMA TC ISRs, sequence read and writes; These are the transfers that start
         // the sequence of writes and reads for each bus.
 
         // This stop appears to be required in some cases.
         dma::stop(BARO_DMA_PERIPH, BARO_TX_CH);
-        dma::stop(BARO_DMA_PERIPH, BARO_RX_CH);
-
         i2c_baro.write_dma(
-            // i2c_ext_sensors.write_dma(
-            // todo temp since baro is currently wired to i2c1.
             baro::ADDR,
             &WRITE_BUF_BARO,
             false,
@@ -99,16 +57,6 @@ pub fn start_transfers(i2c_ext_sensors: &mut I2cMag, i2c_baro: &mut I2cBaro) {
             Default::default(),
             BARO_DMA_PERIPH,
         );
-
-        // todo: Put back; temp removed while testing Baro
-        // i2c_ext_sensors.write_dma(
-        //     mag::ADDR,
-        //     &write_buf_mag,
-        //     false,
-        //     EXT_SENSORS_TX_CH,
-        //     Default::default(),
-        //     setup::EXT_SENSORS_DMA_PERIPH,
-        // );
     }
 }
 
