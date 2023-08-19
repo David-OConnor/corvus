@@ -42,7 +42,7 @@ pub enum ExtSensor {
 // pub static mut EXT_SENSORS_READINGS: [u8; 3 * 2] = [0; 3 * 2];
 use defmt::println;
 /// Start continous transfers for all sensors controlled by this module.
-pub fn start_transfers(i2c_baro: &mut I2cBaro) {
+pub fn start_baro_transfer(i2c_baro: &mut I2cBaro) {
     unsafe {
         // In DMA TC ISRs, sequence read and writes; These are the transfers that start
         // the sequence of writes and reads for each bus.

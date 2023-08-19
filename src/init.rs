@@ -121,8 +121,8 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
             let uart_crsf_pac = dp.UART7;
             let uart_osd_pac = dp.USART2;
         } else {
-            // let uart_crsf_pac = dp.USART2;
-            let uart_crsf_pac = dp.USART3;
+            let uart_crsf_pac = dp.USART2;
+            // let uart_crsf_pac = dp.USART3;
             let uart_osd_pac = dp.UART4;
         }
     }

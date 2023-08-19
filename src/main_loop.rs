@@ -502,9 +502,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         timestamp_task_complete - timestamp_fc_complete;
                 } else if (i_compensated - 5) % NUM_IMU_LOOP_TASKS == 0 {
                     cx.shared.i2c2.lock(|i2c2| {
-                        // Start DMA sequences for I2C sensors, ie baro, mag, GPS, TOF.
-                        // DMA TC isrs are sequenced.
-                        sensors_shared::start_transfers(i2c2);
+                        sensors_shared::start_baro_transfer(i2c2);
                     });
 
                     system_status.update_from_timestamp(timestamp);

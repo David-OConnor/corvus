@@ -550,8 +550,7 @@ mod app {
 
     // todo: Evaluate priority.
     // #[task(binds = UART7,
-    #[task(binds = USART3,
-    // #[task(binds = USART2,
+    #[task(binds = USART2,
 // shared = [control_channel_data, link_stats, system_status,
 //], local = [uart_crsf], priority = 8)]
     shared = [], local = [uart_crsf], priority = 8)]

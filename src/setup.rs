@@ -15,7 +15,7 @@ use stm32_hal2::{
     dma::{self, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, I2C1, I2C2, SPI1, SPI2, USART1, USART2, USART3},
+    pac::{self, I2C1, I2C2, SPI1, SPI2, USART1, USART2},
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{BasicTimer, MasterModeSelection, TimChannel, Timer, TimerConfig, TimerInterrupt},
     usart::{Usart, UsartConfig},
@@ -161,15 +161,11 @@ cfg_if! {
         pub type UartCrsf = Usart<pac::UART7>;
         pub type UartOsd = Usart<pac::USART2>;
     } else {
-        // todo: USART2 is not working for some reason, at least for CRSF.
-        // todo: Do more testing.
-        // type UartCrsfRegs = pac::USART2;
-        type UartCrsfRegs = pac::USART3;
+        type UartCrsfRegs = pac::USART2;
         type UartOsdRegs = pac::UART4;
         pub type SpiPacFlash = pac::SPI2;
         pub type SpiFlash = Spi2<SpiPacFlash>;
-        // pub type UartCrsf = Usart<pac::USART2>;
-        pub type UartCrsf = Usart<pac::USART3>;
+        pub type UartCrsf = Usart<pac::USART2>;
         pub type UartOsd = Usart4<pac::UART4>;
     }
 }
@@ -213,33 +209,34 @@ pub fn init_sensors(
     // Because this is strange, we pad it to a higher value.
     delay.delay_ms(200);
 
-    match gnss::setup(uart_gnss, clock_cfg) {
-        Ok(_) => {
-            println!("GNSS setup");
-            system_status.gnss = SensorStatus::Pass;
-        }
-        Err(_) => {
-            println!("GNSS error on first attempt");
-            // Try the runtime baud. This is likely when debugging, since we reset the MCU without
-            // resetting power to the GNSS.
-
-            if uart_gnss.set_baud(gnss::BAUD, clock_cfg).is_err() {
-                system_status.gnss = SensorStatus::NotConnected;
-                println!("Error setting runntime GNSS baud");
-            };
-
-            match gnss::setup(uart_gnss, clock_cfg) {
-                Ok(_) => {
-                    system_status.gnss = SensorStatus::Pass;
-                    println!("GNSS setup succeeded using runtime baud.");
-                }
-                Err(_) => {
-                    system_status.gnss = SensorStatus::NotConnected;
-                    println!("GNSS setup failed at runtime baud");
-                }
-            }
-        }
-    }
+    // todo: Experiencing watchdog resets with GPS enabled... Constant idle interrupt?
+    // match gnss::setup(uart_gnss, clock_cfg) {
+    //     Ok(_) => {
+    //         println!("GNSS setup");
+    //         system_status.gnss = SensorStatus::Pass;
+    //     }
+    //     Err(_) => {
+    //         println!("GNSS error on first attempt");
+    //         // Try the runtime baud. This is likely when debugging, since we reset the MCU without
+    //         // resetting power to the GNSS.
+    //
+    //         if uart_gnss.set_baud(gnss::BAUD, clock_cfg).is_err() {
+    //             system_status.gnss = SensorStatus::NotConnected;
+    //             println!("Error setting runntime GNSS baud");
+    //         };
+    //
+    //         match gnss::setup(uart_gnss, clock_cfg) {
+    //             Ok(_) => {
+    //                 system_status.gnss = SensorStatus::Pass;
+    //                 println!("GNSS setup succeeded using runtime baud.");
+    //             }
+    //             Err(_) => {
+    //                 system_status.gnss = SensorStatus::NotConnected;
+    //                 println!("GNSS setup failed at runtime baud");
+    //             }
+    //         }
+    //     }
+    // }
 
     // match mag::setup(i2c1) {
     //     Ok(_) => system_status.magnetometer = SensorStatus::Pass,
@@ -432,19 +429,6 @@ pub fn setup_pins() {
             let _uart_crsf_tx = Pin::new(Port::B, 4, PinMode::Alt(11));
             let mut uart_crsf_rx = Pin::new(Port::B, 3, PinMode::Alt(11));
         } else {
-            // todo: TS
-            let uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Analog);
-            let pwr = unsafe { &(*pac::PWR::ptr()) };
-            let rcc = unsafe { &(*pac::RCC::ptr()) };
-
-            rcc.apb1enr2.modify(|_, w| w.ucpd1en().set_bit());
-            rcc.apb1enr1.modify(|_, w| w.pwren().set_bit());
-            rcc.apb1enr2.modify(|_, w| w.ucpd1en().set_bit());
-            pwr.cr3.modify(|_, w| w.ucpd1_dbdis().set_bit());
-
-            let mut pa10 = Pin::new(Port::A, 10, PinMode::Output);
-            pa10.set_low();
-
             // We use UART 2 for ELRS on G4.
             let mut uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
             let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
@@ -454,25 +438,6 @@ pub fn setup_pins() {
             uart_crsf_rx.pull(Pull::Floating);
             uart_crsf_tx.output_speed(OutputSpeed::Low);
             uart_crsf_rx.output_speed(OutputSpeed::Low);
-
-            // let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Input); // todo: Temp
-            // uart_crsf_rx.enable_interrupt(Edge::Falling);
-
-            // Usart 3 TS
-            let _uart_crsf_tx = Pin::new(Port::B, 10, PinMode::Alt(7));
-            let mut uart_crsf_rx = Pin::new(Port::B, 11, PinMode::Alt(7));
-
-            // let mut rx_test = Pin::new(Port::B, 4, PinMode::Output);
-            // let cp = unsafe { cortex_m::Peripherals::steal() };
-            // let mut delay = Delay::new(cp.SYST, 170_000_000);
-            //
-            // println!("Entering PB4 test loop");
-            // loop {
-            //     delay.delay_ms(2000);
-            //     rx_test.toggle();
-            // }
-
-            // loop {}
         }
     }
 
@@ -567,8 +532,7 @@ pub fn setup_dma() {
             let osd_dma_ip = DmaInput::Usart2Tx;
             let osd_dma_rx_ip = DmaInput::UsartRx;
         } else {
-            // let crsf_dma_ip = DmaInput::Usart2Rx;
-            let crsf_dma_ip = DmaInput::Usart3Rx;
+            let crsf_dma_ip = DmaInput::Usart2Rx;
             let adc_dma_ip = DmaInput::Adc2;
             let osd_dma_ip = DmaInput::Uart4Tx;
             let osd_dma_rx_ip = DmaInput::Uart4Rx;
