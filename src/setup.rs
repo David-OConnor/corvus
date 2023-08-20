@@ -429,6 +429,16 @@ pub fn setup_pins() {
             let _uart_crsf_tx = Pin::new(Port::B, 4, PinMode::Alt(11));
             let mut uart_crsf_rx = Pin::new(Port::B, 3, PinMode::Alt(11));
         } else {
+            let pwr = unsafe { &(*pac::PWR::ptr()) };
+            let rcc = unsafe { &(*pac::RCC::ptr()) };
+
+            // Some or all of these lines are required to prevent strange
+            // behavior of the ELRS MCU; likely due to JTAG behavior of PB3 and 4.
+            rcc.apb1enr2.modify(|_, w| w.ucpd1en().set_bit());
+            rcc.apb1enr1.modify(|_, w| w.pwren().set_bit());
+            rcc.apb1enr2.modify(|_, w| w.ucpd1en().set_bit());
+            pwr.cr3.modify(|_, w| w.ucpd1_dbdis().set_bit());
+
             // We use UART 2 for ELRS on G4.
             let mut uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
             let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));

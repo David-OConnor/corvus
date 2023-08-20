@@ -148,7 +148,7 @@ pub struct PidCoeffs {
 impl Default for PidCoeffs {
     fn default() -> Self {
         Self {
-            p: 0.1400,
+            p: 0.1800,
             i: 0.0600,
             d: 0.00005,
         }

@@ -82,8 +82,6 @@ pub fn estimate_altitude_msl(pressure: f32, temp: f32, ground_cal: &AltitudeCalP
     // todo: You need to take ground cal's temp into account, at minimum!
     (((ground_cal.pressure / pressure).powf(1. / 5.257) - 1.) * temp) / 0.00649
 
-    // todo: convert to feet
-
     // log_lapse_rate(P/POINT_0.pressure) = (POINT_0.temp + (alt - POINT_0.altitude) * )
 
     // todo: Temp compensate!

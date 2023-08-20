@@ -501,9 +501,17 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     cx.local.task_durations.tasks[4] =
                         timestamp_task_complete - timestamp_fc_complete;
                 } else if (i_compensated - 5) % NUM_IMU_LOOP_TASKS == 0 {
-                    cx.shared.i2c2.lock(|i2c2| {
-                        sensors_shared::start_baro_transfer(i2c2);
-                    });
+
+                    // Don't poll the baro too fast; we get DMA anomolies and no data.
+                    static mut I2: u32 = 0;
+                    unsafe {
+                        I2 += 1;
+                        if I2 % 10 == 0 {
+                            cx.shared.i2c2.lock(|i2c2| {
+                                sensors_shared::start_transfer_baro(i2c2);
+                            });
+                        }
+                    }
 
                     system_status.update_from_timestamp(timestamp);
 

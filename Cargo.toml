@@ -47,8 +47,6 @@ num_enum = { version = "^0.6.0", default_features = false }
 dronecan = { path = "../dronecan", optional = true }
 anyleaf_usb = { path = "../anyleaf_usb" }
 
-numtoa = "^0.2.4"  # lightweight / no sub-deps number to string, heapless.
-
 # Use these features to specify GPIO mapping, and which peripherals to use.
 [features]
 default = ["g4", "quad"]

@@ -32,7 +32,6 @@ use crate::{
 use ahrs::ppks::PositVelEarthUnits;
 
 use num_traits::Float; // allows float rounding
-use numtoa::NumToA;
 
 use stm32_hal2::dma::DmaChannel;
 
@@ -153,6 +152,37 @@ pub static mut OSD_ARM_BUF: [u8; 21] = [0; 21];
 //     }
 //     (l.len() + 1 + r.len()) as usize
 // }
+
+/// Format a single digit as an ASCII character.
+fn digit_to_char(digit: u8) -> u8 {
+    match digit {
+        0 => "0",
+        1 => "1",
+        2 => "2",
+        3 => "3",
+        4 => "4",
+        5 => "5",
+        6 => "6",
+        7 => "7",
+        8 => "8",
+        9 => "9",
+        _ => " ",
+    } .as_bytes()[0]
+}
+
+/// Format an integer as an ASCII string buffer. Unlike 1numtoa1, doens't panic.
+fn format_int(buf: &mut [u8], int: u16) {
+    let mut current = int;
+    for i in 0..buf.len() {
+        buf[buf.len() - 1 - i] = digit_to_char((current % 10) as u8);
+
+        current /= 10;
+        if current == 0 {
+            return
+        }
+    }
+}
+
 
 #[derive(Clone, Copy)]
 #[repr(u8)]
@@ -406,56 +436,52 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     // Link quality
     let mut lq_buf = [blank; 4];
     lq_buf[0] = "t".as_bytes()[0]; // todo: Find the correct icon in the font.
-    data.link_quality.numtoa_str(10, &mut lq_buf[1..4]);
+    format_int(&mut lq_buf[1..4], data.link_quality as u16);
     add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 12, 13, &lq_buf, &mut i);
 
     // Battery voltage and % remaining.
     let mut buf_batt = [blank; 9];
 
-    let batt_v = (data.battery_voltage * 10. / data.batt_cell_count.num_cells()) as u8;
-    batt_v.numtoa_str(10, &mut buf_batt[0..3]);
+    let batt_v = (data.battery_voltage * 10. / data.batt_cell_count.num_cells()) as u16;
+    format_int(&mut  buf_batt[0..3], batt_v);
     buf_batt[3] = "V".as_bytes()[0];
 
     let batt_life = util::batt_left_from_v(data.battery_voltage, data.batt_cell_count);
-    let batt_pct = (batt_life * 100.) as u8;
-    batt_pct.numtoa_str(10, &mut buf_batt[5..8]);
+    let batt_pct = (batt_life * 100.) as u16;
+    format_int(&mut buf_batt[5..8], batt_pct);
     buf_batt[8] = "%".as_bytes()[0];
     add_to_write_buf::<{ 9 + METADATA_SIZE_WRITE_PACKET }>(buf, 11, 10, &buf_batt, &mut i);
 
-    // todo: ESC Current?
     // Altitude
     let mut alt_buf = [blank; 5];
-    let altitude = data.alt_msl_baro as u16;
-    altitude.numtoa_str(10, &mut alt_buf[0..4]);
+    format_int(&mut alt_buf[0..4], data.alt_msl_baro as u16);
     alt_buf[4] = "M".as_bytes()[0]; // lowercase available in font?
     add_to_write_buf::<{ 5 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 25, &alt_buf, &mut i);
 
     // Airspeed
     let mut airspeed_buf = [blank; 6];
     let airspeed = data.posit_vel.velocity.magnitude() as u16;
-    // airspeed.numtoa_str(10, &mut airspeed_buf[0..3]);
+    format_int(&mut airspeed_buf[0..3], airspeed);
     airspeed_buf[3..6].clone_from_slice("M/S".as_bytes()); // lowercase available in font?
     add_to_write_buf::<{ 6 + METADATA_SIZE_WRITE_PACKET }>(buf, 7, 0, &airspeed_buf, &mut i);
 
     // Number of sattelites
     let mut num_sats_buf = [blank; 3];
     num_sats_buf[0] = "v".as_bytes()[0]; // todo: Find the correct icon in the font.
-    data.num_satellites.numtoa_str(10, &mut num_sats_buf[1..3]);
+    format_int(&mut num_sats_buf[1..3], data.num_satellites as u16);
     add_to_write_buf::<{ 3 + METADATA_SIZE_WRITE_PACKET }>(buf, 0, 13, &num_sats_buf, &mut i);
 
     // Throttle display.
     let mut throttle_buf = [blank; 4];
-    let throttle = (data.throttle * 100.) as u8;
-    throttle.numtoa_str(10, &mut throttle_buf[1..4]);
+    let throttle = (data.throttle * 100.) as u16;
+    format_int(&mut throttle_buf[1..4], throttle);
     throttle_buf[0] = "T".as_bytes()[0];
     add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 14, 0, &throttle_buf, &mut i);
 
-    // todo: THese `numtoa's` are a panic trap!! THey will panicn if you overrun the buf. Very bad
-    // todo behavior.
     // Total acceleration (G force) display
     let mut g_buf = [blank; 4];
-    let g = (data.total_acc * 10. / 9.8) as u8;
-    g.numtoa_str(10, &mut g_buf[0..3]);
+    let g = (data.total_acc * 10. / 9.8) as u16;
+    format_int(&mut g_buf[0..3], g);
     g_buf[3] = "G".as_bytes()[0];
     add_to_write_buf::<{ 4 + METADATA_SIZE_WRITE_PACKET }>(buf, 13, 0, &g_buf, &mut i);
 

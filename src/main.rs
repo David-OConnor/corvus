@@ -695,7 +695,7 @@ mod app {
 
     // #[task(binds = DMA2_STR1,
     #[task(binds = DMA2_CH1,
-    shared = [i2c2], priority = 3)]
+    shared = [i2c2], priority = 5)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
         dma::clear_interrupt(
@@ -704,7 +704,8 @@ mod app {
             DmaInterrupt::TransferComplete,
         );
 
-        dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_RX_CH);
+        dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_TX_CH);
+
         cx.shared.i2c2.lock(|i2c| unsafe {
             i2c.read_dma(
                 baro::ADDR,
@@ -720,7 +721,7 @@ mod app {
 
     // #[task(binds = DMA2_STR2,
     #[task(binds = DMA2_CH2,
-    shared = [altimeter, current_params, state_volatile, system_status, tick_timer], priority = 3)]
+    shared = [altimeter, current_params, state_volatile, system_status, tick_timer], priority = 2)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(mut cx: baro_read_tc_isr::Context) {
         dma::clear_interrupt(
@@ -728,6 +729,8 @@ mod app {
             setup::BARO_RX_CH,
             DmaInterrupt::TransferComplete,
         );
+
+        dma::stop(setup::BARO_DMA_PERIPH, setup::BARO_RX_CH);
 
         let buf = unsafe { &sensors_shared::READ_BUF_BARO };
 
