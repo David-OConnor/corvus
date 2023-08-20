@@ -305,7 +305,7 @@ mod app {
     // #[task(binds = OTG_FS,
     #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, current_params, control_channel_data, flash_onboard,
-    link_stats, user_cfg, state_volatile, system_status, motor_timer, servo_timer],
+    link_stats, user_cfg, state_volatile, system_status, autopilot_status, motor_timer, servo_timer],
     local = [], priority = 10)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application. It should be a high priority, or the host may disconnect the device for not responding
@@ -324,6 +324,7 @@ mod app {
             cx.shared.user_cfg,
             cx.shared.state_volatile,
             cx.shared.system_status,
+            cx.shared.autopilot_status,
             cx.shared.motor_timer,
             cx.shared.servo_timer,
             cx.shared.flash_onboard,
@@ -338,6 +339,7 @@ mod app {
                  user_cfg,
                  state_volatile,
                  system_status,
+                 autopilot_status,
                  motor_timer,
                  servo_timer,
                  flash,
@@ -365,6 +367,7 @@ mod app {
                                 &link_stats,
                                 user_cfg,
                                 system_status,
+                                autopilot_status,
                                 &mut state_volatile.arm_status,
                                 // &mut user_cfg.control_mapping,
                                 &mut state_volatile.op_mode,
@@ -774,10 +777,10 @@ mod app {
 
             uart.disable_interrupt(UsartInterrupt::CharDetect(None));
 
-            let mut buf = [0; 20];
-            uart.read(&mut buf);
+            let mut buf = [0; 40];
+            // uart.read(&mut buf);
             // println!("BUF: {:?}", buf);
-            return;
+            // return;
 
             unsafe {
                 uart.read_dma(
@@ -796,8 +799,8 @@ mod app {
             // A `None` value here re-enables the interrupt without changing the char to match.
             uart.enable_interrupt(UsartInterrupt::CharDetect(None));
 
-            // Re-enable the char match interrupt. Avoids locking.
-            let uart_pac = unsafe { &(*pac::USART2::ptr()) };
+            // Re-enable the char match interrupt.
+            let uart_pac = unsafe { &(*pac::USART1::ptr()) };
             uart_pac.cr1.modify(|_, w| w.cmie().set_bit());
 
             // todo: TIck timer here appears broken.

@@ -23,6 +23,8 @@ const DIRECT_AUTOPILOT_MAX_RNG: f32 = 500.;
 #[cfg(feature = "fixed-wing")]
 const TAKEOFF_PITCH: f32 = 1.1; // radians
 
+use defmt::println;
+
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
     } else {
@@ -418,7 +420,7 @@ impl AutopilotStatus {
 
                 let target_pitch = ((pt.alt_msl - params.alt_msl_baro)
                     / find_distance((pt.lat, pt.lon), (params.lat, params.lon)))
-                .atan();
+                    .atan();
 
                 // todo: Crude algo here. Is this OK? Important distinction: Flight path does'nt mean
                 // todo exactly pitch! Might be close enough for good enough.
@@ -479,11 +481,35 @@ impl AutopilotStatus {
     /// Set auto pilot modes based on control inputs.
     pub fn set_modes_from_ctrls(&mut self, control_channel_data: &ChannelData, params: &Params) {
         match control_channel_data.alt_hold {
-            AltHoldSwitch::Disabled => self.alt_hold = None,
+            AltHoldSwitch::Disabled => {
+                self.alt_hold = None
+            },
+            // If just setting this hold mode, use the current altitude. Otherwise, keep
+            // the same value.
             AltHoldSwitch::EnabledAgl => {
-                self.alt_hold = Some((AltType::Agl, params.alt_tof.unwrap_or(20.)))
+                let alt_to_hold = match self.alt_hold {
+                    Some((alt_type, val)) => {
+                        match alt_type {
+                            AltType::Msl => params.alt_tof.unwrap_or(20.),
+                            AltType::Agl => val,
+                        }
+                    }
+                    None => params.alt_tof.unwrap_or(20.),
+                };
+                self.alt_hold = Some((AltType::Agl, alt_to_hold));
             }
-            AltHoldSwitch::EnabledMsl => self.alt_hold = Some((AltType::Msl, params.alt_msl_baro)),
+            AltHoldSwitch::EnabledMsl => {
+                let alt_to_hold = match self.alt_hold {
+                    Some((alt_type, val)) => {
+                        match alt_type {
+                            AltType::Msl => val,
+                            AltType::Agl => params.alt_msl_baro,
+                        }
+                    }
+                    None => params.alt_msl_baro,
+                };
+                self.alt_hold = Some((AltType::Msl, alt_to_hold));
+            },
         }
 
         match control_channel_data.autopilot_a {

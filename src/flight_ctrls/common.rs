@@ -68,11 +68,12 @@ impl InputMap {
 }
 
 #[derive(Clone, Copy, PartialEq)]
+#[repr(u8)] // for USB ser
 pub enum AltType {
     /// Above ground level (eg from a TOF sensor)
-    Agl,
+    Agl = 0,
     /// Mean sea level (eg from GPS or baro)
-    Msl,
+    Msl = 1,
 }
 
 #[derive(Clone, Default)]

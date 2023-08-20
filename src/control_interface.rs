@@ -172,7 +172,7 @@ pub struct ChannelData {
     pub arm_status: ArmStatus,
     /// Ie angular-rate-based (Acro), or Command (with GPS present) or attitude-based
     /// (no GPS present). Ideally on 2-position non-spring switch.
-    pub input_mode: InputModeSwitch,
+    pub input_mode: InputModeSwitch, // todo: Reconsider how this works.
     /// Eg disabled, AGL, or MSL.  Ideally on 3-position non-spring switch.
     pub alt_hold: AltHoldSwitch,
     pub autopilot_a: AutopilotSwitchA,
@@ -204,6 +204,7 @@ impl ChannelData {
             0..=1_000 => InputModeSwitch::Acro,
             _ => InputModeSwitch::AttitudeCommand,
         };
+
         let alt_hold = match crsf_data.aux_3 {
             0..=667 => AltHoldSwitch::Disabled,
             668..=1_333 => AltHoldSwitch::EnabledMsl,

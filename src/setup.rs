@@ -209,34 +209,33 @@ pub fn init_sensors(
     // Because this is strange, we pad it to a higher value.
     delay.delay_ms(200);
 
-    // todo: Experiencing watchdog resets with GPS enabled... Constant idle interrupt?
-    // match gnss::setup(uart_gnss, clock_cfg) {
-    //     Ok(_) => {
-    //         println!("GNSS setup");
-    //         system_status.gnss = SensorStatus::Pass;
-    //     }
-    //     Err(_) => {
-    //         println!("GNSS error on first attempt");
-    //         // Try the runtime baud. This is likely when debugging, since we reset the MCU without
-    //         // resetting power to the GNSS.
-    //
-    //         if uart_gnss.set_baud(gnss::BAUD, clock_cfg).is_err() {
-    //             system_status.gnss = SensorStatus::NotConnected;
-    //             println!("Error setting runntime GNSS baud");
-    //         };
-    //
-    //         match gnss::setup(uart_gnss, clock_cfg) {
-    //             Ok(_) => {
-    //                 system_status.gnss = SensorStatus::Pass;
-    //                 println!("GNSS setup succeeded using runtime baud.");
-    //             }
-    //             Err(_) => {
-    //                 system_status.gnss = SensorStatus::NotConnected;
-    //                 println!("GNSS setup failed at runtime baud");
-    //             }
-    //         }
-    //     }
-    // }
+    match gnss::setup(uart_gnss, clock_cfg) {
+        Ok(_) => {
+            println!("GNSS setup");
+            system_status.gnss = SensorStatus::Pass;
+        }
+        Err(_) => {
+            println!("GNSS error on first attempt");
+            // Try the runtime baud. This is likely when debugging, since we reset the MCU without
+            // resetting power to the GNSS.
+
+            if uart_gnss.set_baud(gnss::BAUD, clock_cfg).is_err() {
+                system_status.gnss = SensorStatus::NotConnected;
+                println!("Error setting runntime GNSS baud");
+            };
+
+            match gnss::setup(uart_gnss, clock_cfg) {
+                Ok(_) => {
+                    system_status.gnss = SensorStatus::Pass;
+                    println!("GNSS setup succeeded using runtime baud.");
+                }
+                Err(_) => {
+                    system_status.gnss = SensorStatus::NotConnected;
+                    println!("GNSS setup failed at runtime baud");
+                }
+            }
+        }
+    }
 
     // match mag::setup(i2c1) {
     //     Ok(_) => system_status.magnetometer = SensorStatus::Pass,

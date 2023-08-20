@@ -50,7 +50,8 @@ cfg_if! {
 use usbd_serial::SerialPort;
 
 use crate::protocols::crsf::LinkStats;
-use num_enum::TryFromPrimitive; // Enum from integer
+use num_enum::TryFromPrimitive;
+use crate::flight_ctrls::autopilot::AutopilotStatus; // Enum from integer
 
 const CRC_POLY: u8 = 0xab;
 const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
@@ -65,7 +66,7 @@ const QUATERNION_SIZE: usize = F32_SIZE * 4;
 
 const PARAMS_SIZE: usize = 2 * QUATERNION_SIZE + 6 * F32_SIZE + 1 + 4 * 3 + 1 + F32_SIZE * 4; //
 const CONTROLS_SIZE: usize = 19; // Includes first byte as an Option byte.
-                                 // const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
+// const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
 const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
 
 // 3 coords + option to indicate if used. (Some/None)
@@ -74,11 +75,11 @@ pub const WAYPOINT_SIZE: usize = F32_SIZE * 3 + WAYPOINT_MAX_NAME_LEN + 1;
 pub const WAYPOINTS_SIZE: usize = crate::state::MAX_WAYPOINTS * WAYPOINT_SIZE;
 pub const SET_SERVO_POSIT_SIZE: usize = 1 + F32_SIZE; // Servo num, value
 pub const SYS_STATUS_SIZE: usize = 12; // Sensor status (u8) * 12
-pub const AP_STATUS_SIZE: usize = 0; // todo
+pub const AP_STATUS_SIZE: usize = 12; //
 pub const SYS_AP_STATUS_SIZE: usize = SYS_STATUS_SIZE + AP_STATUS_SIZE;
 #[cfg(feature = "quad")]
 pub const CONTROL_MAPPING_SIZE: usize = 2; // Packed tightly!
-                                           // todo: May need to change to add `servo_high` etc.
+// todo: May need to change to add `servo_high` etc.
 #[cfg(feature = "fixed-wing")]
 pub const CONTROL_MAPPING_SIZE: usize = 2; // Packed tightly! todo?
 pub const SET_MOTOR_POWER_SIZE: usize = F32_SIZE * 4;
@@ -300,23 +301,50 @@ impl From<&LinkStats> for [u8; LINK_STATS_SIZE] {
     }
 }
 
-impl From<&SystemStatus> for [u8; SYS_STATUS_SIZE] {
-    fn from(p: &SystemStatus) -> Self {
-        // todo: You could achieve more efficient packing.
+impl SystemStatus {
+    pub fn to_bytes(&self) -> [u8; SYS_STATUS_SIZE] {
         [
-            p.imu as u8,
-            p.baro as u8,
-            p.gnss as u8,
-            p.tof as u8,
-            p.magnetometer as u8,
-            p.esc_telemetry as u8,
-            p.esc_rpm as u8,
-            p.rf_control_link as u8,
-            p.flash_spi as u8,
-            p.osd as u8,
+            self.imu as u8,
+            self.baro as u8,
+            self.gnss as u8,
+            self.tof as u8,
+            self.magnetometer as u8,
+            self.esc_telemetry as u8,
+            self.esc_rpm as u8,
+            self.rf_control_link as u8,
+            self.flash_spi as u8,
+            self.osd as u8,
             system_status::RX_FAULT.load(Ordering::Acquire) as u8,
             system_status::RPM_FAULT.load(Ordering::Acquire) as u8,
         ]
+    }
+}
+
+impl AutopilotStatus {
+    pub fn to_bytes(&self) -> [u8; AP_STATUS_SIZE] {
+        let mut result = [0; AP_STATUS_SIZE];
+
+        match self.alt_hold {
+            Some((hold_type, hold_value)) => {
+                // println!("Alt hold enabled");
+                result[0] = 1; // Indicates AP hold is on.
+                result[1] = hold_type as u8;
+                result[2..6].clone_from_slice(&hold_value.to_be_bytes());
+            }
+            None => ()
+        }
+
+        match self.hdg_hold {
+            Some(hold_value) => {
+                result[6] = 1; // Indicates AP hold is on.
+                result[7..11].clone_from_slice(&hold_value.to_be_bytes());
+            }
+            None => ()
+        }
+
+        result[11] = self.yaw_assist as u8;
+
+        result
     }
 }
 
@@ -404,6 +432,7 @@ pub fn handle_rx(
     link_stats: &LinkStats,
     config: &mut UserConfig,
     sys_status: &SystemStatus,
+    autopilot_status: &AutopilotStatus,
     arm_status: &mut ArmStatus,
     op_mode: &mut OperationMode,
     motor_timer: &mut setup::MotorTimer,
@@ -591,9 +620,10 @@ pub fn handle_rx(
             // );
         }
         MsgType::ReqSysApStatus => {
-            // todo: Just sys status for now; do AP too.
-            // todo: YOu may need to update this.
-            let payload: [u8; SYS_AP_STATUS_SIZE] = sys_status.into();
+            let mut payload: [u8; SYS_AP_STATUS_SIZE] = [0; SYS_AP_STATUS_SIZE];
+            payload[..SYS_STATUS_SIZE].clone_from_slice(&sys_status.to_bytes());
+            payload[SYS_STATUS_SIZE.. SYS_AP_STATUS_SIZE].clone_from_slice(&autopilot_status.to_bytes());
+
             send_payload::<{ SYS_AP_STATUS_SIZE + PAYLOAD_START_I + CRC_LEN }>(
                 MsgType::SysApStatus,
                 &payload,
@@ -615,7 +645,7 @@ pub fn handle_rx(
 
             let m = &motor_servo_state; // code shortener
             #[cfg(feature = "quad")]
-            let payload = [
+                let payload = [
                 // 2 bits each
                 (3) | ((1) << 2) | ((2) << 4) | ((0) << 6),
                 // 1 bit each

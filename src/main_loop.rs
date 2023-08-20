@@ -232,12 +232,11 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     state_volatile.attitude_commanded.quat,
                                     params.attitude,
                                     state_volatile.has_taken_off,
+                                    // true, // todo temp
                                     cfg.takeoff_attitude,
                                 );
 
-                            {
-                                let attitude_commanded = Quaternion::new_identity();
-                            }
+                            // let attitude_commanded = Quaternion::new_identity();
 
                             state_volatile.attitude_commanded.quat = attitude_commanded;
                             state_volatile.attitude_commanded.quat_dt = attitude_commanded_dt;
@@ -289,6 +288,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     motor_timer,
                                     &cfg.input_map,
                                     &cfg.pid_coeffs,
+                                    &autopilot_status,
                                 );
                             },
                         );
@@ -440,12 +440,12 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     cx.local.task_durations.tasks[2] =
                         timestamp_task_complete - timestamp_fc_complete;
                 } else if (i_compensated - 3) % NUM_IMU_LOOP_TASKS == 0 {
-                    if state_volatile.op_mode == OperationMode::Preflight {
-                        return;
-                    }
-
                     if let Some(ch_data) = control_channel_data {
                         autopilot_status.set_modes_from_ctrls(ch_data, &params);
+                    }
+
+                    if state_volatile.op_mode == OperationMode::Preflight {
+                        return;
                     }
 
                     // #[cfg(feature = "quad")]
