@@ -13,8 +13,11 @@ pub mod motor_servo;
 pub mod pid;
 
 use crate::{
-    control_interface::ChannelData, flight_ctrls::{common::InputMap, autopilot::AutopilotStatus}, main_loop::DT_IMU,
-    setup::MotorTimer, state::StateVolatile,
+    control_interface::ChannelData,
+    flight_ctrls::{autopilot::AutopilotStatus, common::InputMap},
+    main_loop::DT_IMU,
+    setup::MotorTimer,
+    state::StateVolatile,
 };
 
 use {
@@ -56,20 +59,8 @@ pub fn run(
             Some(ch_data) => {
                 // todo: Injust AP alt code here.
                 // todo: Dedicated fn A/R
-                match autopilot_status.alt_hold {
-                    Some((alt_type, alt_commanded)) => {
-                        const ALT_HOLD_P_TERM: f32 = 0.1;
-                        // let error = params.alt_msl_baro - autopilot_status;
-                        //
-                        // autopilot_commands.throttle += ALT_HOLD_P_TERM * error;
-                        // autopilot_commands.throttle
-                        0.
-                    }
-                    None => {
-                        ch_data.throttle
-                    }
-                }
-            },
+                ch_data.throttle
+            }
             None => 0.,
         },
     };
@@ -162,9 +153,9 @@ pub fn log_accel_pts(state_volatile: &mut StateVolatile, params: &Params, timest
     // Log angular accel from RPM or servo posit delta.
     // Code-shorteners
     #[cfg(feature = "quad")]
-        let ctrl_cmds = state_volatile.motor_servo_state.get_power_settings();
+    let ctrl_cmds = state_volatile.motor_servo_state.get_power_settings();
     #[cfg(feature = "fixed-wing")]
-        let ctrl_cmds = state_volatile.motor_servo_state.get_ctrl_positions();
+    let ctrl_cmds = state_volatile.motor_servo_state.get_ctrl_positions();
 
     state_volatile.accel_maps.log_pt(
         AccelMapPt {

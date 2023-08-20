@@ -422,3 +422,12 @@ pub fn create_polynomial_terms(
 
     (a, b, c)
 }
+
+/// If the value is outside this range, place it at the range edge.
+pub fn clamp(val: &mut f32, min_max: (f32, f32)) {
+    if *val > min_max.1 {
+        *val = min_max.1;
+    } else if *val < min_max.0 {
+        *val = min_max.0;
+    }
+}

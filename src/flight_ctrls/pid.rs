@@ -10,7 +10,7 @@
 
 use cmsis_dsp_api as dsp_api;
 
-use crate::util::IirInstWrapper;
+use crate::util::{self, IirInstWrapper};
 
 use cfg_if::cfg_if;
 
@@ -193,23 +193,13 @@ impl PidState {
             0.
         };
 
-        if self.i > lim_max_int {
-            self.i = lim_max_int;
-        } else if self.i < lim_min_int {
-            self.i = lim_min_int;
-        }
+        util::clamp(&mut self.i, (lim_min_int, lim_max_int));
     }
 
     pub fn out(&self) -> f32 {
-        let result = self.p + self.i + self.d;
+        let mut result = self.p + self.i + self.d;
 
-        // Clamp output. Note that output is a *change* in power.
-        if result > OUTPUT_CLAMP_MAX {
-            return OUTPUT_CLAMP_MAX;
-        }
-        if result < OUTPUT_CLAMP_MIN {
-            return OUTPUT_CLAMP_MIN;
-        }
+        util::clamp(&mut result, (OUTPUT_CLAMP_MIN, OUTPUT_CLAMP_MAX));
 
         result
     }

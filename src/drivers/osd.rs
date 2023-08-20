@@ -167,7 +167,8 @@ fn digit_to_char(digit: u8) -> u8 {
         8 => "8",
         9 => "9",
         _ => " ",
-    } .as_bytes()[0]
+    }
+    .as_bytes()[0]
 }
 
 /// Format an integer as an ASCII string buffer. Unlike 1numtoa1, doens't panic.
@@ -178,11 +179,10 @@ fn format_int(buf: &mut [u8], int: u16) {
 
         current /= 10;
         if current == 0 {
-            return
+            return;
         }
     }
 }
-
 
 #[derive(Clone, Copy)]
 #[repr(u8)]
@@ -443,7 +443,7 @@ pub fn send_osd_data(uart: &mut UartOsd, data: &OsdData) {
     let mut buf_batt = [blank; 9];
 
     let batt_v = (data.battery_voltage * 10. / data.batt_cell_count.num_cells()) as u16;
-    format_int(&mut  buf_batt[0..3], batt_v);
+    format_int(&mut buf_batt[0..3], batt_v);
     buf_batt[3] = "V".as_bytes()[0];
 
     let batt_life = util::batt_left_from_v(data.battery_voltage, data.batt_cell_count);

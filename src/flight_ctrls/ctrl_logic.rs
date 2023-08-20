@@ -119,8 +119,7 @@ pub fn ctrl_mix_from_att(
         static mut integral_y: f32 = 0.;
         static mut integral_z: f32 = 0.;
 
-        // //  This should be on the order of the error term (Roughly radians)
-        // This should be on the order of the error term (Roughly radians/sec)
+        // This should be on the order of the error term (Roughly radians)
         const MAX_I_WINDUP: f32 = 1.;
 
         unsafe {
@@ -152,11 +151,7 @@ pub fn ctrl_mix_from_att(
             integral_z += error_z * dt;
 
             for i_term in &mut [integral_x, integral_y, integral_z] {
-                if *i_term > MAX_I_WINDUP {
-                    *i_term = MAX_I_WINDUP;
-                } else if *i_term < -MAX_I_WINDUP {
-                    *i_term = -MAX_I_WINDUP;
-                }
+                util::clamp(i_term, (-MAX_I_WINDUP, MAX_I_WINDUP));
             }
 
             // The I-term builds up if corrections are unable to expeditiously converge.

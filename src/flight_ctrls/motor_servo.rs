@@ -7,6 +7,7 @@ use crate::{
     protocols::{dshot, servo},
     safety::ArmStatus,
     setup::{MotorTimer, ServoTimer},
+    util,
 };
 
 use super::{common::CtrlMix, pid};
@@ -62,24 +63,11 @@ impl MotorCmd {
     pub fn clamp(&mut self) {
         match self {
             Self::Power(c) => {
-                if *c < MOTOR_CMD_MIN {
-                    *c = MOTOR_CMD_MIN;
-                } else if *c > MOTOR_CMD_MAX {
-                    *c = MOTOR_CMD_MAX;
-                }
+                util::clamp(c, (MOTOR_CMD_MIN, MOTOR_CMD_MAX));
             }
             Self::Rpm(c) => {
-                if c.rpm_cmd < MOTOR_RPM_MIN {
-                    c.rpm_cmd = MOTOR_RPM_MIN;
-                } else if c.rpm_cmd > MOTOR_RPM_MAX {
-                    c.rpm_cmd = MOTOR_RPM_MAX;
-                }
-
-                if c.pwr_calculated < MOTOR_CMD_MIN {
-                    c.pwr_calculated = MOTOR_CMD_MIN;
-                } else if c.pwr_calculated > MOTOR_CMD_MAX {
-                    c.pwr_calculated = MOTOR_CMD_MAX;
-                }
+                util::clamp(&mut c.rpm_cmd, (MOTOR_RPM_MIN, MOTOR_RPM_MAX));
+                util::clamp(&mut c.pwr_calculated, (MOTOR_CMD_MIN, MOTOR_CMD_MAX));
             }
         }
     }
@@ -118,11 +106,7 @@ pub struct ServoState {
 
 impl ServoState {
     pub fn clamp(&mut self) {
-        if self.posit_cmd < SERVO_CMD_MIN {
-            self.posit_cmd = SERVO_CMD_MIN;
-        } else if self.posit_cmd > SERVO_CMD_MAX {
-            self.posit_cmd = SERVO_CMD_MAX;
-        }
+        util::clamp(&mut self.posit_cmd, (SERVO_CMD_MIN, SERVO_CMD_MAX));
     }
 }
 

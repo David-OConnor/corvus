@@ -1,7 +1,7 @@
 //! This module contains flight control code not specific to an aircraft design category.
 //! It is mostly types.
 
-use crate::util::map_linear;
+use crate::util::{self, map_linear};
 
 use lin_alg2::f32::Quaternion;
 
@@ -92,29 +92,10 @@ pub struct CtrlMix {
 
 impl CtrlMix {
     pub fn clamp(&mut self) {
-        if self.pitch > PITCH_IN_RNG.1 {
-            self.pitch = PITCH_IN_RNG.1;
-        } else if self.pitch < PITCH_IN_RNG.0 {
-            self.pitch = PITCH_IN_RNG.0;
-        }
-
-        if self.roll > ROLL_IN_RNG.1 {
-            self.roll = ROLL_IN_RNG.1;
-        } else if self.roll < ROLL_IN_RNG.0 {
-            self.roll = ROLL_IN_RNG.0;
-        }
-
-        if self.yaw > YAW_IN_RNG.1 {
-            self.yaw = YAW_IN_RNG.1;
-        } else if self.yaw < YAW_IN_RNG.0 {
-            self.yaw = YAW_IN_RNG.0;
-        }
-
-        if self.throttle > THROTTLE_IN_RNG.1 {
-            self.throttle = THROTTLE_IN_RNG.1;
-        } else if self.throttle < THROTTLE_IN_RNG.0 {
-            self.throttle = THROTTLE_IN_RNG.0;
-        }
+        util::clamp(&mut self.pitch, PITCH_IN_RNG);
+        util::clamp(&mut self.roll, ROLL_IN_RNG);
+        util::clamp(&mut self.yaw, YAW_IN_RNG);
+        util::clamp(&mut self.throttle, THROTTLE_IN_RNG);
     }
 }
 

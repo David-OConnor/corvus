@@ -8,6 +8,7 @@ use crate::{
     control_interface::{AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData},
     flight_ctrls::common::{AltType, CtrlInputs},
     system_status::{SensorStatus, SystemStatus},
+    util,
     // pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
 };
 
@@ -44,6 +45,7 @@ cfg_if! {
 
 // todo: FOr various autopilot modes, check if variou sensors are connected like GPS, TOF, and MAG!
 
+use crate::flight_ctrls::motor_servo::MotorServoState;
 use cmsis_dsp_sys::{arm_cos_f32, arm_sin_f32};
 use lin_alg2::f32::Vec3;
 
@@ -257,15 +259,16 @@ impl AutopilotStatus {
     /// The output `CtrlInputs` are in Euler angle attitudes.
     pub fn apply(
         &self,
+        autopilot_commands: &mut CtrlInputs,
         params: &Params,
         // filters: &mut PidDerivFilters,
         // coeffs: &CtrlCoeffGroup,
         system_status: &SystemStatus,
-    ) -> CtrlInputs {
+        throttle_prev: f32, // ie might be autopilot or ch data.
+        dt: f32,
+    ) {
         // We use if/else logic on these to indicate they're mutually-exlusive. Modes listed first
         // take precedent.
-
-        let mut autopilot_commands = CtrlInputs::default();
 
         // todo: sensors check for this fn, and for here and fixed.
         // todo sensor check for alt hold agl
@@ -282,7 +285,7 @@ impl AutopilotStatus {
                 None => params.alt_msl_baro, // todo temp?
             };
 
-            autopilot_commands = CtrlInputs {
+            *autopilot_commands = CtrlInputs {
                 pitch: Some(0.),
                 roll: Some(0.),
                 yaw: None,
@@ -313,50 +316,115 @@ impl AutopilotStatus {
             autopilot_commands.throttle = None;
         }
 
-        if self.alt_hold.is_some() && !self.takeoff && self.land.is_none() {
-            let (alt_type, alt_commanded) = self.alt_hold.unwrap();
+        // todo: (Hmm forgot, but it was something I need to add to this!)
 
-            if !(alt_type == AltType::Agl && system_status.tof != SensorStatus::Pass) {
-                // Set a vertical velocity for the inner loop to maintain, based on distance
-                let dist = match alt_type {
-                    AltType::Msl => alt_commanded - params.alt_msl_baro,
-                    AltType::Agl => alt_commanded - params.alt_tof.unwrap_or(0.),
-                };
+        // todo: Take into account attitude! Probalby take angle between earth and AC up,
+        // todo, and take into account cos of it. Definitely don't do anything weird if upside-down!
+        const ALT_HOLD_P_TERM: f32 = 0.0001;
+        const ALT_HOLD_I_TERM: f32 = 0.0001;
+        // This should be on the order of the error term
+        const MAX_I_WINDUP: f32 = 0.1; // todo: What should this be?
+        static mut integral_alt_hold: f32 = 0.;
 
-                // todo: Instead of a PID, consider something simpler.
-                // pid.thrust = pid::calc_pid_error(
-                //     // If just entering this mode, default to 0. throttle as a starting point.
-                //     autopilot_commands.thrust.unwrap_or(0.),
-                //     dist,
-                //     &pid.thrust,
-                //     coeffs.thrust.k_p_attitude,
-                //     coeffs.thrust.k_i_attitude,
-                //     coeffs.thrust.k_d_attitude,
-                //     &mut filters.thrust,
-                //     DT_MAIN_LOOP,
-                // );
-                let scaler = 0.1; // todo: Quick hack.
-                autopilot_commands.throttle = Some(dist * scaler);
+        match self.alt_hold {
+            Some((alt_type, alt_commanded)) => {
+                if alt_type == AltType::Msl {
+                    let error = alt_commanded - params.alt_msl_baro;
+                    unsafe {
+                        integral_alt_hold += error * dt;
 
-                // Note that thrust is set using the rate loop.
-                autopilot_commands.throttle = None;
+                        util::clamp(&mut integral_alt_hold, (-MAX_I_WINDUP, MAX_I_WINDUP));
+                    }
+                    autopilot_commands.throttle = {
+                        let correction = ALT_HOLD_P_TERM * error
+                            + ALT_HOLD_I_TERM * unsafe { integral_alt_hold };
+                        let mut throttle_command =
+                            autopilot_commands.throttle.unwrap_or(throttle_prev) + correction;
+
+                        // Clamp. Note that the output is clamped as well, but clamp our running value here, since
+                        // we use it as a base for future adjustments.
+                        // if throttle_command > 1. {
+                        //     throttle_command = 1.;
+
+                        // todo safety clamp for now!
+                        if throttle_command > 0.5 {
+                            throttle_command = 0.5;
+
+                            // todo: Use user_cmd.idle_pwr  here!
+                        } else if throttle_command < 0.02 {
+                            throttle_command = 0.02;
+                        }
+                        Some(throttle_command)
+                    };
+
+                    // todo tmep
+                    static mut I: u32 = 0;
+                    unsafe {
+                        I += 1;
+                        if I % 400 == 0 {
+                            println!(
+                                "E: {:?} T: {:?}",
+                                error,
+                                autopilot_commands.throttle.unwrap_or(69.)
+                            );
+                        }
+                    }
+                } else {
+                    unsafe {
+                        integral_alt_hold = 0.;
+                    }
+                }
             }
+            None => unsafe {
+                integral_alt_hold = 0.;
+            },
         }
 
-        autopilot_commands
+        // todo: Look at the commented out alt hold section below, and mix with the one above A/R
+
+        // todo, aug 2023. Currently have something in flight_ctrls\mod.rs. Move it here.
+        // if self.alt_hold.is_some() && !self.takeoff && self.land.is_none() {
+        //     let (alt_type, alt_commanded) = self.alt_hold.unwrap();
+        //
+        //     if !(alt_type == AltType::Agl && system_status.tof != SensorStatus::Pass) {
+        //         // Set a vertical velocity for the inner loop to maintain, based on distance
+        //         let dist = match alt_type {
+        //             AltType::Msl => alt_commanded - params.alt_msl_baro,
+        //             AltType::Agl => alt_commanded - params.alt_tof.unwrap_or(0.),
+        //         };
+        //
+        //         // todo: Instead of a PID, consider something simpler.
+        //         // pid.thrust = pid::calc_pid_error(
+        //         //     // If just entering this mode, default to 0. throttle as a starting point.
+        //         //     autopilot_commands.thrust.unwrap_or(0.),
+        //         //     dist,
+        //         //     &pid.thrust,
+        //         //     coeffs.thrust.k_p_attitude,
+        //         //     coeffs.thrust.k_i_attitude,
+        //         //     coeffs.thrust.k_d_attitude,
+        //         //     &mut filters.thrust,
+        //         //     DT_MAIN_LOOP,
+        //         // );
+        //         let scaler = 0.1; // todo: Quick hack.
+        //         autopilot_commands.throttle = Some(dist * scaler);
+        //
+        //         // Note that thrust is set using the rate loop.
+        //         autopilot_commands.throttle = None;
+        //     }
+        // }
     }
 
     #[cfg(feature = "fixed-wing")]
     pub fn apply(
         &self,
+        autopilot_commands: &mut CtrlInputs,
         params: &Params,
         // pid_attitude: &mut PidGroup,
         // filters: &mut PidDerivFilters,
         // coeffs: &CtrlCoeffGroup,
         system_status: &SystemStatus,
-    ) -> CtrlInputs {
-        let mut autopilot_commands = CtrlInputs::default();
-
+        dt: f32,
+    ) {
         if self.takeoff {
             autopilot_commands = CtrlInputs {
                 pitch: Some(TAKEOFF_PITCH),
@@ -420,7 +488,7 @@ impl AutopilotStatus {
 
                 let target_pitch = ((pt.alt_msl - params.alt_msl_baro)
                     / find_distance((pt.lat, pt.lon), (params.lat, params.lon)))
-                    .atan();
+                .atan();
 
                 // todo: Crude algo here. Is this OK? Important distinction: Flight path does'nt mean
                 // todo exactly pitch! Might be close enough for good enough.
@@ -474,42 +542,34 @@ impl AutopilotStatus {
             autopilot_commands.pitch = None;
             autopilot_commands.roll = None;
         }
-
-        autopilot_commands
     }
 
     /// Set auto pilot modes based on control inputs.
     pub fn set_modes_from_ctrls(&mut self, control_channel_data: &ChannelData, params: &Params) {
         match control_channel_data.alt_hold {
-            AltHoldSwitch::Disabled => {
-                self.alt_hold = None
-            },
+            AltHoldSwitch::Disabled => self.alt_hold = None,
             // If just setting this hold mode, use the current altitude. Otherwise, keep
             // the same value.
             AltHoldSwitch::EnabledAgl => {
                 let alt_to_hold = match self.alt_hold {
-                    Some((alt_type, val)) => {
-                        match alt_type {
-                            AltType::Msl => params.alt_tof.unwrap_or(20.),
-                            AltType::Agl => val,
-                        }
-                    }
+                    Some((alt_type, val)) => match alt_type {
+                        AltType::Msl => params.alt_tof.unwrap_or(20.),
+                        AltType::Agl => val,
+                    },
                     None => params.alt_tof.unwrap_or(20.),
                 };
                 self.alt_hold = Some((AltType::Agl, alt_to_hold));
             }
             AltHoldSwitch::EnabledMsl => {
                 let alt_to_hold = match self.alt_hold {
-                    Some((alt_type, val)) => {
-                        match alt_type {
-                            AltType::Msl => val,
-                            AltType::Agl => params.alt_msl_baro,
-                        }
-                    }
+                    Some((alt_type, val)) => match alt_type {
+                        AltType::Msl => val,
+                        AltType::Agl => params.alt_msl_baro,
+                    },
                     None => params.alt_msl_baro,
                 };
                 self.alt_hold = Some((AltType::Msl, alt_to_hold));
-            },
+            }
         }
 
         match control_channel_data.autopilot_a {

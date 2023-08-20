@@ -440,25 +440,27 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     cx.local.task_durations.tasks[2] =
                         timestamp_task_complete - timestamp_fc_complete;
                 } else if (i_compensated - 3) % NUM_IMU_LOOP_TASKS == 0 {
+                    let mut throttle_prev = 0.;
                     if let Some(ch_data) = control_channel_data {
                         autopilot_status.set_modes_from_ctrls(ch_data, &params);
+                        throttle_prev = ch_data.throttle;
                     }
 
-                    if state_volatile.op_mode == OperationMode::Preflight {
-                        return;
-                    }
-
-                    // #[cfg(feature = "quad")]
-                    let ap_cmds = autopilot_status.apply(
+                    #[cfg(feature = "quad")]
+                    autopilot_status.apply(
+                        &mut state_volatile.autopilot_commands,
                         params,
                         // filters,
                         // coeffs,
                         system_status,
+                        throttle_prev,
+                        DT_FLIGHT_CTRLS * NUM_IMU_LOOP_TASKS as f32,
                     );
 
                     //
                     // #[cfg(feature = "fixed-wing")]
-                    //     let ap_cmds = autopilot_status.apply(
+                    //      autopilot_status.apply(
+                    //    &mut state_volatile.autopilot_commands,
                     //     params,
                     //     // pid_attitude,
                     //     // filters,
@@ -466,12 +468,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     //     system_status,
                     // );
 
-                    // Don't apply autopilot modes if on the ground.
-                    if !state_volatile.has_taken_off {
-                        // The intermediate variable is due to a attribute binding
-                        // issue with teh direct approach.
-                        state_volatile.autopilot_commands = ap_cmds;
-                    }
                     let timestamp_task_complete = cx
                         .shared
                         .tick_timer
@@ -501,7 +497,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     cx.local.task_durations.tasks[4] =
                         timestamp_task_complete - timestamp_fc_complete;
                 } else if (i_compensated - 5) % NUM_IMU_LOOP_TASKS == 0 {
-
                     // Don't poll the baro too fast; we get DMA anomolies and no data.
                     static mut I2: u32 = 0;
                     unsafe {

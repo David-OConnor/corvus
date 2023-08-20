@@ -49,9 +49,9 @@ cfg_if! {
 
 use usbd_serial::SerialPort;
 
+use crate::flight_ctrls::autopilot::AutopilotStatus;
 use crate::protocols::crsf::LinkStats;
-use num_enum::TryFromPrimitive;
-use crate::flight_ctrls::autopilot::AutopilotStatus; // Enum from integer
+use num_enum::TryFromPrimitive; // Enum from integer
 
 const CRC_POLY: u8 = 0xab;
 const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
@@ -66,7 +66,7 @@ const QUATERNION_SIZE: usize = F32_SIZE * 4;
 
 const PARAMS_SIZE: usize = 2 * QUATERNION_SIZE + 6 * F32_SIZE + 1 + 4 * 3 + 1 + F32_SIZE * 4; //
 const CONTROLS_SIZE: usize = 19; // Includes first byte as an Option byte.
-// const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
+                                 // const LINK_STATS_SIZE: usize = F32_BYTES * 4; // Only the first 4 fields.
 const LINK_STATS_SIZE: usize = 5; // Only 5 fields.
 
 // 3 coords + option to indicate if used. (Some/None)
@@ -79,7 +79,7 @@ pub const AP_STATUS_SIZE: usize = 12; //
 pub const SYS_AP_STATUS_SIZE: usize = SYS_STATUS_SIZE + AP_STATUS_SIZE;
 #[cfg(feature = "quad")]
 pub const CONTROL_MAPPING_SIZE: usize = 2; // Packed tightly!
-// todo: May need to change to add `servo_high` etc.
+                                           // todo: May need to change to add `servo_high` etc.
 #[cfg(feature = "fixed-wing")]
 pub const CONTROL_MAPPING_SIZE: usize = 2; // Packed tightly! todo?
 pub const SET_MOTOR_POWER_SIZE: usize = F32_SIZE * 4;
@@ -331,7 +331,7 @@ impl AutopilotStatus {
                 result[1] = hold_type as u8;
                 result[2..6].clone_from_slice(&hold_value.to_be_bytes());
             }
-            None => ()
+            None => (),
         }
 
         match self.hdg_hold {
@@ -339,7 +339,7 @@ impl AutopilotStatus {
                 result[6] = 1; // Indicates AP hold is on.
                 result[7..11].clone_from_slice(&hold_value.to_be_bytes());
             }
-            None => ()
+            None => (),
         }
 
         result[11] = self.yaw_assist as u8;
@@ -622,7 +622,8 @@ pub fn handle_rx(
         MsgType::ReqSysApStatus => {
             let mut payload: [u8; SYS_AP_STATUS_SIZE] = [0; SYS_AP_STATUS_SIZE];
             payload[..SYS_STATUS_SIZE].clone_from_slice(&sys_status.to_bytes());
-            payload[SYS_STATUS_SIZE.. SYS_AP_STATUS_SIZE].clone_from_slice(&autopilot_status.to_bytes());
+            payload[SYS_STATUS_SIZE..SYS_AP_STATUS_SIZE]
+                .clone_from_slice(&autopilot_status.to_bytes());
 
             send_payload::<{ SYS_AP_STATUS_SIZE + PAYLOAD_START_I + CRC_LEN }>(
                 MsgType::SysApStatus,
@@ -645,7 +646,7 @@ pub fn handle_rx(
 
             let m = &motor_servo_state; // code shortener
             #[cfg(feature = "quad")]
-                let payload = [
+            let payload = [
                 // 2 bits each
                 (3) | ((1) << 2) | ((2) << 4) | ((0) << 6),
                 // 1 bit each
