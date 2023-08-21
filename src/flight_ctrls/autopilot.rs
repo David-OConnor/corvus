@@ -320,64 +320,84 @@ impl AutopilotStatus {
 
         // todo: Take into account attitude! Probalby take angle between earth and AC up,
         // todo, and take into account cos of it. Definitely don't do anything weird if upside-down!
-        const ALT_HOLD_P_TERM: f32 = 0.0001;
-        const ALT_HOLD_I_TERM: f32 = 0.0001;
+
+        // Re VV P term: If we are 1 meter too low, what would be a reasonable vertical speed?
+        // Think of it that way. Think of this P term as the time, 1 dividied by the seconds, to complete
+        // the altitude correction.
+        const VERTICAL_VELOCITY_P_TERM: f32 = 2.;
+
+        // The alt hold terms are used to output a throttle adjustment (from its previous value), based
+        // on the difference between target and current vertical velocity.
+        const ALT_HOLD_P_TERM: f32 = 0.00005;
+        // const ALT_HOLD_I_TERM: f32 = 0.00002;
+        const ALT_HOLD_I_TERM: f32 = 0.00001;
         // This should be on the order of the error term
         const MAX_I_WINDUP: f32 = 0.1; // todo: What should this be?
-        static mut integral_alt_hold: f32 = 0.;
 
-        match self.alt_hold {
-            Some((alt_type, alt_commanded)) => {
-                if alt_type == AltType::Msl {
-                    let error = alt_commanded - params.alt_msl_baro;
-                    unsafe {
-                        integral_alt_hold += error * dt;
+        // todo: Integral term for VV?
 
-                        util::clamp(&mut integral_alt_hold, (-MAX_I_WINDUP, MAX_I_WINDUP));
-                    }
+        static mut integral_vertical_velocity: f32 = 0.;
+        static mut alt_msl_baro_prev: f32 = 0.;
+
+        unsafe {
+            match self.alt_hold {
+                Some((alt_type, alt_commanded)) => {
+                    let vertical_velocity = (params.alt_msl_baro - alt_msl_baro_prev) / dt;
+                    alt_msl_baro_prev = params.alt_msl_baro;
+
+                    let error_alt = match alt_type {
+                        AltType::Msl => alt_commanded - params.alt_msl_baro,
+                        AltType::Agl => 0., // todo tmep
+                    };
+
+                    integral_vertical_velocity += error_alt * dt;
+
+                    // todo: Use a non-linear setup instead of P loop?
+                    let vertical_velocity_commanded = VERTICAL_VELOCITY_P_TERM * error_alt;
+                    let error_vertical_velocity = vertical_velocity_commanded - vertical_velocity;
+
+                    let vertical_velocity_correction = ALT_HOLD_P_TERM * error_vertical_velocity
+                        + ALT_HOLD_I_TERM * integral_vertical_velocity;
+
                     autopilot_commands.throttle = {
-                        let correction = ALT_HOLD_P_TERM * error
-                            + ALT_HOLD_I_TERM * unsafe { integral_alt_hold };
                         let mut throttle_command =
-                            autopilot_commands.throttle.unwrap_or(throttle_prev) + correction;
+                            autopilot_commands.throttle.unwrap_or(throttle_prev)
+                                + vertical_velocity_correction;
 
-                        // Clamp. Note that the output is clamped as well, but clamp our running value here, since
-                        // we use it as a base for future adjustments.
-                        // if throttle_command > 1. {
-                        //     throttle_command = 1.;
+                        // todo: Remove 0.5 limit eventually; it's there for safety currently.
+                        // todo: Swithc it to 1, and the lower end to our user_cfg idle.
+                        util::clamp(&mut throttle_command, (0.02, 0.5));
 
-                        // todo safety clamp for now!
-                        if throttle_command > 0.5 {
-                            throttle_command = 0.5;
-
-                            // todo: Use user_cmd.idle_pwr  here!
-                        } else if throttle_command < 0.02 {
-                            throttle_command = 0.02;
-                        }
                         Some(throttle_command)
                     };
 
+                    util::clamp(
+                        &mut integral_vertical_velocity,
+                        (-MAX_I_WINDUP, MAX_I_WINDUP),
+                    );
+                    if autopilot_commands.throttle.unwrap_or(0.) < 0.10 {
+                        integral_vertical_velocity = 0.;
+                    }
+
                     // todo tmep
                     static mut I: u32 = 0;
-                    unsafe {
-                        I += 1;
-                        if I % 400 == 0 {
-                            println!(
-                                "E: {:?} T: {:?}",
-                                error,
-                                autopilot_commands.throttle.unwrap_or(69.)
-                            );
-                        }
-                    }
-                } else {
-                    unsafe {
-                        integral_alt_hold = 0.;
+                    I += 1;
+                    if I % 400 == 0 {
+                        println!(
+                            "Alt E: {:?} VV E: {:?} VV Tgt:{} VV Cur: {} T: {:?}",
+                            error_alt,
+                            error_vertical_velocity,
+                            vertical_velocity_commanded,
+                            vertical_velocity,
+                            autopilot_commands.throttle.unwrap_or(69.)
+                        );
                     }
                 }
+                None => {
+                    integral_vertical_velocity = 0.;
+                    alt_msl_baro_prev = 0.;
+                }
             }
-            None => unsafe {
-                integral_alt_hold = 0.;
-            },
         }
 
         // todo: Look at the commented out alt hold section below, and mix with the one above A/R
@@ -561,12 +581,15 @@ impl AutopilotStatus {
                 self.alt_hold = Some((AltType::Agl, alt_to_hold));
             }
             AltHoldSwitch::EnabledMsl => {
+                let new_commanded_alt = params.alt_msl_baro;
+                // todo temp:
+                let new_commanded_alt = 0.3;
                 let alt_to_hold = match self.alt_hold {
                     Some((alt_type, val)) => match alt_type {
                         AltType::Msl => val,
-                        AltType::Agl => params.alt_msl_baro,
+                        AltType::Agl => new_commanded_alt,
                     },
-                    None => params.alt_msl_baro,
+                    None => new_commanded_alt,
                 };
                 self.alt_hold = Some((AltType::Msl, alt_to_hold));
             }
