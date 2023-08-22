@@ -123,6 +123,10 @@ pub fn ctrl_mix_from_att(
     // todo att + angular v at the specified time factor.
     const TIME_TO_CORRECT_ATT: f32 = 0.05;
     const P_TERM_ATT_ERR: f32 = 1. / TIME_TO_CORRECT_ATT;
+    const D_TERM_ATT_ERR: f32 = 1.;
+
+    // att' = att + ωt
+
 
     // todo: QC order on this
     // let d_target_dt = target_attitude / target_attitude_prev;
@@ -133,9 +137,9 @@ pub fn ctrl_mix_from_att(
     // rate error from the att error. Final correction of 1 rad/s .
     // todo : You probably need to work this out as a diffeq/kinematics equation.
 
-    let pitch_rate_cmd = P_TERM_ATT_ERR * error_att_x - 0. * error_att_x;
-    let roll_rate_cmd = P_TERM_ATT_ERR * error_att_y - 0. * error_att_y;
-    let yaw_rate_cmd = P_TERM_ATT_ERR * error_att_z - 0. * error_att_z;
+    let pitch_rate_cmd = P_TERM_ATT_ERR * error_att_x - D_TERM_ATT_ERR * error_att_rate_x;
+    let roll_rate_cmd = P_TERM_ATT_ERR * error_att_y - D_TERM_ATT_ERR * error_att_rate_y;
+    let yaw_rate_cmd = P_TERM_ATT_ERR * error_att_z - D_TERM_ATT_ERR * error_att_rate_z;
 
     // let pitch_rate_cmd = pry.0;
     // let roll_rate_cmd = pry.1;
@@ -222,6 +226,7 @@ pub fn ctrl_mix_from_att(
     if unsafe { i } % 2_000 == 0 {
 
         println!("rate cmds P{} R{} Y{}", pitch_rate_cmd, roll_rate_cmd, yaw_rate_cmd);
+        println!("Err rate P{} R{} Y{}", error_att_rate_x, error_att_rate_y, error_att_rate_y);
     }
 
     result
