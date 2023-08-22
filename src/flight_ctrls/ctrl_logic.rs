@@ -29,6 +29,7 @@ use cfg_if::cfg_if;
 // todo: YOu probably need filters.
 
 use defmt::println;
+use crate::main_loop::FLIGHT_CTRL_IMU_RATIO;
 
 cfg_if! {
     if #[cfg(feature = "quad")] {
@@ -101,13 +102,45 @@ pub fn ctrl_mix_from_att(
     pid_coeffs: &PidCoeffs,
 ) -> CtrlMix {
     // This is the rotation we need to create to arrive at the target attitude from the current one.
+    // todo TS
+    // let target_attitude = Quaternion::new_identity();
+
     let rot_cmd_axes = (target_attitude / params.attitude).to_axes();
+
+    // These are in rad
+    let error_att_x = rot_cmd_axes.0;
+    let error_att_y = rot_cmd_axes.1;
+    let error_att_z = rot_cmd_axes.2;
+
+    // These are in rad/s
+    let error_att_rate_x = target_ω.0 - params.v_pitch;
+    let error_att_rate_y = target_ω.1 - params.v_roll;
+    let error_att_rate_z = target_ω.2 - params.v_yaw;
+
+
+    // todo: Make this configurable too.
+    // todo: Incorporate target angular rate in this as well, so you arrive at the corrected
+    // todo att + angular v at the specified time factor.
+    const TIME_TO_CORRECT_ATT: f32 = 0.05;
+    const P_TERM_ATT_ERR: f32 = 1. / TIME_TO_CORRECT_ATT;
 
     // todo: QC order on this
     // let d_target_dt = target_attitude / target_attitude_prev;
     // let d_att_dt = params.attitude / params_prev.attitude;
 
-    let (p, r, y) = pry;
+    // Let's saw we are commanding a +2 rad/s correction due to being 2 rads low (err_att = +2).
+    // We are already heading 1 rad/s in the correct direction. (err_att_rate = +1) So, subtract the att
+    // rate error from the att error. Final correction of 1 rad/s .
+    // todo : You probably need to work this out as a diffeq/kinematics equation.
+
+    let pitch_rate_cmd = P_TERM_ATT_ERR * error_att_x - 0. * error_att_x;
+    let roll_rate_cmd = P_TERM_ATT_ERR * error_att_y - 0. * error_att_y;
+    let yaw_rate_cmd = P_TERM_ATT_ERR * error_att_z - 0. * error_att_z;
+
+    // let pitch_rate_cmd = pry.0;
+    // let roll_rate_cmd = pry.1;
+    // You could initialize yaw to current a/r.
+    // let yaw_rate_cmd = pry.2;
 
     #[allow(non_upper_case_globals)]
     let (pitch, roll, yaw) = {
@@ -136,9 +169,9 @@ pub fn ctrl_mix_from_att(
             let error_y_prev = error_y;
             let error_z_prev = error_z;
 
-            error_x = p - params.v_pitch;
-            error_y = r - params.v_roll;
-            error_z = y - params.v_yaw;
+            error_x = pitch_rate_cmd - params.v_pitch;
+            error_y = roll_rate_cmd - params.v_roll;
+            error_z = yaw_rate_cmd - params.v_yaw;
 
             let d_error_x = (error_x - error_x_prev) / dt;
             let d_error_y = (error_y - error_y_prev) / dt;
@@ -186,10 +219,9 @@ pub fn ctrl_mix_from_att(
 
     static mut i: u32 = 0;
     unsafe { i += 1 };
-    if unsafe { i } % 4_000 == 0 {
+    if unsafe { i } % 2_000 == 0 {
 
-        // println!("Input P{} R{} Y{}", p, r, y);
-        // println!("Output P{} R{} Y{}", pitch, roll, yaw);
+        println!("rate cmds P{} R{} Y{}", pitch_rate_cmd, roll_rate_cmd, yaw_rate_cmd);
     }
 
     result
@@ -324,11 +356,25 @@ pub fn update_att_commanded(
     //     yaw: Some(cfg.input_map.calc_yaw_rate(ch_data.yaw)),
     // };
 
+    // Apply a deadzone, which prevents continous drift. Might be useful in general,
+    // but is there something else going on that causes this?
+    const DEADZONE_RANGE: f32 = 0.001;
+
+    let mut pitch_cmd = -ch_data.pitch;
+    let mut roll_cmd = ch_data.roll;
+    let mut yaw_cmd = ch_data.yaw;
+
+    // for command in &mut [pitch_cmd, roll_cmd, yaw_cmd] {
+    //     if *command > -DEADZONE_RANGE && *command < DEADZONE_RANGE {
+    //         *command = 0.
+    //     }
+    // }
+
     // Negative on pitch, since we want pulling down (back) on the stick to raise
     // the nose.
-    let pitch_rate_cmd = input_map.calc_pitch_rate(-ch_data.pitch);
-    let roll_rate_cmd = input_map.calc_roll_rate(ch_data.roll);
-    let yaw_rate_cmd = input_map.calc_yaw_rate(ch_data.yaw);
+    let pitch_rate_cmd = input_map.calc_pitch_rate(pitch_cmd);
+    let roll_rate_cmd = input_map.calc_roll_rate(roll_cmd);
+    let yaw_rate_cmd = input_map.calc_yaw_rate(yaw_cmd);
 
     // todo: Should attitude commanded regress to current attitude if it hasn't changed??
 
@@ -344,7 +390,7 @@ pub fn update_att_commanded(
         pitch_rate_cmd,
         roll_rate_cmd,
         yaw_rate_cmd,
-        DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
+        DT_FLIGHT_CTRLS *  ATT_CMD_UPDATE_RATIO as f32,
     );
     // todo: Instead of skipping ones not on the update ratio, you could store
     // todo a buffer of attitudes, and look that far back.

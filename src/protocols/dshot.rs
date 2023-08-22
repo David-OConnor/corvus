@@ -183,6 +183,7 @@ pub fn stop_all(timer: &mut MotorTimer) {
 pub fn setup_motor_dir(motors_reversed: (bool, bool, bool, bool), timer: &mut MotorTimer) {
     // A blocking delay.
     let cp = unsafe { cortex_m::Peripherals::steal() };
+    // todo: DOn't hardcode, eg for H7!
     let mut delay = Delay::new(cp.SYST, 170_000_000);
 
     // Throttle must have been commanded to 0 a certain number of timers,

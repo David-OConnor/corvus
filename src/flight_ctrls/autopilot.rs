@@ -337,24 +337,29 @@ impl AutopilotStatus {
         // todo: Integral term for VV?
 
         static mut integral_vertical_velocity: f32 = 0.;
-        static mut alt_msl_baro_prev: f32 = 0.;
 
         unsafe {
             match self.alt_hold {
                 Some((alt_type, alt_commanded)) => {
-                    let vertical_velocity = (params.alt_msl_baro - alt_msl_baro_prev) / dt;
-                    alt_msl_baro_prev = params.alt_msl_baro;
 
-                    let error_alt = match alt_type {
+                    // Given the baro's limited precision and noise, cease corrections if
+                    // within a certain range of the target altitude.
+                    const ACCEPTABLE_THRESHOLD: f32 = 0.3; // meters.
+
+                    let mut error_alt = match alt_type {
                         AltType::Msl => alt_commanded - params.alt_msl_baro,
                         AltType::Agl => 0., // todo tmep
                     };
+
+                    if error_alt.abs() < ACCEPTABLE_THRESHOLD {
+                        error_alt = 0.; // todo: Is this what we want?
+                    }
 
                     integral_vertical_velocity += error_alt * dt;
 
                     // todo: Use a non-linear setup instead of P loop?
                     let vertical_velocity_commanded = VERTICAL_VELOCITY_P_TERM * error_alt;
-                    let error_vertical_velocity = vertical_velocity_commanded - vertical_velocity;
+                    let error_vertical_velocity = vertical_velocity_commanded - params.v_z_baro;
 
                     let vertical_velocity_correction = ALT_HOLD_P_TERM * error_vertical_velocity
                         + ALT_HOLD_I_TERM * integral_vertical_velocity;
@@ -388,14 +393,13 @@ impl AutopilotStatus {
                             error_alt,
                             error_vertical_velocity,
                             vertical_velocity_commanded,
-                            vertical_velocity,
+                            params.v_z_baro,
                             autopilot_commands.throttle.unwrap_or(69.)
                         );
                     }
                 }
                 None => {
                     integral_vertical_velocity = 0.;
-                    alt_msl_baro_prev = 0.;
                 }
             }
         }
@@ -583,7 +587,7 @@ impl AutopilotStatus {
             AltHoldSwitch::EnabledMsl => {
                 let new_commanded_alt = params.alt_msl_baro;
                 // todo temp:
-                let new_commanded_alt = 0.3;
+                let new_commanded_alt = 0.2;
                 let alt_to_hold = match self.alt_hold {
                     Some((alt_type, val)) => match alt_type {
                         AltType::Msl => val,
@@ -641,5 +645,7 @@ impl AutopilotStatus {
                 // self.land = Some(Land);
             }
         }
+
+         self.hdg_hold = None; // for now; it's activating for some reason.
     }
 }

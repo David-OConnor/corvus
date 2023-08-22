@@ -8,6 +8,8 @@
 
 #![allow(dead_code)]
 
+use cortex_m::delay::Delay;
+
 use crate::{
     atmos_model::{AltitudeCalPt, POINT_0, POINT_1},
     setup::I2cBaro,
@@ -216,7 +218,19 @@ impl Altimeter {
 
         // Ground initialization.
 
-        let (pressure, temp) = result.read_pressure_temp(i2c)?;
+        // It appears we need a sizable delay between setup and the first reading to set up the base
+        // pressure. 300ms seems to work reliably. 100ms doesn't.
+        let cp = unsafe { cortex_m::Peripherals::steal() };
+        // todo: DOn't hardcode, eg for H7!
+        #[cfg(feature = "h7")]
+        let ahb_freq = 170_000_000; // todo?
+        #[cfg(feature = "g4")]
+        let ahb_freq = 170_000_000; // todo?
+        let mut delay = Delay::new(cp.SYST, ahb_freq);
+
+        delay.delay_ms(300);
+
+        let (mut pressure, mut temp) = result.read_pressure_temp(i2c)?;
 
         result.ground_cal = AltitudeCalPt {
             pressure,

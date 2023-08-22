@@ -737,6 +737,13 @@ mod app {
 
         let buf = unsafe { &sensors_shared::READ_BUF_BARO };
 
+        // todo: This is fragile, esp re the 11. figure, and if this figure still makes sense
+        // todo if we change the values.
+        const DT_BARO: f32 = main_loop::DT_IMU
+            * (main_loop::FLIGHT_CTRL_IMU_RATIO as f32
+                * main_loop::NUM_IMU_LOOP_TASKS as f32
+                * main_loop::BARO_RATIO as f32);
+
         (
             cx.shared.altimeter,
             cx.shared.current_params,
@@ -748,8 +755,14 @@ mod app {
 
                 state_volatile.pressure_static = pressure;
                 state_volatile.temp_baro = temp;
-                params.alt_msl_baro =
-                    atmos_model::estimate_altitude_msl(pressure, temp, &altimeter.ground_cal)
+
+                let altitude =
+                    atmos_model::estimate_altitude_msl(pressure, temp, &altimeter.ground_cal);
+
+                // todo: We must low-pass this, or take a wider window.
+                params.v_z_baro = (altitude - params.alt_msl_baro) / DT_BARO;
+
+                params.alt_msl_baro = altitude;
             });
 
         let timestamp = cx.shared.tick_timer.lock(util::get_timestamp);

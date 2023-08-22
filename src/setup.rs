@@ -241,22 +241,12 @@ pub fn init_sensors(
     //     Ok(_) => system_status.magnetometer = SensorStatus::Pass,
     //     Err(_) => system_status.magnetometer = SensorStatus::NotConnected,
     // }
-    //
-    // match tof::setup(i2c1) {
-    //     Ok(_) => system_status.tof = SensorStatus::Pass,
-    //     Err(_) => system_status.tof = SensorStatus::NotConnected,
-    // }
 
     match flash_spi::setup(spi_flash, cs_flash) {
         Ok(_) => system_status.flash_spi = SensorStatus::Pass,
         Err(_) => system_status.flash_spi = SensorStatus::NotConnected,
     }
 
-    // if let Some(agl) = tof::read(params.quaternion, i2c1) {
-    //     if agl > 0.01 {
-    //         return result;
-    //     }
-    // }
     let altimeter = match baro::Altimeter::new(i2c_baro) {
         Ok(mut alt) => {
             system_status.baro = SensorStatus::Pass;

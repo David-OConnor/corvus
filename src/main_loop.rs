@@ -29,6 +29,7 @@ use defmt::println;
 // const UPDATE_RATE_IMU: f32 = 8_000.;
 const UPDATE_RATE_IMU: f32 = 8_192.; // From measuring.
 pub const DT_IMU: f32 = 1. / UPDATE_RATE_IMU;
+pub const BARO_RATIO: u32 = 11;
 
 pub const DT_FLIGHT_CTRLS: f32 = 1. / UPDATE_RATE_FLIGHT_CTRLS;
 
@@ -43,10 +44,10 @@ const PRINT_STATUS_RATIO: u32 = 16_000;
 const THRUST_LOG_RATIO: u32 = 20;
 
 #[cfg(feature = "quad")]
-const FLIGHT_CTRL_IMU_RATIO: u32 = 4; // Likely values: 1, 2, 4, 8.
+pub const FLIGHT_CTRL_IMU_RATIO: u32 = 4; // Likely values: 1, 2, 4, 8.
 
 #[cfg(feature = "fixed-wing")]
-const FLIGHT_CTRL_IMU_RATIO: u32 = 8; // Likely values: 4, 8, 16.
+pub const FLIGHT_CTRL_IMU_RATIO: u32 = 8; // Likely values: 4, 8, 16.
 
 // cfg_if! {
 //     if #[cfg(feature = "h7")] {
@@ -66,7 +67,7 @@ const FLIGHT_CTRL_IMU_RATIO: u32 = 8; // Likely values: 4, 8, 16.
 
 const UPDATE_RATE_FLIGHT_CTRLS: f32 = UPDATE_RATE_IMU / FLIGHT_CTRL_IMU_RATIO as f32;
 
-const NUM_IMU_LOOP_TASKS: u32 = 6; // We cycle through lower-priority tasks in the main loop.
+pub const NUM_IMU_LOOP_TASKS: u32 = 6; // We cycle through lower-priority tasks in the main loop.
 
 // We run into numerical precision issues if diffing attitude commanded
 // every update loop. Updating this once every few updates creates a larger difference
@@ -221,29 +222,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         timestamp,
                     );
                 }
-                // Update our commanded attitude
-                match control_channel_data {
-                    Some(ch_data) => {
-                        if i % ATT_CMD_UPDATE_RATIO == 0 {
-                            let (attitude_commanded, attitude_commanded_dt) =
-                                ctrl_logic::update_att_commanded(
-                                    ch_data,
-                                    &cfg.input_map,
-                                    state_volatile.attitude_commanded.quat,
-                                    params.attitude,
-                                    state_volatile.has_taken_off,
-                                    // true, // todo temp
-                                    cfg.takeoff_attitude,
-                                );
-
-                            // let attitude_commanded = Quaternion::new_identity();
-
-                            state_volatile.attitude_commanded.quat = attitude_commanded;
-                            state_volatile.attitude_commanded.quat_dt = attitude_commanded_dt;
-                        }
-                    }
-                    None => {}
-                };
 
                 // todo: Are the attitude_commanded fields other than quat used? Should we remove them?
 
@@ -258,24 +236,54 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 cx.local.task_durations.imu = timestamp_imu_complete - timestamp;
 
                 if i % FLIGHT_CTRL_IMU_RATIO == 0 {
-                    if state_volatile.op_mode == OperationMode::Preflight {
-                        // todo: Figure out where this preflight motor-spin up code should be in this ISR.
-                        // todo: Here should be fine, but maybe somewhere else is better.
-                        cx.shared.motor_timer.lock(|motor_timer| {
-                            if state_volatile.preflight_motors_running {
-                                // todo: Use actual arm status!!
-                                // println!("Motor pow fl: {:?}", state_volatile.motor_servo_state.rotor_front_left.cmd.power());
 
-                                state_volatile
-                                    .motor_servo_state
-                                    .send_to_rotors(ArmStatus::Armed, motor_timer);
-                            } else {
-                                // todo: Does this interfere with USB reads?
-                                // todo: Experiment and reason this out, if you should do this.
-                                // dshot::stop_all(motor_timer);
+                    // Update our commanded attitude
+                    match control_channel_data {
+                        Some(ch_data) => {
+                            static mut I2: u32 = 0;
+                            unsafe {I2  += 1 };
+                            if unsafe { I2 } % ATT_CMD_UPDATE_RATIO == 0 {
+                                // if i % ATT_CMD_UPDATE_RATIO == 0 {
+                                    let (attitude_commanded, attitude_commanded_dt) =
+                                        ctrl_logic::update_att_commanded(
+                                            ch_data,
+                                            &cfg.input_map,
+                                            state_volatile.attitude_commanded.quat,
+                                            params.attitude,
+                                            state_volatile.has_taken_off,
+                                            cfg.takeoff_attitude,
+                                        );
+
+                                    // let attitude_commanded = Quaternion::new_identity();
+
+                                    state_volatile.attitude_commanded.quat = attitude_commanded;
+                                    state_volatile.attitude_commanded.quat_dt = attitude_commanded_dt;
+                                // }
                             }
-                        });
-                    } else {
+                        }
+                        None => {}
+                    }
+
+                    // todo: Put back.
+                    // if state_volatile.op_mode == OperationMode::Preflight {
+                    //     // todo: Figure out where this preflight motor-spin up code should be in this ISR.
+                    //     // todo: Here should be fine, but maybe somewhere else is better.
+                    //     cx.shared.motor_timer.lock(|motor_timer| {
+                    //         if state_volatile.preflight_motors_running {
+                    //             // todo: Use actual arm status!!
+                    //             // println!("Motor pow fl: {:?}", state_volatile.motor_servo_state.rotor_front_left.cmd.power());
+                    //
+                    //             state_volatile
+                    //                 .motor_servo_state
+                    //                 .send_to_rotors(ArmStatus::Armed, motor_timer);
+                    //         } else {
+                    //             // todo: Does this interfere with USB reads?
+                    //             // todo: Experiment and reason this out, if you should do this.
+                    //             // dshot::stop_all(motor_timer);
+                    //         }
+                    //     });
+                    // } else {
+
                         (cx.shared.flight_ctrl_filters, cx.shared.motor_timer).lock(
                             |flight_ctrl_filters, motor_timer| {
                                 flight_ctrls::run(
@@ -292,7 +300,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                 );
                             },
                         );
-                    }
+                    // }
 
                     cx.local.task_durations.flight_ctrl_interval = timestamp_imu_complete
                         - system_status.update_timestamps.flight_ctrls.unwrap_or(0.);
@@ -501,7 +509,11 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     static mut I2: u32 = 0;
                     unsafe {
                         I2 += 1;
-                        if I2 % 10 == 0 {
+                        // This is a sloppy way of lowering the refresh rate. Bottom line, for quads:
+                        // 8khz loop / (11 * 6(num_tasks) * 4(flight ctrl ratio) = 30Hz.
+                        // This is fragile, ie if we change any of the above params.
+                        // The baro refreshes at 32Hz.
+                        if I2 % BARO_RATIO == 0 {
                             cx.shared.i2c2.lock(|i2c2| {
                                 sensors_shared::start_transfer_baro(i2c2);
                             });

@@ -38,9 +38,6 @@ pub enum ExtSensor {
     Tof,
 }
 
-// 3 sensors; each 16 bits.
-// pub static mut EXT_SENSORS_READINGS: [u8; 3 * 2] = [0; 3 * 2];
-use defmt::println;
 /// Start continous transfers for all sensors controlled by this module.
 pub fn start_transfer_baro(i2c_baro: &mut I2cBaro) {
     unsafe {

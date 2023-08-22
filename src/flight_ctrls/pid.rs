@@ -150,7 +150,7 @@ impl Default for PidCoeffs {
         Self {
             p: 0.1800,
             i: 0.0600,
-            d: 0.00005,
+            d: 0.00004,
         }
     }
 }
