@@ -221,6 +221,7 @@ mod app {
         // aux_loop_i: usize, // todo temp
         pub ctrl_coeff_adj_timer: Timer<TIM1>,
         pub time_with_high_throttle: f32,
+        pub time_with_low_throttle: f32,
         pub dshot_read_timer: Timer<TIM2>,
         pub cs_imu: Pin,
         // todo: `params_prev` is an experimental var used in our alternative/experimental
@@ -274,7 +275,7 @@ mod app {
     shared = [altimeter, ahrs, spi1, i2c1, i2c2, current_params, control_channel_data, link_stats,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status, tick_timer, uart_osd],
-    local = [imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle,
+    local = [imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle, time_with_low_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, task_durations], priority = 4)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
         dma::clear_interrupt(

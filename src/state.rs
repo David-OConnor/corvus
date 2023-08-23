@@ -207,6 +207,7 @@ impl UserConfig {
             p: f32::from_be_bytes(buf[0..4].try_into().unwrap()),
             i: f32::from_be_bytes(buf[4..8].try_into().unwrap()),
             d: f32::from_be_bytes(buf[8..12].try_into().unwrap()),
+            att_ttc: f32::from_be_bytes(buf[12..16].try_into().unwrap()),
         };
         Self {
             pid_coeffs,
@@ -221,6 +222,7 @@ impl UserConfig {
         result[..4].clone_from_slice(&self.pid_coeffs.p.to_be_bytes());
         result[4..8].clone_from_slice(&self.pid_coeffs.i.to_be_bytes());
         result[8..12].clone_from_slice(&self.pid_coeffs.d.to_be_bytes());
+        result[12..16].clone_from_slice(&self.pid_coeffs.att_ttc.to_be_bytes());
 
         result
     }

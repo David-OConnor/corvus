@@ -429,6 +429,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
             // aux_loop_i: 0, // todo t
             ctrl_coeff_adj_timer,
             time_with_high_throttle: 0.,
+            time_with_low_throttle: 0.,
             dshot_read_timer,
             cs_imu,
             params_prev: params,

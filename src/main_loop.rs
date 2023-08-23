@@ -265,25 +265,24 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     }
 
                     // todo: Put back.
-                    // if state_volatile.op_mode == OperationMode::Preflight {
-                    //     // todo: Figure out where this preflight motor-spin up code should be in this ISR.
-                    //     // todo: Here should be fine, but maybe somewhere else is better.
-                    //     cx.shared.motor_timer.lock(|motor_timer| {
-                    //         if state_volatile.preflight_motors_running {
-                    //             // todo: Use actual arm status!!
-                    //             // println!("Motor pow fl: {:?}", state_volatile.motor_servo_state.rotor_front_left.cmd.power());
-                    //
-                    //             state_volatile
-                    //                 .motor_servo_state
-                    //                 .send_to_rotors(ArmStatus::Armed, motor_timer);
-                    //         } else {
-                    //             // todo: Does this interfere with USB reads?
-                    //             // todo: Experiment and reason this out, if you should do this.
-                    //             // dshot::stop_all(motor_timer);
-                    //         }
-                    //     });
-                    // } else {
+                    if state_volatile.op_mode == OperationMode::Preflight {
+                        // todo: Figure out where this preflight motor-spin up code should be in this ISR.
+                        // todo: Here should be fine, but maybe somewhere else is better.
+                        cx.shared.motor_timer.lock(|motor_timer| {
+                            if state_volatile.preflight_motors_running {
+                                // todo: Use actual arm status!!
+                                // println!("Motor pow fl: {:?}", state_volatile.motor_servo_state.rotor_front_left.cmd.power());
 
+                                state_volatile
+                                    .motor_servo_state
+                                    .send_to_rotors(ArmStatus::Armed, motor_timer);
+                            } else {
+                                // todo: Does this interfere with USB reads?
+                                // todo: Experiment and reason this out, if you should do this.
+                                // dshot::stop_all(motor_timer);
+                            }
+                        });
+                    } else {
                         (cx.shared.flight_ctrl_filters, cx.shared.motor_timer).lock(
                             |flight_ctrl_filters, motor_timer| {
                                 flight_ctrls::run(
@@ -300,7 +299,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                 );
                             },
                         );
-                    // }
+                    }
 
                     cx.local.task_durations.flight_ctrl_interval = timestamp_imu_complete
                         - system_status.update_timestamps.flight_ctrls.unwrap_or(0.);
@@ -380,15 +379,17 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         throttle,
                     );
 
-                    if !state_volatile.has_taken_off {
-                        safety::handle_takeoff_attitude_lock(
-                            state_volatile.arm_status,
-                            throttle,
-                            &mut cx.local.time_with_high_throttle,
-                            &mut state_volatile.has_taken_off,
-                            DT_FLIGHT_CTRLS * NUM_IMU_LOOP_TASKS as f32,
-                        );
-                    }
+                    let angle_from_upright = params.attitude.rotate_vec(ahrs::UP).dot(ahrs::UP).acos();
+
+                    safety::handle_takeoff_attitude_lock(
+                        state_volatile.arm_status,
+                        throttle,
+                        &mut cx.local.time_with_high_throttle,
+                        &mut cx.local.time_with_low_throttle,
+                        angle_from_upright,
+                        &mut state_volatile.has_taken_off,
+                        DT_FLIGHT_CTRLS * NUM_IMU_LOOP_TASKS as f32,
+                    );
 
                     #[cfg(feature = "quad")]
                     if let Some(ch_data) = control_channel_data {

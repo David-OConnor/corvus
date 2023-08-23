@@ -143,14 +143,16 @@ pub struct PidCoeffs {
     pub p: f32,
     pub i: f32,
     pub d: f32,
+    pub att_ttc: f32,
 }
 
 impl Default for PidCoeffs {
     fn default() -> Self {
         Self {
-            p: 0.1800,
-            i: 0.0600,
-            d: 0.00004,
+            p: 0.180,
+            i: 0.060,
+            d: 0.030,
+            att_ttc: 0.1,
         }
     }
 }

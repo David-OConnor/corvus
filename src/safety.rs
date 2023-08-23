@@ -58,8 +58,11 @@ const ALT_EPSILON_BEFORE_LATERAL: f32 = 20.;
 
 // If power has been higher than this power level for this time, consider teh craft airborne
 // for the purposes of the attitude lock.
-const TAKEOFF_POWER_THRESH: f32 = 0.1;
+const TAKEOFF_POWER_THRESH: f32 = 0.2;
+const IDLE_POWER_THRESH: f32 = 0.07; // todo: TIe to cfg (etc) idle.
 const TAKEOFF_POWER_TIME: f32 = 1.;
+const IDLE_POWER_TIME: f32 = 5.;
+const UPRIGHT_THRESH: f32 = 0.17; // radians
 
 // Block RX reception of packets coming in at a faster rate then this. This prevents external
 // sources from interfering with other parts of the application by taking too much time.
@@ -294,6 +297,8 @@ pub fn handle_takeoff_attitude_lock(
     arm_status: ArmStatus,
     throttle: f32,
     time_with_high_throttle: &mut f32,
+    time_with_low_throttle: &mut f32,
+    angle_from_upright: f32,
     has_taken_off: &mut bool,
     dt: f32,
 ) {
@@ -305,7 +310,15 @@ pub fn handle_takeoff_attitude_lock(
             return;
         }
         *time_with_high_throttle += dt;
+    } else if arm_status == MOTORS_ARMED && throttle <= IDLE_POWER_THRESH && angle_from_upright < UPRIGHT_THRESH {
+        if *time_with_low_throttle >= IDLE_POWER_TIME {
+            *has_taken_off = false;
+            *time_with_low_throttle = 0.;
+            return;
+        }
+        *time_with_low_throttle += dt;
     } else {
         *time_with_high_throttle = 0.;
+        *time_with_low_throttle = 0.;
     }
 }

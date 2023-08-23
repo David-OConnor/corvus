@@ -84,7 +84,7 @@ pub const CONTROL_MAPPING_SIZE: usize = 2; // Packed tightly!
 pub const CONTROL_MAPPING_SIZE: usize = 2; // Packed tightly! todo?
 pub const SET_MOTOR_POWER_SIZE: usize = F32_SIZE * 4;
 
-pub const CONFIG_SIZE: usize = F32_SIZE * 3; // todo: Currently PID only.
+pub const CONFIG_SIZE: usize = F32_SIZE * 4; // todo: Currently PID only.
 
 // const START_BYTE: u8 =
 
