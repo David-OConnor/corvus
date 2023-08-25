@@ -127,7 +127,7 @@ cfg_if! {
         // 8 sectors of 128kb each.
         // (H743 is similar, but may have 2 banks, each with those properties)
         const FLASH_CFG_PAGE: usize = 6; // called sector on H7.
-        const FLASH_WAYPOINT_SECTOR: usize = 7;
+        const FLASH_WAYPOINT_PAGE: usize = 7;
     } else {
         // G47x/G48x: 512k flash.
         // Assumes configured as a single bank: 128 pages of 4kb each.
@@ -136,9 +136,6 @@ cfg_if! {
         const FLASH_WAYPOINT_PAGE: usize = 127;
     }
 }
-
-#[cfg(feature = "h7")]
-static mut USB_EP_MEMORY: [u32; 1024] = [0; 1024];
 
 // todo: Temp as we switch from PID to other controls; we still will have
 // todo params that can be adjusetd in flight.
@@ -270,8 +267,8 @@ mod app {
     /// Certain tasks, like reading IMU measurements and filtering are run each time this function runs.
     /// Flight control logic is run once every several runs. Other tasks are run even less,
     /// sequenced among each other.
-    // #[task(binds = DMA1_STR2,
-    #[task(binds = DMA1_CH2,
+    #[task(binds = DMA1_STR2,
+    // #[task(binds = DMA1_CH2,
     shared = [altimeter, ahrs, spi1, i2c1, i2c2, current_params, control_channel_data, link_stats,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status, tick_timer, uart_osd],
@@ -303,8 +300,8 @@ mod app {
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     // #[task(binds = OTG_HS,
-    // #[task(binds = OTG_FS,
-    #[task(binds = USB_LP,
+    #[task(binds = OTG_FS,
+    // #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, current_params, control_channel_data, flash_onboard,
     link_stats, user_cfg, state_volatile, system_status, autopilot_status, motor_timer, servo_timer],
     local = [], priority = 10)]
@@ -387,8 +384,8 @@ mod app {
             )
     }
 
-    // #[task(binds = DMA1_STR3,
-    #[task(binds = DMA1_CH3,
+    #[task(binds = DMA1_STR3,
+    // #[task(binds = DMA1_CH3,
     shared = [motor_timer], priority = 6)]
     /// We use this ISR to initialize the RPM reception procedures upon completion of the dshot
     /// power setting transmission to the ESC.
@@ -672,7 +669,9 @@ mod app {
         });
     }
 
-    #[task(binds = DMA2_CH3, shared = [], priority = 2)]
+    #[task(binds = DMA2_STR3,
+    // #[task(binds = DMA2_CH3,
+    shared = [], priority = 2)]
     /// Baro write complete; start baro read.
     fn osd_tx_isr(_cx: osd_tx_isr::Context) {
         dma::clear_interrupt(
@@ -697,8 +696,8 @@ mod app {
         TICK_OVERFLOW_COUNT.fetch_add(1, Ordering::Relaxed);
     }
 
-    // #[task(binds = DMA2_STR1,
-    #[task(binds = DMA2_CH1,
+    #[task(binds = DMA2_STR1,
+    // #[task(binds = DMA2_CH1,
     shared = [i2c2], priority = 5)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
@@ -723,8 +722,8 @@ mod app {
 
     // todo: For now, we start new transfers in the main loop.
 
-    // #[task(binds = DMA2_STR2,
-    #[task(binds = DMA2_CH2,
+    #[task(binds = DMA2_STR2,
+    // #[task(binds = DMA2_CH2,
     shared = [altimeter, current_params, state_volatile, system_status, tick_timer], priority = 2)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(mut cx: baro_read_tc_isr::Context) {
@@ -916,8 +915,8 @@ mod app {
         }
     }
 
-    // #[task(binds = FDCAN1_IT0,
-    #[task(binds = FDCAN1_INTR0_IT,
+    #[task(binds = FDCAN1_IT0,
+    // #[task(binds = FDCAN1_INTR0_IT,
     shared = [can], priority = 4)] // todo: Temp high prio
     /// Ext sensors write complete; start read of the next sensor in sequence.
     fn can_isr(cx: can_isr::Context) {

@@ -341,7 +341,6 @@ impl AutopilotStatus {
         unsafe {
             match self.alt_hold {
                 Some((alt_type, alt_commanded)) => {
-
                     // Given the baro's limited precision and noise, cease corrections if
                     // within a certain range of the target altitude.
                     const ACCEPTABLE_THRESHOLD: f32 = 0.3; // meters.
@@ -646,6 +645,6 @@ impl AutopilotStatus {
             }
         }
 
-         self.hdg_hold = None; // for now; it's activating for some reason.
+        self.hdg_hold = None; // for now; it's activating for some reason.
     }
 }

@@ -1,16 +1,15 @@
 //! This module handles CAN reception, as from the appropriate ISR
 
-use crate::app;
-
 use rtic::mutex_prelude::*;
 
 use defmt::println;
 
-use dronecan;
-
+use fdcan::{id::Id, interrupt::Interrupt};
 use packed_struct::PackedStruct;
 
-use fdcan::{id::Id, interrupt::Interrupt};
+use dronecan;
+
+use crate::{app, drivers::gnss_can};
 
 static mut RX_BUF_CAN: [u8; 64] = [0; 64];
 
@@ -61,23 +60,20 @@ pub fn run(mut cx: app::can_isr::Context) {
 
                     match can_id.type_id {
                         1_063 => {
-                            let fix = dronecan::gnss::FixDronecan::unpack(
-                                rx_buf[0..dronecan::MsgType::Fix2.payload_size() as usize]
-                                    .try_into()
-                                    .unwrap(),
+                            println!("Parsing DroneCAN fix.");
+                            let fix = gnss_can::parse_fix(
+                                &rx_buf[..dronecan::MsgType::Fix2.payload_size() as usize],
                             );
+
                             match fix {
                                 Ok(f) => {
                                     println!(
                                         "Fix. Time: {}. Lat: {}. Lon: {}. Msl: {}",
-                                        f.gnss_timestamp,
-                                        f.latitude_deg_1e8 as f32 / 10_000_000.,
-                                        f.longitude_deg_1e8 as f32 / 10_000_000.,
-                                        f.height_msl_mm as f32 / 1_000.,
+                                        f.timestamp_s, f.lat_e7, f.lon_e7, f.elevation_msl,
                                     );
                                 }
                                 Err(_) => {
-                                    println!("Error unpacking fix");
+                                    println!("Error parsing fix");
                                 }
                             }
                             // println!("Test broadcast");

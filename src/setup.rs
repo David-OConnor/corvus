@@ -529,7 +529,7 @@ pub fn setup_dma() {
             let adc_dma_ip = DmaInput::Adc1;
             let crsf_dma_ip = DmaInput::Uart7Rx;
             let osd_dma_ip = DmaInput::Usart2Tx;
-            let osd_dma_rx_ip = DmaInput::UsartRx;
+            let osd_dma_rx_ip = DmaInput::Usart2Rx;
         } else {
             let crsf_dma_ip = DmaInput::Usart2Rx;
             let adc_dma_ip = DmaInput::Adc2;
@@ -681,10 +681,13 @@ pub fn setup_busses(
     // We use UART4 for the OSD, for DJI, via the MSP protocol.
     // todo: QC baud.
     #[cfg(feature = "h7")]
-    let uart_osd = Usart::new(
+    let mut uart_osd = Usart::new(
         uart_osd_pac,
         crate::osd::BAUD,
-        Default::default(),
+        UsartConfig {
+            overrun_disabled: true,
+            ..UsartConfig::default()
+        },
         clock_cfg,
     );
 
@@ -692,11 +695,8 @@ pub fn setup_busses(
     let mut uart_osd = Usart4::new(
         uart_osd_pac,
         crate::osd::BAUD,
-        // UsartConfig::default(),
-        // todo TS
         UsartConfig {
             overrun_disabled: true,
-            //     fifo_enabled: false,
             ..UsartConfig::default()
         },
         clock_cfg,

@@ -236,28 +236,27 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 cx.local.task_durations.imu = timestamp_imu_complete - timestamp;
 
                 if i % FLIGHT_CTRL_IMU_RATIO == 0 {
-
                     // Update our commanded attitude
                     match control_channel_data {
                         Some(ch_data) => {
                             static mut I2: u32 = 0;
-                            unsafe {I2  += 1 };
+                            unsafe { I2 += 1 };
                             if unsafe { I2 } % ATT_CMD_UPDATE_RATIO == 0 {
                                 // if i % ATT_CMD_UPDATE_RATIO == 0 {
-                                    let (attitude_commanded, attitude_commanded_dt) =
-                                        ctrl_logic::update_att_commanded(
-                                            ch_data,
-                                            &cfg.input_map,
-                                            state_volatile.attitude_commanded.quat,
-                                            params.attitude,
-                                            state_volatile.has_taken_off,
-                                            cfg.takeoff_attitude,
-                                        );
+                                let (attitude_commanded, attitude_commanded_dt) =
+                                    ctrl_logic::update_att_commanded(
+                                        ch_data,
+                                        &cfg.input_map,
+                                        state_volatile.attitude_commanded.quat,
+                                        params.attitude,
+                                        state_volatile.has_taken_off,
+                                        cfg.takeoff_attitude,
+                                    );
 
-                                    // let attitude_commanded = Quaternion::new_identity();
+                                // let attitude_commanded = Quaternion::new_identity();
 
-                                    state_volatile.attitude_commanded.quat = attitude_commanded;
-                                    state_volatile.attitude_commanded.quat_dt = attitude_commanded_dt;
+                                state_volatile.attitude_commanded.quat = attitude_commanded;
+                                state_volatile.attitude_commanded.quat_dt = attitude_commanded_dt;
                                 // }
                             }
                         }
@@ -296,6 +295,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     &cfg.input_map,
                                     &cfg.pid_coeffs,
                                     &autopilot_status,
+                                    state_volatile.has_taken_off,
                                 );
                             },
                         );
@@ -379,7 +379,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         throttle,
                     );
 
-                    let angle_from_upright = params.attitude.rotate_vec(ahrs::UP).dot(ahrs::UP).acos();
+                    let angle_from_upright =
+                        params.attitude.rotate_vec(ahrs::UP).dot(ahrs::UP).acos();
 
                     safety::handle_takeoff_attitude_lock(
                         state_volatile.arm_status,

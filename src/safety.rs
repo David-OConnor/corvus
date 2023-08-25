@@ -310,7 +310,10 @@ pub fn handle_takeoff_attitude_lock(
             return;
         }
         *time_with_high_throttle += dt;
-    } else if arm_status == MOTORS_ARMED && throttle <= IDLE_POWER_THRESH && angle_from_upright < UPRIGHT_THRESH {
+    } else if arm_status == MOTORS_ARMED
+        && throttle <= IDLE_POWER_THRESH
+        && angle_from_upright < UPRIGHT_THRESH
+    {
         if *time_with_low_throttle >= IDLE_POWER_TIME {
             *has_taken_off = false;
             *time_with_low_throttle = 0.;

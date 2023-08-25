@@ -28,9 +28,9 @@ use cfg_if::cfg_if;
 
 // todo: YOu probably need filters.
 
-use defmt::println;
 use crate::main_loop::FLIGHT_CTRL_IMU_RATIO;
 use crate::util::clamp;
+use defmt::println;
 
 cfg_if! {
     if #[cfg(feature = "quad")] {
@@ -80,13 +80,13 @@ impl Default for CtrlCoeffs {
     }
 }
 
-fn att_correction_to_ω(att_correction: f32, coeff: f32) -> f32 {
-    let sign = if att_correction > 0. {
-        1.
-    } else {
-        -1.
-    };
-    coeff * sign * att_correction.powi(2)
+/// Calculate an angular velocity to command to perform a given attitude correction on a given axis.
+/// Attempts to command a constant angular acceleration, using kinematics. Assumes we have an accurate
+/// way of commanding angular velocity, as that's downstream of this.
+fn att_correction_to_ω(dθ: f32, time_to_correct: f32, ω_target: f32) -> f32 {
+    // You can store 2./TTC instead of calculating it each time; or at least
+    // instead of calculating it for each axis.
+    2. / time_to_correct * dθ - ω_target
 }
 
 #[cfg(feature = "quad")]
@@ -110,11 +110,9 @@ pub fn ctrl_mix_from_att(
     dt: f32,              // seconds
     pry: (f32, f32, f32), // todo temp
     pid_coeffs: &PidCoeffs,
+    has_taken_off: bool,
 ) -> CtrlMix {
     // This is the rotation we need to create to arrive at the target attitude from the current one.
-    // todo TS
-    // let target_attitude = Quaternion::new_identity();
-
     let rot_cmd_axes = (target_attitude / params.attitude).to_axes();
 
     // These are in rad
@@ -122,52 +120,25 @@ pub fn ctrl_mix_from_att(
     let error_att_y = rot_cmd_axes.1;
     let error_att_z = rot_cmd_axes.2;
 
-    // These are in rad/s
-    let error_att_rate_x = target_ω.0 - params.v_pitch;
-    let error_att_rate_y = target_ω.1 - params.v_roll;
-    let error_att_rate_z = target_ω.2 - params.v_yaw;
-
-    // No relative ang motion
-
-    let p_term_att_err = 1. / pid_coeffs.att_ttc;
-
-    // Note: LIke normal D term, this causes the motors to struggle if set too high.
-    // todo: although, 1 seems to be a solid value for controllability,
-    // todo but the motors are getting very hot (related?)
-    // todo and it seems to cause a weird very low frequency oscillation (audible)
-    // todo
+    let mut pitch_rate_cmd = att_correction_to_ω(error_att_x, pid_coeffs.att_ttc, target_ω.0);
+    let mut roll_rate_cmd = att_correction_to_ω(error_att_y, pid_coeffs.att_ttc, target_ω.1);
+    let mut yaw_rate_cmd = att_correction_to_ω(error_att_z, pid_coeffs.att_ttc, target_ω.2);
 
     // This cap mainly applies to non-continuous attitude commands.
-    const MAX_ATT_CORRECTION_ω: f32 = 10.;
-    const D_TERM_ATT_ERR: f32 = 1.;
-    // att' = att + ωt
+    const MAX_ATT_CORRECTION_ω: f32 = 12.;
 
-    // todo: QC order on this
-    // let d_target_dt = target_attitude / target_attitude_prev;
-    // let d_att_dt = params.attitude / params_prev.attitude;
-
-    // Let's saw we are commanding a +2 rad/s correction due to being 2 rads low (err_att = +2).
-    // We are already heading 1 rad/s in the correct direction. (err_att_rate = -1) So, subtract the att
-    // rate error from the att error. Final correction of 1 rad/s .
-
-    // todo : You probably need to work this out as a diffeq/kinematics equation.
-
-    // let pitch_rate_cmd = p_term_att_err * (error_att_x + D_TERM_ATT_ERR * error_att_rate_x * pid_coeffs.att_ttc);
-    // let roll_rate_cmd = p_term_att_err * (error_att_y + D_TERM_ATT_ERR * error_att_rate_y * pid_coeffs.att_ttc);
-    // let yaw_rate_cmd = p_term_att_err * (error_att_z + D_TERM_ATT_ERR * error_att_rate_z * pid_coeffs.att_ttc);
-
-    // todo: Feed back the angular rate diff later.
-    let mut pitch_rate_cmd = att_correction_to_ω(error_att_x, p_term_att_err);
-    let mut roll_rate_cmd = att_correction_to_ω(error_att_y, p_term_att_err);
-    let mut yaw_rate_cmd = att_correction_to_ω(error_att_z, p_term_att_err);
-
-    clamp(&mut pitch_rate_cmd, (-MAX_ATT_CORRECTION_ω, MAX_ATT_CORRECTION_ω));
-    clamp(&mut roll_rate_cmd, (-MAX_ATT_CORRECTION_ω, MAX_ATT_CORRECTION_ω));
-    clamp(&mut yaw_rate_cmd, (-MAX_ATT_CORRECTION_ω, MAX_ATT_CORRECTION_ω));
-
-    // let pitch_rate_cmd = P_TERM_ATT_ERR * error_att_x - D_TERM_ATT_ERR * error_att_rate_x;
-    // let roll_rate_cmd = P_TERM_ATT_ERR * error_att_y - D_TERM_ATT_ERR * error_att_rate_y;
-    // let yaw_rate_cmd = P_TERM_ATT_ERR * error_att_z - D_TERM_ATT_ERR * error_att_rate_z;
+    clamp(
+        &mut pitch_rate_cmd,
+        (-MAX_ATT_CORRECTION_ω, MAX_ATT_CORRECTION_ω),
+    );
+    clamp(
+        &mut roll_rate_cmd,
+        (-MAX_ATT_CORRECTION_ω, MAX_ATT_CORRECTION_ω),
+    );
+    clamp(
+        &mut yaw_rate_cmd,
+        (-MAX_ATT_CORRECTION_ω, MAX_ATT_CORRECTION_ω),
+    );
 
     // let pitch_rate_cmd = pry.0;
     // let roll_rate_cmd = pry.1;
@@ -188,15 +159,6 @@ pub fn ctrl_mix_from_att(
         const MAX_I_WINDUP: f32 = 1.;
 
         unsafe {
-            // Derivative smoothing/LP?
-            // let d_error_x = ((p - params.v_pitch) - error_x) / dt;
-            // let d_error_y = ((r - params.v_roll) - error_y) / dt;
-            // let d_error_z = ((y - params.v_yaw) - error_z) / dt;
-
-            // let d_error_x = ((target_ω.0 - params.v_pitch) - error_x) / dt;
-            // let d_error_y = ((target_ω.1 - params.v_roll) - error_y) / dt;
-            // let d_error_z = ((target_ω.2 - params.v_yaw) - error_z) / dt;
-
             let error_x_prev = error_x;
             let error_y_prev = error_y;
             let error_z_prev = error_z;
@@ -205,10 +167,7 @@ pub fn ctrl_mix_from_att(
             error_y = roll_rate_cmd - params.v_roll;
             error_z = yaw_rate_cmd - params.v_yaw;
 
-            // todo: Take dt into account in the coefficient, and don't divide here?
-            // let d_error_x = (error_x - error_x_prev) / dt;
-            // let d_error_y = (error_y - error_y_prev) / dt;
-            // let d_error_z = (error_z - error_z_prev) / dt;
+            // Note that we take dt into account re the dimensions of the D-term coefficient.
             let d_error_x = error_x - error_x_prev;
             let d_error_y = error_y - error_y_prev;
             let d_error_z = error_z - error_z_prev;
@@ -220,13 +179,13 @@ pub fn ctrl_mix_from_att(
             integral_z += error_z * dt;
 
             for i_term in &mut [integral_x, integral_y, integral_z] {
-                util::clamp(i_term, (-MAX_I_WINDUP, MAX_I_WINDUP));
+                clamp(i_term, (-MAX_I_WINDUP, MAX_I_WINDUP));
             }
 
             // The I-term builds up if corrections are unable to expeditiously converge.
             // An example of when this can happen is when the aircraft is on the ground.
             // todo: Use `is_airborne` etc, vice idle throttle?
-            if throttle < 0.07 {
+            if has_taken_off {
                 integral_x = 0.;
                 integral_y = 0.;
                 integral_z = 0.;
@@ -256,8 +215,10 @@ pub fn ctrl_mix_from_att(
     static mut i: u32 = 0;
     unsafe { i += 1 };
     if unsafe { i } % 2_000 == 0 {
-
-        println!("rate cmds P{} R{} Y{}", pitch_rate_cmd, roll_rate_cmd, yaw_rate_cmd);
+        println!(
+            "rate cmds P{} R{} Y{}",
+            pitch_rate_cmd, roll_rate_cmd, yaw_rate_cmd
+        );
         // println!("Err rate P{} R{} Y{}", error_att_rate_x, error_att_rate_y, error_att_rate_y);
     }
 
@@ -427,7 +388,7 @@ pub fn update_att_commanded(
         pitch_rate_cmd,
         roll_rate_cmd,
         yaw_rate_cmd,
-        DT_FLIGHT_CTRLS *  ATT_CMD_UPDATE_RATIO as f32,
+        DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
     );
     // todo: Instead of skipping ones not on the update ratio, you could store
     // todo a buffer of attitudes, and look that far back.

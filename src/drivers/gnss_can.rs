@@ -1,4 +1,4 @@
-//! C+P from gps_mag_can, `protocol.rs`
+//! C+P from gps_can, `protocol.rs`
 
 //! Contains code for transmitting fixes and related info
 //! using the DroneCan or Cyphal protocols.
@@ -8,6 +8,8 @@
 use core::sync::atomic::AtomicUsize;
 
 use packed_struct::{prelude::*, PackedStruct};
+
+use chrono::naive::NaiveDateTime;
 
 use dronecan::{
     f16,
@@ -19,84 +21,50 @@ use crate::gnss::Covariance;
 
 use ahrs::{Fix, FixType};
 
-pub const GNSS_PAYLOAD_SIZE: usize = 38;
+use defmt::println;
 
-pub const GNSS_FIX_ID: u16 = 1_063;
+/// Parse a DroneCAN Fix2. Output our AHRS Fix format.
+pub fn parse_fix(buf: &[u8]) -> Result<Fix, PackingError> {
+    // todo: QC the len etc of the buf, and def don't unwrap below.
+    let fix_dc = FixDronecan::unpack(buf.try_into().unwrap())?;
 
-pub const CONFIG_SIZE: usize = 4 + PAYLOAD_SIZE_CONFIG_COMMON;
+    // This mirror `can_fix_from_ublox_fix` in the GNSS firmware; opposite direction.
 
-pub static TRANSFER_ID_FIX: AtomicUsize = AtomicUsize::new(0);
-
-/// Create a Dronecan Fix2 from our Fix format, based on Ublox's.
-pub fn can_fix_from_ublox_fix(fix: &Fix, cov: &Covariance) -> FixDronecan {
-    let fix_status = match fix.type_ {
-        FixType::NoFix => FixStatus::NoFix,
-        FixType::DeadReckoning => FixStatus::Fix2d, // todo?
-        FixType::Fix2d => FixStatus::Fix2d,
-        FixType::Fix3d => FixStatus::Fix3d,
-        FixType::Combined => FixStatus::Fix3d,
-        FixType::TimeOnly => FixStatus::TimeOnly,
+    let type_ = match fix_dc.fix_status {
+        FixStatus::NoFix => FixType::NoFix,
+        FixStatus::Fix2d => FixType::Fix2d,
+        FixStatus::Fix3d => FixType::Fix3d,
+        FixStatus::TimeOnly => FixType::TimeOnly,
     };
 
-    // todo
-    let ecef_position_velocity = EcefPositionVelocity {
-        velocity_xyz: [0.; 3],
-        position_xyz_mm: [0; 3], // [i36; 3]
-        // todo: Tail optimization (no len field) since this is the last field?
-        covariance: [None; 36], // todo: [f16; <=36?]
-    };
+    // DC stores f32 as a u32 due to PacketStruct limitations; coerce bytes to f32.
+    let ned_v_0 = f32::from_le_bytes(fix_dc.ned_velocity[0].to_le_bytes());
+    let ned_v_1 = f32::from_le_bytes(fix_dc.ned_velocity[1].to_le_bytes());
+    let ned_v_2 = f32::from_le_bytes(fix_dc.ned_velocity[2].to_le_bytes());
 
     // NED velocity from Ublox is in i32, mm/s. Dronecan uses f32, m/s.
-    // `packed_struct` doesn't support floats; convert to integers.
-    let ned0_bytes = (fix.ned_velocity[0] as f32 / 1_000.).to_le_bytes();
-    let ned1_bytes = (fix.ned_velocity[1] as f32 / 1_000.).to_le_bytes();
-    let ned2_bytes = (fix.ned_velocity[2] as f32 / 1_000.).to_le_bytes();
-
     let ned_velocity = [
-        u32::from_le_bytes(ned0_bytes),
-        u32::from_le_bytes(ned1_bytes),
-        u32::from_le_bytes(ned2_bytes),
+        (ned_v_0 * 1_000.) as i32,
+        (ned_v_1 * 1_000.) as i32,
+        (ned_v_2 * 1_000.) as i32,
     ];
 
-    // packed-struct workaround for not having floats.
-    // And handling 100x factor between Ublox and DroneCan.
-    let pdop = f16::from_f32((fix.pdop as f32) / 100.);
-    let pdop_bytes = pdop.to_le_bytes();
-    let pdop = u16::from_le_bytes([pdop_bytes[0], pdop_bytes[1]]);
-
-    // For now, only position covariance.
-    // todo: QC order.
-    let covariance = [
-        u16::from_le_bytes(f16::from_f32(cov.pos_nn).to_le_bytes()),
-        u16::from_le_bytes(f16::from_f32(cov.pos_ne).to_le_bytes()),
-        u16::from_le_bytes(f16::from_f32(cov.pos_nd).to_le_bytes()),
-        u16::from_le_bytes(f16::from_f32(cov.pos_ee).to_le_bytes()),
-        u16::from_le_bytes(f16::from_f32(cov.pos_ed).to_le_bytes()),
-        u16::from_le_bytes(f16::from_f32(cov.pos_dd).to_le_bytes()),
-    ];
-
-    FixDronecan {
-        timestamp: (fix.timestamp_s * 1_000_000.) as u64, // us.
-        gnss_timestamp: fix.datetime.timestamp_micros() as u64,
-        gnss_time_standard: GnssTimeStandard::Utc, // todo
-        // 13-bit pad
-        num_leap_seconds: 0, // todo
-        // We must multiply by 10 due to the higher precion format used
-        // in DroneCan.
-        longitude_deg_1e8: (fix.lon_e7 as i64) * 10,
-        latitude_deg_1e8: (fix.lat_e7 as i64) * 10,
-        height_ellipsoid_mm: fix.elevation_hae,
-        height_msl_mm: fix.elevation_msl,
+    // todo: Do we want this fix, or
+    let result = Fix {
+        timestamp_s: fix_dc.timestamp as f32 / 1_000_000.,
+        datetime: NaiveDateTime::from_timestamp_micros(fix_dc.gnss_timestamp as i64)
+            .unwrap_or_default(),
+        type_,
+        lat_e7: (fix_dc.latitude_deg_1e8 / 10) as i32,
+        lon_e7: (fix_dc.longitude_deg_1e8 / 10) as i32,
+        elevation_hae: fix_dc.height_ellipsoid_mm,
+        elevation_msl: fix_dc.height_msl_mm,
+        ground_speed: 0, // todo Do this.
         ned_velocity,
-        sats_used: fix.sats_used,
-        fix_status,
-        mode: GnssMode::Single, // Hard-set; not using DGPS, RTK, or PPP
-        sub_mode: GnssSubMode::DgpsOtherRtkFloat,
-        covariance_len: 6,
-        covariance,
-        pdop,
-        // ecef_position_velocity: 0, // Must be 0.
-        pad: 0, // Must be 0.
-                // ecef_position_velocity,
-    }
+        heading: None, // todo: Infer from NED?
+        sats_used: fix_dc.sats_used,
+        pdop: fix_dc.pdop as u16 * 100,
+    };
+
+    Ok(result)
 }

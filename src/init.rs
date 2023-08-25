@@ -30,6 +30,7 @@ use usbd_serial::{self, SerialPort};
 cfg_if! {
     if #[cfg(feature = "h7")] {
         use stm32_hal2::{
+            can,
             clocks::{PllCfg, VosRange},
             // todo: USB1 on H723; USB2 on H743.
             // usb::{Usb1, UsbBus, Usb1BusType as UsbBusType},
@@ -126,14 +127,12 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
             let uart_osd_pac = dp.UART4;
         }
     }
+
     #[cfg(feature = "h7")]
     // let spi_flash_pac = dp.OCTOSPI1;
     let spi_flash_pac = dp.QUADSPI;
     #[cfg(feature = "g4")]
     let spi_flash_pac = dp.SPI2;
-
-    #[cfg(feature = "h7")]
-    can::set_message_ram_layout(); // Must be called explicitly; for H7.
 
     #[cfg(feature = "h7")]
     let can_clock = dronecan::hardware::CanClock::Mhz120;
@@ -142,6 +141,9 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     let can_clock = dronecan::hardware::CanClock::Mhz160;
 
     let can = dronecan::hardware::setup_can(dp.FDCAN1, can_clock, dronecan::CanBitrate::B1m);
+
+    #[cfg(feature = "h7")]
+    can::set_message_ram_layout(); // Must be called explicitly; for H7.
 
     // todo: Configure acceptance filters for Fix2, AHRS, IMU, baro, mag, node status, and possibly others.
     // todo: on G4, you may need to be clever to avoid running out of filters.
@@ -259,6 +261,8 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
                 // 240_000_000, // todo temp hardcoded
             );
 
+            // todo: C+P from h7xx-hal. Is this right?
+            static mut USB_EP_MEMORY: [u32; 1024] = [0; 1024];
             unsafe { USB_BUS = Some(UsbBus::new(usb, unsafe { &mut USB_EP_MEMORY })) };
         } else {
             let usb = usb::Peripheral { regs: dp.USB };

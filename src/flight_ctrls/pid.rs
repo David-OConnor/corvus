@@ -152,7 +152,7 @@ impl Default for PidCoeffs {
             p: 0.180,
             i: 0.060,
             d: 0.030,
-            att_ttc: 0.1,
+            att_ttc: 0.4,
         }
     }
 }
