@@ -637,6 +637,8 @@ pub fn setup(uart: &mut UartGnss, clock_cfg: &Clocks) -> Result<(), GnssError> {
     // todo: You should enable sensor fusion mode, eg to get heading?
     // todo: Enable dead-recoking.
 
+    // todo temp H7 CAN testing
+    return Err(GnssError::Bus);
     uart.enable_interrupt(UsartInterrupt::CharDetect(Some(PREAMBLE_1)));
     uart.enable_interrupt(UsartInterrupt::Idle);
 

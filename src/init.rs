@@ -54,8 +54,7 @@ use defmt::println;
 static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
-    // let cp = cx.core;
-    let mut cp = cortex_m::Peripherals::take().unwrap();
+    let cp = cx.core;
     let dp = pac::Peripherals::take().unwrap();
 
     // Improves performance, at a cost of slightly increased power use.
@@ -390,7 +389,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
             state_volatile,
             system_status,
             autopilot_status: Default::default(),
-            current_params: params.clone(),
+            params: params.clone(),
             control_channel_data: Default::default(),
             link_stats: Default::default(),
             // dma,

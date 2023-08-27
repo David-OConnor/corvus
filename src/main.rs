@@ -166,7 +166,7 @@ mod app {
         pub state_volatile: StateVolatile,
         pub system_status: SystemStatus,
         pub autopilot_status: AutopilotStatus,
-        pub current_params: Params,
+        pub params: Params,
         // None if the data is stale. eg lost link, no link established.
         pub control_channel_data: Option<ChannelData>,
         /// Link statistics, including Received Signal Strength Indicator (RSSI) from the controller's radio.
@@ -269,7 +269,7 @@ mod app {
     /// sequenced among each other.
     #[task(binds = DMA1_STR2,
     // #[task(binds = DMA1_CH2,
-    shared = [altimeter, ahrs, spi1, i2c1, i2c2, current_params, control_channel_data, link_stats,
+    shared = [altimeter, ahrs, spi1, i2c1, i2c2, params, control_channel_data, link_stats,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status, tick_timer, uart_osd],
     local = [imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle, time_with_low_throttle,
@@ -302,7 +302,7 @@ mod app {
     // #[task(binds = OTG_HS,
     #[task(binds = OTG_FS,
     // #[task(binds = USB_LP,
-    shared = [usb_dev, usb_serial, current_params, control_channel_data, flash_onboard,
+    shared = [usb_dev, usb_serial, params, control_channel_data, flash_onboard,
     link_stats, user_cfg, state_volatile, system_status, autopilot_status, motor_timer, servo_timer],
     local = [], priority = 10)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
@@ -316,7 +316,7 @@ mod app {
         (
             cx.shared.usb_dev,
             cx.shared.usb_serial,
-            cx.shared.current_params,
+            cx.shared.params,
             cx.shared.control_channel_data,
             cx.shared.link_stats,
             cx.shared.user_cfg,
@@ -724,7 +724,7 @@ mod app {
 
     #[task(binds = DMA2_STR2,
     // #[task(binds = DMA2_CH2,
-    shared = [altimeter, current_params, state_volatile, system_status, tick_timer], priority = 2)]
+    shared = [altimeter, params, state_volatile, system_status, tick_timer], priority = 2)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(mut cx: baro_read_tc_isr::Context) {
         dma::clear_interrupt(
@@ -746,7 +746,7 @@ mod app {
 
         (
             cx.shared.altimeter,
-            cx.shared.current_params,
+            cx.shared.params,
             cx.shared.state_volatile,
         )
             .lock(|altimeter, params, state_volatile| {
@@ -761,7 +761,6 @@ mod app {
 
                 // todo: We must low-pass this, or take a wider window.
                 params.v_z_baro = (altitude - params.alt_msl_baro) / DT_BARO;
-
                 params.alt_msl_baro = altitude;
             });
 
@@ -772,7 +771,7 @@ mod app {
         });
     }
 
-    #[task(binds = USART1, shared = [tick_timer, fix, current_params, posit_inertial, ahrs, system_status],
+    #[task(binds = USART1, shared = [tick_timer, fix, params, posit_inertial, ahrs, system_status],
     local = [uart_gnss], priority = 10)]
     fn gnss_isr(mut cx: gnss_isr::Context) {
         let uart = cx.local.uart_gnss;
@@ -915,7 +914,7 @@ mod app {
         }
     }
 
-    #[task(binds = FDCAN1_IT0,
+    #[task(binds = FDCAN1_IT1,
     // #[task(binds = FDCAN1_INTR0_IT,
     shared = [can], priority = 4)] // todo: Temp high prio
     /// Ext sensors write complete; start read of the next sensor in sequence.

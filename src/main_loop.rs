@@ -148,7 +148,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
     // };
 
     (
-        cx.shared.current_params,
+        cx.shared.params,
         cx.shared.autopilot_status,
         cx.shared.control_channel_data,
         cx.shared.link_stats,
