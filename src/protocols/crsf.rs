@@ -47,7 +47,6 @@ pub const CHANNEL_VAL_MIN: u16 = 172;
 pub const CHANNEL_VAL_MAX: u16 = 1_811;
 pub const CHANNEL_VAL_MIN_F32: f32 = 172.;
 pub const CHANNEL_VAL_MAX_F32: f32 = 1_811.;
-// const CHANNEL_VAL_SPAN: u16 = CHANNEL_VAL_MAX - CHANNEL_VAL_MIN;
 
 // Used both both TX and RX buffers. Includes payload, and other data words.
 // Note that for receiving channel data, we use 26 bytes total (22 of which are channel data).
@@ -337,23 +336,25 @@ impl Packet {
             data[i] = self.payload[i] as u16;
         }
 
+        const MASK: u16 = 0x07FF; // 11 bits per channel; this is 1<<11.
+
         ChannelDataCrsf {
-            channel_1: (data[0] | data[1] << 8) & 0x07FF,
-            channel_2: (data[1] >> 3 | data[2] << 5) & 0x07FF,
-            channel_3: (data[2] >> 6 | data[3] << 2 | data[4] << 10) & 0x07FF,
-            channel_4: (data[4] >> 1 | data[5] << 7) & 0x07FF,
-            aux_1: (data[5] >> 4 | data[6] << 4) & 0x07FF,
-            aux_2: (data[6] >> 7 | data[7] << 1 | data[8] << 9) & 0x07FF,
-            aux_3: (data[8] >> 2 | data[9] << 6) & 0x07FF,
-            aux_4: (data[9] >> 5 | data[10] << 3) & 0x07FF,
-            aux_5: (data[11] | data[12] << 8) & 0x07FF,
-            aux_6: (data[12] >> 3 | data[13] << 5) & 0x07FF,
-            aux_7: (data[13] >> 6 | data[14] << 2 | data[15] << 10) & 0x07FF,
-            aux_8: (data[15] >> 1 | data[16] << 7) & 0x07FF,
-            aux_9: (data[16] >> 4 | data[17] << 4) & 0x07FF,
-            aux_10: (data[17] >> 7 | data[18] << 1 | data[19] << 9) & 0x07FF,
-            aux_11: (data[19] >> 2 | data[20] << 6) & 0x07FF,
-            aux_12: (data[20] >> 5 | data[21] << 3) & 0x07FF,
+            channel_1: (data[0] | data[1] << 8) & MASK,
+            channel_2: (data[1] >> 3 | data[2] << 5) & MASK,
+            channel_3: (data[2] >> 6 | data[3] << 2 | data[4] << 10) & MASK,
+            channel_4: (data[4] >> 1 | data[5] << 7) & MASK,
+            aux_1: (data[5] >> 4 | data[6] << 4) & MASK,
+            aux_2: (data[6] >> 7 | data[7] << 1 | data[8] << 9) & MASK,
+            aux_3: (data[8] >> 2 | data[9] << 6) & MASK,
+            aux_4: (data[9] >> 5 | data[10] << 3) & MASK,
+            aux_5: (data[11] | data[12] << 8) & MASK,
+            aux_6: (data[12] >> 3 | data[13] << 5) & MASK,
+            aux_7: (data[13] >> 6 | data[14] << 2 | data[15] << 10) & MASK,
+            aux_8: (data[15] >> 1 | data[16] << 7) & MASK,
+            aux_9: (data[16] >> 4 | data[17] << 4) & MASK,
+            aux_10: (data[17] >> 7 | data[18] << 1 | data[19] << 9) & MASK,
+            aux_11: (data[19] >> 2 | data[20] << 6) & MASK,
+            aux_12: (data[20] >> 5 | data[21] << 3) & MASK,
         }
     }
 

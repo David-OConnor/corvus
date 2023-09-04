@@ -1,9 +1,4 @@
-//! C+P from gps_can, `protocol.rs`
-
-//! Contains code for transmitting fixes and related info
-//! using the DroneCan or Cyphal protocols.
-//!
-//! [DroneCAN standard types ref](https://dronecan.github.io/Specification/7._List_of_standard_data_types/)
+//! Parses DroneCAN fixes into our own Fix format.
 
 use core::sync::atomic::AtomicUsize;
 
@@ -16,8 +11,6 @@ use dronecan::{
     gnss::{EcefPositionVelocity, FixDronecan, FixStatus, GnssMode, GnssSubMode, GnssTimeStandard},
     ConfigCommon, PAYLOAD_SIZE_CONFIG_COMMON,
 };
-
-use crate::gnss::Covariance;
 
 use ahrs::{Fix, FixType};
 

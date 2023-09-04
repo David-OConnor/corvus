@@ -19,7 +19,6 @@ use cfg_if::cfg_if;
 use defmt::println;
 
 const CONTROL_VAL_MIN: f32 = -1.;
-// todo: Note that if you support 0-centering throttles, make this -1 as well.
 const CONTROL_VAL_MIN_THROTTLE: f32 = 0.;
 const CONTROL_VAL_MAX: f32 = 1.;
 
