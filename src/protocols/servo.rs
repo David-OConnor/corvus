@@ -7,7 +7,9 @@ use crate::{setup::ServoTimer, util};
 
 use cfg_if::cfg_if;
 
-// Choose PSC and ARR to get a servo update frequency of 500Hz. See `dshot.rs` for the calculation.
+// Choose PSC and ARR to get a target frequency. For example,  300 or 500Hz.
+// Generally you can go up to a maximum value. Pulse high time is the predominant
+// factor in servo rotation. Higher pulses generally correspond to CCW motion.
 
 // 170Mhz tim clock on G4.
 // 240Mhz tim clock on H743
@@ -34,19 +36,31 @@ cfg_if! {
 // Calculations, assuming frequency of 500Hz; 500Hz = 2ms.
 // ARR indicates
 
+const FREQ: f32 = 500.; // This must match the above PSC and ARR.
+const PERIOD: f32 = 1. / FREQ;
 
-// duty = 0 means 0ms up.
-// duty = ARR_SERVOS means 1/500hz = 2ms up.
-// duty for 1ms up (min) means 50% duty cycle = ARR_SERVOS / 2
-// duty for 2ms up (max) means 100% duty cycle = ARR_SERVOS
-const ARR_MIN: f32 = ARR_SERVOS as f32 / 2.;
-const ARR_MAX: f32 = ARR_SERVOS as f32 - 100.; // - some so there's still a definite low pulse at max value.
+// At 300Hz, it appears the limits ("20g" servo)  are 0.4 to 2.6ms. This corresponds to a range of 3/4 Tau.
+// The min values are full Clockwise; max are full CCW.
+// Other servos use a nominal range between 1 and 2 ms.
+const HIGH_TIME_MIN: f32 = 0.001;
+const HIGH_TIME_MAX: f32 = 0.002;
+
+const DUTY_MIN: f32 = HIGH_TIME_MIN / PERIOD;
+const DUTY_MAX: f32 = HIGH_TIME_MAX / PERIOD;
+
+const ARR_MIN: f32 = ARR_SERVOS as f32 * DUTY_MIN;
+const ARR_MAX: f32 = ARR_SERVOS as f32 * DUTY_MAX;
+
+// Let's reason this out for 300Hz Period full = 1/300 = 3.33ms
+// 2ms / 3.33ms = 60% high time for max. 1ms /3.33ms = 30% high time for min.
 
 pub fn set_posit(posit: f32, range_in: (f32, f32), timer: &mut ServoTimer, channel: TimChannel) {
-    let duty_arr = util::map_linear(posit, range_in, (ARR_MIN_F32, ARR_MAX_F32)) as u32;
+    let mut duty_arr = util::map_linear(posit, range_in, (ARR_MIN, ARR_MAX)) as u32;
 
-    #[cfg(feature = "h7")]
-    let duty_arr = duty_arr as u16;
+    if duty_arr == ARR_SERVOS {
+        // Allow a bit of low pulse time. This can occur at max duty cycle at 500Hz.
+        duty_arr -= 100;
+    }
 
     timer.set_duty(channel, duty_arr);
 }

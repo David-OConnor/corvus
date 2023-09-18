@@ -54,22 +54,16 @@ use defmt::println;
 static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
 // todo temp!!
-use stm32_hal2::can::Can;
 use fdcan::{
     frame::{FrameFormat, RxFrameInfo, TxFrameHeader},
     id::{ExtendedId, Id},
     FdCan, Mailbox, NormalOperationMode, ReceiveOverrun,
 };
+use stm32_hal2::can::Can;
 type Can_ = FdCan<Can, NormalOperationMode>;
 
 // todo temp!
-fn can_send(
-    can: &mut Can_,
-    can_id: u32,
-    frame_data: &[u8],
-    frame_data_len: u8,
-    fd_mode: bool,
-) {
+fn can_send(can: &mut Can_, can_id: u32, frame_data: &[u8], frame_data_len: u8, fd_mode: bool) {
     let id = Id::Extended(ExtendedId::new(can_id).unwrap());
 
     let frame_header = TxFrameHeader {
@@ -168,36 +162,33 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     }
 
     #[cfg(feature = "h7")]
-        // let spi_flash_pac = dp.OCTOSPI1;
-        let spi_flash_pac = dp.QUADSPI;
+    // let spi_flash_pac = dp.OCTOSPI1;
+    let spi_flash_pac = dp.QUADSPI;
     #[cfg(feature = "g4")]
-        let spi_flash_pac = dp.SPI2;
+    let spi_flash_pac = dp.SPI2;
 
     // 100 Mhz if 400Mhz core. 120 if 480.
     #[cfg(feature = "h7")]
-        // let can_clock = dronecan::hardware::CanClock::Mhz120;
-        let can_clock = dronecan::hardware::CanClock::Mhz100;
+    // let can_clock = dronecan::hardware::CanClock::Mhz120;
+    let can_clock = dronecan::hardware::CanClock::Mhz100;
 
     #[cfg(feature = "g4")]
-        let can_clock = dronecan::hardware::CanClock::Mhz170;
+    let can_clock = dronecan::hardware::CanClock::Mhz170;
 
     let can = dronecan::hardware::setup_can(dp.FDCAN1, can_clock, dronecan::CanBitrate::B1m);
 
     #[cfg(feature = "h7")]
     can::set_message_ram_layout(); // Must be called explicitly; for H7.
 
-
     // todo temp!
     static buf: [u8; 3] = [1; 3];
     let mut can = can;
     loop {
-
         // todo temp!
         println!("Sending test msg");
         can_send(&mut can, 22, &buf, 3, false);
         delay.delay_ms(1000)
     }
-
 
     // todo: Configure acceptance filters for Fix2, AHRS, IMU, baro, mag, node status, and possibly others.
     // todo: on G4, you may need to be clever to avoid running out of filters.
@@ -233,10 +224,10 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     };
 
     #[cfg(feature = "h7")]
-        let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+    let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
     #[cfg(feature = "g4")]
-        let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+    let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
     // With non-timing-critical continuous reads, we can set a long sample time.
     batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
@@ -393,21 +384,21 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         unsafe { USB_BUS.as_ref().unwrap() },
         UsbVidPid(0x16c0, 0x27dd),
     )
-        .manufacturer("Anyleaf")
-        .product("Mercury")
-        // We use `serial_number` to identify the device to the PC. If it's too long,
-        // we get permissions errors on the PC.
-        .serial_number("AN") // todo: Try 2 letter only if causing trouble?
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
+    .manufacturer("Anyleaf")
+    .product("Mercury")
+    // We use `serial_number` to identify the device to the PC. If it's too long,
+    // we get permissions errors on the PC.
+    .serial_number("AN") // todo: Try 2 letter only if causing trouble?
+    .device_class(usbd_serial::USB_CLASS_CDC)
+    .build();
 
     // Set up the main loop, the IMU loop, the CRSF reception after the (ESC and radio-connection)
     // warmpup time.
 
     // Set up motor direction; do this once the warmup time has elapsed.
     #[cfg(feature = "quad")]
-        // todo: Wrong. You need to do this by number; apply your pin mapping.
-        let motors_reversed = (
+    // todo: Wrong. You need to do this by number; apply your pin mapping.
+    let motors_reversed = (
         state_volatile.motor_servo_state.rotor_aft_right.reversed,
         state_volatile.motor_servo_state.rotor_front_right.reversed,
         state_volatile.motor_servo_state.rotor_aft_left.reversed,

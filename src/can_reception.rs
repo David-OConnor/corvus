@@ -17,7 +17,6 @@ use crate::{app, drivers::gnss_can};
 
 static mut RX_BUF_CAN: [u8; 100] = [0; 100];
 
-
 pub fn run(mut cx: app::can_isr::Context) {
     // todo: Set up appropriate hardware filters, like Fix2, AHRS, IMU etc.
     let rx_buf = unsafe { &mut RX_BUF_CAN };

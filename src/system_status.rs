@@ -21,6 +21,26 @@ pub const MAX_UPDATE_PERIOD_OSD: f32 = 1.;
 
 use defmt::println;
 
+fn set_status(
+    status: &mut SensorStatus,
+    timestamp_current: f32,
+    timestamp_update: Option<f32>,
+    max_update_period: f32,
+) {
+    match timestamp_update {
+        Some(t) => {
+            if timestamp_current - t > max_update_period {
+                *status = SensorStatus::NotConnected;
+            } else {
+                *status = SensorStatus::Pass;
+            }
+        }
+        None => {
+            *status = SensorStatus::NotConnected;
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct SystemStatus {
     pub imu: SensorStatus,
@@ -54,108 +74,54 @@ pub struct SystemStatus {
 
 impl SystemStatus {
     pub fn update_from_timestamp(&mut self, timestamp: f32) {
-        match self.update_timestamps.imu {
-            Some(t) => {
-                if timestamp - t > MAX_UPDATE_PERIOD_IMU {
-                    self.imu = SensorStatus::NotConnected;
-                } else {
-                    self.imu = SensorStatus::Pass;
-                }
-            }
-            None => {
-                self.imu = SensorStatus::NotConnected;
-            }
-        }
-
-        match self.update_timestamps.baro {
-            Some(t) => {
-                if timestamp - t > MAX_UPDATE_PERIOD_BARO {
-                    self.baro = SensorStatus::NotConnected;
-                } else {
-                    self.baro = SensorStatus::Pass;
-                }
-            }
-            None => {
-                self.baro = SensorStatus::NotConnected;
-            }
-        }
-        match self.update_timestamps.baro_can {
-            Some(t) => {
-                if timestamp - t > MAX_UPDATE_PERIOD_BARO {
-                    self.baro_can = SensorStatus::NotConnected;
-                } else {
-                    self.baro_can = SensorStatus::Pass;
-                }
-            }
-            None => {
-                self.baro_can = SensorStatus::NotConnected;
-            }
-        }
-
-        match self.update_timestamps.mag {
-            Some(t) => {
-                if timestamp - t > MAX_UPDATE_PERIOD_MAG {
-                    self.magnetometer = SensorStatus::NotConnected;
-                } else {
-                    self.magnetometer = SensorStatus::Pass;
-                }
-            }
-            None => {
-                self.magnetometer = SensorStatus::NotConnected;
-            }
-        }
-
-        match self.update_timestamps.mag_can {
-            Some(t) => {
-                if timestamp - t > MAX_UPDATE_PERIOD_MAG {
-                    self.magnetometer_can = SensorStatus::NotConnected;
-                } else {
-                    self.magnetometer_can = SensorStatus::Pass;
-                }
-            }
-            None => {
-                self.magnetometer_can = SensorStatus::NotConnected;
-            }
-        }
-
-        match self.update_timestamps.gnss {
-            Some(t) => {
-                if timestamp - t > MAX_UPDATE_PERIOD_GNSS {
-                    self.gnss = SensorStatus::NotConnected;
-                } else {
-                    self.gnss = SensorStatus::Pass;
-                }
-            }
-            None => {
-                self.gnss = SensorStatus::NotConnected;
-            }
-        }
-
-        match self.update_timestamps.gnss_can {
-            Some(t) => {
-                if timestamp - t > MAX_UPDATE_PERIOD_GNSS {
-                    self.gnss_can = SensorStatus::NotConnected;
-                } else {
-                    self.gnss_can = SensorStatus::Pass;
-                }
-            }
-            None => {
-                self.gnss_can = SensorStatus::NotConnected;
-            }
-        }
-
-        match self.update_timestamps.osd {
-            Some(t) => {
-                if timestamp - t > MAX_UPDATE_PERIOD_OSD {
-                    self.osd = SensorStatus::NotConnected;
-                } else {
-                    self.osd = SensorStatus::Pass;
-                }
-            }
-            None => {
-                self.osd = SensorStatus::NotConnected;
-            }
-        }
+        set_status(
+            &mut self.imu,
+            timestamp,
+            self.update_timestamps.imu,
+            MAX_UPDATE_PERIOD_IMU,
+        );
+        set_status(
+            &mut self.baro,
+            timestamp,
+            self.update_timestamps.baro,
+            MAX_UPDATE_PERIOD_BARO,
+        );
+        set_status(
+            &mut self.baro_can,
+            timestamp,
+            self.update_timestamps.baro_can,
+            MAX_UPDATE_PERIOD_BARO,
+        );
+        set_status(
+            &mut self.magnetometer,
+            timestamp,
+            self.update_timestamps.mag,
+            MAX_UPDATE_PERIOD_MAG,
+        );
+        set_status(
+            &mut self.magnetometer_can,
+            timestamp,
+            self.update_timestamps.mag_can,
+            MAX_UPDATE_PERIOD_MAG,
+        );
+        set_status(
+            &mut self.gnss,
+            timestamp,
+            self.update_timestamps.gnss,
+            MAX_UPDATE_PERIOD_GNSS,
+        );
+        set_status(
+            &mut self.gnss_can,
+            timestamp,
+            self.update_timestamps.gnss_can,
+            MAX_UPDATE_PERIOD_GNSS,
+        );
+        set_status(
+            &mut self.osd,
+            timestamp,
+            self.update_timestamps.osd,
+            MAX_UPDATE_PERIOD_OSD,
+        );
     }
 }
 

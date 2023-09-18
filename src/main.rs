@@ -269,7 +269,7 @@ mod app {
     /// sequenced among each other.
     // #[task(binds = DMA1_STR2,
     #[task(binds = DMA1_CH2,
-    // shared = [altimeter, ahrs, spi1, i2c1, i2c2, params, control_channel_data, link_stats,
+    shared = [altimeter, ahrs, spi1, i2c1, i2c2, params, control_channel_data, link_stats,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status, tick_timer, uart_osd],
     local = [imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle, time_with_low_throttle,
@@ -292,16 +292,16 @@ mod app {
             );
         });
 
-        iwdg::refresh();
+        iwdg::pet();
 
         main_loop::run(cx);
     }
 
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
-    #[task(binds = OTG_HS,
+    // #[task(binds = OTG_HS,
     // #[task(binds = OTG_FS,
-    // #[task(binds = USB_LP,
+    #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, params, control_channel_data, flash_onboard,
     link_stats, user_cfg, state_volatile, system_status, autopilot_status, motor_timer, servo_timer],
     local = [], priority = 10)]
@@ -550,8 +550,8 @@ mod app {
     }
 
     // todo: Evaluate priority.
-    #[task(binds = UART7,
-    // #[task(binds = USART2,
+    // #[task(binds = UART7,
+    #[task(binds = USART2,
 // shared = [control_channel_data, link_stats, system_status,
 //], local = [uart_crsf], priority = 8)]
     shared = [], local = [uart_crsf], priority = 8)]
