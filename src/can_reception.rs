@@ -25,7 +25,6 @@ pub fn run(mut cx: app::can_isr::Context) {
     cx.shared.can.lock(|can| {
         can.clear_interrupt(Interrupt::RxFifo0NewMsg);
 
-        println!("CAN ISR");
         let rx_result = can.receive0(rx_buf);
 
         match dronecan::get_frame_info(rx_result) {
@@ -36,9 +35,16 @@ pub fn run(mut cx: app::can_isr::Context) {
                 };
 
                 let can_id = CanId::from_value(id);
+                let msg_type = match MsgType::from_id(can_id.type_id) {
+                    Ok(m) => m,
+                    Err(_e) => {
+                        println!("Error parsing CAN message ID: {}", can_id.type_id);
+                        return;
+                    }
+                };
 
                 // Code cleaners as we use these in many arms.
-                let fd_mode = false; // todo: True!
+                let fd_mode = true;
 
                 // We use this for service transfers; not used otherwise.
                 // let mut addressed_to_us = false;
@@ -48,8 +54,8 @@ pub fn run(mut cx: app::can_isr::Context) {
                 // }
 
                 // todo: Keep this in sync with Sail.
-                match can_id.type_id {
-                    1_063 => {
+                match msg_type {
+                    MsgType::Fix2 => {
                         println!("Parsing DroneCAN fix.");
                         let fix = gnss_can::parse_fix(
                             &rx_buf[..dronecan::MsgType::Fix2.payload_size() as usize],
@@ -67,20 +73,20 @@ pub fn run(mut cx: app::can_isr::Context) {
                             }
                         }
                     }
-                    29 => {
+                    MsgType::AhrsSolution => {
                         println!("AHRS solution");
                     }
-                    1_028 => {
+                    MsgType::StaticPressure => {
                         let pressure = f32::from_le_bytes(rx_buf[0..4].try_into().unwrap());
                         println!("Pressure: {} kPa", pressure / 1_000.);
                     }
-                    1_029 => {
+                    MsgType::StaticTemperature => {
                         println!("Temp");
                         // let temp =
                         //     f32::from(f16::from_le_bytes(rx_buf[0..2].try_into().unwrap()));
                         // println!("Temp: {} K", temp);
                     }
-                    1_002 => {
+                    MsgType::MagneticFieldStrength2 => {
                         println!("Magnetic field strength");
                         // let x =
                         //     f32::from(f16::from_le_bytes(rx_buf[1..3].try_into().unwrap()));
@@ -90,20 +96,20 @@ pub fn run(mut cx: app::can_isr::Context) {
                         //     f32::from(f16::from_le_bytes(rx_buf[5..7].try_into().unwrap()));
                         // println!("Mag. x: {}, y: {}, z: {}", x, y, z);
                     }
-                    341 => {
+                    MsgType::NodeStatus => {
                         let uptime = u32::from_le_bytes(rx_buf[0..4].try_into().unwrap());
                         println!(
                             "Node status. Uptime sec: {}, health: {}, mode; {}",
                             uptime, rx_buf[4], rx_buf[5]
                         );
                     }
-                    3_115 => {
+                    MsgType::PositFusedAnyleaf => {
                         println!("Position fused");
                     }
-                    1_140 => {
+                    MsgType::RcInput => {
                         println!("RC input");
                     }
-                    1_141 => {
+                    MsgType::LinkStats => {
                         println!("Link stats");
                     }
                     _ => {
