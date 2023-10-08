@@ -37,7 +37,7 @@ use stm32_hal2::{
     iwdg,
     pac::{self, I2C1, I2C2, SPI1, TIM1, TIM2, TIM5},
     spi::Spi,
-    timer::{Timer, TimerInterrupt},
+    timer::{Timer, TimerInterrupt, TICK_OVERFLOW_COUNT},
     usart::UsartInterrupt,
 };
 
@@ -145,7 +145,6 @@ const CTRL_COEFF_ADJ_AMT: f32 = 0.01; // seconds
 // We use a hardware counter to measure relative system time. This is the number of times
 // it has overflowed. (timer expired)
 const TICK_TIMER_PERIOD: f32 = 0.5; // in seconds. Decrease for higher measurement precision.
-pub static TICK_OVERFLOW_COUNT: AtomicU32 = AtomicU32::new(0);
 
 static mut CAN_BUF_RX: [u8; 64] = [0; 64];
 

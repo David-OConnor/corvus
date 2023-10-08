@@ -190,19 +190,6 @@ pub fn batt_left_from_v(v: f32, cell_count: BattCellCount) -> f32 {
     port_through * (BATT_LUT[i + 1].1 - BATT_LUT[i].1) + BATT_LUT[i].1
 }
 
-/// Hard-coded to use our tick timer directly.
-pub fn get_timestamp(timer: &mut Timer<TIM5>) -> f32 {
-    let elapsed = timer.time_elapsed().as_secs();
-
-    tick_count_fm_overflows_s() + elapsed
-}
-
-/// Example use, to get seconds since start: `tick_count_fm_overflows_s() +
-/// tick_timer.time_elapsed().as_secs()`
-fn tick_count_fm_overflows_s() -> f32 {
-    crate::TICK_OVERFLOW_COUNT.load(Ordering::Acquire) as f32 * crate::TICK_TIMER_PERIOD
-}
-
 /// Print systems status to the console. Alternative to the `Preflight` PC program.
 pub fn print_status(
     params: &Params,
