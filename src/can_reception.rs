@@ -6,12 +6,7 @@ use defmt::println;
 
 use fdcan::{id::Id, interrupt::Interrupt};
 
-use dronecan::{
-    CanBitrate, CanId, FrameType, GetSetRequest, MsgType, NodeHealth, NodeMode, NodeStatus, Value,
-    NAME_CUTOFF,
-};
-
-use packed_struct::PackedStruct;
+use dronecan::{CanId, MsgType};
 
 use crate::{app, drivers::gnss_can};
 

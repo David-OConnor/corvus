@@ -45,3 +45,5 @@ pub fn setup(spi: &mut SpiFlash, cs: &mut Pin) -> Result<(), FlashSpiError> {
 
     Ok(())
 }
+
+// todo: Add support for QSPI, feature-gated for H7.

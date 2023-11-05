@@ -11,7 +11,7 @@ use crate::{
     safety::ArmStatus,
     sensors_shared::BattCellCount,
     state::StateVolatile,
-    system_status::{self, SensorStatus, SystemStatus},
+    system_status::{self, SystemStatus},
 };
 
 use ahrs::Params;
@@ -205,7 +205,7 @@ pub fn print_status(
 
     println!(
         "\n\nStatus, timestamp {} seconds",
-        tick_count_fm_overflows_s() + tick_timer.time_elapsed().as_secs()
+        tick_timer.get_timestamp(),
     );
 
     let log_pts = state_volatile.accel_maps.sample_pts_pitch;

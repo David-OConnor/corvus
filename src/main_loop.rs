@@ -136,10 +136,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
     *cx.local.imu_isr_loop_i += 1;
     let i = *cx.local.imu_isr_loop_i; // code shortener.
 
-    let timestamp = cx
-        .shared
-        .tick_timer
-        .lock(|timer| timer.get_timestamp());
+    let timestamp = cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
 
     // todo: TS
     // if i % 2000 == 0 {
@@ -228,10 +225,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 // todo: Here, or in a subfunction, blend in autopiot commands! Currently not applied,
                 // todo other than throttle.
 
-                let timestamp_imu_complete = cx
-                    .shared
-                    .tick_timer
-                    .lock(|timer| timer.get_timestamp());
+                let timestamp_imu_complete =
+                    cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
 
                 cx.local.task_durations.imu = timestamp_imu_complete - timestamp;
 
@@ -306,10 +301,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     system_status.update_timestamps.flight_ctrls = Some(timestamp_imu_complete);
                 }
 
-                let timestamp_fc_complete = cx
-                    .shared
-                    .tick_timer
-                    .lock(|timer| timer.get_timestamp());
+                let timestamp_fc_complete =
+                    cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
 
                 // todo: Handle this being ~0 for non-FC loops?
                 cx.local.task_durations.flight_ctrls =
@@ -353,10 +346,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     state_volatile.batt_v = batt_v;
                     state_volatile.esc_current = esc_current;
 
-                    let timestamp_task_complete = cx
-                        .shared
-                        .tick_timer
-                        .lock(|timer| timer.get_timestamp());
+                    let timestamp_task_complete =
+                        cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
 
                     cx.local.task_durations.tasks[0] =
                         timestamp_task_complete - timestamp_fc_complete;
@@ -401,10 +392,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         );
                     }
 
-                    let timestamp_task_complete = cx
-                        .shared
-                        .tick_timer
-                        .lock(|timer| timer.get_timestamp());
+                    let timestamp_task_complete =
+                        cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
 
                     cx.local.task_durations.tasks[1] =
                         timestamp_task_complete - timestamp_fc_complete;
@@ -442,10 +431,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         osd::send_osd_data(uart_osd, &osd_data);
                     });
 
-                    let timestamp_task_complete = cx
-                        .shared
-                        .tick_timer
-                        .lock(|timer| timer.get_timestamp());
+                    let timestamp_task_complete =
+                        cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
 
                     cx.local.task_durations.tasks[2] =
                         timestamp_task_complete - timestamp_fc_complete;
@@ -478,10 +465,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     //     system_status,
                     // );
 
-                    let timestamp_task_complete = cx
-                        .shared
-                        .tick_timer
-                        .lock(|timer| timer.get_timestamp());
+                    let timestamp_task_complete =
+                        cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
 
                     cx.local.task_durations.tasks[3] =
                         timestamp_task_complete - timestamp_fc_complete;
@@ -499,10 +484,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         flight_ctrls::log_accel_pts(state_volatile, params, timestamp);
                     }
 
-                    let timestamp_task_complete = cx
-                        .shared
-                        .tick_timer
-                        .lock(|timer| timer.get_timestamp());
+                    let timestamp_task_complete =
+                        cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
 
                     cx.local.task_durations.tasks[4] =
                         timestamp_task_complete - timestamp_fc_complete;
@@ -546,10 +529,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         }
                     }
 
-                    let timestamp_task_complete = cx
-                        .shared
-                        .tick_timer
-                        .lock(|timer| timer.get_timestamp());
+                    let timestamp_task_complete =
+                        cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
 
                     cx.local.task_durations.tasks[5] =
                         timestamp_task_complete - timestamp_fc_complete;

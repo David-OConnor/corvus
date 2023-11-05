@@ -62,5 +62,8 @@ pub fn set_posit(posit: f32, range_in: (f32, f32), timer: &mut ServoTimer, chann
         duty_arr -= 100;
     }
 
+    #[cfg(feature = "h7")]
+    let duty_arr = duty_arr as u16;
+
     timer.set_duty(channel, duty_arr);
 }

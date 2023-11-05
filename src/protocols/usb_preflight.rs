@@ -26,10 +26,9 @@ use cfg_if::cfg_if;
 
 use crate::{
     control_interface::ChannelData,
-    dshot::{self, Motor},
     flight_ctrls::{
         common::AttitudeCommanded,
-        motor_servo::{MotorPower, MotorRpm, MotorServoState, RotationDir},
+        motor_servo::{MotorPower, MotorRpm, MotorServoState},
     },
     safety::ArmStatus,
     setup,

@@ -181,14 +181,14 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     can::set_message_ram_layout(); // Must be called explicitly; for H7.
 
     // todo temp!
-    static buf: [u8; 3] = [1; 3];
-    let mut can = can;
-    loop {
-        // todo temp!
-        println!("Sending test msg");
-        can_send(&mut can, 22, &buf, 3, false);
-        delay.delay_ms(1000)
-    }
+    // static buf: [u8; 3] = [1; 3];
+    // let mut can = can;
+    // loop {
+    //     // todo temp!
+    //     println!("Sending test msg");
+    //     can_send(&mut can, 22, &buf, 3, false);
+    //     delay.delay_ms(1000)
+    // }
 
     // todo: Configure acceptance filters for Fix2, AHRS, IMU, baro, mag, node status, and possibly others.
     // todo: on G4, you may need to be clever to avoid running out of filters.
@@ -219,6 +219,8 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
 
     // We use the ADC to measure battery voltage and ESC current.
     let adc_cfg = AdcConfig {
+        // With non-timing-critical continuous reads, we can set a long sample time.
+        sample_time: adc::SampleTime::T601,
         operation_mode: adc::OperationMode::Continuous,
         ..Default::default()
     };
@@ -229,8 +231,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     #[cfg(feature = "g4")]
     let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
 
-    // With non-timing-critical continuous reads, we can set a long sample time.
-    batt_curr_adc.set_sample_time(setup::BATT_ADC_CH, adc::SampleTime::T601);
     // todo: Which edge should it be?
     batt_curr_adc.set_trigger(adc::Trigger::Tim6Trgo, adc::TriggerEdge::HardwareRising);
 

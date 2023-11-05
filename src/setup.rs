@@ -26,7 +26,7 @@ use fdcan::{FdCan, NormalOperationMode};
 use ahrs::{ppks::PositVelEarthUnits, Params};
 
 #[cfg(feature = "h7")]
-use stm32_hal2::qspi::Qspi;
+use stm32_hal2::qspi::{Qspi, QspiConfig};
 
 #[cfg(feature = "fixed-wing")]
 use stm32_hal2::timer::OutputCompare;
@@ -396,7 +396,7 @@ pub fn setup_pins() {
             let qspi_nss = Pin::new(Port::E, 11, PinMode::Alt(11));
             let io0 = Pin::new(Port::D, 11, PinMode::Alt(9));
             let io1 = Pin::new(Port::D, 12, PinMode::Alt(9));
-            let io2 = Pin::new(Port::B, 13, PinMode::Alt(4));
+            let io2 = Pin::new(Port::E, 2, PinMode::Alt(9));
             let io3 = Pin::new(Port::D, 13, PinMode::Alt(9));
         } else {
             let _batt_v_adc = Pin::new(Port::A, 1, PinMode::Analog); // ADC12, channel 1
@@ -657,12 +657,33 @@ pub fn setup_busses(
     // W25 flash chips use SPI mode 0 or 3.
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            let spi_flash = Qspi::new(spi_flash_pac, Default::default(), clock_cfg);
+            let flash_config = QspiConfig {
+                // 240Mhz / 4 = 60Mhz.
+                // clock_division: 4,
+                clock_division: 16, // todo: TS by using a slower speed
+                ..Default::default()
+            };
+            let mut spi_flash = Qspi::new(spi_flash_pac, flash_config, clock_cfg);
+
+            // Enable QSPI, in status regiver 2.
+            spi_flash.write_indirect(0x31, &[0b0000_0010]);
+
+            // let mut read_buf = [0x9f, 0, 0, 0];
+            let mut read_buf = [0, 0, 0, 0];
+            // spi_flash.read_indirect(0x9f, &mut read_buf);
+            spi_flash.read_indirect(0x35, &mut read_buf);
+
+            println!("Read buf from QSPI flash: {:?}", read_buf);
 
         } else {
             let spi_flash = Spi2::new(spi_flash_pac, Default::default(), BaudRate::Div2);
         }
     }
+
+    // todo: Temp/TS QSPI code
+    println!("Pre QSPI test");
+
+    println!("QSPI test complete");
 
     #[cfg(feature = "h7")]
     let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output);

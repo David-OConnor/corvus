@@ -87,7 +87,7 @@ use crate::{
 cfg_if! {
     if #[cfg(feature = "h7")] {
         use stm32_hal2::{
-            clocks::{PllCfg, VosRange},
+            // clocks::{PllCfg, VosRange},
             // todo: USB1 on H723; USB2 on H743.
             // usb::{Usb1, UsbBus, Usb1BusType as UsbBusType},
             usb::{Usb2, UsbBus, Usb2BusType as UsbBusType},
@@ -266,8 +266,8 @@ mod app {
     /// Certain tasks, like reading IMU measurements and filtering are run each time this function runs.
     /// Flight control logic is run once every several runs. Other tasks are run even less,
     /// sequenced among each other.
-    // #[task(binds = DMA1_STR2,
-    #[task(binds = DMA1_CH2,
+    #[task(binds = DMA1_STR2,
+    // #[task(binds = DMA1_CH2,
     shared = [altimeter, ahrs, spi1, i2c1, i2c2, params, control_channel_data, link_stats,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status, tick_timer, uart_osd],
@@ -299,8 +299,8 @@ mod app {
     // todo H735 issue on GH: https://github.com/stm32-rs/stm32-rs/issues/743 (works on H743)
     // todo: NVIC interrupts missing here for H723 etc!
     // #[task(binds = OTG_HS,
-    // #[task(binds = OTG_FS,
-    #[task(binds = USB_LP,
+    #[task(binds = OTG_FS,
+    // #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, params, control_channel_data, flash_onboard,
     link_stats, user_cfg, state_volatile, system_status, autopilot_status, motor_timer, servo_timer],
     local = [], priority = 10)]
@@ -383,8 +383,8 @@ mod app {
             )
     }
 
-    // #[task(binds = DMA1_STR3,
-    #[task(binds = DMA1_CH3,
+    #[task(binds = DMA1_STR3,
+    // #[task(binds = DMA1_CH3,
     shared = [motor_timer], priority = 6)]
     /// We use this ISR to initialize the RPM reception procedures upon completion of the dshot
     /// power setting transmission to the ESC.
@@ -549,8 +549,8 @@ mod app {
     }
 
     // todo: Evaluate priority.
-    // #[task(binds = UART7,
-    #[task(binds = USART2,
+    #[task(binds = UART7,
+    // #[task(binds = USART2,
 // shared = [control_channel_data, link_stats, system_status,
 //], local = [uart_crsf], priority = 8)]
     shared = [], local = [uart_crsf], priority = 8)]
@@ -620,10 +620,7 @@ mod app {
         cx.shared.uart_osd.lock(|uart| {
             uart.clear_interrupt(UsartInterrupt::CharDetect(None));
 
-            let timestamp = cx
-                .shared
-                .tick_timer
-                .lock(|timer| util::get_timestamp(timer));
+            let timestamp = cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
 
             cx.shared.system_status.lock(|status| {
                 status.update_timestamps.osd = Some(timestamp);
@@ -668,8 +665,8 @@ mod app {
         });
     }
 
-    // #[task(binds = DMA2_STR3,
-    #[task(binds = DMA2_CH3,
+    #[task(binds = DMA2_STR3,
+    // #[task(binds = DMA2_CH3,
     shared = [], priority = 2)]
     /// Baro write complete; start baro read.
     fn osd_tx_isr(_cx: osd_tx_isr::Context) {
@@ -695,8 +692,8 @@ mod app {
         TICK_OVERFLOW_COUNT.fetch_add(1, Ordering::Relaxed);
     }
 
-    // #[task(binds = DMA2_STR1,
-    #[task(binds = DMA2_CH1,
+    #[task(binds = DMA2_STR1,
+    // #[task(binds = DMA2_CH1,
     shared = [i2c2], priority = 5)]
     /// Baro write complete; start baro read.
     fn baro_write_tc_isr(mut cx: baro_write_tc_isr::Context) {
@@ -721,8 +718,8 @@ mod app {
 
     // todo: For now, we start new transfers in the main loop.
 
-    // #[task(binds = DMA2_STR2,
-    #[task(binds = DMA2_CH2,
+    #[task(binds = DMA2_STR2,
+    // #[task(binds = DMA2_CH2,
     shared = [altimeter, params, state_volatile, system_status, tick_timer], priority = 2)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(mut cx: baro_read_tc_isr::Context) {
@@ -763,7 +760,7 @@ mod app {
                 params.alt_msl_baro = altitude;
             });
 
-        let timestamp = cx.shared.tick_timer.lock(util::get_timestamp);
+        let timestamp = cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
 
         cx.shared.system_status.lock(|status| {
             status.update_timestamps.baro = Some(timestamp);
@@ -815,7 +812,7 @@ mod app {
             uart_pac.cr1.modify(|_, w| w.cmie().set_bit());
 
             // todo: TIck timer here appears broken.
-            let timestamp = cx.shared.tick_timer.lock(util::get_timestamp);
+            let timestamp = cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
 
             cx.shared.system_status.lock(|status| {
                 status.update_timestamps.gnss = Some(timestamp);
@@ -913,8 +910,8 @@ mod app {
         }
     }
 
-    // #[task(binds = FDCAN1_IT1,
-    #[task(binds = FDCAN1_INTR0_IT,
+    #[task(binds = FDCAN1_IT1,
+    // #[task(binds = FDCAN1_INTR0_IT,
     shared = [can], priority = 4)] // todo: Temp high prio
     /// Ext sensors write complete; start read of the next sensor in sequence.
     fn can_isr(cx: can_isr::Context) {
