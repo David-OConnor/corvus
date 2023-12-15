@@ -9,11 +9,11 @@
 // todo: Robust fault detection: regularly check IMU's fault registers, and put that in the init
 // todo script. Use the `Fault` status etc as required.
 
-use stm32_hal2::{gpio::Pin, spi};
+use stm32_hal2::{delay_us, gpio::Pin, spi};
 
 use cortex_m::delay::Delay;
 
-use crate::setup::SpiImu;
+use crate::setup::{SpiImu, AHB_FREQ};
 
 const DEVICE_ID: u8 = 0x47;
 
@@ -233,7 +233,7 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
 
     // loop {
     //     write_one(Reg::Bank0(RegBank0::PwrMgmt0), 0b0111_0101, spi, cs).ok();
-    //     delay.delay_ms(10);
+    //     delay_ms(10, AHB_FREQ);
     // }
 
     let device_id = read_one(Reg::Bank0(RegBank0::WhoAmI), spi, cs)?;
@@ -260,10 +260,10 @@ pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), Im
 
     // "When transitioning from OFF to any of the other modes, do not issue any
     // register writes for 200µs." (Gyro and accel)
-    delay.delay_us(200);
+    delay_us(200, AHB_FREQ);
 
     write_one(Reg::Bank0(RegBank0::AccelConfig0), 0b0000_0011, spi, cs)?;
-    delay.delay_us(200);
+    delay_us(200, AHB_FREQ);
 
     // Set both the accelerator and gyro filters to the low latency option.
     // todo: This is what BF does. Do we want this?

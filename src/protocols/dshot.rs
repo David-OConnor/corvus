@@ -19,12 +19,13 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use cortex_m::delay::Delay;
 
 use stm32_hal2::{
+    delay_ms,
     dma::{self, ChannelCfg, Priority},
     pac,
     timer::{CountDir, OutputCompare, Polarity},
 };
 
-use crate::setup::{self, MotorTimer, DSHOT_SPEED, TIM_CLK_SPEED};
+use crate::setup::{self, MotorTimer, AHB_FREQ, DSHOT_SPEED, TIM_CLK_SPEED};
 
 // todo: Bidirectional: Set timers to active low, set GPIO idle to high, and perhaps set down counting
 // todo if required. Then figure out input capture, and fix in HAL.
@@ -182,9 +183,6 @@ pub fn stop_all(timer: &mut MotorTimer) {
 /// if adjusting motor mapping.
 pub fn setup_motor_dir(motors_reversed: (bool, bool, bool, bool), timer: &mut MotorTimer) {
     // A blocking delay.
-    let cp = unsafe { cortex_m::Peripherals::steal() };
-    // todo: DOn't hardcode, eg for H7!
-    let mut delay = Delay::new(cp.SYST, 170_000_000);
 
     // Throttle must have been commanded to 0 a certain number of timers,
     // and the telemetry bit must be bit set to use commands.
@@ -192,12 +190,12 @@ pub fn setup_motor_dir(motors_reversed: (bool, bool, bool, bool), timer: &mut Mo
     // these 2 bounds.
     for _ in 0..30 {
         stop_all(timer);
-        delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+        delay_ms(PAUSE_BETWEEN_COMMANDS, AHB_FREQ);
     }
     // I've confirmed that setting direction without the telemetry bit set will fail.
     unsafe { ESC_TELEM = true };
 
-    delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+    delay_ms(PAUSE_BETWEEN_COMMANDS, AHB_FREQ);
 
     // Spin dir commands need to be sent 6 times. (or 10?) We're using the "forced" spin dir commands,
     // ie not with respect to ESC configuration; although that would be acceptable as well.
@@ -230,7 +228,7 @@ pub fn setup_motor_dir(motors_reversed: (bool, bool, bool, bool), timer: &mut Mo
 
         send_payload(timer);
 
-        delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+        delay_ms(PAUSE_BETWEEN_COMMANDS, AHB_FREQ);
     }
 
     for _ in 0..REPEAT_COMMAND_COUNT {
@@ -241,9 +239,9 @@ pub fn setup_motor_dir(motors_reversed: (bool, bool, bool, bool), timer: &mut Mo
 
         send_payload(timer);
 
-        delay.delay_ms(PAUSE_BETWEEN_COMMANDS);
+        delay_ms(PAUSE_BETWEEN_COMMANDS, AHB_FREQ);
     }
-    delay.delay_ms(PAUSE_AFTER_SAVE);
+    delay_ms(PAUSE_AFTER_SAVE, AHB_FREQ);
 
     unsafe { ESC_TELEM = false };
 }

@@ -249,7 +249,7 @@ mod app {
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
         #[cfg(feature = "h7")]
         gpio::clear_exti_interrupt(12); // PB12
-        #[cfg(feature = "g4")]
+        #[cfg(feature   "g4")]
         gpio::clear_exti_interrupt(13); // PC13
 
         // println!("IMU r");

@@ -375,7 +375,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     );
 
     // Allow ESC to warm up and the radio to connect before starting the main loop.
-    // delay.delay_ms(WARMUP_TIME);
+    // delay_ms(WARMUP_TIME, AHB_FREQ);
 
     // We must set up the USB device after the warmup delay, since its long blocking delay
     // leads the host (PC) to terminate the connection. The (short, repeated) blocking delays

@@ -105,6 +105,11 @@ pub const GNSS_RX_CH: DmaChannel = DmaChannel::C7;
 // RM register table, and dividing by 4.
 pub const DSHOT_BASE_DIR_OFFSET: u8 = 0x34 / 4;
 
+#[cfg(features = "g4")]
+pub const AHB_FREQ: u32 = 170_000_000;
+#[cfg(features = "h7")]
+pub const AHB_FREQ: u32 = 240_000_000; // todo: Check this!
+
 // Update frequency: 600kHz
 // 170Mhz tim clock on G4.
 // 240Mhz tim clock on H743
@@ -207,7 +212,7 @@ pub fn init_sensors(
     // Heisenbugs, ie that only show up without debugger connected without at least a 150ms delay
     // prior to GNSS setup.
     // Because this is strange, we pad it to a higher value.
-    delay.delay_ms(200);
+    delay_ms(200, AHB_FREQ);
 
     match gnss::setup(uart_gnss, clock_cfg) {
         Ok(_) => {
@@ -665,13 +670,20 @@ pub fn setup_busses(
             };
             let mut spi_flash = Qspi::new(spi_flash_pac, flash_config, clock_cfg);
 
+            let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output); // todo temp
             // Enable QSPI, in status regiver 2.
-            spi_flash.write_indirect(0x31, &[0b0000_0010]);
+            cs_flash.set_high();
 
-            // let mut read_buf = [0x9f, 0, 0, 0];
-            let mut read_buf = [0, 0, 0, 0];
-            // spi_flash.read_indirect(0x9f, &mut read_buf);
-            spi_flash.read_indirect(0x35, &mut read_buf);
+            cs_flash.set_low();
+            spi_flash.write_indirect(0x31, &[0b0000_0010]);
+            cs_flash.set_high();
+
+            let mut read_buf = [0x9f, 0, 0, 0];
+            // let mut read_buf = [0, 0, 0, 0];
+            cs_flash.set_low();
+            spi_flash.read_indirect(0x9f, &mut read_buf);
+            // spi_flash.read_indirect(0x35, &mut read_buf);
+            cs_flash.set_high();
 
             println!("Read buf from QSPI flash: {:?}", read_buf);
 

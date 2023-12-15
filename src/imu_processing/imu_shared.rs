@@ -13,12 +13,9 @@ const G: f32 = 9.8; // m/s
 pub const GYRO_FULLSCALE: f32 = 34.90659; // In radians per second; equals 2,000 degrees/sec
 pub const ACCEL_FULLSCALE: f32 = 156.9056; // 16 G
 
-// static mut WRITE_BUF: [u8; 13] = [0; 13];
-
 // In order to let this fill multiple times per processing, we need to send the register
 // requests once per reading.
 static mut WRITE_BUF: [u8; 13] = [0; 13];
-// static mut WRITE_BUF: [u8; 13 * FLIGHT_CTRL_IMU_RATIO] = [0; 13 * FLIGHT_CTRL_IMU_RATIO];
 
 // IMU readings buffer. 3 accelerometer, and 3 gyro measurements; 2 bytes each. 0-padded on the left,
 // since that's where we pass the register in the write buffer.
@@ -26,7 +23,6 @@ static mut WRITE_BUF: [u8; 13] = [0; 13];
 // between different IMUs, due to their reg layout, and consecutive reg reads. In both cases, 6 readings,
 // each with 2 bytes each.
 pub static mut IMU_READINGS: [u8; 13] = [0; 13];
-// pub static mut IMU_READINGS: [u8; 13 * FLIGHT_CTRL_IMU_RATIO] = [0; 13 * FLIGHT_CTRL_IMU_RATIO];
 
 /// Read all 3 measurements, by commanding a DMA transfer. The transfer is closed, and readings
 /// are processed in the Transfer Complete ISR.
