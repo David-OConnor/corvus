@@ -87,11 +87,8 @@ use crate::{
 cfg_if! {
     if #[cfg(feature = "h7")] {
         use stm32_hal2::{
-            // clocks::{PllCfg, VosRange},
             // todo: USB1 on H723; USB2 on H743.
-            // usb::{Usb1, UsbBus, Usb1BusType as UsbBusType},
             usb::{Usb2, UsbBus, Usb2BusType as UsbBusType},
-            // pac::OCTOSPI1,
             pac::QUADSPI,
             qspi::{Qspi},
         };
@@ -274,20 +271,14 @@ mod app {
     local = [imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle, time_with_low_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, task_durations], priority = 4)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
-        dma::clear_interrupt(
-            setup::IMU_DMA_PERIPH,
-            setup::IMU_RX_CH,
-            DmaInterrupt::TransferComplete,
-        );
-
         cx.local.cs_imu.set_high();
 
-        cx.shared.spi1.lock(|spi1| {
+        cx.shared.spi1.lock(|spi| {
             // Note that this step is mandatory, per STM32 RM.
-            spi1.stop_dma(
+            spi.cleanup_dma(
+                setup::IMU_DMA_PERIPH,
                 setup::IMU_TX_CH,
                 Some(setup::IMU_RX_CH),
-                setup::IMU_DMA_PERIPH,
             );
         });
 

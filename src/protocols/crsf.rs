@@ -99,7 +99,7 @@ pub struct ChannelDataCrsf {
 }
 
 #[derive(Default)]
-/// https://www.expresslrs.org/3.0/info/signal-health/
+/// [ELRS document describing the CRSF protocol](https://www.expresslrs.org/3.0/info/signal-health/)
 pub struct LinkStats {
     /// Timestamp these stats were recorded. (TBD format; processed locally; not part of packet from tx).
     pub timestamp: u32,
