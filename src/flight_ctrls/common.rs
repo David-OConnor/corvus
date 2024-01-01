@@ -1,9 +1,9 @@
 //! This module contains flight control code not specific to an aircraft design category.
 //! It is mostly types.
 
-use crate::util::{self, map_linear};
-
 use lin_alg2::f32::Quaternion;
+
+use crate::util::{self, map_linear};
 
 // Our input ranges for the 4 controls
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);

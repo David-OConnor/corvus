@@ -9,12 +9,13 @@
 #![allow(dead_code)]
 
 use cortex_m::delay::Delay;
-
-use crate::{atmos_model::AltitudeCalPt, setup::I2cBaro};
 use defmt::println;
-
-use crate::setup::AHB_FREQ;
 use stm32_hal2::{delay_ms, i2c};
+
+use crate::{
+    atmos_model::AltitudeCalPt,
+    setup::{I2cBaro, AHB_FREQ},
+};
 
 // The sensor's address is 0x77 (if SDO pin is left floating or pulled-up to VDDIO) or 0x76 (if the SDO pin is
 // pulled-down to GND).

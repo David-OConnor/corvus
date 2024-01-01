@@ -12,6 +12,15 @@ pub mod filters;
 pub mod motor_servo;
 pub mod pid;
 
+use ahrs::Params;
+use cfg_if::cfg_if;
+use ctrl_effect_est::AccelMapPt;
+use ctrl_logic::CtrlCoeffs;
+use defmt::println;
+use filters::FlightCtrlFilters;
+use motor_servo::MotorPower;
+use pid::PidCoeffs;
+
 use crate::{
     control_interface::ChannelData,
     flight_ctrls::{autopilot::AutopilotStatus, common::InputMap},
@@ -19,16 +28,6 @@ use crate::{
     setup::MotorTimer,
     state::StateVolatile,
 };
-
-use {
-    ctrl_effect_est::AccelMapPt, ctrl_logic::CtrlCoeffs, filters::FlightCtrlFilters,
-    motor_servo::MotorPower, pid::PidCoeffs,
-};
-
-use ahrs::Params;
-
-use cfg_if::cfg_if;
-use defmt::println;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {

@@ -16,8 +16,15 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use cortex_m::delay::Delay;
+// todo: Bidirectional: Set timers to active low, set GPIO idle to high, and perhaps set down counting
+// todo if required. Then figure out input capture, and fix in HAL.
 
+// todo (Probalby in another module) - RPM filtering, once you have bidirectional DSHOT working.
+// Article: https://brushlesswhoop.com/betaflight-rpm-filter/
+// todo: Basically, you set up a notch filter at rotor RPM. (I think; QC this)
+use cfg_if::cfg_if;
+use cortex_m::delay::Delay;
+use defmt::println;
 use stm32_hal2::{
     delay_ms,
     dma::{self, ChannelCfg, Priority},
@@ -26,17 +33,6 @@ use stm32_hal2::{
 };
 
 use crate::setup::{self, MotorTimer, AHB_FREQ, DSHOT_SPEED, TIM_CLK_SPEED};
-
-// todo: Bidirectional: Set timers to active low, set GPIO idle to high, and perhaps set down counting
-// todo if required. Then figure out input capture, and fix in HAL.
-
-// todo (Probalby in another module) - RPM filtering, once you have bidirectional DSHOT working.
-// Article: https://brushlesswhoop.com/betaflight-rpm-filter/
-// todo: Basically, you set up a notch filter at rotor RPM. (I think; QC this)
-
-use cfg_if::cfg_if;
-
-use defmt::println;
 
 // Enable bidirectional DSHOT, which returns RPM data
 pub const BIDIR_EN: bool = false;

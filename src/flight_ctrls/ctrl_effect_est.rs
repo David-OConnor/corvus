@@ -4,11 +4,10 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use defmt::println;
 use num_traits::float::Float;
 
 use crate::util;
-
-use defmt::println;
 
 static SAMPLE_PT_I: AtomicUsize = AtomicUsize::new(0);
 

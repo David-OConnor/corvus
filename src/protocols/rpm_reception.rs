@@ -55,6 +55,7 @@
 //!
 //! CRC passes.
 
+use defmt::println;
 use num_traits::float::FloatCore; // round
 
 use crate::{
@@ -62,8 +63,6 @@ use crate::{
     flight_ctrls::motor_servo::RpmReadings,
     setup::{DSHOT_SPEED, TIM_CLK_SPEED},
 };
-
-use defmt::println;
 
 // Number of counter ticks per bit.
 // The differences tend to come out a bit lower, b ut this is the number I've calced.

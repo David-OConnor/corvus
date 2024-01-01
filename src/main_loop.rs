@@ -3,13 +3,11 @@
 
 use core::sync::atomic::Ordering;
 
-use rtic::mutex_prelude::*;
-
 use ahrs::{self, ppks::PositVelEarthUnits, ImuReadings};
-
+use defmt::println;
 use lin_alg2::f32::Quaternion;
-
 use num_traits::Float;
+use rtic::mutex_prelude::*;
 
 use crate::{
     app, control_interface,
@@ -23,8 +21,6 @@ use crate::{
     system_status::{self, SensorStatus, SystemStatus},
     util,
 };
-
-use defmt::println;
 
 // const UPDATE_RATE_IMU: f32 = 8_000.;
 const UPDATE_RATE_IMU: f32 = 8_192.; // From measuring.

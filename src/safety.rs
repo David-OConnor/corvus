@@ -6,32 +6,26 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 const ARM_LEVEL_THRESH: f32 = 0.1; // Radians. about 6 degrees.
 
-use crate::{
-    flight_ctrls::{autopilot::AutopilotStatus, common::AltType},
-    system_status::{SensorStatus, SystemStatus},
-};
-
-use ahrs::ppks::PositVelEarthUnits;
-use ahrs::Params;
-
+use ahrs::{ppks::PositVelEarthUnits, Params};
+#[cfg(feature = "fixed-wing")]
+use cfg_if::cfg_if;
+// cfg_if! {
+//     if #[cfg(feature = "fixed-wing")] {
+//     } else {
+//     }
+// }
+use defmt::println;
+use num_traits::Float;
 #[cfg(feature = "fixed-wing")]
 use stm32_hal2::{
     gpio::{self, Port},
     pac,
 };
 
-#[cfg(feature = "fixed-wing")]
-use cfg_if::cfg_if;
-
-// cfg_if! {
-//     if #[cfg(feature = "fixed-wing")] {
-//     } else {
-//     }
-// }
-
-use defmt::println;
-
-use num_traits::Float; // abs on float.
+use crate::{
+    flight_ctrls::{autopilot::AutopilotStatus, common::AltType},
+    system_status::{SensorStatus, SystemStatus},
+}; // abs on float.
 
 // We must receive arm or disarm signals for this many update cycles in a row to perform those actions.
 pub const NUM_ARM_DISARM_SIGNALS_REQUIRED: u8 = 5;

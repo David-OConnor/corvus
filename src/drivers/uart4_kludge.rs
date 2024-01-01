@@ -7,25 +7,9 @@
 
 // todo: Missing some features (like additional interrupts) on the USARTv3 peripheral . (L5, G etc)
 
-use stm32_hal2::{
-    clocks::Clocks,
-    pac,
-    usart::{IrdaMode, OverSampling, Parity, UsartConfig, UsartInterrupt},
-};
-
 use core::ops::Deref;
 
-#[cfg(not(any(feature = "f4", feature = "l552")))]
-use crate::dma::{self, ChannelCfg, DmaChannel};
-
-#[cfg(any(feature = "f3", feature = "l4"))]
-use crate::dma::DmaInput;
-
-#[cfg(feature = "g0")]
-use crate::pac::DMA as DMA1;
-#[cfg(not(feature = "g0"))]
-use crate::pac::DMA1;
-
+use cfg_if::cfg_if;
 #[cfg(feature = "embedded-hal")]
 use embedded_hal::{
     blocking,
@@ -33,8 +17,20 @@ use embedded_hal::{
 };
 #[cfg(feature = "embedded-hal")]
 use nb;
+use stm32_hal2::{
+    clocks::Clocks,
+    pac,
+    usart::{IrdaMode, OverSampling, Parity, UsartConfig, UsartInterrupt},
+};
 
-use cfg_if::cfg_if;
+#[cfg(any(feature = "f3", feature = "l4"))]
+use crate::dma::DmaInput;
+#[cfg(not(any(feature = "f4", feature = "l552")))]
+use crate::dma::{self, ChannelCfg, DmaChannel};
+#[cfg(feature = "g0")]
+use crate::pac::DMA as DMA1;
+#[cfg(not(feature = "g0"))]
+use crate::pac::DMA1;
 
 pub(crate) const MAX_ITERS: u32 = 300_000; // todo: What should this be?
 

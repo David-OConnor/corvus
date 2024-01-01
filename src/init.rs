@@ -1,6 +1,8 @@
 //! This module contains intialization code, run at power-up. Calls functions in the
 //! `setup` module as required.
 
+use ahrs::{Ahrs, DeviceOrientation};
+use cortex_m::delay::Delay;
 use stm32_hal2::{
     adc::{self, Adc, AdcConfig, AdcDevice},
     clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
@@ -9,8 +11,8 @@ use stm32_hal2::{
     iwdg, pac,
     timer::{Timer, TimerConfig, TimerInterrupt},
 };
-
-use ahrs::{Ahrs, DeviceOrientation};
+use usb_device::{bus::UsbBusAllocator, prelude::*};
+use usbd_serial::{self, SerialPort};
 
 use crate::{
     app::{self, Local, Shared},
@@ -22,11 +24,6 @@ use crate::{
     system_status::SensorStatus,
 };
 
-use cortex_m::delay::Delay;
-
-use usb_device::{bus::UsbBusAllocator, prelude::*};
-use usbd_serial::{self, SerialPort};
-
 cfg_if! {
     if #[cfg(feature = "h7")] {
         use stm32_hal2::{
@@ -36,8 +33,8 @@ cfg_if! {
             // usb::{Usb1, UsbBus, Usb1BusType as UsbBusType},
             usb::{Usb2, UsbBus, Usb2BusType as UsbBusType},
             // pac::OCTOSPI1,
-            pac::QUADSPI,
-            qspi::{Qspi},
+            // pac::QUADSPI,
+            // qspi::{Qspi},
         };
     } else if #[cfg(feature = "g4")] {
         use stm32_hal2::{
@@ -161,10 +158,10 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         }
     }
 
-    #[cfg(feature = "h7")]
-    // let spi_flash_pac = dp.OCTOSPI1;
-    let spi_flash_pac = dp.QUADSPI;
-    #[cfg(feature = "g4")]
+    // #[cfg(feature = "h7")]
+    // // let spi_flash_pac = dp.OCTOSPI1;
+    // let spi_flash_pac = dp.QUADSPI;
+    // #[cfg(feature = "g4")]
     let spi_flash_pac = dp.SPI2;
 
     // 100 Mhz if 400Mhz core. 120 if 480.

@@ -1,12 +1,9 @@
 //! This module handles CAN reception, as from the appropriate ISR
 
-use rtic::mutex_prelude::*;
-
 use defmt::println;
-
-use fdcan::{id::Id, interrupt::Interrupt};
-
 use dronecan::{CanId, MsgType};
+use fdcan::{id::Id, interrupt::Interrupt};
+use rtic::mutex_prelude::*;
 
 use crate::{app, drivers::gnss_can};
 

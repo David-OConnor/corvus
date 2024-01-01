@@ -5,6 +5,9 @@
 
 // todo: For wing, consider lowering your main loop frequency to whatever the min servo update frequency is.
 
+use cfg_if::cfg_if;
+
+use super::common::{CtrlMix, InputMap};
 use crate::{
     dshot,
     protocols::servo,
@@ -12,10 +15,6 @@ use crate::{
     setup::{MotorTimer, ServoTimer},
     util,
 };
-
-use super::common::{CtrlMix, InputMap};
-
-use cfg_if::cfg_if;
 // use defmt::println;
 
 const MIN_MOTOR_POWER: f32 = 0.02;

@@ -3,11 +3,10 @@
 //! Driver for the ST LIS3MDL 3-axis magnetometer. This is an I2C or SPI device;
 //! This module only includes functionality for I2C mode.
 
+use lin_alg2::f32::Vec3;
 use stm32_hal2::i2c;
 
 use crate::setup::I2cMag;
-
-use lin_alg2::f32::Vec3;
 
 // DS: "The Slave Address (SAD) associated to the LIS3MDL is 00111x0b, whereas the x bit is
 // modified by the SDO/SA1 pin in order to modify the device address. If the SDO/SA1 pin is

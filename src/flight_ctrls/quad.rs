@@ -7,14 +7,13 @@
 
 use core::f32::consts::TAU;
 
+use super::common::InputMap;
 use crate::{
     control_interface::InputModeSwitch,
     state::StateVolatile,
     system_status::{SensorStatus, SystemStatus},
     util,
 };
-
-use super::common::InputMap;
 
 // todo: Variabel/struct field found from cal routine that is power to hover.
 

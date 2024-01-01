@@ -6,6 +6,9 @@
 
 use core::sync::atomic::Ordering;
 
+use cfg_if::cfg_if;
+use defmt::println;
+
 use crate::{
     protocols::crsf::{self, ChannelDataCrsf, LinkStats},
     safety::ArmStatus,
@@ -13,10 +16,6 @@ use crate::{
     system_status::{self, SensorStatus, SystemStatus},
     util,
 };
-
-use cfg_if::cfg_if;
-
-use defmt::println;
 
 const CONTROL_VAL_MIN: f32 = -1.;
 const CONTROL_VAL_MIN_THROTTLE: f32 = 0.;

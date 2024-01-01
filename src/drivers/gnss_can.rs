@@ -2,19 +2,15 @@
 
 use core::sync::atomic::AtomicUsize;
 
-use packed_struct::{prelude::*, PackedStruct};
-
+use ahrs::{Fix, FixType};
 use chrono::naive::NaiveDateTime;
-
+use defmt::println;
 use dronecan::{
     f16,
     gnss::{EcefPositionVelocity, FixDronecan, FixStatus, GnssMode, GnssSubMode, GnssTimeStandard},
     ConfigCommon, PAYLOAD_SIZE_CONFIG_COMMON,
 };
-
-use ahrs::{Fix, FixType};
-
-use defmt::println;
+use packed_struct::{prelude::*, PackedStruct};
 
 /// Parse a DroneCAN Fix2. Output our AHRS Fix format.
 pub fn parse_fix(buf: &[u8]) -> Result<Fix, PackingError> {

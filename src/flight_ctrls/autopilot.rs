@@ -2,6 +2,8 @@
 
 use core::f32::consts::TAU;
 
+use ahrs::{ppks::PositVelEarthUnits, Fix, Params};
+use cfg_if::cfg_if;
 use num_traits::float::Float;
 
 use crate::{
@@ -11,10 +13,6 @@ use crate::{
     util,
     // pid::{self, CtrlCoeffGroup, PidDerivFilters, PidGroup},
 };
-
-use ahrs::{ppks::PositVelEarthUnits, Fix, Params};
-
-use cfg_if::cfg_if;
 
 // Max distance from curent PositVelEarthUnits, to point, then base a
 // direct-to point can be, in meters. A sanity check
@@ -45,9 +43,10 @@ cfg_if! {
 
 // todo: FOr various autopilot modes, check if variou sensors are connected like GPS, TOF, and MAG!
 
-use crate::flight_ctrls::motor_servo::MotorServoState;
 use cmsis_dsp_sys::{arm_cos_f32, arm_sin_f32};
 use lin_alg2::f32::Vec3;
+
+use crate::flight_ctrls::motor_servo::MotorServoState;
 
 const R: f32 = 6_371_000.; // Earth's radius in meters. (ellipsoid?)
 

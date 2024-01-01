@@ -2,6 +2,7 @@
 //! its more basic data structures apply to both quadcopters and fixed-wing, and aren't
 //! specific to a specific role. The aggregate structures are more specific.
 
+use super::{common::CtrlMix, pid};
 use crate::{
     main_loop::DT_FLIGHT_CTRLS,
     protocols::{dshot, servo},
@@ -9,8 +10,6 @@ use crate::{
     setup::{MotorTimer, ServoTimer},
     util,
 };
-
-use super::{common::CtrlMix, pid};
 
 const MOTOR_CMD_MIN: f32 = 0.03; //  An idle.
 const MOTOR_CMD_MAX: f32 = 1.;

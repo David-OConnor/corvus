@@ -5,13 +5,18 @@
 //! This module is the source of definitions of Buses, binding busses named after use cases to
 //! specific hardware STM32 peripherals.
 
+use ahrs::{ppks::PositVelEarthUnits, Params};
 use cfg_if::cfg_if;
-
 use cortex_m::delay::Delay;
-
+use fdcan::{FdCan, NormalOperationMode};
+// #[cfg(feature = "h7")]
+// use stm32_hal2::qspi::{Qspi, QspiConfig};
+#[cfg(feature = "fixed-wing")]
+use stm32_hal2::timer::OutputCompare;
 use stm32_hal2::{
     can::Can,
     clocks::Clocks,
+    delay_ms,
     dma::{self, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
@@ -21,21 +26,16 @@ use stm32_hal2::{
     usart::{Usart, UsartConfig},
 };
 
-use fdcan::{FdCan, NormalOperationMode};
-
-use ahrs::{ppks::PositVelEarthUnits, Params};
-
-#[cfg(feature = "h7")]
-use stm32_hal2::qspi::{Qspi, QspiConfig};
-
-#[cfg(feature = "fixed-wing")]
-use stm32_hal2::timer::OutputCompare;
-
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use crate::protocols::servo::ServoWing;
     }
 }
+use defmt::println;
+use stm32_hal2::usart::UsartInterrupt;
+
+#[cfg(feature = "g4")]
+use crate::drivers::{spi2_kludge::Spi2, uart4_kludge::Usart4};
 use crate::{
     atmos_model::AltitudeCalPt,
     crsf,
@@ -56,12 +56,6 @@ use crate::{
     sensors_shared,
     system_status::{SensorStatus, SystemStatus},
 };
-
-#[cfg(feature = "g4")]
-use crate::drivers::{spi2_kludge::Spi2, uart4_kludge::Usart4};
-
-use defmt::println;
-use stm32_hal2::usart::UsartInterrupt;
 
 // Keep all DMA channel number bindings in this code block, to make sure we don't use duplicates.
 
@@ -105,9 +99,9 @@ pub const GNSS_RX_CH: DmaChannel = DmaChannel::C7;
 // RM register table, and dividing by 4.
 pub const DSHOT_BASE_DIR_OFFSET: u8 = 0x34 / 4;
 
-#[cfg(features = "g4")]
+#[cfg(feature = "g4")]
 pub const AHB_FREQ: u32 = 170_000_000;
-#[cfg(features = "h7")]
+#[cfg(feature = "h7")]
 pub const AHB_FREQ: u32 = 240_000_000; // todo: Check this!
 
 // Update frequency: 600kHz
@@ -155,20 +149,22 @@ pub type I2cBaro = I2c<I2C2>;
 pub type I2cMag = I2c<I2C1>; // Currently unused.
 pub type UartGnss = Usart<USART1>;
 pub type UartGnssRegs = USART1;
+pub type SpiPacFlash = pac::SPI2;
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
         type UartCrsfRegs = pac::UART7;
         type UartOsdRegs = pac::USART2;
         // type SpiPacFlash = pac::OCTOSPI1;
-        pub type SpiPacFlash = pac::QUADSPI;
-        pub type SpiFlash = Qspi;
+        // pub type SpiPacFlash = pac::QUADSPI;
+        // pub type SpiFlash = Qspi;
+        pub type SpiFlash = Spi<SpiPacFlash>;
         pub type UartCrsf = Usart<pac::UART7>;
         pub type UartOsd = Usart<pac::USART2>;
     } else {
         type UartCrsfRegs = pac::USART2;
         type UartOsdRegs = pac::UART4;
-        pub type SpiPacFlash = pac::SPI2;
+        // pub type SpiPacFlash = pac::SPI2;
         pub type SpiFlash = Spi2<SpiPacFlash>;
         pub type UartCrsf = Usart<pac::USART2>;
         pub type UartOsd = Usart4<pac::UART4>;
@@ -397,12 +393,20 @@ pub fn setup_pins() {
             let _batt_v_adc = Pin::new(Port::A, 4, PinMode::Analog); // ADC12, channel 18
             let _current_sense_adc = Pin::new(Port::A, 0, PinMode::Analog); // ADC1, channel 16
 
-            let qspi_sck = Pin::new(Port::B, 2, PinMode::Alt(9));
-            let qspi_nss = Pin::new(Port::E, 11, PinMode::Alt(11));
-            let io0 = Pin::new(Port::D, 11, PinMode::Alt(9));
-            let io1 = Pin::new(Port::D, 12, PinMode::Alt(9));
-            let io2 = Pin::new(Port::E, 2, PinMode::Alt(9));
-            let io3 = Pin::new(Port::D, 13, PinMode::Alt(9));
+            // let qspi_sck = Pin::new(Port::B, 2, PinMode::Alt(9));
+            // let qspi_nss = Pin::new(Port::E, 11, PinMode::Alt(11));
+            // let io0 = Pin::new(Port::D, 11, PinMode::Alt(9));
+            // let io1 = Pin::new(Port::D, 12, PinMode::Alt(9));
+            // let io2 = Pin::new(Port::E, 2, PinMode::Alt(9));
+            // let io3 = Pin::new(Port::D, 13, PinMode::Alt(9));
+
+            let mut sck2 = Pin::new(Port::A, 9, PinMode::Alt(5));
+            let mut miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
+            let mut mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
+
+            sck2.output_speed(spi_gpiospeed);
+            miso2.output_speed(spi_gpiospeed);
+            mosi2.output_speed(spi_gpiospeed);
         } else {
             let _batt_v_adc = Pin::new(Port::A, 1, PinMode::Analog); // ADC12, channel 1
             let _current_sense_adc = Pin::new(Port::B, 2, PinMode::Analog); // ADC2, channel 12
@@ -660,42 +664,40 @@ pub fn setup_busses(
     // Max speed: 104Mhz (single, dual, or quad) for 8M variant, and 133Mhz for
     // 16M variant.
     // W25 flash chips use SPI mode 0 or 3.
-    cfg_if! {
-        if #[cfg(feature = "h7")] {
-            let flash_config = QspiConfig {
-                // 240Mhz / 4 = 60Mhz.
-                // clock_division: 4,
-                clock_division: 16, // todo: TS by using a slower speed
-                ..Default::default()
-            };
-            let mut spi_flash = Qspi::new(spi_flash_pac, flash_config, clock_cfg);
-
-            let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output); // todo temp
-            // Enable QSPI, in status regiver 2.
-            cs_flash.set_high();
-
-            cs_flash.set_low();
-            spi_flash.write_indirect(0x31, &[0b0000_0010]);
-            cs_flash.set_high();
-
-            let mut read_buf = [0x9f, 0, 0, 0];
-            // let mut read_buf = [0, 0, 0, 0];
-            cs_flash.set_low();
-            spi_flash.read_indirect(0x9f, &mut read_buf);
-            // spi_flash.read_indirect(0x35, &mut read_buf);
-            cs_flash.set_high();
-
-            println!("Read buf from QSPI flash: {:?}", read_buf);
-
-        } else {
-            let spi_flash = Spi2::new(spi_flash_pac, Default::default(), BaudRate::Div2);
-        }
-    }
-
-    // todo: Temp/TS QSPI code
-    println!("Pre QSPI test");
-
-    println!("QSPI test complete");
+    // cfg_if! {
+    //     if #[cfg(feature = "h7")] {
+    //         let flash_config = QspiConfig {
+    //             // 240Mhz / 4 = 60Mhz.
+    //             // clock_division: 4,
+    //             clock_division: 16, // todo: TS by using a slower speed
+    //             ..Default::default()
+    //         };
+    //         let mut spi_flash = Qspi::new(spi_flash_pac, flash_config, clock_cfg);
+    //
+    //         let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output); // todo temp
+    //         // Enable QSPI, in status regiver 2.
+    //         cs_flash.set_high();
+    //
+    //         cs_flash.set_low();
+    //         spi_flash.write_indirect(0x31, &[0b0000_0010]);
+    //         cs_flash.set_high();
+    //
+    //         let mut read_buf = [0x9f, 0, 0, 0];
+    //         // let mut read_buf = [0, 0, 0, 0];
+    //         cs_flash.set_low();
+    //         spi_flash.read_indirect(0x9f, &mut read_buf);
+    //         // spi_flash.read_indirect(0x35, &mut read_buf);
+    //         cs_flash.set_high();
+    //
+    //         println!("Read buf from QSPI flash: {:?}", read_buf);
+    //
+    //     } else {
+    #[cfg(feature = "g4")]
+    let spi_flash = Spi2::new(spi_flash_pac, Default::default(), BaudRate::Div2);
+    #[cfg(feature = "h7")]
+    let spi_flash = Spi::new(spi_flash_pac, Default::default(), BaudRate::Div2);
+    // }
+    // }
 
     #[cfg(feature = "h7")]
     let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output);

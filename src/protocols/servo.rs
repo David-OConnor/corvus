@@ -1,11 +1,10 @@
 //! This module provides a hardware interface for servos.
 //! This are used by fixed-wing, eg for use with elevons.
 
+use cfg_if::cfg_if;
 use stm32_hal2::timer::TimChannel;
 
 use crate::{setup::ServoTimer, util};
-
-use cfg_if::cfg_if;
 
 // Choose PSC and ARR to get a target frequency. For example,  300 or 500Hz.
 // Generally you can go up to a maximum value. Pulse high time is the predominant

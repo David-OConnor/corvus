@@ -6,18 +6,14 @@
 
 use core::sync::atomic::AtomicBool;
 
+use ahrs::{Fix, FixType};
+use chrono::NaiveDate;
+use defmt::println;
 use num_enum::TryFromPrimitiveError;
-
 use stm32_hal2::{
     clocks::Clocks,
     usart::{self, UsartInterrupt},
 };
-
-use ahrs::{Fix, FixType};
-
-use chrono::NaiveDate;
-
-use defmt::println;
 
 use crate::setup::UartGnss;
 

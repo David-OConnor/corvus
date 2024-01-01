@@ -3,11 +3,10 @@
 //!
 //! Reference: https://brushlesswhoop.com/betaflight-rpm-filter/
 
+use ahrs::ImuReadings;
 use cmsis_dsp_api as dsp_api;
 
 use crate::util::IirInstWrapper;
-
-use ahrs::ImuReadings;
 
 // const BLOCK_SIZE: u32 = crate::FLIGHT_CTRL_IMU_RATIO as u32;
 const BLOCK_SIZE: u32 = 1;

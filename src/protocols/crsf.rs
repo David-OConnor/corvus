@@ -25,13 +25,11 @@
 
 use core::sync::atomic::AtomicBool;
 
+use defmt::println;
 use num_enum::TryFromPrimitive; // Enum from integer
-
 use stm32_hal2::{dma::DmaChannel, usart::UsartInterrupt};
 
 use crate::util;
-
-use defmt::println;
 
 // For the receiver, 420k baud is hard set.
 pub const BAUD: u32 = 420_000;

@@ -4,11 +4,11 @@
 //! See the comments here, the accompanying Python script in this project, and the associated
 //! One note file for details on how we calculate this.
 
-use crate::{
-    control_interface::ChannelData,
-    main_loop::{ATT_CMD_UPDATE_RATIO, DT_FLIGHT_CTRLS},
-    util::{self, map_linear},
-};
+use ahrs::{Params, FORWARD, RIGHT, UP};
+use cfg_if::cfg_if;
+use defmt::println;
+use lin_alg2::f32::{Quaternion, Vec3};
+use num_traits::float::Float; // For sqrt.
 
 use super::{
     common::{CtrlMix, InputMap},
@@ -17,20 +17,13 @@ use super::{
     motor_servo::{MotorServoState, RotationDir},
     pid::PidCoeffs,
 };
-
-use ahrs::{Params, FORWARD, RIGHT, UP};
-
-use lin_alg2::f32::{Quaternion, Vec3};
-
-use num_traits::float::Float; // For sqrt.
-
-use cfg_if::cfg_if;
-
 // todo: YOu probably need filters.
-
 use crate::main_loop::FLIGHT_CTRL_IMU_RATIO;
-use crate::util::clamp;
-use defmt::println;
+use crate::{
+    control_interface::ChannelData,
+    main_loop::{ATT_CMD_UPDATE_RATIO, DT_FLIGHT_CTRLS},
+    util::{self, clamp, map_linear},
+};
 
 cfg_if! {
     if #[cfg(feature = "quad")] {

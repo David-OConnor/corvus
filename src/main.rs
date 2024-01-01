@@ -18,15 +18,13 @@
 // https://www.youtube.com/playlist?list=PLn8PRpmsu08pFBqgd_6Bi7msgkWFKL33b
 use core::sync::atomic::{AtomicU32, Ordering};
 
+use ahrs::{Ahrs, Fix, FixType, Params};
+use cfg_if::cfg_if;
 use cortex_m::{self, asm};
-use rtic::app;
-
 use defmt::println;
 use defmt_rtt as _;
 use panic_probe as _;
-
-use ahrs::{Ahrs, Fix, FixType, Params};
-
+use rtic::app;
 use stm32_hal2::{
     self,
     adc::Adc,
@@ -40,11 +38,8 @@ use stm32_hal2::{
     timer::{Timer, TimerInterrupt, TICK_OVERFLOW_COUNT},
     usart::UsartInterrupt,
 };
-
 use usb_device::prelude::*;
 use usbd_serial::{self, SerialPort};
-
-use cfg_if::cfg_if;
 
 mod atmos_model;
 mod can_reception;
@@ -89,8 +84,8 @@ cfg_if! {
         use stm32_hal2::{
             // todo: USB1 on H723; USB2 on H743.
             usb::{Usb2, UsbBus, Usb2BusType as UsbBusType},
-            pac::QUADSPI,
-            qspi::{Qspi},
+            // pac::QUADSPI,
+            // qspi::{Qspi},
         };
         // This USART alias is made pub here, so we don't repeat this line in other modules.
         pub use stm32_hal2::pac::{ADC1 as ADC};
@@ -152,9 +147,10 @@ static mut CAN_BUF_RX: [u8; 64] = [0; 64];
 
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
-    use super::*;
     use ahrs::ppks::PositInertial;
     use stm32_hal2::dma::DmaPeriph;
+
+    use super::*;
 
     #[shared]
     pub struct Shared {
@@ -246,7 +242,7 @@ mod app {
     fn imu_data_isr(mut cx: imu_data_isr::Context) {
         #[cfg(feature = "h7")]
         gpio::clear_exti_interrupt(12); // PB12
-        #[cfg(feature   "g4")]
+        #[cfg(feature = "g4")]
         gpio::clear_exti_interrupt(13); // PC13
 
         // println!("IMU r");

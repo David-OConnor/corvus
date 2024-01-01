@@ -10,12 +10,12 @@
 
 #![allow(dead_code)] // todo: So we can comment-out the V2 or V1 code as required.
 
+use defmt::println;
+
 use crate::{
     setup::{UartOsd, OSD_DMA_PERIPH, OSD_TX_CH},
     util,
 };
-
-use defmt::println;
 
 // const CRC_POLY: u8 = 0xd;
 // The poly and LUT are for V2.

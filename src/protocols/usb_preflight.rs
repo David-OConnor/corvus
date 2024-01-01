@@ -12,17 +12,12 @@
 
 use core::sync::atomic::Ordering;
 
-use stm32_hal2::flash::Flash;
-
-use anyleaf_usb::{self, MessageType, CRC_LEN, DEVICE_CODE_CORVUS, MSG_START, PAYLOAD_START_I};
-
 use ahrs::ppks::PositVelEarthUnits;
-
-use defmt::println;
-
-use lin_alg2::f32::Quaternion;
-
+use anyleaf_usb::{self, MessageType, CRC_LEN, DEVICE_CODE_CORVUS, MSG_START, PAYLOAD_START_I};
 use cfg_if::cfg_if;
+use defmt::println;
+use lin_alg2::f32::Quaternion;
+use stm32_hal2::flash::Flash;
 
 use crate::{
     control_interface::ChannelData,
@@ -46,11 +41,10 @@ cfg_if! {
     }
 }
 
+use num_enum::TryFromPrimitive;
 use usbd_serial::SerialPort;
 
-use crate::flight_ctrls::autopilot::AutopilotStatus;
-use crate::protocols::crsf::LinkStats;
-use num_enum::TryFromPrimitive; // Enum from integer
+use crate::{flight_ctrls::autopilot::AutopilotStatus, protocols::crsf::LinkStats}; // Enum from integer
 
 const CRC_POLY: u8 = 0xab;
 const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);

@@ -1,12 +1,9 @@
 //! This module contains code related to state, both config stored to flash, and volatile data
 //! specific to the current flight, and cleared when power is removed.
 use ahrs::ppks::PositVelEarthUnits;
-
-use lin_alg2::f32::Quaternion;
-
-use stm32_hal2::flash::{Bank, Flash};
-
 use cfg_if::cfg_if;
+use lin_alg2::f32::Quaternion;
+use stm32_hal2::flash::{Bank, Flash};
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
@@ -18,6 +15,8 @@ cfg_if! {
 
 use defmt::println;
 
+#[cfg(feature = "fixed-wing")]
+use crate::flight_ctrls::{ControlSurfaceConfig, YawControl};
 use crate::{
     control_interface::InputModeSwitch,
     flight_ctrls::{
@@ -33,9 +32,6 @@ use crate::{
     sensors_shared::BattCellCount,
     usb_preflight::CONFIG_SIZE,
 };
-
-#[cfg(feature = "fixed-wing")]
-use crate::flight_ctrls::{ControlSurfaceConfig, YawControl};
 
 // The maximum number of waypoints available.
 pub const MAX_WAYPOINTS: usize = 30; // todo: Consider raising this.

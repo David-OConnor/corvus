@@ -8,11 +8,10 @@
 //!
 //! As of 2023-02-15, we use this only for commanding specific motor RPMs.
 
+use cfg_if::cfg_if;
 use cmsis_dsp_api as dsp_api;
 
 use crate::util::{self, IirInstWrapper};
-
-use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {

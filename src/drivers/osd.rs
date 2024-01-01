@@ -20,6 +20,13 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+use ahrs::ppks::PositVelEarthUnits;
+use defmt::println;
+use num_traits::Float; // allows float rounding
+use stm32_hal2::dma::DmaChannel;
+// todo temp
+use stm32_hal2::pac::UART4;
+
 use crate::{
     flight_ctrls::autopilot::{self, AutopilotStatus},
     protocols::msp::{Direction, Packet, METADATA_SIZE_V1, MSG_ID_DP, MSG_ID_STATUS},
@@ -28,17 +35,6 @@ use crate::{
     setup::{self, UartOsd},
     util,
 };
-
-use ahrs::ppks::PositVelEarthUnits;
-
-use num_traits::Float; // allows float rounding
-
-use stm32_hal2::dma::DmaChannel;
-
-// todo temp
-use stm32_hal2::pac::UART4;
-
-use defmt::println;
 
 pub const BAUD: u32 = 115_200; // 230400 allowed if "Fast_serial" is enabled
 

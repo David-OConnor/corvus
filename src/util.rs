@@ -2,7 +2,14 @@
 
 use core::sync::atomic::Ordering;
 
+use ahrs::Params;
 use cmsis_dsp_sys as dsp_sys;
+use defmt::println;
+use num_traits::float::FloatCore;
+use stm32_hal2::{
+    pac::{self, TIM5},
+    timer::Timer,
+};
 
 use crate::{
     control_interface::ChannelData,
@@ -13,17 +20,6 @@ use crate::{
     state::StateVolatile,
     system_status::{self, SystemStatus},
 };
-
-use ahrs::Params;
-
-use stm32_hal2::{
-    pac::{self, TIM5},
-    timer::Timer,
-};
-
-use num_traits::float::FloatCore;
-
-use defmt::println;
 
 /// Used to satisfy RTIC resource Send requirements.
 pub struct IirInstWrapper {
