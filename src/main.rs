@@ -60,8 +60,7 @@ mod util;
 use crate::{
     control_interface::ChannelData,
     drivers::{
-        baro_dps310 as baro, gps_ublox as gnss, imu_icm426xx as imu, mag_lis3mdl as mag, osd,
-        tof_vl53l1 as tof,
+        baro_dps310 as baro, imu_icm426xx as imu, mag_lis3mdl as mag, osd, tof_vl53l1 as tof,
     },
     flight_ctrls::{
         autopilot::AutopilotStatus,
@@ -199,7 +198,6 @@ mod app {
     pub struct Local {
         // update_timer: Timer<TIM15>,
         pub uart_crsf: setup::UartCrsf, // for ELRS over CRSF.
-        pub uart_gnss: setup::UartGnss, // for ELRS over CRSF.
         // spi_flash: SpiFlash,  // todo: Fix flash in HAL, then do this.
         pub arm_signals_received: u8, // todo: Put sharedin state volatile.
         pub disarm_signals_received: u8,
@@ -752,149 +750,6 @@ mod app {
         cx.shared.system_status.lock(|status| {
             status.update_timestamps.baro = Some(timestamp);
         });
-    }
-
-    #[task(binds = USART1, shared = [tick_timer, fix, params, posit_inertial, ahrs, system_status],
-    local = [uart_gnss], priority = 10)]
-    fn gnss_isr(mut cx: gnss_isr::Context) {
-        let uart = cx.local.uart_gnss;
-
-        uart.clear_interrupt(UsartInterrupt::CharDetect(None));
-        uart.clear_interrupt(UsartInterrupt::Idle);
-
-        // Stop the DMA read, since it will likely not have filled the buffer, due
-        // to the variable message sizes.
-        dma::stop(setup::GNSS_DMA_PERIPH, setup::GNSS_RX_CH);
-
-        if !gnss::TRANSFER_IN_PROG.load(Ordering::Acquire) {
-            // println!("GPS A");
-            gnss::TRANSFER_IN_PROG.store(true, Ordering::Release);
-
-            uart.disable_interrupt(UsartInterrupt::CharDetect(None));
-
-            let mut buf = [0; 40];
-            // uart.read(&mut buf);
-            // println!("BUF: {:?}", buf);
-            // return;
-
-            unsafe {
-                uart.read_dma(
-                    &mut gnss::RX_BUFFER,
-                    setup::GNSS_RX_CH,
-                    ChannelCfg {
-                        ..Default::default()
-                    },
-                    setup::GNSS_DMA_PERIPH,
-                );
-            }
-        } else {
-            // println!("GPS B");
-            gnss::TRANSFER_IN_PROG.store(false, Ordering::Release);
-
-            // A `None` value here re-enables the interrupt without changing the char to match.
-            uart.enable_interrupt(UsartInterrupt::CharDetect(None));
-
-            // Re-enable the char match interrupt.
-            let uart_pac = unsafe { &(*pac::USART1::ptr()) };
-            uart_pac.cr1.modify(|_, w| w.cmie().set_bit());
-
-            // todo: TIck timer here appears broken.
-            let timestamp = cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
-
-            cx.shared.system_status.lock(|status| {
-                status.update_timestamps.gnss = Some(timestamp);
-            });
-
-            static mut I: u32 = 0;
-            let i = unsafe { I };
-
-            match gnss::Message::from_buf(unsafe { &gnss::RX_BUFFER }) {
-                Ok(m) => {
-                    println!("OK GPS");
-                    match m.class_id {
-                        gnss::MsgClassId::NavPvt => {
-                            match gnss::fix_from_payload(m.payload, timestamp) {
-                                Ok(fix) => {
-                                    println!("Fix received");
-                                    unsafe { I += 1 };
-
-                                    match fix.type_ {
-                                        FixType::Fix3d | FixType::Combined => {
-                                            cx.shared.posit_inertial.lock(|posit_inertial| {
-                                                posit_inertial.update_anchor(&fix);
-                                            });
-
-                                            cx.shared.fix.lock(|fix_resource| {
-                                                // todo: Maybe update method on Params for this? here for now.
-                                                // todo while we test it.
-                                                let dt_fix =
-                                                    fix.timestamp_s - fix_resource.timestamp_s;
-                                                //
-                                                // let gnss_acc_nse =
-                                                //     (ahrs::ppks::ned_vel_to_xyz(
-                                                //         fix.ned_velocity,
-                                                //     ) - ahrs::ppks::ned_vel_to_xyz(
-                                                //         fix_resource.ned_velocity,
-                                                //     )) / dt_fix;
-
-                                                cx.shared.ahrs.lock(|ahrs| {
-                                                    ahrs.update_from_fix(&fix);
-
-                                                    // ahrs::attitude::heading_from_gnss_acc(
-                                                    //     gnss_acc_nse,
-                                                    //     ahrs.linear_acc_estimate,
-                                                    // );
-                                                });
-
-                                                *fix_resource = fix;
-                                            });
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                                // Ie, a fault etc.
-                                Err(_) => {
-                                    // todo: PUt back until solved. Decluttered for now.
-                                    // println!("GNSS error while reading a fix");
-                                }
-                            }
-                        }
-                        gnss::MsgClassId::NavDop => {
-                            if let Ok(dop_) = gnss::DilutionOfPrecision::from_payload(m.payload) {
-                                // cx.shared.dilution_of_precision.lock(|dop| {
-                                //     *dop = dop_;
-                                // });
-                            }
-                        }
-                        gnss::MsgClassId::NavCov => {
-                            // println!("Nav covariance");
-                            if let Ok(cov) = gnss::Covariance::from_payload(m.payload) {
-                                // *covariance = cov;
-                            }
-                        }
-                        gnss::MsgClassId::AckAck => {
-                            println!("\n\n\nAck");
-                        }
-                        gnss::MsgClassId::AckNak => {
-                            println!("\n\n\nNACK");
-                        }
-                        _ => {
-                            println!(
-                                "Unrecognized GNSS ID received. Class: {}. Id: {}",
-                                m.class_id.to_vals().0,
-                                m.class_id.to_vals().1
-                            );
-                        }
-                    }
-                }
-                Err(_e) => {
-                    // println!("ERror GPS");
-                    // todo: Put this back and troubleshoot it. Getting it a lot.
-                    // todo: Jitter?
-                    // println!("Error parsing GNSS message");
-                }
-            }
-        }
     }
 
     #[task(binds = FDCAN1_IT1,

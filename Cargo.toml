@@ -49,7 +49,7 @@ anyleaf_usb = { path = "../anyleaf_usb" }
 
 # Use these features to specify GPIO mapping, and which peripherals to use.
 [features]
-#default = ["g4", "quad"]
+default = ["h7", "quad"]
 g4 = ["stm32-hal2/g4rt", "stm32-hal2/g473", "stm32-hal2/usb", "stm32-hal2/can_fd_g", "stm32-usbd", "dronecan/hal_g473"]
 h7 = ["stm32-hal2/h7rt", "stm32-hal2/h743v", "stm32-hal2/usbotg_hs", "stm32-hal2/can_fd_h", "synopsys-usb-otg", "dronecan/hal_h7" ]
 

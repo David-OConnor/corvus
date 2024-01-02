@@ -7,7 +7,6 @@
 
 use ahrs::{ppks::PositVelEarthUnits, Params};
 use cfg_if::cfg_if;
-use cortex_m::delay::Delay;
 use fdcan::{FdCan, NormalOperationMode};
 // #[cfg(feature = "h7")]
 // use stm32_hal2::qspi::{Qspi, QspiConfig};
@@ -42,7 +41,6 @@ use crate::{
     drivers::{
         baro_dps310 as baro,
         flash_spi,
-        gps_ublox as gnss,
         // tof_vl53l1 as tof,
         imu_icm426xx as imu,
         mag_lis3mdl as mag,
@@ -67,7 +65,6 @@ pub const BATT_CURR_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1;
 pub const BARO_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 pub const OSD_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 pub const EXT_SENSORS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
-pub const GNSS_DMA_PERIPH: DmaPeriph = DmaPeriph::Dma2;
 
 // DMA 1
 pub const IMU_TX_CH: DmaChannel = DmaChannel::C1;
@@ -89,9 +86,6 @@ pub const OSD_TX_CH: DmaChannel = DmaChannel::C3;
 // pub const OSD_RX_CH: DmaChannel = DmaChannel::C4;
 
 pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
-
-// pub const GNSS_TX_CH: DmaChannel = DmaChannel::C6;
-pub const GNSS_RX_CH: DmaChannel = DmaChannel::C7;
 
 // Used for commanding timer DMA, for DSHOT protocol. Maps to CCR1, and is incremented
 // automatically when we set burst len = 4 in the DMA write and read.
@@ -147,8 +141,6 @@ pub type ServoTimer = Timer<pac::TIM8>; // Valid for H7 on all channels. Valid f
 pub type SpiImu = Spi<SPI1>;
 pub type I2cBaro = I2c<I2C2>;
 pub type I2cMag = I2c<I2C1>; // Currently unused.
-pub type UartGnss = Usart<USART1>;
-pub type UartGnssRegs = USART1;
 pub type SpiPacFlash = pac::SPI2;
 
 cfg_if! {
@@ -192,51 +184,16 @@ pub fn init_sensors(
     spi_flash: &mut SpiFlash,
     i2c_mag: &mut I2cMag,
     i2c_baro: &mut I2cBaro,
-    uart_gnss: &mut UartGnss,
     cs_imu: &mut Pin,
     cs_flash: &mut Pin,
-    delay: &mut Delay,
     clock_cfg: &Clocks,
 ) -> (SystemStatus, baro::Altimeter) {
     let mut system_status = SystemStatus::default();
 
-    match imu::setup(spi1, cs_imu, delay) {
+    match imu::setup(spi1, cs_imu) {
         Ok(_) => system_status.imu = SensorStatus::Pass,
         Err(_) => system_status.imu = SensorStatus::NotConnected,
     };
-
-    // Heisenbugs, ie that only show up without debugger connected without at least a 150ms delay
-    // prior to GNSS setup.
-    // Because this is strange, we pad it to a higher value.
-    delay_ms(200, AHB_FREQ);
-
-    match gnss::setup(uart_gnss, clock_cfg) {
-        Ok(_) => {
-            println!("GNSS setup");
-            system_status.gnss = SensorStatus::Pass;
-        }
-        Err(_) => {
-            println!("GNSS error on first attempt");
-            // Try the runtime baud. This is likely when debugging, since we reset the MCU without
-            // resetting power to the GNSS.
-
-            if uart_gnss.set_baud(gnss::BAUD, clock_cfg).is_err() {
-                system_status.gnss = SensorStatus::NotConnected;
-                println!("Error setting runntime GNSS baud");
-            };
-
-            match gnss::setup(uart_gnss, clock_cfg) {
-                Ok(_) => {
-                    system_status.gnss = SensorStatus::Pass;
-                    println!("GNSS setup succeeded using runtime baud.");
-                }
-                Err(_) => {
-                    system_status.gnss = SensorStatus::NotConnected;
-                    println!("GNSS setup failed at runtime baud");
-                }
-            }
-        }
-    }
 
     // match mag::setup(i2c1) {
     //     Ok(_) => system_status.magnetometer = SensorStatus::Pass,
@@ -388,6 +345,13 @@ pub fn setup_pins() {
     miso1.output_speed(spi_gpiospeed);
     mosi1.output_speed(spi_gpiospeed);
 
+    // todo TS batt ADC on H7 board.
+    // let batt_v_adc = Pin::new(Port::A, 4, PinMode::Input); // ADC12, channel 18
+    // loop {
+    //     println!("High: {:?}", batt_v_adc.is_high());
+    //     delay_ms(500, 200_000_000);
+    // }
+
     cfg_if! {
         if #[cfg(feature = "h7")] {
             let _batt_v_adc = Pin::new(Port::A, 4, PinMode::Analog); // ADC12, channel 18
@@ -458,10 +422,6 @@ pub fn setup_pins() {
     let mut uart_osd_rx = Pin::new(Port::C, 11, PinMode::Alt(5));
 
     uart_osd_rx.pull(Pull::Up);
-
-    // UART 1 , on G4.
-    let _uart_gnss_tx = Pin::new(Port::B, 6, PinMode::Alt(7));
-    let _uart_gnss_rx = Pin::new(Port::B, 7, PinMode::Alt(7));
 
     // We use UARTs for misc external devices, including ESC telemetry,
     // and VTX OSD.
@@ -580,7 +540,6 @@ pub fn setup_busses(
     spi_flash_pac: SpiPacFlash,
     i2c1_pac: I2C1,
     i2c2_pac: I2C2,
-    uart_gnss_pac: UartGnssRegs,
     uart_osd_pac: UartOsdRegs,
     uart_crsf_pac: UartCrsfRegs,
     clock_cfg: &Clocks,
@@ -591,7 +550,6 @@ pub fn setup_busses(
     Pin,
     I2c<I2C1>,
     I2c<I2C2>,
-    UartGnss,
     UartOsd,
     UartCrsf,
 ) {
@@ -711,8 +669,6 @@ pub fn setup_busses(
         ..Default::default()
     };
 
-    let uart_gnss = Usart::new(uart_gnss_pac, gnss::BAUD_AT_RESET, uart_cfg, clock_cfg);
-
     // We use UART4 for the OSD, for DJI, via the MSP protocol.
     // todo: QC baud.
     #[cfg(feature = "h7")]
@@ -777,7 +733,7 @@ pub fn setup_busses(
     );
 
     (
-        spi_imu, spi_flash, cs_imu, cs_flash, i2c1, i2c2, uart_gnss, uart_osd, uart_crsf,
+        spi_imu, spi_flash, cs_imu, cs_flash, i2c1, i2c2, uart_osd, uart_crsf,
     )
 }
 

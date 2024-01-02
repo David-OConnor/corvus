@@ -9,7 +9,6 @@
 // todo: Robust fault detection: regularly check IMU's fault registers, and put that in the init
 // todo script. Use the `Fault` status etc as required.
 
-use cortex_m::delay::Delay;
 use stm32_hal2::{delay_us, gpio::Pin, spi};
 
 use crate::setup::{SpiImu, AHB_FREQ};
@@ -223,7 +222,7 @@ fn setup_aa_filters(spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
 }
 
 /// Configure the device.
-pub fn setup(spi: &mut SpiImu, cs: &mut Pin, delay: &mut Delay) -> Result<(), ImuError> {
+pub fn setup(spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
     // Leave default of SPI mode 0 and 3.
 
     // todo: Without self-test, we'll use a WHOAMI read to verify if the IMU is connected. Note that

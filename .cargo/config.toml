@@ -1,7 +1,7 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
- # to list chips, run `probe-run --list-chips.`
+# to list chips, run `probe-run --list-chips.`
 #runner = "probe-rs run --chip STM32G473CEUx"
- runner = "probe-rs run --chip STM32H743VIHx"
+runner = "probe-rs run --chip STM32H743VIHx"
 
 rustflags = [
   "-C", "linker=flip-link",
@@ -17,6 +17,7 @@ target = "thumbv7em-none-eabihf"
 rb = "run --bin"
 rrb = "run --release --bin"
 rr = "run --release"
+br = "build --release"
 
 # todo: These aliases are not working
 #rgq = "run --release --features g4 quad print-status"

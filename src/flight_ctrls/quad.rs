@@ -163,7 +163,7 @@ pub fn set_input_mode(
     state_volatile.input_mode = match input_mode_control {
         InputModeSwitch::Acro => InputMode::Acro,
         InputModeSwitch::AttitudeCommand => {
-            if system_status.gnss == SensorStatus::Pass {
+            if system_status.gnss_can == SensorStatus::Pass {
                 InputMode::Command
             } else {
                 InputMode::Attitude

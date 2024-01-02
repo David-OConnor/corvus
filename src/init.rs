@@ -6,6 +6,7 @@ use cortex_m::delay::Delay;
 use stm32_hal2::{
     adc::{self, Adc, AdcConfig, AdcDevice},
     clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
+    delay_ms,
     dma::{self, ChannelCfg, Dma},
     flash::Flash,
     iwdg, pac,
@@ -111,6 +112,14 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
                     pllq_en: true, // PLLQ for Spi1 and CAN clocks. Its default div of 8 is fine.
                     ..Default::default()
                 },
+                // We use PLL2P as the (default) ADC clock.
+                pll2: PllCfg {
+                    divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
+                    // todo: What's an ideal ADC clock speed?
+                    divn: 80, // Keep the speed under 80Mhz. (Currently 20)
+                    divp: 8,
+                    ..Default::default()
+                },
                 hsi48_on: true,
                 // todo: Why is full speed not always working?
                 // ..Clocks::full_speed()
@@ -133,8 +142,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     clocks::enable_crs(CrsSyncSrc::OtgHs);
     #[cfg(feature = "g4")]
     clocks::enable_crs(CrsSyncSrc::Usb);
-
-    let mut delay = Delay::new(cp.SYST, clock_cfg.systick());
 
     // Set up pins with appropriate modes.
     setup::setup_pins();
@@ -177,16 +184,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     #[cfg(feature = "h7")]
     can::set_message_ram_layout(); // Must be called explicitly; for H7.
 
-    // todo temp!
-    // static buf: [u8; 3] = [1; 3];
-    // let mut can = can;
-    // loop {
-    //     // todo temp!
-    //     println!("Sending test msg");
-    //     can_send(&mut can, 22, &buf, 3, false);
-    //     delay.delay_ms(1000)
-    // }
-
     // todo: Configure acceptance filters for Fix2, AHRS, IMU, baro, mag, node status, and possibly others.
     // todo: on G4, you may need to be clever to avoid running out of filters.
 
@@ -197,7 +194,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         mut cs_flash,
         mut i2c1,
         mut i2c2,
-        mut uart_gnss,
         uart_osd,
         mut uart_crsf,
     ) = setup::setup_busses(
@@ -205,7 +201,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         spi_flash_pac,
         dp.I2C1,
         dp.I2C2,
-        dp.USART1,
         uart_osd_pac,
         uart_crsf_pac,
         &clock_cfg,
@@ -217,22 +212,40 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // We use the ADC to measure battery voltage and ESC current.
     let adc_cfg = AdcConfig {
         // With non-timing-critical continuous reads, we can set a long sample time.
-        sample_time: adc::SampleTime::T601,
+        // sample_time: adc::SampleTime::T601,
+        sample_time: adc::SampleTime::T181, // todo t!
         operation_mode: adc::OperationMode::Continuous,
         ..Default::default()
     };
 
+    println!("a");
     #[cfg(feature = "h7")]
+    // let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
     let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
     #[cfg(feature = "g4")]
     let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
+
+    println!("b");
 
     // todo: Which edge should it be?
     batt_curr_adc.set_trigger(adc::Trigger::Tim6Trgo, adc::TriggerEdge::HardwareRising);
 
     // todo temp while we sort out HAL. We've fudged this to make the number come out correctly.
     batt_curr_adc.vdda_calibrated = 3.6;
+    println!("C");
+
+    // let _ = stm32_hal2::gpio::Pin::new(stm32_hal2::gpio::Port::A, 2, stm32_hal2::gpio::PinMode::Input);
+    loop {
+        // todo temp
+        println!("d");
+        let batt_v = batt_curr_adc.read(18);
+        println!("2");
+        // let batt_v = batt_curr_adc.read(14);
+        let batt_v2 = batt_curr_adc.reading_to_voltage(batt_v);
+        println!("BATT raw: {}, V: {:?}", batt_v, batt_v2);
+        delay_ms(500, 200_000_000);
+    }
 
     // let mut update_timer = Timer::new_tim15(
     //     dp.TIM15,
@@ -354,10 +367,8 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         &mut flash_spi,
         &mut i2c1,
         &mut i2c2,
-        &mut uart_gnss,
         &mut cs_imu,
         &mut cs_flash,
-        &mut delay,
         &clock_cfg,
     );
 
@@ -366,7 +377,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         system_status.imu == SensorStatus::Pass,
         system_status.baro == SensorStatus::Pass,
         system_status.magnetometer == SensorStatus::Pass,
-        system_status.gnss == SensorStatus::Pass,
+        system_status.gnss_can == SensorStatus::Pass,
         system_status.tof == SensorStatus::Pass,
         system_status.osd == SensorStatus::Pass,
     );
@@ -466,7 +477,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         Local {
             // update_timer,
             uart_crsf,
-            uart_gnss,
             // spi_flash, // todo: Fix flash in HAL, then do this.
             arm_signals_received: 0,
             disarm_signals_received: 0,

@@ -264,14 +264,14 @@ pub fn excecute_link_lost(
     autopilot_status.alt_hold = Some((AltType::Msl, LOST_LINK_RTB_ALT));
 
     #[cfg(feature = "quad")]
-    if system_status.gnss == SensorStatus::Pass {
+    if system_status.gnss_can == SensorStatus::Pass {
         if (params.alt_msl_baro - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
             autopilot_status.direct_to_point = Some(base_pt.clone());
         }
     }
 
     #[cfg(feature = "fixed-wing")]
-    if system_status.gnss == SensorStatus::Pass {
+    if system_status.gnss_can == SensorStatus::Pass {
     } else if system_status.magnetometer == SensorStatus::Pass {
         if (params.alt_msl_baro - LOST_LINK_RTB_ALT).abs() < ALT_EPSILON_BEFORE_LATERAL {
             autopilot_status.direct_to_point = Some(base_pt.clone());

@@ -4,7 +4,7 @@
 use stm32_hal2::dma;
 
 use crate::{
-    baro, gnss, mag,
+    baro, mag,
     setup::{self, I2cBaro, I2cMag, BARO_DMA_PERIPH, BARO_RX_CH, BARO_TX_CH},
 };
 

@@ -49,7 +49,6 @@ pub struct SystemStatus {
     pub baro: SensorStatus,
     pub baro_can: SensorStatus,
     /// The GPS module is connected. Detected on init.
-    pub gnss: SensorStatus,
     pub gnss_can: SensorStatus,
     /// The time-of-flight sensor module is connected. Detected on init.
     pub tof: SensorStatus,
@@ -105,12 +104,6 @@ impl SystemStatus {
             MAX_UPDATE_PERIOD_MAG,
         );
         set_status(
-            &mut self.gnss,
-            timestamp,
-            self.update_timestamps.gnss,
-            MAX_UPDATE_PERIOD_GNSS,
-        );
-        set_status(
             &mut self.gnss_can,
             timestamp,
             self.update_timestamps.gnss_can,
@@ -145,7 +138,6 @@ impl Default for SensorStatus {
 #[derive(Default)]
 pub struct UpdateTimestamps {
     pub imu: Option<f32>,
-    pub gnss: Option<f32>,
     pub gnss_can: Option<f32>,
     pub baro: Option<f32>,
     pub baro_can: Option<f32>,
