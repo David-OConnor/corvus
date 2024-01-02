@@ -5,7 +5,7 @@ pub mod baro_dps310;
 pub mod gnss_can;
 pub mod imu_icm426xx;
 // pub mod imu_ism330dhcx;
-pub mod mag_lis3mdl;
+// pub mod mag_lis3mdl;
 // pub mod optical_flow_driver;
 pub mod osd;
 // `tof_driver` uses partially-translated C code that doesn't conform to Rust naming conventions.

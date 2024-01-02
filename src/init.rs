@@ -376,7 +376,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         "System status:\n IMU: {}, Baro: {}, Mag: {}, GPS: {}, TOF: {}, OSD: {}",
         system_status.imu == SensorStatus::Pass,
         system_status.baro == SensorStatus::Pass,
-        system_status.magnetometer == SensorStatus::Pass,
+        system_status.magnetometer_can == SensorStatus::Pass,
         system_status.gnss_can == SensorStatus::Pass,
         system_status.tof == SensorStatus::Pass,
         system_status.osd == SensorStatus::Pass,

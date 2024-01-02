@@ -53,7 +53,7 @@ pub struct SystemStatus {
     /// The time-of-flight sensor module is connected. Detected on init.
     pub tof: SensorStatus,
     ///  magnetometer is connected. Likely on the same module as GPS. Detected on init.
-    pub magnetometer: SensorStatus,
+    // pub magnetometer: SensorStatus,
     pub magnetometer_can: SensorStatus,
     pub esc_telemetry: SensorStatus,
     pub esc_rpm: SensorStatus,
@@ -91,12 +91,12 @@ impl SystemStatus {
             self.update_timestamps.baro_can,
             MAX_UPDATE_PERIOD_BARO,
         );
-        set_status(
-            &mut self.magnetometer,
-            timestamp,
-            self.update_timestamps.mag,
-            MAX_UPDATE_PERIOD_MAG,
-        );
+        // set_status(
+        //     &mut self.magnetometer,
+        //     timestamp,
+        //     self.update_timestamps.mag,
+        //     MAX_UPDATE_PERIOD_MAG,
+        // );
         set_status(
             &mut self.magnetometer_can,
             timestamp,
@@ -141,7 +141,6 @@ pub struct UpdateTimestamps {
     pub gnss_can: Option<f32>,
     pub baro: Option<f32>,
     pub baro_can: Option<f32>,
-    pub mag: Option<f32>,
     pub mag_can: Option<f32>,
     pub imu_can: Option<f32>,
     pub ahrs_can: Option<f32>,

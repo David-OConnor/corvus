@@ -59,9 +59,7 @@ mod util;
 
 use crate::{
     control_interface::ChannelData,
-    drivers::{
-        baro_dps310 as baro, imu_icm426xx as imu, mag_lis3mdl as mag, osd, tof_vl53l1 as tof,
-    },
+    drivers::{baro_dps310 as baro, imu_icm426xx as imu, osd, tof_vl53l1 as tof},
     flight_ctrls::{
         autopilot::AutopilotStatus,
         ctrl_effect_est::AccelMaps,

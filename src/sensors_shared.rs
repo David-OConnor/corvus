@@ -4,14 +4,14 @@
 use stm32_hal2::dma;
 
 use crate::{
-    baro, mag,
-    setup::{self, I2cBaro, I2cMag, BARO_DMA_PERIPH, BARO_RX_CH, BARO_TX_CH},
+    baro,
+    setup::{self, I2cBaro, BARO_DMA_PERIPH, BARO_RX_CH, BARO_TX_CH},
 };
 
 // Each of these values is register, value to write to register.
 // We sequence these using TC ISRs.
 pub static mut WRITE_BUF_BARO: [u8; 1] = [baro::Reg::PsrB2 as u8];
-pub static mut WRITE_BUF_MAG: [u8; 1] = [mag::Reg::OutXL as u8];
+// pub static mut WRITE_BUF_MAG: [u8; 1] = [mag::Reg::OutXL as u8];
 pub static mut WRITE_BUF_TOF: [u8; 2] = [0; 2];
 
 pub static mut READ_BUF_BARO: [u8; 6] = [0; 6]; // 3x pressure, 3x temperature.

@@ -43,7 +43,6 @@ use crate::{
         flash_spi,
         // tof_vl53l1 as tof,
         imu_icm426xx as imu,
-        mag_lis3mdl as mag,
     },
     // flight_ctrls::common::Motor,
     protocols::{

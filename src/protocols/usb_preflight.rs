@@ -67,7 +67,7 @@ const WAYPOINT_MAX_NAME_LEN: usize = 12; // todo
 pub const WAYPOINT_SIZE: usize = F32_SIZE * 3 + WAYPOINT_MAX_NAME_LEN + 1;
 pub const WAYPOINTS_SIZE: usize = crate::state::MAX_WAYPOINTS * WAYPOINT_SIZE;
 pub const SET_SERVO_POSIT_SIZE: usize = 1 + F32_SIZE; // Servo num, value
-pub const SYS_STATUS_SIZE: usize = 11; // Sensor status (u8) * 12
+pub const SYS_STATUS_SIZE: usize = 12; // Sensor status (u8) * 12
 pub const AP_STATUS_SIZE: usize = 12; //
 pub const SYS_AP_STATUS_SIZE: usize = SYS_STATUS_SIZE + AP_STATUS_SIZE;
 #[cfg(feature = "quad")]
@@ -300,7 +300,8 @@ impl SystemStatus {
             self.imu as u8,
             self.baro as u8,
             self.tof as u8,
-            self.magnetometer as u8,
+            self.gnss_can as u8,
+            self.magnetometer_can as u8,
             self.esc_telemetry as u8,
             self.esc_rpm as u8,
             self.rf_control_link as u8,
