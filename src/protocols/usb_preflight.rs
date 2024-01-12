@@ -20,7 +20,7 @@ use lin_alg2::f32::Quaternion;
 use stm32_hal2::flash::Flash;
 
 use crate::{
-    control_interface::ChannelData,
+    controller_interface::ChannelData,
     flight_ctrls::{
         common::AttitudeCommanded,
         motor_servo::{MotorPower, MotorRpm, MotorServoState},

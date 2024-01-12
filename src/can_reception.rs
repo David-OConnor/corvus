@@ -50,7 +50,7 @@ pub fn run(mut cx: app::can_isr::Context) {
                     MsgType::Fix2 => {
                         println!("Parsing DroneCAN fix.");
                         let fix = gnss_can::parse_fix(
-                            &rx_buf[..dronecan::MsgType::Fix2.payload_size() as usize],
+                            &rx_buf[..MsgType::Fix2.payload_size() as usize],
                         );
 
                         match fix {
@@ -59,6 +59,9 @@ pub fn run(mut cx: app::can_isr::Context) {
                                     "Fix. Time: {}. Lat: {}. Lon: {}. Msl: {}",
                                     f.timestamp_s, f.lat_e7, f.lon_e7, f.elevation_msl,
                                 );
+                                cx.shared.fix.lock(|fix| {
+                                    *fix = f;
+                                });
                             }
                             Err(_) => {
                                 println!("Error parsing fix");

@@ -122,8 +122,8 @@ impl Default for SteerpointCycleActuation {
 pub enum InputModeSwitch {
     /// Acro mode
     Acro = 0,
-    /// Command if GPS is present; Attitude if not
-    AttitudeCommand = 1,
+    /// Loiter if GPS is present; Attitude if not
+    AttitudeLoiter = 1,
 }
 
 impl Default for InputModeSwitch {
@@ -168,7 +168,7 @@ pub struct ChannelData {
     /// switch. (Quad), 3-pos switch (fixed-wing)
     /// todo: Currently, the ELRS arm channel is hard set and 2-pos, so we use 2 2-pos switches.
     pub arm_status: ArmStatus,
-    /// Ie angular-rate-based (Acro), or Command (with GPS present) or attitude-based
+    /// Ie angular-rate-based (Acro), or Loiter (with GPS present) or attitude-based
     /// (no GPS present). Ideally on 2-position non-spring switch.
     pub input_mode: InputModeSwitch, // todo: Reconsider how this works.
     /// Eg disabled, AGL, or MSL.  Ideally on 3-position non-spring switch.
@@ -187,7 +187,7 @@ pub struct ChannelData {
 }
 
 impl ChannelData {
-    pub fn from_crsf(crsf_data: &ChannelDataCrsf) -> Self {
+    pub fn from_channel_data(crsf_data: &ChannelDataCrsf) -> Self {
         // https://www.expresslrs.org/3.0/software/switch-config/:
         // "WARNING: Put your arm switch on AUX1, and set it as ~1000 is disarmed, ~2000 is armed."
         // todo: On fixed wing, you want this to be a 3-pos switch, but this may not be
@@ -200,7 +200,7 @@ impl ChannelData {
         };
         let input_mode = match crsf_data.aux_2 {
             0..=1_000 => InputModeSwitch::Acro,
-            _ => InputModeSwitch::AttitudeCommand,
+            _ => InputModeSwitch::AttitudeLoiter,
         };
 
         let alt_hold = match crsf_data.aux_3 {
@@ -304,7 +304,7 @@ pub fn handle_crsf_data(
     if let Some(crsf_data) = crsf::handle_packet(setup::CRSF_RX_CH, &mut rx_fault) {
         match crsf_data {
             crsf::PacketData::ChannelData(data_crsf) => {
-                *control_channel_data = Some(ChannelData::from_crsf(&data_crsf));
+                *control_channel_data = Some(ChannelData::from_channel_data(&data_crsf));
 
                 crsf::NEW_PACKET_RECEIVED.store(false, Ordering::Release);
 

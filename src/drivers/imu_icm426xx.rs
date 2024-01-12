@@ -307,38 +307,3 @@ pub fn _read_temp(spi: &mut SpiImu, cs: &mut Pin) -> Result<f32, ImuError> {
     let temp_data = ((upper_byte as u16) << 8) | (lower_byte as u16);
     Ok(temp_data as f32 / 132.48 + 25.)
 }
-
-// /// Read all data, in blocking fashion. Deprecated in favor of DMA.
-// pub fn _read_all(spi: &mut SpiImu, cs: &mut Pin) -> Result<_ImuReadingsRaw, ImuError> {
-//     let accel_x_upper = read_one(Reg::Bank0(RegBank0::AccelDataX1), spi, cs)?;
-//     let accel_x_lower = read_one(Reg::Bank0(RegBank0::AccelDataX0), spi, cs)?;
-//     let accel_y_upper = read_one(Reg::Bank0(RegBank0::AccelDataY1), spi, cs)?;
-//     let accel_y_lower = read_one(Reg::Bank0(RegBank0::AccelDataY0), spi, cs)?;
-//     let accel_z_upper = read_one(Reg::Bank0(RegBank0::AccelDataZ1), spi, cs)?;
-//     let accel_z_lower = read_one(Reg::Bank0(RegBank0::AccelDataZ0), spi, cs)?;
-//
-//     let gyro_x_upper = read_one(Reg::Bank0(RegBank0::GyroDataX1), spi, cs)?;
-//     let gyro_x_lower = read_one(Reg::Bank0(RegBank0::GyroDataX0), spi, cs)?;
-//     let gyro_y_upper = read_one(Reg::Bank0(RegBank0::GyroDataY1), spi, cs)?;
-//     let gyro_y_lower = read_one(Reg::Bank0(RegBank0::GyroDataY0), spi, cs)?;
-//     let gyro_z_upper = read_one(Reg::Bank0(RegBank0::GyroDataZ1), spi, cs)?;
-//     let gyro_z_lower = read_one(Reg::Bank0(RegBank0::GyroDataZ0), spi, cs)?;
-//
-//     let a_x = i16::from_be_bytes([accel_x_upper, accel_x_lower]);
-//     let a_y = i16::from_be_bytes([accel_y_upper, accel_y_lower]);
-//     let a_z = i16::from_be_bytes([accel_z_upper, accel_z_lower]);
-//
-//     // Positive yaw: CW rotation. Positive pitch: Nose down.
-//     let v_pitch = i16::from_be_bytes([gyro_x_upper, gyro_x_lower]);
-//     let v_roll = i16::from_be_bytes([gyro_y_upper, gyro_y_lower]);
-//     let v_yaw = i16::from_be_bytes([gyro_z_upper, gyro_z_lower]);
-//
-//     Ok(_ImuReadingsRaw {
-//         a_x,
-//         a_y,
-//         a_z,
-//         v_pitch,
-//         v_roll,
-//         v_yaw,
-//     })
-// // }

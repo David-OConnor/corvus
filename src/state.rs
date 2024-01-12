@@ -18,7 +18,7 @@ use defmt::println;
 #[cfg(feature = "fixed-wing")]
 use crate::flight_ctrls::{ControlSurfaceConfig, YawControl};
 use crate::{
-    control_interface::InputModeSwitch,
+    controller_interface::InputModeSwitch,
     flight_ctrls::{
         autopilot::LandingCfg,
         common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap},
@@ -244,7 +244,7 @@ impl UserConfig {
 pub struct StateVolatile {
     pub arm_status: ArmStatus,
     pub op_mode: OperationMode,
-    #[cfg(feature = "quad")]
+    #[cfg(feature = "quad")] // todo: Why is this quad only?
     pub input_mode: InputMode,
     pub input_mode_switch: InputModeSwitch,
     // For now, we use "link lost" to include never having been connected.

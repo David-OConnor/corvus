@@ -216,12 +216,14 @@ where
             if #[cfg(feature = "h7")] {
                 while !self.regs.sr.read().txp().bit_is_set() {}
                 // todo: note: H7 can support words beyond u8. (Can others too?)
+                #[allow(invalid_reference_casting)]
                 unsafe { ptr::write_volatile(&self.regs.txdr as *const _ as *mut u8, byte) };
                 // write CSTART to start a transaction in master mode
                 self.regs.cr1.modify(|_, w| w.cstart().started());
             }
              else {
                 while !self.regs.sr.read().txe().bit_is_set() {}
+                #[allow(invalid_reference_casting)]
                 unsafe { ptr::write_volatile(&self.regs.dr as *const _ as *mut u8, byte) };
             }
         }

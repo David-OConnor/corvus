@@ -1,15 +1,21 @@
 //! This module contains flight control code not specific to an aircraft design category.
 //! It is mostly types.
 
+use core::f32::consts::TAU;
+
 use lin_alg2::f32::Quaternion;
 
 use crate::util::{self, map_linear};
 
-// Our input ranges for the 4 controls
+// Our input ranges for the 4 controls. rad/s
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);
 const ROLL_IN_RNG: (f32, f32) = (-1., 1.);
 const YAW_IN_RNG: (f32, f32) = (-1., 1.);
 const THROTTLE_IN_RNG: (f32, f32) = (0., 1.);
+
+// For attitude mode. rad.
+const PITCH_IN_RNG_ATT: (f32, f32) = (-TAU/4., TAU/4.);
+const ROLL_IN_RNG_ATT: (f32, f32) = (-TAU/4., TAU/4.);
 
 /// Maps manual control inputs (range 0. to 1. or -1. to 1.) to velocities, rotational velocities etc
 /// for various flight modes. The values are for full input range.
@@ -58,12 +64,12 @@ impl InputMap {
 
     #[cfg(feature = "quad")]
     pub fn calc_pitch_angle(&self, input: f32) -> f32 {
-        map_linear(input, PITCH_IN_RNG, self.pitch_angle)
+        map_linear(input, PITCH_IN_RNG_ATT, self.pitch_angle)
     }
 
     #[cfg(feature = "quad")]
     pub fn calc_roll_angle(&self, input: f32) -> f32 {
-        map_linear(input, ROLL_IN_RNG, self.roll_angle)
+        map_linear(input, ROLL_IN_RNG_ATT, self.roll_angle)
     }
 }
 

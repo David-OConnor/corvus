@@ -20,7 +20,7 @@ use super::{
 // todo: YOu probably need filters.
 use crate::main_loop::FLIGHT_CTRL_IMU_RATIO;
 use crate::{
-    control_interface::ChannelData,
+    controller_interface::ChannelData,
     main_loop::{ATT_CMD_UPDATE_RATIO, DT_FLIGHT_CTRLS},
     util::{self, clamp, map_linear},
 };
@@ -73,7 +73,7 @@ impl Default for CtrlCoeffs {
     }
 }
 
-/// Calculate an angular velocity to command to perform a given attitude correction on a given axis.
+/// Calculate an angular velocity command to perform a given attitude correction on a given axis.
 /// Attempts to command a constant angular acceleration, using kinematics. Assumes we have an accurate
 /// way of commanding angular velocity, as that's downstream of this.
 fn att_correction_to_ω(dθ: f32, time_to_correct: f32, ω_target: f32) -> f32 {
@@ -237,7 +237,7 @@ pub fn ctrl_mix_from_att(
 ) -> CtrlMix {
     // todo: Modulate based on airspeed.
 
-    let rotation_cmd = target_attitude / current_attitude;
+    // let rotation_cmd = target_attitude / current_attitude;
 
     let pitch = find_ctrl_setting(
         rot_euler.pitch,
@@ -320,9 +320,9 @@ pub fn ang_v_from_attitudes(
     (x_comp * dt, y_comp * dt, z_comp * dt)
 }
 
-/// Based on control channel data, update attitude commanded, and attitude-rate
-/// commanded
-pub fn update_att_commanded(
+/// Used in Acro mode. Based on control channel data, update attitude commanded, and attitude-rate
+/// commanded. Controls map to commanded angular velocity.
+pub fn update_att_commanded_acro(
     ch_data: &ChannelData,
     input_map: &InputMap,
     att_commanded_prev: Quaternion,
@@ -330,6 +330,7 @@ pub fn update_att_commanded(
     has_taken_off: bool,
     takeoff_attitude: Quaternion,
 ) -> (Quaternion, (f32, f32, f32)) {
+    // If we haven't taken off, apply the attitude lock.
     if !has_taken_off {
         // Prevent the aircraft from snapping north on takeoff. `takeoff_att` is only relevant for
         // pitch and roll. This syncs the commadned attiude's yaw to current attitude's.
@@ -341,25 +342,9 @@ pub fn update_att_commanded(
         return (att, (0., 0., 0.));
     }
 
-    // let rates_commanded = RatesCommanded {
-    //     pitch: Some(cfg.input_map.calc_pitch_rate(ch_data.pitch)),
-    //     roll: Some(cfg.input_map.calc_roll_rate(ch_data.roll)),
-    //     yaw: Some(cfg.input_map.calc_yaw_rate(ch_data.yaw)),
-    // };
-
-    // Apply a deadzone, which prevents continous drift. Might be useful in general,
-    // but is there something else going on that causes this?
-    const DEADZONE_RANGE: f32 = 0.001;
-
-    let mut pitch_cmd = -ch_data.pitch;
-    let mut roll_cmd = ch_data.roll;
-    let mut yaw_cmd = ch_data.yaw;
-
-    // for command in &mut [pitch_cmd, roll_cmd, yaw_cmd] {
-    //     if *command > -DEADZONE_RANGE && *command < DEADZONE_RANGE {
-    //         *command = 0.
-    //     }
-    // }
+    let pitch_cmd = -ch_data.pitch;
+    let roll_cmd = ch_data.roll;
+    let yaw_cmd = ch_data.yaw;
 
     // Negative on pitch, since we want pulling down (back) on the stick to raise
     // the nose.
@@ -367,37 +352,79 @@ pub fn update_att_commanded(
     let roll_rate_cmd = input_map.calc_roll_rate(roll_cmd);
     let yaw_rate_cmd = input_map.calc_yaw_rate(yaw_cmd);
 
-    // todo: Should attitude commanded regress to current attitude if it hasn't changed??
-
-    // If we haven't taken off, apply the attitude lock.
-
     // Don't update attitude commanded, or the change in attitude commanded
     // each loop. We don't get control commands that rapidly, and more importantly,
     // doing it every loop leads to numerical precision issues due to how small
     // the changes are.
+
+    let dt = DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32;
 
     let att_commanded_current = modify_att_target(
         att_commanded_prev,
         pitch_rate_cmd,
         roll_rate_cmd,
         yaw_rate_cmd,
-        DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
+        dt,
     );
-    // todo: Instead of skipping ones not on the update ratio, you could store
-    // todo a buffer of attitudes, and look that far back.
-    // if i % ATT_CMD_UPDATE_RATIO == 0 {
-    // state_volatile.attitude_commanded.quat_dt = Torque::from_attitudes(
-    //     att_cmd_prev,
-    //     state_volatile.attitude_commanded.quat,
-    //     DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
-    // );
 
     (
         att_commanded_current,
         ang_v_from_attitudes(
             att_commanded_prev,
             att_commanded_current,
-            DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32,
+            dt,
+        ),
+    )
+}
+
+/// Used in Attitude mode. Based on control channel data, update attitude commanded, and attitude-rate
+/// commanded. Controls map to attitude directly.
+pub fn update_att_commanded_att_mode(
+    ch_data: &ChannelData,
+    input_map: &InputMap,
+    att_commanded_prev: Quaternion,
+    current_att: Quaternion,
+    has_taken_off: bool,
+    takeoff_attitude: Quaternion,
+) -> (Quaternion, (f32, f32, f32)) {
+    // todo: DRY with acro fn.
+    // If we haven't taken off, apply the attitude lock.
+    if !has_taken_off {
+        // Prevent the aircraft from snapping north on takeoff. `takeoff_att` is only relevant for
+        // pitch and roll. This syncs the commadned attiude's yaw to current attitude's.
+        let aircraft_hdg = current_att.to_axes().2;
+
+        let heading_rotation = Quaternion::from_axis_angle(UP, -aircraft_hdg);
+
+        let att = heading_rotation * takeoff_attitude;
+        return (att, (0., 0., 0.));
+    }
+
+    let pitch_cmd = -ch_data.pitch;
+    let roll_cmd = ch_data.roll;
+    let yaw_cmd = ch_data.yaw;
+
+    // Negative on pitch, since we want pulling down (back) on the stick to raise
+    // the nose.
+    let pitch_att_cmd = input_map.calc_pitch_angle(pitch_cmd);
+    let roll_att_cmd = input_map.calc_roll_angle(roll_cmd);
+    let yaw_rate_cmd = input_map.calc_yaw_rate(yaw_cmd);
+
+    let rotation_pitch = Quaternion::from_axis_angle(RIGHT, pitch_att_cmd);
+    let rotation_roll = Quaternion::from_axis_angle(FORWARD, roll_att_cmd);
+
+    let dt = DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32;
+    let rotation_yaw = Quaternion::from_axis_angle(UP, yaw_rate_cmd * dt);
+
+    // todo: Axis order, A/R. And, DRY from above.
+    let att_commanded_current = (rotation_yaw * rotation_roll * rotation_pitch).to_normalized();
+
+    (
+        att_commanded_current,
+        ang_v_from_attitudes(
+            att_commanded_prev,
+            att_commanded_current,
+            dt,
         ),
     )
 }

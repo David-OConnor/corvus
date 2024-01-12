@@ -9,7 +9,7 @@ use core::f32::consts::TAU;
 
 use super::common::InputMap;
 use crate::{
-    control_interface::InputModeSwitch,
+    controller_interface::InputModeSwitch,
     state::StateVolatile,
     system_status::{SensorStatus, SystemStatus},
     util,
@@ -76,7 +76,7 @@ pub enum InputMode {
     /// In `Command` mode, the device loiters when idle. Otherwise, it flies at specific velocities,
     /// and altitudes commanded by the controller. Allows for precise control, including in confined
     /// spaces.
-    Command,
+    Loiter,
     // /// This mode is easy stable, and designed to make control easy, including in confined spaces.
     // /// Similar to `Command` mode, it loiters when idle. It uses an internal model of
     // /// todo: Same as Command mode? Consolidate?
@@ -162,9 +162,9 @@ pub fn set_input_mode(
 
     state_volatile.input_mode = match input_mode_control {
         InputModeSwitch::Acro => InputMode::Acro,
-        InputModeSwitch::AttitudeCommand => {
+        InputModeSwitch::AttitudeLoiter => {
             if system_status.gnss_can == SensorStatus::Pass {
-                InputMode::Command
+                InputMode::Loiter
             } else {
                 InputMode::Attitude
             }

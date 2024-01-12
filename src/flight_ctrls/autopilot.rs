@@ -7,7 +7,7 @@ use cfg_if::cfg_if;
 use num_traits::float::Float;
 
 use crate::{
-    control_interface::{AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData},
+    controller_interface::{AltHoldSwitch, AutopilotSwitchA, AutopilotSwitchB, ChannelData},
     flight_ctrls::common::{AltType, CtrlInputs},
     system_status::{SensorStatus, SystemStatus},
     util,

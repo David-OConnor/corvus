@@ -2,7 +2,6 @@
 //! `setup` module as required.
 
 use ahrs::{Ahrs, DeviceOrientation};
-use cortex_m::delay::Delay;
 use stm32_hal2::{
     adc::{self, Adc, AdcConfig, AdcDevice},
     clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
@@ -57,6 +56,7 @@ use fdcan::{
     id::{ExtendedId, Id},
     FdCan, Mailbox, NormalOperationMode, ReceiveOverrun,
 };
+use stm32_hal2::adc::Prescaler;
 use stm32_hal2::can::Can;
 type Can_ = FdCan<Can, NormalOperationMode>;
 
@@ -215,6 +215,10 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         // sample_time: adc::SampleTime::T601,
         sample_time: adc::SampleTime::T181, // todo t!
         operation_mode: adc::OperationMode::Continuous,
+
+        // todo TS
+        prescaler: Prescaler::D128,
+
         ..Default::default()
     };
 

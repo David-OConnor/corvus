@@ -22,7 +22,7 @@ use motor_servo::MotorPower;
 use pid::PidCoeffs;
 
 use crate::{
-    control_interface::ChannelData,
+    controller_interface::ChannelData,
     flight_ctrls::{autopilot::AutopilotStatus, common::InputMap},
     main_loop::DT_IMU,
     setup::MotorTimer,

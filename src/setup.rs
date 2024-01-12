@@ -19,7 +19,7 @@ use stm32_hal2::{
     dma::{self, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
-    pac::{self, I2C1, I2C2, SPI1, SPI2, USART1, USART2},
+    pac::{self, I2C1, I2C2, SPI1},
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{BasicTimer, MasterModeSelection, TimChannel, Timer, TimerConfig, TimerInterrupt},
     usart::{Usart, UsartConfig},

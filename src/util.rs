@@ -12,7 +12,7 @@ use stm32_hal2::{
 };
 
 use crate::{
-    control_interface::ChannelData,
+    controller_interface::ChannelData,
     flight_ctrls::{self, autopilot::AutopilotStatus},
     main_loop::TaskDurations,
     safety::ArmStatus,

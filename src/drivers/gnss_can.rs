@@ -1,7 +1,5 @@
 //! Parses DroneCAN fixes into our own Fix format.
 
-use core::sync::atomic::AtomicUsize;
-
 use ahrs::{Fix, FixType};
 use chrono::naive::NaiveDateTime;
 use defmt::println;

@@ -16,6 +16,7 @@ cortex-m-rt = "^0.7.3"
 rtic = { version = "^2.0.1", features = ["thumbv7-backend"] }
 
 stm32-hal2 = { path = "../../stm32-hal", optional = true}
+#hal = { package = "esp32c3-hal",
 
 # CMSIS-DSP, for FFTs, FIR etc. C lib wrapped with FFI.
 # Trouble with LIBCLANG. See this: https://github.com/rust-lang/rust-bindgen/blob/master/book/src/requirements.md
@@ -49,7 +50,7 @@ anyleaf_usb = { path = "../anyleaf_usb" }
 
 # Use these features to specify GPIO mapping, and which peripherals to use.
 [features]
-default = ["h7", "quad"]
+#default = ["h7", "quad"]
 g4 = ["stm32-hal2/g4rt", "stm32-hal2/g473", "stm32-hal2/usb", "stm32-hal2/can_fd_g", "stm32-usbd", "dronecan/hal_g473"]
 h7 = ["stm32-hal2/h7rt", "stm32-hal2/h743v", "stm32-hal2/usbotg_hs", "stm32-hal2/can_fd_h", "synopsys-usb-otg", "dronecan/hal_h7" ]
 

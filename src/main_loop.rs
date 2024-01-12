@@ -4,15 +4,14 @@
 use core::sync::atomic::Ordering;
 
 use ahrs::{self, ppks::PositVelEarthUnits, ImuReadings};
-use defmt::println;
 use lin_alg2::f32::Quaternion;
 use num_traits::Float;
 use rtic::mutex_prelude::*;
 
 use crate::{
-    app, control_interface,
+    app, controller_interface,
     drivers::osd::{AutopilotData, OsdData},
-    flight_ctrls::{self, ctrl_logic, motor_servo::MotorServoState},
+    flight_ctrls::{self, ctrl_logic, motor_servo::MotorServoState, InputMode},
     imu_shared, osd,
     protocols::{crsf, rpm_reception},
     safety::{self, ArmStatus},
@@ -208,7 +207,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 if !crsf::TRANSFER_IN_PROG.load(Ordering::Acquire)
                     && crsf::NEW_PACKET_RECEIVED.load(Ordering::Acquire)
                 {
-                    control_interface::handle_crsf_data(
+                    controller_interface::handle_crsf_data(
                         control_channel_data,
                         link_stats,
                         system_status,
@@ -233,28 +232,39 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                             static mut I2: u32 = 0;
                             unsafe { I2 += 1 };
                             if unsafe { I2 } % ATT_CMD_UPDATE_RATIO == 0 {
-                                // if i % ATT_CMD_UPDATE_RATIO == 0 {
-                                let (attitude_commanded, attitude_commanded_dt) =
-                                    ctrl_logic::update_att_commanded(
-                                        ch_data,
-                                        &cfg.input_map,
-                                        state_volatile.attitude_commanded.quat,
-                                        params.attitude,
-                                        state_volatile.has_taken_off,
-                                        cfg.takeoff_attitude,
-                                    );
-
-                                // let attitude_commanded = Quaternion::new_identity();
+                                let (attitude_commanded, attitude_commanded_dt) = match state_volatile.input_mode {
+                                    InputMode::Acro => {
+                                        ctrl_logic::update_att_commanded_acro(
+                                            ch_data,
+                                            &cfg.input_map,
+                                            state_volatile.attitude_commanded.quat,
+                                            params.attitude,
+                                            state_volatile.has_taken_off,
+                                            cfg.takeoff_attitude,
+                                        )
+                                    }
+                                    InputMode::Attitude => {
+                                        ctrl_logic::update_att_commanded_att_mode(
+                                            ch_data,
+                                            &cfg.input_map,
+                                            state_volatile.attitude_commanded.quat,
+                                            params.attitude,
+                                            state_volatile.has_taken_off,
+                                            cfg.takeoff_attitude,
+                                        )
+                                    }
+                                    InputMode::Loiter => {
+                                        (Quaternion::new_identity(), (0., 0., 0.))
+                                    }
+                                };
 
                                 state_volatile.attitude_commanded.quat = attitude_commanded;
                                 state_volatile.attitude_commanded.quat_dt = attitude_commanded_dt;
-                                // }
                             }
                         }
                         None => {}
                     }
 
-                    // todo: Put back.
                     if state_volatile.op_mode == OperationMode::Preflight {
                         // todo: Figure out where this preflight motor-spin up code should be in this ISR.
                         // todo: Here should be fine, but maybe somewhere else is better.
@@ -407,9 +417,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         current_draw: state_volatile.esc_current,
                         alt_msl_baro: params.alt_msl_baro,
                         posit_vel: PositVelEarthUnits::default(),
-                        // pid_p: coeffs.roll.k_p_rate,
-                        // pid_i: coeffs.roll.k_i_rate,
-                        // pid_d: coeffs.roll.k_d_rate,
                         autopilot: AutopilotData::from_status(autopilot_status),
                         base_dist_bearing: (
                             0., 0., // todo: Fill these out
@@ -450,7 +457,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         DT_FLIGHT_CTRLS * NUM_IMU_LOOP_TASKS as f32,
                     );
 
-                    //
                     // #[cfg(feature = "fixed-wing")]
                     //      autopilot_status.apply(
                     //    &mut state_volatile.autopilot_commands,
