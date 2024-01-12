@@ -124,6 +124,7 @@ pub enum InputModeSwitch {
     Acro = 0,
     /// Loiter if GPS is present; Attitude if not
     AttitudeLoiter = 1,
+    Route = 2,
 }
 
 impl Default for InputModeSwitch {
@@ -199,8 +200,9 @@ impl ChannelData {
             // _ => motors_armed,
         };
         let input_mode = match crsf_data.aux_2 {
-            0..=1_000 => InputModeSwitch::Acro,
-            _ => InputModeSwitch::AttitudeLoiter,
+            0..=667 => InputModeSwitch::Acro,
+            668..=1_333 => InputModeSwitch::AttitudeLoiter,
+            _ => InputModeSwitch::Route,
         };
 
         let alt_hold = match crsf_data.aux_3 {

@@ -19,6 +19,8 @@ static mut FILTER_STATE_GYRO_PITCH: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_GYRO_ROLL: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_GYRO_YAW: [f32; 4] = [0.; 4];
 
+static mut FILTER_STATE_VV_BARO: [f32; 4] = [0.; 4];
+
 // todo: What cutoffs to use? I think you're in the ballpark, but maybe a little higher.
 // Using 100 for acc now.
 // filter_ = signal.iirfilter(1, 300, btype="lowpass", ftype="bessel", output="sos", fs=8_000)
@@ -44,7 +46,15 @@ static COEFFS_LP_GYRO: [f32; 5] = [
     -0.0,
 ];
 
-// todo: Calibration for IMU: Hardware, software, or both?
+
+// filter_ = signal.iirfilter(1, 30, btype="lowpass", ftype="bessel", output="sos", fs=155)
+// coeffs = []
+// for row in filter_:
+//     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
+// Assumes updated every main loop; not IMU rate.
+#[allow(clippy::excessive_precision)]
+static COEFFS_VV_BARO: [f32; 5] = [0.3002754521653259, 0.3002754521653259, 0.0, 0.3994490956693484, -0.0];
+
 
 /// Store lowpass IIR filter instances, for use with lowpass and notch filters for IMU readings.
 pub struct ImuFilters {
@@ -55,6 +65,8 @@ pub struct ImuFilters {
     pub gyro_pitch: IirInstWrapper,
     pub gyro_roll: IirInstWrapper,
     pub gyro_yaw: IirInstWrapper,
+
+    pub vv_baro: IirInstWrapper,
     // todo: Impl these notch filters once you have bidir dshot
     // pub notch_motor1: IirInstWrapper,
     // pub notch_motor2: IirInstWrapper,
@@ -82,6 +94,10 @@ impl Default for ImuFilters {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
             gyro_yaw: IirInstWrapper {
+                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
+            },
+
+            vv_baro: IirInstWrapper {
                 inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
             },
         };
@@ -119,6 +135,12 @@ impl Default for ImuFilters {
                 &COEFFS_LP_GYRO,
                 &mut FILTER_STATE_GYRO_YAW,
             );
+
+            dsp_api::biquad_cascade_df1_init_f32(
+                &mut result.vv_baro.inner,
+                &COEFFS_VV_BARO,
+                &mut FILTER_STATE_VV_BARO,
+            );
         }
 
         result
@@ -127,6 +149,7 @@ impl Default for ImuFilters {
 
 impl ImuFilters {
     /// Apply the filters to IMU readings, modifying in place. Block size = 1.
+    /// Note: Baro is handled separately.
     pub fn apply(&mut self, data: &mut ImuReadings) {
         let mut a_x = [0.];
         let mut a_y = [0.];

@@ -222,6 +222,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 cx.local.task_durations.imu = timestamp_imu_complete - timestamp;
 
                 if i % FLIGHT_CTRL_IMU_RATIO == 0 {
+                    let mut throttle = 0.;
+
                     // Update our commanded attitude
                     match control_channel_data {
                         Some(ch_data) => {
@@ -250,12 +252,40 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                         )
                                     }
                                     InputMode::Loiter => {
+                                        // throttle = flight_ctrls::alt_hold_throttle
+                                        (Quaternion::new_identity(), (0., 0., 0.))
+                                    }
+                                    InputMode::Route => {
+                                        // throttle = ch_data.throttle;
                                         (Quaternion::new_identity(), (0., 0., 0.))
                                     }
                                 };
 
                                 state_volatile.attitude_commanded.quat = attitude_commanded;
                                 state_volatile.attitude_commanded.quat_dt = attitude_commanded_dt;
+                            }
+
+
+                            throttle = match state_volatile.input_mode {
+                                 InputMode::Acro => {
+                                    ch_data.throttle
+                                }
+                                InputMode::Attitude => {
+                                    flight_ctrls::throttle_from_alt_hold(
+                                        params,
+                                        ch_data.throttle,
+                                    )
+                                }
+                                InputMode::Loiter => {
+                                    flight_ctrls::throttle_from_alt_hold(
+                                        params,
+                                        ch_data.throttle,
+                                    )
+                                }
+                                InputMode::Route => {
+                                    0.
+                                }
+
                             }
                         }
                         None => {}
@@ -293,6 +323,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     &cfg.pid_coeffs,
                                     &autopilot_status,
                                     state_volatile.has_taken_off,
+                                    throttle,
                                 );
                             },
                         );

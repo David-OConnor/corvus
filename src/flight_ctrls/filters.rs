@@ -22,7 +22,7 @@ static COEFFS_CTRL_EFFECTIVENESS: [f32; 5] = [
     -0.0,
 ];
 
-//
+
 // filter_ = signal.iirfilter(1, 100, btype="lowpass", ftype="bessel", output="sos", fs=2_048)
 // coeffs = []
 // for row in filter_:
@@ -221,6 +221,5 @@ impl FlightCtrlFilters {
             d_term_y_out[0],
             d_term_z_out[0],
         )
-        // data.a_x = a_x[0];
     }
 }

@@ -41,6 +41,8 @@ use stm32_hal2::{
 use usb_device::prelude::*;
 use usbd_serial::{self, SerialPort};
 
+use cmsis_dsp_api as dsp_api;
+
 mod atmos_model;
 mod can_reception;
 mod controller_interface;
@@ -702,7 +704,7 @@ mod app {
 
     // #[task(binds = DMA2_STR2,
     #[task(binds = DMA2_CH2,
-    shared = [altimeter, params, state_volatile, system_status, tick_timer], priority = 2)]
+    shared = [altimeter, params, state_volatile, system_status, tick_timer, imu_filters], priority = 2)]
     /// Baro read complete; handle data, and start next write.
     fn baro_read_tc_isr(mut cx: baro_read_tc_isr::Context) {
         dma::clear_interrupt(
@@ -726,19 +728,32 @@ mod app {
             cx.shared.altimeter,
             cx.shared.params,
             cx.shared.state_volatile,
+            cx.shared.imu_filters,
         )
-            .lock(|altimeter, params, state_volatile| {
+            .lock(|altimeter, params, state_volatile, filters| {
                 // todo: Process your baro reading here.
                 let (pressure, temp) = altimeter.pressure_temp_from_readings(buf);
 
                 state_volatile.pressure_static = pressure;
                 state_volatile.temp_baro = temp;
 
-                let altitude =
+                let altitude_raw =
                     atmos_model::estimate_altitude_msl(pressure, temp, &altimeter.ground_cal);
 
-                // todo: We must low-pass this, or take a wider window.
+                let mut filter_output = [0.];
+                dsp_api::biquad_cascade_df1_f32(
+                    &mut filters.vv_baro.inner,
+                    &[altitude_raw],
+                    &mut filter_output,
+                    1,
+                );
+                let altitude = filter_output[0];
+
+                // todo: We apply a low-pass filter here, since the readings are low-resolution; otherwise
+                // VV would appear as mostly 0, with bursts of activity.
+                // todo: Linear kalman instead?
                 params.v_z_baro = (altitude - params.alt_msl_baro) / DT_BARO;
+                println!("V Z baro: {:?}", params.v_z_baro);
                 params.alt_msl_baro = altitude;
             });
 

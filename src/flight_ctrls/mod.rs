@@ -52,18 +52,19 @@ pub fn run(
     pid_coeffs: &PidCoeffs,
     autopilot_status: &AutopilotStatus,
     has_taken_off: bool,
+    throttle: f32,
 ) {
-    let throttle = match state_volatile.autopilot_commands.throttle {
-        Some(t) => t,
-        None => match control_channel_data {
-            Some(ch_data) => {
-                // todo: Injust AP alt code here.
-                // todo: Dedicated fn A/R
-                ch_data.throttle
-            }
-            None => 0.,
-        },
-    };
+    // let throttle = match state_volatile.autopilot_commands.throttle {
+    //     Some(t) => t,
+    //     None => match control_channel_data {
+    //         Some(ch_data) => {
+    //             // todo: Injust AP alt code here.
+    //             // todo: Dedicated fn A/R
+    //             ch_data.throttle
+    //         }
+    //         None => 0.,
+    //     },
+    // };
 
     // todo: Temp using rate controls to TS flight control logic
     let pry = match control_channel_data {

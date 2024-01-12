@@ -254,6 +254,7 @@ pub struct StateVolatile {
     /// The commanded attitude. Used in attitude mode, and a variant of rate mode.
     /// For attitude mode, and modified rate mode.
     pub attitude_commanded: AttitudeCommanded,
+    // pub throttle_commanded: f32, // todo: Reconcile with your prev impl using AP.
     // pub rates_commanded: RatesCommanded,
     // /// On a scale of 0 to 1.
     pub autopilot_commands: CtrlInputs,

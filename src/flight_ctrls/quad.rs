@@ -83,6 +83,7 @@ pub enum InputMode {
     // /// Similar to `Command` mode, it loiters when idle. It uses an internal model of
     // /// todo: Same as Command mode? Consolidate?
     // VideoGame,
+    Route,
 }
 
 impl Default for InputMode {
@@ -171,5 +172,13 @@ pub fn set_input_mode(
                 InputMode::Attitude
             }
         }
+        InputModeSwitch::Route => InputMode::Route,
     }
+}
+
+pub fnthrottle_from_alt_hold(
+    params: &Params,
+    ch_data_throttle: f32,
+) -> f32 {
+    0.
 }
