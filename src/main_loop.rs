@@ -266,24 +266,40 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                             }
 
 
-                            throttle = match state_volatile.input_mode {
+                            match state_volatile.input_mode {
                                  InputMode::Acro => {
-                                    ch_data.throttle
+                                    // ch_data.throttle
                                 }
                                 InputMode::Attitude => {
-                                    flight_ctrls::throttle_from_alt_hold(
-                                        params,
+                                    // todo: Delegate to a diff fn A/R.
+                                    let (alt, vv) = ctrl_logic::update_alt_baro_commanded(
                                         ch_data.throttle,
-                                    )
+                                        &cfg.input_map,
+                                        params.attitude,
+                                        params.v_z_baro,
+                                    );
+
+                                    //
+                                    // flight_ctrls::throttle_from_alt_hold(
+                                    //     params.attitude,
+                                    //     // todo: Like attitude, change the target alt using the throttle.
+                                    //     ch_data.throttle,
+                                    // )
+
+                                    state_volatile.alt_baro_commanded = (alt, vv);
                                 }
                                 InputMode::Loiter => {
-                                    flight_ctrls::throttle_from_alt_hold(
-                                        params,
+                                    // todo: Delegate to a diff fn A/R.
+                                    let (alt, vv) = ctrl_logic::update_alt_baro_commanded(
                                         ch_data.throttle,
-                                    )
+                                        &cfg.input_map,
+                                        params.attitude,
+                                        params.v_z_baro,
+                                    );
+
+                                    state_volatile.alt_baro_commanded = (alt, vv);
                                 }
                                 InputMode::Route => {
-                                    0.
                                 }
 
                             }

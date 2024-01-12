@@ -428,3 +428,15 @@ pub fn update_att_commanded_att_mode(
         ),
     )
 }
+
+/// Used in Attitude and Loiter modes. Based on control channel data, update baro alt commanded, and
+/// vv commanded..
+pub fn update_alt_baro_commanded(
+    ch_data_throttle: f32, // todo: Move A/R; this is only for manual controls. Keep for now.
+    input_map: &InputMap,
+    attitude: Quaternion,
+    vz_baro_current: f32,
+) -> (f32, f32) {
+
+
+}

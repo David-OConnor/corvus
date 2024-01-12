@@ -1,4 +1,4 @@
-//! This module handles mapping control inputs from the radio controller to program functions.
+//! This module handles mapping control inputs from the (handheld etc) radio controller to program functions.
 //! It is not based on the ELRS or CRSF spec; it's an interface layer between that, and the rest of this program.
 //! Interfaces in this module is specific to this program.
 //!
@@ -172,8 +172,8 @@ pub struct ChannelData {
     /// Ie angular-rate-based (Acro), or Loiter (with GPS present) or attitude-based
     /// (no GPS present). Ideally on 2-position non-spring switch.
     pub input_mode: InputModeSwitch, // todo: Reconsider how this works.
-    /// Eg disabled, AGL, or MSL.  Ideally on 3-position non-spring switch.
-    pub alt_hold: AltHoldSwitch,
+    // ///Eg disabled, AGL, or MSL.  Ideally on 3-position non-spring switch.
+    // pub alt_hold: AltHoldSwitch,
     pub autopilot_a: AutopilotSwitchA,
     pub autopilot_b: AutopilotSwitchB,
     pub steerpoint_cycle: SteerpointCycleActuation,
@@ -205,11 +205,11 @@ impl ChannelData {
             _ => InputModeSwitch::Route,
         };
 
-        let alt_hold = match crsf_data.aux_3 {
-            0..=667 => AltHoldSwitch::Disabled,
-            668..=1_333 => AltHoldSwitch::EnabledMsl,
-            _ => AltHoldSwitch::EnabledAgl,
-        };
+        // let alt_hold = match crsf_data.aux_3 {
+        //     0..=667 => AltHoldSwitch::Disabled,
+        //     668..=1_333 => AltHoldSwitch::EnabledMsl,
+        //     _ => AltHoldSwitch::EnabledAgl,
+        // };
 
         let autopilot_a = match crsf_data.aux_4 {
             0..=667 => AutopilotSwitchA::Disabled,
@@ -281,7 +281,7 @@ impl ChannelData {
             yaw: channel_to_val(crsf_data.channel_4, false),
             arm_status,
             input_mode,
-            alt_hold,
+            // alt_hold,
             autopilot_a,
             autopilot_b,
             steerpoint_cycle,

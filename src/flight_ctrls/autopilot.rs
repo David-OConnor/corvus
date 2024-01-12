@@ -568,34 +568,34 @@ impl AutopilotStatus {
 
     /// Set auto pilot modes based on control inputs.
     pub fn set_modes_from_ctrls(&mut self, control_channel_data: &ChannelData, params: &Params) {
-        match control_channel_data.alt_hold {
-            AltHoldSwitch::Disabled => self.alt_hold = None,
-            // If just setting this hold mode, use the current altitude. Otherwise, keep
-            // the same value.
-            AltHoldSwitch::EnabledAgl => {
-                let alt_to_hold = match self.alt_hold {
-                    Some((alt_type, val)) => match alt_type {
-                        AltType::Msl => params.alt_tof.unwrap_or(20.),
-                        AltType::Agl => val,
-                    },
-                    None => params.alt_tof.unwrap_or(20.),
-                };
-                self.alt_hold = Some((AltType::Agl, alt_to_hold));
-            }
-            AltHoldSwitch::EnabledMsl => {
-                let new_commanded_alt = params.alt_msl_baro;
-                // todo temp:
-                let new_commanded_alt = 0.2;
-                let alt_to_hold = match self.alt_hold {
-                    Some((alt_type, val)) => match alt_type {
-                        AltType::Msl => val,
-                        AltType::Agl => new_commanded_alt,
-                    },
-                    None => new_commanded_alt,
-                };
-                self.alt_hold = Some((AltType::Msl, alt_to_hold));
-            }
-        }
+        // match control_channel_data.alt_hold {
+        //     AltHoldSwitch::Disabled => self.alt_hold = None,
+        //     // If just setting this hold mode, use the current altitude. Otherwise, keep
+        //     // the same value.
+        //     AltHoldSwitch::EnabledAgl => {
+        //         let alt_to_hold = match self.alt_hold {
+        //             Some((alt_type, val)) => match alt_type {
+        //                 AltType::Msl => params.alt_tof.unwrap_or(20.),
+        //                 AltType::Agl => val,
+        //             },
+        //             None => params.alt_tof.unwrap_or(20.),
+        //         };
+        //         self.alt_hold = Some((AltType::Agl, alt_to_hold));
+        //     }
+        //     AltHoldSwitch::EnabledMsl => {
+        //         let new_commanded_alt = params.alt_msl_baro;
+        //         // todo temp:
+        //         let new_commanded_alt = 0.2;
+        //         let alt_to_hold = match self.alt_hold {
+        //             Some((alt_type, val)) => match alt_type {
+        //                 AltType::Msl => val,
+        //                 AltType::Agl => new_commanded_alt,
+        //             },
+        //             None => new_commanded_alt,
+        //         };
+        //         self.alt_hold = Some((AltType::Msl, alt_to_hold));
+        //     }
+        // }
 
         match control_channel_data.autopilot_a {
             #[cfg(feature = "fixed-wing")]
