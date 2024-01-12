@@ -222,34 +222,30 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         ..Default::default()
     };
 
-    println!("a");
     #[cfg(feature = "h7")]
     // let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
-    let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+    let  batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
     #[cfg(feature = "g4")]
     let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
-
-    println!("b");
 
     // todo: Which edge should it be?
     batt_curr_adc.set_trigger(adc::Trigger::Tim6Trgo, adc::TriggerEdge::HardwareRising);
 
     // todo temp while we sort out HAL. We've fudged this to make the number come out correctly.
     batt_curr_adc.vdda_calibrated = 3.6;
-    println!("C");
 
     // let _ = stm32_hal2::gpio::Pin::new(stm32_hal2::gpio::Port::A, 2, stm32_hal2::gpio::PinMode::Input);
-    loop {
-        // todo temp
-        println!("d");
-        let batt_v = batt_curr_adc.read(18);
-        println!("2");
-        // let batt_v = batt_curr_adc.read(14);
-        let batt_v2 = batt_curr_adc.reading_to_voltage(batt_v);
-        println!("BATT raw: {}, V: {:?}", batt_v, batt_v2);
-        delay_ms(500, 200_000_000);
-    }
+    // loop {
+    //     // todo temp
+    //     println!("d");
+    //     let batt_v = batt_curr_adc.read(18);
+    //     println!("2");
+    //     // let batt_v = batt_curr_adc.read(14);
+    //     let batt_v2 = batt_curr_adc.reading_to_voltage(batt_v);
+    //     println!("BATT raw: {}, V: {:?}", batt_v, batt_v2);
+    //     delay_ms(500, 200_000_000);
+    // }
 
     // let mut update_timer = Timer::new_tim15(
     //     dp.TIM15,

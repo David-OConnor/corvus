@@ -15,6 +15,8 @@ use crate::{
     util,
 };
 
+use defmt::println;
+
 // todo: Variabel/struct field found from cal routine that is power to hover.
 
 // Our maneuverability clamps are different from normal throttle settings: They're used

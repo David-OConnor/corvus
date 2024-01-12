@@ -44,6 +44,8 @@ pub const FLIGHT_CTRL_IMU_RATIO: u32 = 4; // Likely values: 1, 2, 4, 8.
 #[cfg(feature = "fixed-wing")]
 pub const FLIGHT_CTRL_IMU_RATIO: u32 = 8; // Likely values: 4, 8, 16.
 
+use defmt::println;
+
 // cfg_if! {
 //     if #[cfg(feature = "h7")] {
 //         // The rate our main program updates, in Hz.
@@ -132,12 +134,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
     let i = *cx.local.imu_isr_loop_i; // code shortener.
 
     let timestamp = cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
-
-    // todo: TS
-    // if i % 2000 == 0 {
-    //     let regs = unsafe { &(*pac::USART2::ptr()) };
-    //     println!("UART2 SR: {:?}", regs.isr.read().bits());
-    // };
 
     (
         cx.shared.params,

@@ -410,8 +410,8 @@ pub fn update_att_commanded_att_mode(
     let roll_att_cmd = input_map.calc_roll_angle(roll_cmd);
     let yaw_rate_cmd = input_map.calc_yaw_rate(yaw_cmd);
 
-    let rotation_pitch = Quaternion::from_axis_angle(RIGHT, pitch_att_cmd);
-    let rotation_roll = Quaternion::from_axis_angle(FORWARD, roll_att_cmd);
+    let rotation_pitch = Quaternion::from_axis_angle(RIGHT, -pitch_att_cmd);
+    let rotation_roll = Quaternion::from_axis_angle(FORWARD, -roll_att_cmd);
 
     let dt = DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32;
     let rotation_yaw = Quaternion::from_axis_angle(UP, yaw_rate_cmd * dt);
