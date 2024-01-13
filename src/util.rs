@@ -3,6 +3,7 @@
 use core::sync::atomic::Ordering;
 
 use ahrs::Params;
+use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as dsp_sys;
 use defmt::println;
 use num_traits::float::FloatCore;
@@ -413,4 +414,11 @@ pub fn clamp(val: &mut f32, min_max: (f32, f32)) {
     } else if *val < min_max.0 {
         *val = min_max.0;
     }
+}
+
+/// Helper fn to reduce repetition. Applies an IIR filter to a single value.
+pub fn filter_one(filter: &mut IirInstWrapper, value: f32) -> f32 {
+    let mut out_buf = [0.];
+    dsp_api::biquad_cascade_df1_f32(&mut filter.inner, &[value], &mut out_buf, 1);
+    out_buf[0]
 }

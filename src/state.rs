@@ -205,6 +205,7 @@ impl UserConfig {
             i: f32::from_be_bytes(buf[4..8].try_into().unwrap()),
             d: f32::from_be_bytes(buf[8..12].try_into().unwrap()),
             att_ttc: f32::from_be_bytes(buf[12..16].try_into().unwrap()),
+            max_i_windup: 1., // todo
         };
         Self {
             pid_coeffs,

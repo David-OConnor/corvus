@@ -6,7 +6,7 @@
 use ahrs::ImuReadings;
 use cmsis_dsp_api as dsp_api;
 
-use crate::util::IirInstWrapper;
+use crate::util::{filter_one, IirInstWrapper};
 
 // const BLOCK_SIZE: u32 = crate::FLIGHT_CTRL_IMU_RATIO as u32;
 const BLOCK_SIZE: u32 = 1;
@@ -155,41 +155,12 @@ impl ImuFilters {
     /// Apply the filters to IMU readings, modifying in place. Block size = 1.
     /// Note: Baro is handled separately.
     pub fn apply(&mut self, data: &mut ImuReadings) {
-        let mut a_x = [0.];
-        let mut a_y = [0.];
-        let mut a_z = [0.];
-        let mut v_pitch = [0.];
-        let mut v_roll = [0.];
-        let mut v_yaw = [0.];
-
-        dsp_api::biquad_cascade_df1_f32(&mut self.accel_x.inner, &[data.a_x], &mut a_x, BLOCK_SIZE);
-        dsp_api::biquad_cascade_df1_f32(&mut self.accel_y.inner, &[data.a_y], &mut a_y, BLOCK_SIZE);
-        dsp_api::biquad_cascade_df1_f32(&mut self.accel_z.inner, &[data.a_z], &mut a_z, BLOCK_SIZE);
-        dsp_api::biquad_cascade_df1_f32(
-            &mut self.gyro_pitch.inner,
-            &[data.v_pitch],
-            &mut v_pitch,
-            BLOCK_SIZE,
-        );
-        dsp_api::biquad_cascade_df1_f32(
-            &mut self.gyro_roll.inner,
-            &[data.v_roll],
-            &mut v_roll,
-            BLOCK_SIZE,
-        );
-        dsp_api::biquad_cascade_df1_f32(
-            &mut self.gyro_yaw.inner,
-            &[data.v_yaw],
-            &mut v_yaw,
-            BLOCK_SIZE,
-        );
-
-        data.a_x = a_x[0];
-        data.a_y = a_y[0];
-        data.a_z = a_z[0];
-        data.v_pitch = v_pitch[0];
-        data.v_roll = v_roll[0];
-        data.v_yaw = v_yaw[0];
+        data.a_x = filter_one(&mut self.accel_x, data.a_x);
+        data.a_y = filter_one(&mut self.accel_y, data.a_y);
+        data.a_z = filter_one(&mut self.accel_z, data.a_z);
+        data.v_pitch = filter_one(&mut self.gyro_pitch, data.v_pitch);
+        data.v_roll = filter_one(&mut self.gyro_roll, data.v_roll);
+        data.v_yaw = filter_one(&mut self.gyro_yaw, data.v_yaw);
     }
 }
 

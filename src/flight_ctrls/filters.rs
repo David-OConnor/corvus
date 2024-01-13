@@ -2,7 +2,7 @@
 
 use cmsis_dsp_api as dsp_api;
 
-use crate::util::IirInstWrapper;
+use crate::util::{filter_one, IirInstWrapper};
 
 // static mut FILTER_STATE_CTRL_EFFECTIVENESS: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_DRAG_COEFF_PITCH: [f32; 4] = [0.; 4];
@@ -150,75 +150,10 @@ impl FlightCtrlFilters {
         d_term_y: f32,
         d_term_z: f32,
     ) -> (f32, f32, f32) {
-        // todo: Larger block size?
-        let block_size = 1;
-
-        // let mut ctrl_effectiveness = [0.];
-        //
-        // dsp_api::biquad_cascade_df1_f32(
-        //     &mut self.ctrl_effectiveness.inner,
-        //     &[ctrl_effectiveness_raw],
-        //     &mut ctrl_effectiveness,
-        //     block_size,
-        // );
-
-        // let mut drag_coeff_pitch_out = [0.];
-        // let mut drag_coeff_roll_out = [0.];
-        // let mut drag_coeff_yaw_out = [0.];
-
-        let mut d_term_x_out = [0.];
-        let mut d_term_y_out = [0.];
-        let mut d_term_z_out = [0.];
-
-        // dsp_api::biquad_cascade_df1_f32(
-        //     &mut self.drag_coeff_pitch.inner,
-        //     &[drag_coeff_pitch],
-        //     &mut drag_coeff_pitch_out,
-        //     block_size,
-        // );
-        //
-        // dsp_api::biquad_cascade_df1_f32(
-        //     &mut self.drag_coeff_roll.inner,
-        //     &[drag_coeff_roll],
-        //     &mut drag_coeff_roll_out,
-        //     block_size,
-        // );
-        //
-        // dsp_api::biquad_cascade_df1_f32(
-        //     &mut self.drag_coeff_yaw.inner,
-        //     &[drag_coeff_yaw],
-        //     &mut drag_coeff_yaw_out,
-        //     block_size,
-        // );
-
-        dsp_api::biquad_cascade_df1_f32(
-            &mut self.d_term_x.inner,
-            &[d_term_x],
-            &mut d_term_x_out,
-            block_size,
-        );
-
-        dsp_api::biquad_cascade_df1_f32(
-            &mut self.d_term_y.inner,
-            &[d_term_y],
-            &mut d_term_y_out,
-            block_size,
-        );
-
-        dsp_api::biquad_cascade_df1_f32(
-            &mut self.d_term_z.inner,
-            &[d_term_z],
-            &mut d_term_z_out,
-            block_size,
-        );
-
         (
-            // drag_coeff_pitch_out[0],
-            // drag_coeff_roll_out[0],
-            // drag_coeff_yaw_out[0],
-            d_term_x_out[0],
-            d_term_y_out[0],
-            d_term_z_out[0],
+            filter_one(&mut self.d_term_x, d_term_x),
+            filter_one(&mut self.d_term_y, d_term_y),
+            filter_one(&mut self.d_term_z, d_term_z),
         )
     }
 }

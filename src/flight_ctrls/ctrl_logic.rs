@@ -15,15 +15,13 @@ use super::{
     ctrl_effect_est::AccelMaps,
     filters::FlightCtrlFilters,
 };
-// todo: YOu probably need filters.
-use crate::main_loop::FLIGHT_CTRL_IMU_RATIO;
 use crate::{
     controller_interface::ChannelData,
     flight_ctrls::{
         motor_servo::RotationDir,
-        pid::{PidCoeffs, PidStateRate, MAX_I_WINDUP},
+        pid::{PidCoeffs, PidStateRate},
     },
-    main_loop::{ATT_CMD_UPDATE_RATIO, DT_FLIGHT_CTRLS},
+    main_loop::{ATT_CMD_UPDATE_RATIO, DT_FLIGHT_CTRLS, FLIGHT_CTRL_IMU_RATIO},
     util::{self, clamp, map_linear, IirInstWrapper},
 };
 

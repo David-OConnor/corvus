@@ -11,7 +11,10 @@
 use cfg_if::cfg_if;
 use cmsis_dsp_api as dsp_api;
 
-use crate::util::{self, clamp, IirInstWrapper};
+use crate::{
+    flight_ctrls::filters,
+    util::{self, clamp, filter_one, IirInstWrapper},
+};
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
@@ -36,15 +39,13 @@ static mut FILTER_STATE_FRONT_RIGHT: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_AFT_LEFT: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_AFT_RIGHT: [f32; 4] = [0.; 4];
 
-pub const MAX_I_WINDUP: f32 = 1.; // todo; In coeffs
-
 #[derive(Default)]
-pub struct PidState2 {
+pub struct PidState {
     pub p: f32,
     pub i: f32,
 }
 
-impl PidState2 {
+impl PidState {
     pub fn apply(
         &mut self,
         target: f32,
@@ -60,14 +61,11 @@ impl PidState2 {
         // Note that we take dt into account re the dimensions of the D-term coefficient.
         let d_error = self.p - error_x_prev;
 
-        let mut out_buf = [0.];
-        dsp_api::biquad_cascade_df1_f32(&mut filter.inner, &[d_error], &mut out_buf, 1);
-
-        let d_error = out_buf[0];
+        let d_error = filter_one(filter, d_error);
 
         self.i += self.p * dt;
 
-        clamp(&mut self.i, (-MAX_I_WINDUP, MAX_I_WINDUP));
+        clamp(&mut self.i, (-coeffs.max_i_windup, coeffs.max_i_windup));
 
         coeffs.p * self.p + coeffs.i * self.i + coeffs.d * d_error
     }
@@ -75,9 +73,9 @@ impl PidState2 {
 
 #[derive(Default)]
 pub struct PidStateRate {
-    pub pitch: PidState2,
-    pub roll: PidState2,
-    pub yaw: PidState2,
+    pub pitch: PidState,
+    pub roll: PidState,
+    pub yaw: PidState,
 }
 
 impl PidStateRate {
@@ -174,10 +172,10 @@ impl Default for MotorCoeffs {
 
 #[derive(Default)]
 pub struct MotorPidGroup {
-    pub front_left: PidState,
-    pub front_right: PidState,
-    pub aft_left: PidState,
-    pub aft_right: PidState,
+    pub front_left: PidStateLegacy,
+    pub front_right: PidStateLegacy,
+    pub aft_left: PidStateLegacy,
+    pub aft_right: PidStateLegacy,
 }
 
 impl MotorPidGroup {
@@ -195,15 +193,18 @@ pub struct PidCoeffs {
     pub i: f32,
     pub d: f32,
     pub att_ttc: f32,
+    pub max_i_windup: f32,
 }
 
 impl Default for PidCoeffs {
+    // For rate controls.
     fn default() -> Self {
         Self {
             p: 0.180,
             i: 0.060,
             d: 0.030,
             att_ttc: 0.4,
+            max_i_windup: 1.,
         }
     }
 }
@@ -214,7 +215,7 @@ impl Default for PidCoeffs {
 /// So, `p` is always `e` x `K_P`.
 /// todo: Consider using Params, eg this is the error for a whole set of params.
 #[derive(Default)]
-pub struct PidState {
+pub struct PidStateLegacy {
     /// Measurement: Used for the derivative.
     pub measurement: f32,
     /// Error term. (No coeff multiplication). Used for the integrator
@@ -227,7 +228,7 @@ pub struct PidState {
     pub d: f32,
 }
 
-impl PidState {
+impl PidStateLegacy {
     /// Anti-windup integrator clamp
     fn anti_windup_clamp(&mut self, error_p: f32) {
         //  Dynamic integrator clamping, from https://www.youtube.com/watch?v=zOByx3Izf5U
@@ -328,14 +329,14 @@ impl Default for DerivFilters {
 pub fn run(
     set_pt: f32,
     measurement: f32,
-    prev_pid: &PidState,
+    prev_pid: &PidStateLegacy,
     k_p: f32,
     k_i: f32,
     k_d: f32,
     filter: Option<&mut IirInstWrapper>,
     // This `dt` is dynamic, since we don't necessarily run this function at a fixed interval.
     dt: f32,
-) -> PidState {
+) -> PidStateLegacy {
     // Find appropriate control inputs using PID control.
 
     let error = set_pt - measurement;
@@ -356,7 +357,7 @@ pub fn run(
         dsp_api::biquad_cascade_df1_f32(&mut f.inner, &[error_d_prefilt], &mut error_d, 1);
     }
 
-    let mut result = PidState {
+    let mut result = PidStateLegacy {
         measurement,
         e: error,
         p: error_p,
