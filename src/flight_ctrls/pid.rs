@@ -14,7 +14,7 @@ use cmsis_dsp_api::iir_new;
 
 use crate::{
     flight_ctrls::filters,
-    util::{self, clamp, filter_one, IirInstWrapper},
+    util::{self, clamp, iir_apply, IirInstWrapper},
 };
 
 cfg_if! {
@@ -62,7 +62,7 @@ impl PidState {
         // Note that we take dt into account re the dimensions of the D-term coefficient.
         let d_error = self.p - error_x_prev;
 
-        let d_error = filter_one(filter, d_error);
+        let d_error = iir_apply(filter, d_error);
 
         self.i += self.p * dt;
 

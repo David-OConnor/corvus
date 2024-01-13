@@ -417,6 +417,6 @@ pub fn clamp(val: &mut f32, min_max: (f32, f32)) {
 }
 
 /// Helper fn to reduce repetition. Applies an IIR filter to a single value.
-pub fn filter_one(filter: &mut IirInstWrapper, value: f32) -> f32 {
+pub fn iir_apply(filter: &mut IirInstWrapper, value: f32) -> f32 {
     dsp_api::iir_apply(&mut filter.inner, value)
 }
