@@ -95,8 +95,8 @@ pub fn run(
                 flight_ctrl_filters,
                 // The DT passed is the IMU rate, since we update params_prev each IMU update.
                 DT_IMU,
-                pry, // todo temp
                 pid_coeffs,
+                &mut state_volatile.pid_state_rate,
                 has_taken_off,
             );
 

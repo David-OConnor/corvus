@@ -7,23 +7,27 @@
 use ahrs::{Params, FORWARD, RIGHT, UP};
 use cfg_if::cfg_if;
 use defmt::println;
-use lin_alg2::f32::{Quaternion, Vec3};
+use lin_alg2::f32::Quaternion;
 use num_traits::float::Float; // For sqrt.
 
 use super::{
     common::{CtrlMix, InputMap},
-    ctrl_effect_est::{AccelMap, AccelMaps},
+    ctrl_effect_est::AccelMaps,
     filters::FlightCtrlFilters,
-    motor_servo::{MotorServoState, RotationDir},
-    pid::PidCoeffs,
 };
 // todo: YOu probably need filters.
 use crate::main_loop::FLIGHT_CTRL_IMU_RATIO;
 use crate::{
     controller_interface::ChannelData,
+    flight_ctrls::{
+        motor_servo::RotationDir,
+        pid::{PidCoeffs, PidStateRate, MAX_I_WINDUP},
+    },
     main_loop::{ATT_CMD_UPDATE_RATIO, DT_FLIGHT_CTRLS},
-    util::{self, clamp, map_linear},
+    util::{self, clamp, map_linear, IirInstWrapper},
 };
+
+// This should be on the order of the error term (Roughly radians)
 
 cfg_if! {
     if #[cfg(feature = "quad")] {
@@ -100,9 +104,9 @@ pub fn ctrl_mix_from_att(
     drag_coeffs: &DragCoeffs,
     accel_maps: &AccelMaps,
     filters: &mut FlightCtrlFilters,
-    dt: f32,              // seconds
-    pry: (f32, f32, f32), // todo temp
+    dt: f32, // seconds
     pid_coeffs: &PidCoeffs,
+    pid_state: &mut PidStateRate,
     has_taken_off: bool,
 ) -> CtrlMix {
     // This is the rotation we need to create to arrive at the target attitude from the current one.
@@ -133,68 +137,34 @@ pub fn ctrl_mix_from_att(
         (-MAX_ATT_CORRECTION_ω, MAX_ATT_CORRECTION_ω),
     );
 
-    // let pitch_rate_cmd = pry.0;
-    // let roll_rate_cmd = pry.1;
-    // You could initialize yaw to current a/r.
-    // let yaw_rate_cmd = pry.2;
+    // The I-term builds up if corrections are unable to expeditiously converge.
+    // An example of when this can happen is when the aircraft is on the ground.
+    // todo: Use `is_airborne` etc, vice idle throttle?
+    if has_taken_off {
+        pid_state.reset_i();
+    }
 
-    #[allow(non_upper_case_globals)]
-    let (pitch, roll, yaw) = {
-        static mut error_x: f32 = 0.;
-        static mut error_y: f32 = 0.;
-        static mut error_z: f32 = 0.;
-
-        static mut integral_x: f32 = 0.;
-        static mut integral_y: f32 = 0.;
-        static mut integral_z: f32 = 0.;
-
-        // This should be on the order of the error term (Roughly radians)
-        const MAX_I_WINDUP: f32 = 1.;
-
-        unsafe {
-            let error_x_prev = error_x;
-            let error_y_prev = error_y;
-            let error_z_prev = error_z;
-
-            error_x = pitch_rate_cmd - params.v_pitch;
-            error_y = roll_rate_cmd - params.v_roll;
-            error_z = yaw_rate_cmd - params.v_yaw;
-
-            // Note that we take dt into account re the dimensions of the D-term coefficient.
-            let d_error_x = error_x - error_x_prev;
-            let d_error_y = error_y - error_y_prev;
-            let d_error_z = error_z - error_z_prev;
-
-            let (d_error_x, d_error_y, d_error_z) = filters.apply(d_error_x, d_error_y, d_error_z);
-
-            integral_x += error_x * dt;
-            integral_y += error_y * dt;
-            integral_z += error_z * dt;
-
-            for i_term in &mut [integral_x, integral_y, integral_z] {
-                clamp(i_term, (-MAX_I_WINDUP, MAX_I_WINDUP));
-            }
-
-            // The I-term builds up if corrections are unable to expeditiously converge.
-            // An example of when this can happen is when the aircraft is on the ground.
-            // todo: Use `is_airborne` etc, vice idle throttle?
-            if has_taken_off {
-                integral_x = 0.;
-                integral_y = 0.;
-                integral_z = 0.;
-            }
-
-            let pitch =
-                pid_coeffs.p * error_x + pid_coeffs.i * integral_x + pid_coeffs.d * d_error_x;
-
-            let roll =
-                pid_coeffs.p * error_y + pid_coeffs.i * integral_y + pid_coeffs.d * d_error_y;
-
-            let yaw = pid_coeffs.p * error_z + pid_coeffs.i * integral_z + pid_coeffs.d * d_error_z;
-
-            (pitch, roll, yaw)
-        }
-    };
+    let pitch = pid_state.pitch.apply(
+        pitch_rate_cmd,
+        params.v_pitch,
+        pid_coeffs,
+        &mut filters.d_term_x,
+        dt,
+    );
+    let roll = pid_state.pitch.apply(
+        roll_rate_cmd,
+        params.v_roll,
+        pid_coeffs,
+        &mut filters.d_term_y,
+        dt,
+    );
+    let yaw = pid_state.pitch.apply(
+        yaw_rate_cmd,
+        params.v_yaw,
+        pid_coeffs,
+        &mut filters.d_term_z,
+        dt,
+    );
 
     let mut result = CtrlMix {
         pitch,
@@ -434,7 +404,9 @@ pub fn update_alt_baro_commanded(
 
     let alt_commanded_current = alt_commanded_prev + vv_cmd * DT_FLIGHT_CTRLS;
 
-    if alt_commanded_current < 0. {
+    // todo: This thresh adds a bit of a pad. Consider how you want to handle this.
+    if alt_commanded_current < -5. {
+        // todo: Has taken off check?
         return (0., 0.);
     }
 

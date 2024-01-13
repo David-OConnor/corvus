@@ -11,7 +11,7 @@
 use cfg_if::cfg_if;
 use cmsis_dsp_api as dsp_api;
 
-use crate::util::{self, IirInstWrapper};
+use crate::util::{self, clamp, IirInstWrapper};
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
@@ -35,6 +35,58 @@ static mut FILTER_STATE_FRONT_LEFT: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_FRONT_RIGHT: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_AFT_LEFT: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_AFT_RIGHT: [f32; 4] = [0.; 4];
+
+pub const MAX_I_WINDUP: f32 = 1.; // todo; In coeffs
+
+#[derive(Default)]
+pub struct PidState2 {
+    pub p: f32,
+    pub i: f32,
+}
+
+impl PidState2 {
+    pub fn apply(
+        &mut self,
+        target: f32,
+        current: f32,
+        coeffs: &PidCoeffs,
+        filter: &mut IirInstWrapper,
+        dt: f32,
+    ) -> f32 {
+        let error_x_prev = self.p;
+
+        self.p = target - current;
+
+        // Note that we take dt into account re the dimensions of the D-term coefficient.
+        let d_error = self.p - error_x_prev;
+
+        let mut out_buf = [0.];
+        dsp_api::biquad_cascade_df1_f32(&mut filter.inner, &[d_error], &mut out_buf, 1);
+
+        let d_error = out_buf[0];
+
+        self.i += self.p * dt;
+
+        clamp(&mut self.i, (-MAX_I_WINDUP, MAX_I_WINDUP));
+
+        coeffs.p * self.p + coeffs.i * self.i + coeffs.d * d_error
+    }
+}
+
+#[derive(Default)]
+pub struct PidStateRate {
+    pub pitch: PidState2,
+    pub roll: PidState2,
+    pub yaw: PidState2,
+}
+
+impl PidStateRate {
+    pub fn reset_i(&mut self) {
+        self.pitch.i = 0.;
+        self.roll.i = 0.;
+        self.yaw.i = 0.;
+    }
+}
 
 /// Cutoff frequency for our PID lowpass frequency, in Hz
 #[derive(Clone, Copy)]
@@ -288,12 +340,8 @@ pub fn run(
 
     let error = set_pt - measurement;
 
-    // println!("Error: {:?}", error);
-
     // https://www.youtube.com/watch?v=zOByx3Izf5U
     let error_p = k_p * error;
-
-    // println!("Error p: {:?}", error_p);
 
     // For inegral term, use a midpoint formula, and use error, vice measurement.
     let error_i = k_i * (error + prev_pid.e) / 2. * dt + prev_pid.i;

@@ -15,6 +15,7 @@ cfg_if! {
 
 use defmt::println;
 
+use crate::flight_ctrls::pid::PidStateRate;
 #[cfg(feature = "fixed-wing")]
 use crate::flight_ctrls::{ControlSurfaceConfig, YawControl};
 use crate::{
@@ -293,4 +294,5 @@ pub struct StateVolatile {
     // /// todo tracking the tiny attitude changes each update loop.`
     // /// Todo: Along these lines, you probably don't want to update target attitude each
     // pub att_cmd_history: [Quaternion; crate::TORQUE_CMD_UPDATE_RATIO as usize],
+    pub pid_state_rate: PidStateRate,
 }
