@@ -739,14 +739,7 @@ mod app {
                 let altitude_raw =
                     atmos_model::estimate_altitude_msl(pressure, temp, &altimeter.ground_cal);
 
-                let mut filter_output = [0.];
-                dsp_api::biquad_cascade_df1_f32(
-                    &mut filters.vv_baro.inner,
-                    &[altitude_raw],
-                    &mut filter_output,
-                    1,
-                );
-                let altitude = filter_output[0];
+                let altitude = util::filter_one(&mut filters.vv_baro, altitude_raw);
 
                 // todo: We apply a low-pass filter here, since the readings are low-resolution; otherwise
                 // VV would appear as mostly 0, with bursts of activity.

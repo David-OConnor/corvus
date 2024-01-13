@@ -421,4 +421,6 @@ pub fn filter_one(filter: &mut IirInstWrapper, value: f32) -> f32 {
     let mut out_buf = [0.];
     dsp_api::biquad_cascade_df1_f32(&mut filter.inner, &[value], &mut out_buf, 1);
     out_buf[0]
+    // todo: later
+    // dsp_api::iir_one(&mut filter.inner, value)
 }
