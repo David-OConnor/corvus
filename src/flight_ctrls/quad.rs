@@ -8,6 +8,7 @@
 use core::f32::consts::TAU;
 
 use ahrs::Params;
+use defmt::println;
 
 use super::common::InputMap;
 use crate::{
@@ -16,8 +17,6 @@ use crate::{
     system_status::{SensorStatus, SystemStatus},
     util,
 };
-
-use defmt::println;
 
 // todo: Variabel/struct field found from cal routine that is power to hover.
 
@@ -48,7 +47,7 @@ impl Default for InputMap {
             roll_angle: (-TAU / 4., TAU / 4.),
             alt_commanded_offset_msl: (0., 100.),
             alt_commanded_agl: (0.5, 8.),
-            vertical_velocity: (-5., 5.),
+            vertical_velocity: (-3., 3.),
         }
     }
 }

@@ -3,6 +3,7 @@
 
 use core::f32::consts::TAU;
 
+use defmt::println;
 use lin_alg2::f32::Quaternion;
 
 use crate::util::{self, map_linear};
@@ -14,8 +15,8 @@ const YAW_IN_RNG: (f32, f32) = (-1., 1.);
 const THROTTLE_IN_RNG: (f32, f32) = (0., 1.);
 
 // For attitude mode. rad.
-const PITCH_IN_RNG_ATT: (f32, f32) = (-TAU/4., TAU/4.);
-const ROLL_IN_RNG_ATT: (f32, f32) = (-TAU/4., TAU/4.);
+const PITCH_IN_RNG_ATT: (f32, f32) = (-TAU / 4., TAU / 4.);
+const ROLL_IN_RNG_ATT: (f32, f32) = (-TAU / 4., TAU / 4.);
 
 /// Maps manual control inputs (range 0. to 1. or -1. to 1.) to velocities, rotational velocities etc
 /// for various flight modes. The values are for full input range.
@@ -77,14 +78,22 @@ impl InputMap {
     #[cfg(feature = "quad")]
     pub fn calc_vv(&self, input: f32, neutral_range: f32) -> f32 {
         // Re-map from 0 to 1, to -1 to 1, to make calculations clearer.
-        let input_remapped  = map_linear(input, THROTTLE_IN_RNG, (-1., 1.));
+        let input_remapped = map_linear(input, THROTTLE_IN_RNG, (-1., 1.));
 
         if input_remapped > neutral_range {
             // Climb
-            map_linear(input, (neutral_range, 1.), (0., self.vertical_velocity.1))
+            map_linear(
+                input_remapped,
+                (neutral_range, 1.),
+                (0., self.vertical_velocity.1),
+            )
         } else if input_remapped < -neutral_range {
             // Descend
-            map_linear(input, (-1., -neutral_range), (self.vertical_velocity.0, 0.))
+            map_linear(
+                input_remapped,
+                (-1., -neutral_range),
+                (self.vertical_velocity.0, 0.),
+            )
         } else {
             0.
         }

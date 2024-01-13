@@ -46,15 +46,19 @@ static COEFFS_LP_GYRO: [f32; 5] = [
     -0.0,
 ];
 
-
 // filter_ = signal.iirfilter(1, 30, btype="lowpass", ftype="bessel", output="sos", fs=155)
 // coeffs = []
 // for row in filter_:
 //     coeffs.extend([row[0] / row[3], row[1] / row[3], row[2] / row[3], -row[4] / row[3], -row[5] / row[3]])
 // Assumes updated every main loop; not IMU rate.
 #[allow(clippy::excessive_precision)]
-static COEFFS_VV_BARO: [f32; 5] = [0.3002754521653259, 0.3002754521653259, 0.0, 0.3994490956693484, -0.0];
-
+static COEFFS_VV_BARO: [f32; 5] = [
+    0.3002754521653259,
+    0.3002754521653259,
+    0.0,
+    0.3994490956693484,
+    -0.0,
+];
 
 /// Store lowpass IIR filter instances, for use with lowpass and notch filters for IMU readings.
 pub struct ImuFilters {

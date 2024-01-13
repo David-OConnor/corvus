@@ -20,6 +20,7 @@ use core::sync::atomic::Ordering;
 
 use ahrs::{Ahrs, Fix, Params};
 use cfg_if::cfg_if;
+use cmsis_dsp_api as dsp_api;
 use cortex_m::{self, asm};
 use defmt::println;
 use defmt_rtt as _;
@@ -40,8 +41,6 @@ use stm32_hal2::{
 };
 use usb_device::prelude::*;
 use usbd_serial::{self, SerialPort};
-
-use cmsis_dsp_api as dsp_api;
 
 mod atmos_model;
 mod can_reception;
@@ -753,7 +752,7 @@ mod app {
                 // VV would appear as mostly 0, with bursts of activity.
                 // todo: Linear kalman instead?
                 params.v_z_baro = (altitude - params.alt_msl_baro) / DT_BARO;
-                println!("V Z baro: {:?}", params.v_z_baro);
+                // println!("V Z baro: {:?}", params.v_z_baro);
                 params.alt_msl_baro = altitude;
             });
 

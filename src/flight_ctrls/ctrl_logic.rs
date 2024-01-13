@@ -369,11 +369,7 @@ pub fn update_att_commanded_acro(
 
     (
         att_commanded_current,
-        ang_v_from_attitudes(
-            att_commanded_prev,
-            att_commanded_current,
-            dt,
-        ),
+        ang_v_from_attitudes(att_commanded_prev, att_commanded_current, dt),
     )
 }
 
@@ -421,11 +417,7 @@ pub fn update_att_commanded_att_mode(
 
     (
         att_commanded_current,
-        ang_v_from_attitudes(
-            att_commanded_prev,
-            att_commanded_current,
-            dt,
-        ),
+        ang_v_from_attitudes(att_commanded_prev, att_commanded_current, dt),
     )
 }
 
@@ -434,20 +426,20 @@ pub fn update_att_commanded_att_mode(
 pub fn update_alt_baro_commanded(
     ch_data_throttle: f32, // todo: Move A/R; this is only for manual controls. Keep for now.
     input_map: &InputMap,
-    attitude: Quaternion,
     alt_commanded_prev: f32,
 ) -> (f32, f32) {
-    let dt = DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32;
-
-    let neutral_range = 0.2;
-    // if ch_data_throttle.abs() < neutral_range {
-    //     return (0., (0. - alt_commanded_prev) / dt);
-    // }
+    let neutral_range = 0.2; // todo: Adjustable config setting.
 
     let vv_cmd = input_map.calc_vv(ch_data_throttle, neutral_range);
 
-    let alt_commanded_current = alt_commanded_prev + vv_cmd * dt;
+    let alt_commanded_current = alt_commanded_prev + vv_cmd * DT_FLIGHT_CTRLS;
 
-    (alt_commanded_current, (alt_commanded_current - alt_commanded_prev) / dt)
+    if alt_commanded_current < 0. {
+        return (0., 0.);
+    }
 
+    (
+        alt_commanded_current,
+        (alt_commanded_current - alt_commanded_prev) / DT_FLIGHT_CTRLS,
+    )
 }

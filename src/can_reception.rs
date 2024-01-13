@@ -49,9 +49,8 @@ pub fn run(mut cx: app::can_isr::Context) {
                 match msg_type {
                     MsgType::Fix2 => {
                         println!("Parsing DroneCAN fix.");
-                        let fix = gnss_can::parse_fix(
-                            &rx_buf[..MsgType::Fix2.payload_size() as usize],
-                        );
+                        let fix =
+                            gnss_can::parse_fix(&rx_buf[..MsgType::Fix2.payload_size() as usize]);
 
                         match fix {
                             Ok(f) => {

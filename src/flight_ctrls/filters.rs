@@ -22,7 +22,6 @@ static COEFFS_CTRL_EFFECTIVENESS: [f32; 5] = [
     -0.0,
 ];
 
-
 // filter_ = signal.iirfilter(1, 100, btype="lowpass", ftype="bessel", output="sos", fs=2_048)
 // coeffs = []
 // for row in filter_:

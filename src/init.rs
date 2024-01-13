@@ -56,8 +56,7 @@ use fdcan::{
     id::{ExtendedId, Id},
     FdCan, Mailbox, NormalOperationMode, ReceiveOverrun,
 };
-use stm32_hal2::adc::Prescaler;
-use stm32_hal2::can::Can;
+use stm32_hal2::{adc::Prescaler, can::Can};
 type Can_ = FdCan<Can, NormalOperationMode>;
 
 // todo temp!
@@ -224,7 +223,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
 
     #[cfg(feature = "h7")]
     // let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
-    let  batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+    let batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
 
     #[cfg(feature = "g4")]
     let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);

@@ -230,41 +230,39 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                             static mut I2: u32 = 0;
                             unsafe { I2 += 1 };
                             if unsafe { I2 } % ATT_CMD_UPDATE_RATIO == 0 {
-                                let (attitude_commanded, attitude_commanded_dt) = match state_volatile.input_mode {
-                                    InputMode::Acro => {
-                                        ctrl_logic::update_att_commanded_acro(
+                                let (attitude_commanded, attitude_commanded_dt) =
+                                    match state_volatile.input_mode {
+                                        InputMode::Acro => ctrl_logic::update_att_commanded_acro(
                                             ch_data,
                                             &cfg.input_map,
                                             state_volatile.attitude_commanded.quat,
                                             params.attitude,
                                             state_volatile.has_taken_off,
                                             cfg.takeoff_attitude,
-                                        )
-                                    }
-                                    InputMode::Attitude => {
-                                        ctrl_logic::update_att_commanded_att_mode(
-                                            ch_data,
-                                            &cfg.input_map,
-                                            state_volatile.attitude_commanded.quat,
-                                            params.attitude,
-                                            state_volatile.has_taken_off,
-                                            cfg.takeoff_attitude,
-                                        )
-                                    }
-                                    InputMode::Loiter => {
-                                        // throttle = flight_ctrls::alt_hold_throttle
-                                        (Quaternion::new_identity(), (0., 0., 0.))
-                                    }
-                                    InputMode::Route => {
-                                        // throttle = ch_data.throttle;
-                                        (Quaternion::new_identity(), (0., 0., 0.))
-                                    }
-                                };
+                                        ),
+                                        InputMode::Attitude => {
+                                            ctrl_logic::update_att_commanded_att_mode(
+                                                ch_data,
+                                                &cfg.input_map,
+                                                state_volatile.attitude_commanded.quat,
+                                                params.attitude,
+                                                state_volatile.has_taken_off,
+                                                cfg.takeoff_attitude,
+                                            )
+                                        }
+                                        InputMode::Loiter => {
+                                            // throttle = flight_ctrls::alt_hold_throttle
+                                            (Quaternion::new_identity(), (0., 0., 0.))
+                                        }
+                                        InputMode::Route => {
+                                            // throttle = ch_data.throttle;
+                                            (Quaternion::new_identity(), (0., 0., 0.))
+                                        }
+                                    };
 
                                 state_volatile.attitude_commanded.quat = attitude_commanded;
                                 state_volatile.attitude_commanded.quat_dt = attitude_commanded_dt;
                             }
-
 
                             match state_volatile.input_mode {
                                 InputMode::Acro => {
@@ -275,7 +273,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     let (alt, vv) = ctrl_logic::update_alt_baro_commanded(
                                         ch_data.throttle,
                                         &cfg.input_map,
-                                        params.attitude,
                                         // params.v_z_baro,
                                         state_volatile.alt_baro_commanded.0,
                                     );
@@ -294,15 +291,12 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     let (alt, vv) = ctrl_logic::update_alt_baro_commanded(
                                         ch_data.throttle,
                                         &cfg.input_map,
-                                        params.attitude,
-                                        params.v_z_baro,
+                                        state_volatile.alt_baro_commanded.0,
                                     );
 
                                     state_volatile.alt_baro_commanded = (alt, vv);
                                 }
-                                InputMode::Route => {
-                                }
-
+                                InputMode::Route => {}
                             }
                         }
                         None => {}
