@@ -435,8 +435,19 @@ pub fn update_alt_baro_commanded(
     ch_data_throttle: f32, // todo: Move A/R; this is only for manual controls. Keep for now.
     input_map: &InputMap,
     attitude: Quaternion,
-    vz_baro_current: f32,
+    alt_commanded_prev: f32,
 ) -> (f32, f32) {
+    let dt = DT_FLIGHT_CTRLS * ATT_CMD_UPDATE_RATIO as f32;
 
+    let neutral_range = 0.2;
+    // if ch_data_throttle.abs() < neutral_range {
+    //     return (0., (0. - alt_commanded_prev) / dt);
+    // }
+
+    let vv_cmd = input_map.calc_vv(ch_data_throttle, neutral_range);
+
+    let alt_commanded_current = alt_commanded_prev + vv_cmd * dt;
+
+    (alt_commanded_current, (alt_commanded_current - alt_commanded_prev) / dt)
 
 }

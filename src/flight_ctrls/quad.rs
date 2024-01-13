@@ -48,6 +48,7 @@ impl Default for InputMap {
             roll_angle: (-TAU / 4., TAU / 4.),
             alt_commanded_offset_msl: (0., 100.),
             alt_commanded_agl: (0.5, 8.),
+            vertical_velocity: (-5., 5.),
         }
     }
 }
@@ -176,26 +177,4 @@ pub fn set_input_mode(
         }
         InputModeSwitch::Route => InputMode::Route,
     }
-}
-
-/// Calculate the desired throttle setting, given a desired vertical velocity.
-/// todo: For now, this accepts a manual throttle setting, and calculates VV target from that.
-/// todo: Or target alt and current alt vice params?
-pub fn throttle_from_alt_hold(
-    params: &Params,
-    ch_data_throttle: f32,
-    // vv_target: f32,
-) -> f32 {
-
-    let VV_SCALER = 1.; // m/s / throttle
-    let VV_RANGE = (-5., 5.); // m/s
-
-    // todo: Pass as an argument.
-    let mut commanded_vv = VV_SCALER * ch_data_throttle;
-    util::clamp(&mut commanded_vv, VV_RANGE);
-
-    let alt_diff = params.
-
-    0.
-
 }

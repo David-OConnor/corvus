@@ -267,7 +267,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
 
 
                             match state_volatile.input_mode {
-                                 InputMode::Acro => {
+                                InputMode::Acro => {
                                     // ch_data.throttle
                                 }
                                 InputMode::Attitude => {
@@ -276,7 +276,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                         ch_data.throttle,
                                         &cfg.input_map,
                                         params.attitude,
-                                        params.v_z_baro,
+                                        // params.v_z_baro,
+                                        state_volatile.alt_baro_commanded.0,
                                     );
 
                                     //

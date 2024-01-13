@@ -41,6 +41,8 @@ pub struct InputMap {
     pub alt_commanded_offset_msl: (f32, f32),
     /// When a stick (eg throttle) is mapped to a commanded AGL altitude.
     pub alt_commanded_agl: (f32, f32),
+    ///  In m/s.; mapped to throttle settings.
+    pub vertical_velocity: (f32, f32),
 }
 
 impl InputMap {
@@ -70,6 +72,22 @@ impl InputMap {
     #[cfg(feature = "quad")]
     pub fn calc_roll_angle(&self, input: f32) -> f32 {
         map_linear(input, ROLL_IN_RNG_ATT, self.roll_angle)
+    }
+
+    #[cfg(feature = "quad")]
+    pub fn calc_vv(&self, input: f32, neutral_range: f32) -> f32 {
+        // Re-map from 0 to 1, to -1 to 1, to make calculations clearer.
+        let input_remapped  = map_linear(input, THROTTLE_IN_RNG, (-1., 1.));
+
+        if input_remapped > neutral_range {
+            // Climb
+            map_linear(input, (neutral_range, 1.), (0., self.vertical_velocity.1))
+        } else if input_remapped < -neutral_range {
+            // Descend
+            map_linear(input, (-1., -neutral_range), (self.vertical_velocity.0, 0.))
+        } else {
+            0.
+        }
     }
 }
 
@@ -147,11 +165,3 @@ pub struct AttitudeCommanded {
     pub roll: Option<f32>,
     pub yaw: Option<f32>,
 }
-
-// /// Command one or more angular rates.
-// #[derive(Default)]
-// pub struct RatesCommanded {
-//     pub pitch: Option<f32>,
-//     pub roll: Option<f32>,
-//     pub yaw: Option<f32>,
-// }
