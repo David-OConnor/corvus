@@ -10,6 +10,7 @@
 
 use cfg_if::cfg_if;
 use cmsis_dsp_api as dsp_api;
+use cmsis_dsp_api::iir_new;
 
 use crate::{
     flight_ctrls::filters,
@@ -274,48 +275,22 @@ pub struct DerivFilters {
 
 impl Default for DerivFilters {
     fn default() -> Self {
-        let mut result = Self {
-            rpm_front_left: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            rpm_front_right: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            rpm_aft_left: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-
-            rpm_aft_right: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-        };
-        //
-        // unsafe {
-        //     // todo: Re-initialize fn?
-        //     dsp_api::biquad_cascade_df1_init_f32(
-        //         &mut result.rpm_front_left.inner,
-        //         &COEFFS_D,
-        //         &mut FILTER_STATE_FRONT_LEFT,
-        //     );
-        //     dsp_api::biquad_cascade_df1_init_f32(
-        //         &mut result.rpm_front_right.inner,
-        //         &COEFFS_D,
-        //         &mut FILTER_STATE_FRONT_RIGHT,
-        //     );
-        //     dsp_api::biquad_cascade_df1_init_f32(
-        //         &mut result.rpm_aft_left.inner,
-        //         &COEFFS_D,
-        //         &mut FILTER_STATE_AFT_LEFT,
-        //     );
-        //
-        //     dsp_api::biquad_cascade_df1_init_f32(
-        //         &mut result.rpm_aft_right.inner,
-        //         &COEFFS_D,
-        //         &mut FILTER_STATE_AFT_RIGHT,
-        //     );
-        // }
-
-        result
+        unsafe {
+            Self {
+                rpm_front_left: IirInstWrapper {
+                    inner: iir_new(&COEFFS_D, &mut FILTER_STATE_FRONT_LEFT),
+                },
+                rpm_front_right: IirInstWrapper {
+                    inner: iir_new(&COEFFS_D, &mut FILTER_STATE_FRONT_RIGHT),
+                },
+                rpm_aft_left: IirInstWrapper {
+                    inner: iir_new(&COEFFS_D, &mut FILTER_STATE_AFT_LEFT),
+                },
+                rpm_aft_right: IirInstWrapper {
+                    inner: iir_new(&COEFFS_D, &mut FILTER_STATE_AFT_RIGHT),
+                },
+            }
+        }
     }
 }
 

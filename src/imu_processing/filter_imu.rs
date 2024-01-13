@@ -6,7 +6,7 @@
 use ahrs::ImuReadings;
 use cmsis_dsp_api as dsp_api;
 
-use crate::util::{filter_one, IirInstWrapper};
+use crate::util::{iir_apply, iir_new, IirInstWrapper};
 
 // const BLOCK_SIZE: u32 = crate::FLIGHT_CTRL_IMU_RATIO as u32;
 const BLOCK_SIZE: u32 = 1;
@@ -80,74 +80,31 @@ pub struct ImuFilters {
 
 impl Default for ImuFilters {
     fn default() -> Self {
-        let mut result = Self {
-            accel_x: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            accel_y: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            accel_z: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-
-            gyro_pitch: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            gyro_roll: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            gyro_yaw: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-
-            vv_baro: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-        };
-
         unsafe {
-            // todo: Re-initialize fn?
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.accel_x.inner,
-                &COEFFS_LP_ACCEL,
-                &mut FILTER_STATE_ACCEL_X,
-            );
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.accel_y.inner,
-                &COEFFS_LP_ACCEL,
-                &mut FILTER_STATE_ACCEL_Y,
-            );
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.accel_z.inner,
-                &COEFFS_LP_ACCEL,
-                &mut FILTER_STATE_ACCEL_Z,
-            );
-
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.gyro_pitch.inner,
-                &COEFFS_LP_GYRO,
-                &mut FILTER_STATE_GYRO_PITCH,
-            );
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.gyro_roll.inner,
-                &COEFFS_LP_GYRO,
-                &mut FILTER_STATE_GYRO_ROLL,
-            );
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.gyro_yaw.inner,
-                &COEFFS_LP_GYRO,
-                &mut FILTER_STATE_GYRO_YAW,
-            );
-
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.vv_baro.inner,
-                &COEFFS_VV_BARO,
-                &mut FILTER_STATE_VV_BARO,
-            );
+            Self {
+                accel_x: IirInstWrapper {
+                    inner: iir_new(&COEFFS_LP_ACCEL, &mut FILTER_STATE_ACCEL_X),
+                },
+                accel_y: IirInstWrapper {
+                    inner: iir_new(&COEFFS_LP_ACCEL, &mut FILTER_STATE_ACCEL_X),
+                },
+                accel_z: IirInstWrapper {
+                    inner: iir_new(&COEFFS_LP_ACCEL, &mut FILTER_STATE_ACCEL_X),
+                },
+                gyro_pitch: IirInstWrapper {
+                    inner: iir_new(&COEFFS_LP_GYRO, &mut FILTER_STATE_GYRO_PITCH),
+                },
+                gyro_roll: IirInstWrapper {
+                    inner: iir_new(&COEFFS_LP_GYRO, &mut FILTER_STATE_GYRO_ROLL),
+                },
+                gyro_yaw: IirInstWrapper {
+                    inner: iir_new(&COEFFS_LP_GYRO, &mut FILTER_STATE_GYRO_YAW),
+                },
+                vv_baro: IirInstWrapper {
+                    inner: iir_new(&COEFFS_VV_BARO, &mut FILTER_STATE_VV_BARO),
+                },
+            }
         }
-
-        result
     }
 }
 

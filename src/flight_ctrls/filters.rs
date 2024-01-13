@@ -2,7 +2,7 @@
 
 use cmsis_dsp_api as dsp_api;
 
-use crate::util::{filter_one, IirInstWrapper};
+use crate::util::{iir_apply, iir_new, IirInstWrapper};
 
 // static mut FILTER_STATE_CTRL_EFFECTIVENESS: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_DRAG_COEFF_PITCH: [f32; 4] = [0.; 4];
@@ -66,75 +66,19 @@ pub struct FlightCtrlFilters {
 
 impl Default for FlightCtrlFilters {
     fn default() -> Self {
-        let mut result = Self {
-            // ctrl_effectiveness: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // drag_coeff_pitch: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // drag_coeff_roll: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            // drag_coeff_yaw: IirInstWrapper {
-            //     inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            // },
-            d_term_x: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            d_term_y: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-            d_term_z: IirInstWrapper {
-                inner: dsp_api::biquad_cascade_df1_init_empty_f32(),
-            },
-        };
-
         unsafe {
-            // dsp_api::biquad_cascade_df1_init_f32(
-            //     &mut result.ctrl_effectiveness.inner,
-            //     &COEFFS_CTRL_EFFECTIVENESS,
-            //     &mut FILTER_STATE_CTRL_EFFECTIVENESS,
-            // );
-
-            // dsp_api::biquad_cascade_df1_init_f32(
-            //     &mut result.drag_coeff_pitch.inner,
-            //     &COEFFS_DRAG_COEFF,
-            //     &mut FILTER_STATE_DRAG_COEFF_PITCH,
-            // );
-            //
-            // dsp_api::biquad_cascade_df1_init_f32(
-            //     &mut result.drag_coeff_roll.inner,
-            //     &COEFFS_DRAG_COEFF,
-            //     &mut FILTER_STATE_DRAG_COEFF_ROLL,
-            // );
-            //
-            // dsp_api::biquad_cascade_df1_init_f32(
-            //     &mut result.drag_coeff_yaw.inner,
-            //     &COEFFS_DRAG_COEFF,
-            //     &mut FILTER_STATE_DRAG_COEFF_YAW,
-            // );
-
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.d_term_x.inner,
-                &COEFFS_D_TERM,
-                &mut FILTER_STATE_D_TERM_X,
-            );
-
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.d_term_y.inner,
-                &COEFFS_D_TERM,
-                &mut FILTER_STATE_D_TERM_Y,
-            );
-
-            dsp_api::biquad_cascade_df1_init_f32(
-                &mut result.d_term_z.inner,
-                &COEFFS_D_TERM,
-                &mut FILTER_STATE_D_TERM_Z,
-            );
+            Self {
+                d_term_x: IirInstWrapper {
+                    inner: iir_new(&COEFFS_D_TERM, &mut FILTER_STATE_D_TERM_X),
+                },
+                d_term_y: IirInstWrapper {
+                    inner: iir_new(&COEFFS_D_TERM, &mut FILTER_STATE_D_TERM_Y),
+                },
+                d_term_z: IirInstWrapper {
+                    inner: iir_new(&COEFFS_D_TERM, &mut FILTER_STATE_D_TERM_Z),
+                },
+            }
         }
-
-        result
     }
 }
 
