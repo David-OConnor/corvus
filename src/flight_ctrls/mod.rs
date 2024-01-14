@@ -5,6 +5,7 @@
 //! Note that this is just an example, and isn't necesssarily something to emulate.
 
 pub mod autopilot;
+pub mod cmd_updates;
 pub mod common;
 pub mod ctrl_effect_est;
 pub mod ctrl_logic;

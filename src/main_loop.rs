@@ -11,7 +11,7 @@ use rtic::mutex_prelude::*;
 use crate::{
     app, controller_interface,
     drivers::osd::{AutopilotData, OsdData},
-    flight_ctrls::{self, ctrl_logic, motor_servo::MotorServoState, InputMode},
+    flight_ctrls::{self, cmd_updates, ctrl_logic, motor_servo::MotorServoState, InputMode},
     imu_shared, osd,
     protocols::{crsf, rpm_reception},
     safety::{self, ArmStatus},
@@ -226,7 +226,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                 let (attitude_commanded, attitude_commanded_dt) = match state
                                     .input_mode
                                 {
-                                    InputMode::Acro => ctrl_logic::update_att_commanded_acro(
+                                    InputMode::Acro => cmd_updates::update_att_commanded_acro(
                                         ch_data,
                                         &cfg.input_map,
                                         state.attitude_commanded.quat,
@@ -235,7 +235,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                         cfg.takeoff_attitude,
                                     ),
                                     InputMode::Attitude => {
-                                        ctrl_logic::update_att_commanded_att_mode(
+                                        cmd_updates::update_att_commanded_att_mode(
                                             ch_data,
                                             &cfg.input_map,
                                             state.attitude_commanded.quat,
@@ -257,7 +257,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                 InputMode::Acro => ch_data.throttle,
                                 InputMode::Attitude => {
                                     // todo: Delegate to a diff fn A/R.
-                                    let (alt, vv) = ctrl_logic::update_alt_baro_commanded(
+                                    let (alt, vv) = cmd_updates::update_alt_baro_commanded(
                                         ch_data.throttle,
                                         &cfg.input_map,
                                         state.alt_baro_commanded.0,
@@ -272,7 +272,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                 }
                                 InputMode::Loiter => {
                                     // todo: Delegate to a diff fn A/R.
-                                    let (alt, vv) = ctrl_logic::update_alt_baro_commanded(
+                                    let (alt, vv) = cmd_updates::update_alt_baro_commanded(
                                         ch_data.throttle,
                                         &cfg.input_map,
                                         state.alt_baro_commanded.0,
