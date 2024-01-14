@@ -308,7 +308,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         cx.shared.motor_timer.lock(|motor_timer| {
                             if state_volatile.preflight_motors_running {
                                 // todo: Use actual arm status!!
-                                // println!("Motor pow fl: {:?}", state_volatile.motor_servo_state.rotor_front_left.cmd.power());
 
                                 state_volatile
                                     .motor_servo_state

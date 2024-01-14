@@ -13,6 +13,12 @@ static mut FILTER_STATE_D_TERM_X: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_D_TERM_Y: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_D_TERM_Z: [f32; 4] = [0.; 4];
 
+// For motor RPM D-term.
+static mut FILTER_STATE_FRONT_LEFT: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_FRONT_RIGHT: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_AFT_LEFT: [f32; 4] = [0.; 4];
+static mut FILTER_STATE_AFT_RIGHT: [f32; 4] = [0.; 4];
+
 #[allow(clippy::excessive_precision)]
 static COEFFS_CTRL_EFFECTIVENESS: [f32; 5] = [
     0.13672873599731955,
@@ -99,5 +105,38 @@ impl FlightCtrlFilters {
             filter_one(&mut self.d_term_y, d_term_y),
             filter_one(&mut self.d_term_z, d_term_z),
         )
+    }
+}
+
+/// D term filters for the motor-RPM PID
+pub struct RpmPidFilters {
+    /// For commanding an RPM, moduling power to meet the target RPM. Motor 1.
+    pub rpm_front_left: IirInstWrapper,
+    /// Motor 2
+    pub rpm_front_right: IirInstWrapper,
+    /// Motor 3
+    pub rpm_aft_left: IirInstWrapper,
+    /// Motor 3
+    pub rpm_aft_right: IirInstWrapper,
+}
+
+impl Default for RpmPidFilters {
+    fn default() -> Self {
+        unsafe {
+            Self {
+                rpm_front_left: IirInstWrapper {
+                    inner: iir_new(&COEFFS_D, &mut FILTER_STATE_FRONT_LEFT),
+                },
+                rpm_front_right: IirInstWrapper {
+                    inner: iir_new(&COEFFS_D, &mut FILTER_STATE_FRONT_RIGHT),
+                },
+                rpm_aft_left: IirInstWrapper {
+                    inner: iir_new(&COEFFS_D, &mut FILTER_STATE_AFT_LEFT),
+                },
+                rpm_aft_right: IirInstWrapper {
+                    inner: iir_new(&COEFFS_D, &mut FILTER_STATE_AFT_RIGHT),
+                },
+            }
+        }
     }
 }

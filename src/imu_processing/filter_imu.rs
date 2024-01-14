@@ -71,11 +71,6 @@ pub struct ImuFilters {
     pub gyro_yaw: IirInstWrapper,
 
     pub vv_baro: IirInstWrapper,
-    // todo: Impl these notch filters once you have bidir dshot
-    // pub notch_motor1: IirInstWrapper,
-    // pub notch_motor2: IirInstWrapper,
-    // pub notch_motor3: IirInstWrapper,
-    // pub notch_motor4: IirInstWrapper,
 }
 
 impl Default for ImuFilters {
@@ -86,10 +81,10 @@ impl Default for ImuFilters {
                     inner: iir_new(&COEFFS_LP_ACCEL, &mut FILTER_STATE_ACCEL_X),
                 },
                 accel_y: IirInstWrapper {
-                    inner: iir_new(&COEFFS_LP_ACCEL, &mut FILTER_STATE_ACCEL_X),
+                    inner: iir_new(&COEFFS_LP_ACCEL, &mut FILTER_STATE_ACCEL_Y),
                 },
                 accel_z: IirInstWrapper {
-                    inner: iir_new(&COEFFS_LP_ACCEL, &mut FILTER_STATE_ACCEL_X),
+                    inner: iir_new(&COEFFS_LP_ACCEL, &mut FILTER_STATE_ACCEL_Z),
                 },
                 gyro_pitch: IirInstWrapper {
                     inner: iir_new(&COEFFS_LP_GYRO, &mut FILTER_STATE_GYRO_PITCH),
