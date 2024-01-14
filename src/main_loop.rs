@@ -211,11 +211,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     );
                 }
 
-                // todo: Are the attitude_commanded fields other than quat used? Should we remove them?
-
-                // todo: Here, or in a subfunction, blend in autopiot commands! Currently not applied,
-                // todo other than throttle.
-
                 let timestamp_imu_complete =
                     cx.shared.tick_timer.lock(|timer| timer.get_timestamp());
 
@@ -223,7 +218,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
 
                 if i % FLIGHT_CTRL_IMU_RATIO == 0 {
                     let mut throttle = 0.;
-
                     // Update our commanded attitude
                     match control_channel_data {
                         Some(ch_data) => {
@@ -251,11 +245,9 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                             )
                                         }
                                         InputMode::Loiter => {
-                                            // throttle = flight_ctrls::alt_hold_throttle
                                             (Quaternion::new_identity(), (0., 0., 0.))
                                         }
                                         InputMode::Route => {
-                                            // throttle = ch_data.throttle;
                                             (Quaternion::new_identity(), (0., 0., 0.))
                                         }
                                     };
@@ -264,27 +256,27 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                 state_volatile.attitude_commanded.quat_dt = attitude_commanded_dt;
                             }
 
+                            // Set altitude commanded if applicable based on flight mode, and set the throttle.
                             match state_volatile.input_mode {
                                 InputMode::Acro => {
-                                    // ch_data.throttle
+                                    throttle = ch_data.throttle;
                                 }
                                 InputMode::Attitude => {
                                     // todo: Delegate to a diff fn A/R.
                                     let (alt, vv) = ctrl_logic::update_alt_baro_commanded(
                                         ch_data.throttle,
                                         &cfg.input_map,
-                                        // params.v_z_baro,
                                         state_volatile.alt_baro_commanded.0,
                                     );
 
-                                    //
-                                    // flight_ctrls::throttle_from_alt_hold(
-                                    //     params.attitude,
-                                    //     // todo: Like attitude, change the target alt using the throttle.
-                                    //     ch_data.throttle,
-                                    // )
+                                    throttle = flight_ctrls::throttle_from_alt_hold(
+                                        params.alt_baro,
+                                        (alt, vv),
+                                        state.ctrl_mix.throttle
+                                    );
 
                                     state_volatile.alt_baro_commanded = (alt, vv);
+
                                 }
                                 InputMode::Loiter => {
                                     // todo: Delegate to a diff fn A/R.
@@ -292,6 +284,12 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                         ch_data.throttle,
                                         &cfg.input_map,
                                         state_volatile.alt_baro_commanded.0,
+                                    );
+
+                                    throttle = flight_ctrls::throttle_from_alt_hold(
+                                        params.alt_baro,
+                                        (alt, vv),
+                                        state.ctrl_mix.throttle
                                     );
 
                                     state_volatile.alt_baro_commanded = (alt, vv);
@@ -399,9 +397,12 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         return;
                     }
 
-                    let (controller_arm_status, throttle) = match control_channel_data {
-                        Some(ch_data) => (ch_data.arm_status, ch_data.throttle),
-                        None => (ArmStatus::Disarmed, 0.),
+                    let controller_arm_status = match control_channel_data {
+                        Some(ch_data) => ch_data.arm_status,
+                        None => {
+                            state.ctrl_mix.throttle = 0.;
+                            ArmStatus::Disarmed
+                        }
                     };
 
                     safety::handle_arm_status(
@@ -410,7 +411,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         controller_arm_status,
                         &mut state_volatile.arm_status,
                         &mut state_volatile.has_taken_off,
-                        throttle,
+                        state.ctrl_mix.throttle
                     );
 
                     let angle_from_upright =
@@ -418,7 +419,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
 
                     safety::handle_takeoff_attitude_lock(
                         state_volatile.arm_status,
-                        throttle,
+                        state.ctrl_mix.throttle,
                         &mut cx.local.time_with_high_throttle,
                         &mut cx.local.time_with_low_throttle,
                         angle_from_upright,
@@ -443,11 +444,6 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     // For OSD, we have a larger pause between writes so as not to saturate
                     // the UART line.
                 } else if (i_compensated - 2) % (NUM_IMU_LOOP_TASKS * 5) == 0 {
-                    let throttle = match control_channel_data {
-                        Some(ch_data) => ch_data.throttle,
-                        None => 0.,
-                    };
-
                     let osd_data = OsdData {
                         arm_status: state_volatile.arm_status,
                         battery_voltage: state_volatile.batt_v,
@@ -461,7 +457,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         link_quality: link_stats.uplink_link_quality,
                         num_satellites: 0, // todo temp
                         batt_cell_count: cfg.batt_cell_count,
-                        throttle,
+                        throttle: state.ctrl_mix.throttle,
                         total_acc: (params.a_x.powi(2) + params.a_y.powi(2) + params.a_z.powi(2))
                             .sqrt(),
                     };
@@ -477,6 +473,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     cx.local.task_durations.tasks[2] =
                         timestamp_task_complete - timestamp_fc_complete;
                 } else if (i_compensated - 3) % NUM_IMU_LOOP_TASKS == 0 {
+                    // todo: Update this using our new throttle/flt-ctrl scheme.
                     let mut throttle_prev = 0.;
                     if let Some(ch_data) = control_channel_data {
                         autopilot_status.set_modes_from_ctrls(ch_data, &params);

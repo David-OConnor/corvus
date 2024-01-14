@@ -177,3 +177,11 @@ pub fn set_input_mode(
         InputModeSwitch::Route => InputMode::Route,
     }
 }
+
+pub fn throttle_from_alt_hold(
+    alt_current: f32,
+    alt_vv_cmd: (f32, f32),
+    throttle_current: f32,
+) -> f32 {
+
+}
