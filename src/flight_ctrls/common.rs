@@ -155,8 +155,7 @@ pub struct CtrlInputs {
     pub throttle: Option<f32>,
 }
 
-/// Command a quaternion attitude, part of all of a Euler angle attitude, or neither.
-/// If both a quaternion and euler angle are present, favor the quaternion.
+/// Command an attitude and attitude rate.
 #[derive(Default)]
 pub struct AttitudeCommanded {
     // pub quat: Option<Quaternion>,
@@ -168,9 +167,11 @@ pub struct AttitudeCommanded {
     // pub quat_dt: Torque,
     /// todo: Switched to pitch, roll, yaw, radians-per-second.
     pub quat_dt: (f32, f32, f32),
-    /// We use pitch, roll, and yaw if a specific axis is commanded.
-    /// todo: Are these earth-centered?
-    pub pitch: Option<f32>,
-    pub roll: Option<f32>,
-    pub yaw: Option<f32>,
+    pub throttle: f32, // todo: COnsider after using, if this makes sense here.
+                       // /// We use pitch, roll, and yaw if a specific axis is commanded.
+                       // /// todo: Are these earth-centered?
+                       // /// todo, Jan 2024: Do we use these?
+                       // pub pitch: Option<f32>,
+                       // pub roll: Option<f32>,
+                       // pub yaw: Option<f32>,
 }

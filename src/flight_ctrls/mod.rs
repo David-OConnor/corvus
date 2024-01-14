@@ -52,7 +52,7 @@ pub fn run(
     pid_coeffs: &PidCoeffs,
     autopilot_status: &AutopilotStatus,
     has_taken_off: bool,
-    throttle: f32,
+    // throttle: f32,
 ) {
     // let throttle = match state_volatile.autopilot_commands.throttle {
     //     Some(t) => t,
@@ -84,8 +84,7 @@ pub fn run(
             let ctrl_mix = ctrl_logic::ctrl_mix_from_att(
                 state_volatile.attitude_commanded.quat,
                 &state_volatile.attitude_commanded.quat_dt,
-                // params.attitude_quat,
-                throttle,
+                state_volatile.attitude_commanded.throttle,
                 state_volatile.motor_servo_state.frontleft_aftright_dir,
                 params,
                 params_prev,
