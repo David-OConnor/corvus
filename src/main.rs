@@ -317,7 +317,7 @@ mod app {
                  ch_data,
                  link_stats,
                  user_cfg,
-                 state_volatile,
+                 state,
                  system_status,
                  autopilot_status,
                  motor_timer,
@@ -336,25 +336,25 @@ mod app {
                                 usb_serial,
                                 &buf,
                                 params.attitude,
-                                &state_volatile.attitude_commanded,
+                                &state.attitude_commanded,
                                 params.alt_msl_baro,
-                                state_volatile.pressure_static,
-                                state_volatile.temp_baro,
+                                state.pressure_static,
+                                state.temp_baro,
                                 params.alt_tof,
-                                state_volatile.batt_v,
-                                state_volatile.esc_current,
+                                state.batt_v,
+                                state.esc_current,
                                 ch_data,
                                 &link_stats,
                                 user_cfg,
                                 system_status,
                                 autopilot_status,
-                                &mut state_volatile.arm_status,
+                                &mut state.arm_status,
                                 // &mut user_cfg.control_mapping,
-                                &mut state_volatile.op_mode,
+                                &mut state.op_mode,
                                 motor_timer,
                                 servo_timer,
-                                &mut state_volatile.motor_servo_state,
-                                &mut state_volatile.preflight_motors_running,
+                                &mut state.motor_servo_state,
+                                &mut state.preflight_motors_running,
                                 flash,
                             );
                         }
@@ -631,9 +631,9 @@ mod app {
 
             osd::OSD_WRITE_IN_PROGRESS.store(true, Ordering::Release);
 
-            cx.shared.state_volatile.lock(|state_volatile| {
+            cx.shared.state_volatile.lock(|state| {
                 // todo: This can probably be set up once on init, since it never changes.
-                osd::make_arm_status_buf(state_volatile.arm_status == safety::MOTORS_ARMED);
+                osd::make_arm_status_buf(state.arm_status == safety::MOTORS_ARMED);
             });
 
             // todo: Put back
@@ -716,12 +716,9 @@ mod app {
 
         let buf = unsafe { &sensors_shared::READ_BUF_BARO };
 
-        // todo: This is fragile, esp re the 11. figure, and if this figure still makes sense
-        // todo if we change the values.
         const DT_BARO: f32 = main_loop::DT_IMU
-            * (main_loop::FLIGHT_CTRL_IMU_RATIO as f32
-                * main_loop::NUM_IMU_LOOP_TASKS as f32
-                * main_loop::BARO_RATIO as f32);
+            * main_loop::NUM_IMU_LOOP_TASKS as f32
+            * main_loop::BARO_RATIO as f32;
 
         (
             cx.shared.altimeter,
@@ -729,12 +726,12 @@ mod app {
             cx.shared.state_volatile,
             cx.shared.imu_filters,
         )
-            .lock(|altimeter, params, state_volatile, filters| {
+            .lock(|altimeter, params, state, filters| {
                 // todo: Process your baro reading here.
                 let (pressure, temp) = altimeter.pressure_temp_from_readings(buf);
 
-                state_volatile.pressure_static = pressure;
-                state_volatile.temp_baro = temp;
+                state.pressure_static = pressure;
+                state.temp_baro = temp;
 
                 let altitude_raw =
                     atmos_model::estimate_altitude_msl(pressure, temp, &altimeter.ground_cal);

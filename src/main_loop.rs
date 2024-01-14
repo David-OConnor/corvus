@@ -24,7 +24,7 @@ use crate::{
 // const UPDATE_RATE_IMU: f32 = 8_000.;
 const UPDATE_RATE_IMU: f32 = 8_192.; // From measuring.
 pub const DT_IMU: f32 = 1. / UPDATE_RATE_IMU;
-pub const BARO_RATIO: u32 = 11;
+pub const BARO_RATIO: u32 = 42;
 
 pub const DT_FLIGHT_CTRLS: f32 = 1. / UPDATE_RATE_FLIGHT_CTRLS;
 
@@ -45,22 +45,6 @@ pub const FLIGHT_CTRL_IMU_RATIO: u32 = 4; // Likely values: 1, 2, 4, 8.
 pub const FLIGHT_CTRL_IMU_RATIO: u32 = 8; // Likely values: 4, 8, 16.
 
 use defmt::println;
-
-// cfg_if! {
-//     if #[cfg(feature = "h7")] {
-//         // The rate our main program updates, in Hz.
-//         // todo note that we will have to scale up values slightly on teh H7 board with 32.768kHz oscillator:
-//         // ICM-42688 DS: The ODR values shown in the
-//         // datasheet are supported with external clock input frequency of 32kHz. For any other external
-//         // clock input frequency, these ODR values will scale by a factor of (External clock value in kHz / 32).
-//         // For example, if an external clock frequency of 32.768kHz is used,
-//         // instead of ODR value of 500Hz, it will be 500 * (32.768 / 32) = 512Hz.
-//         const UPDATE_RATE_FLIGHT_CTRLS: f32 = 8_192. / FLIGHT_CTRL_IMU_RATIO as f32;
-//     } else {
-//         // Todo: Measured: 8.042kHz (2022-10-26)
-//         const UPDATE_RATE_FLIGHT_CTRLS: f32 = UPDATE_RATE_IMU / FLIGHT_CTRL_IMU_RATIO as f32;
-//     }
-// }
 
 const UPDATE_RATE_FLIGHT_CTRLS: f32 = UPDATE_RATE_IMU / FLIGHT_CTRL_IMU_RATIO as f32;
 
@@ -357,7 +341,9 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
 
                 // We're tracking tasks as ones that make it past the initial flight
                 // control ratio filter, so factor that out.
-                let i_compensated = i / FLIGHT_CTRL_IMU_RATIO;
+                // todo: QC this.
+                // let i_compensated = i / FLIGHT_CTRL_IMU_RATIO;
+                let i_compensated = i;
 
                 if (i_compensated - 0) % NUM_IMU_LOOP_TASKS == 0 {
                     let mut batt_v = 0.;
@@ -513,20 +499,15 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
 
                     cx.local.task_durations.tasks[4] =
                         timestamp_task_complete - timestamp_fc_complete;
-                } else if (i_compensated - 5) % NUM_IMU_LOOP_TASKS == 0 {
+                } else if (i_compensated - 5) % (NUM_IMU_LOOP_TASKS * BARO_RATIO) == 0 {
                     // Don't poll the baro too fast; we get DMA anomolies and no data.
-                    static mut I2: u32 = 0;
-                    unsafe {
-                        I2 += 1;
                         // This is a sloppy way of lowering the refresh rate. Bottom line, for quads:
-                        // 8khz loop / (11 * 6(num_tasks) * 4(flight ctrl ratio) = 30Hz.
+                        // 8khz loop / (11 * 6(num_tasks)) = 32Hz.
                         // This is fragile, ie if we change any of the above params.
                         // The baro refreshes at 32Hz.
-                        if I2 % BARO_RATIO == 0 {
-                            cx.shared.i2c2.lock(|i2c2| {
-                                sensors_shared::start_transfer_baro(i2c2);
-                            });
-                        }
+                        cx.shared.i2c2.lock(|i2c2| {
+                            sensors_shared::start_transfer_baro(i2c2);
+                        });
                     }
 
                     system_status.update_from_timestamp(timestamp);
