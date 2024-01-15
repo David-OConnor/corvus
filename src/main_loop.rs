@@ -25,6 +25,9 @@ use crate::{
 const UPDATE_RATE_IMU: f32 = 8_192.; // From measuring.
 pub const DT_IMU: f32 = 1. / UPDATE_RATE_IMU;
 pub const BARO_RATIO: u32 = 42;
+const DT_BARO: f32 = DT_IMU
+    * NUM_IMU_LOOP_TASKS as f32
+    * BARO_RATIO as f32;
 
 pub const DT_FLIGHT_CTRLS: f32 = 1. / UPDATE_RATE_FLIGHT_CTRLS;
 
@@ -499,18 +502,17 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
 
                     cx.local.task_durations.tasks[4] =
                         timestamp_task_complete - timestamp_fc_complete;
-                } else if (i_compensated - 5) % (NUM_IMU_LOOP_TASKS * BARO_RATIO) == 0 {
+                } else if (i_compensated - 5) % NUM_IMU_LOOP_TASKS == 0 {
                     // Don't poll the baro too fast; we get DMA anomolies and no data.
+                    if (i_compensated - 5) % (NUM_IMU_LOOP_TASKS * BARO_RATIO) {
                         // This is a sloppy way of lowering the refresh rate. Bottom line, for quads:
                         // 8khz loop / (11 * 6(num_tasks)) = 32Hz.
                         // This is fragile, ie if we change any of the above params.
                         // The baro refreshes at 32Hz.
                         cx.shared.i2c2.lock(|i2c2| {
                             sensors_shared::start_transfer_baro(i2c2);
-                        });
+                        })
                     }
-
-                    system_status.update_from_timestamp(timestamp);
 
                     // This isn't part of `update_from_timestamps` due to the params
                     // in `execute_lost_link`.
@@ -540,6 +542,8 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     cx.local.task_durations.tasks[5] =
                         timestamp_task_complete - timestamp_fc_complete;
                 }
+
+                system_status.update_from_timestamp(timestamp);
 
                 cx.shared.tick_timer.lock(|tick_timer| {
                     #[cfg(feature = "print-status")]

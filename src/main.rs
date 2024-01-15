@@ -716,10 +716,6 @@ mod app {
 
         let buf = unsafe { &sensors_shared::READ_BUF_BARO };
 
-        const DT_BARO: f32 = main_loop::DT_IMU
-            * main_loop::NUM_IMU_LOOP_TASKS as f32
-            * main_loop::BARO_RATIO as f32;
-
         (
             cx.shared.altimeter,
             cx.shared.params,
@@ -741,7 +737,7 @@ mod app {
                 // todo: We apply a low-pass filter here, since the readings are low-resolution; otherwise
                 // VV would appear as mostly 0, with bursts of activity.
                 // todo: Linear kalman instead?
-                params.v_z_baro = (altitude - params.alt_msl_baro) / DT_BARO;
+                params.v_z_baro = (altitude - params.alt_msl_baro) /main_loop::DT_BARO;
                 // println!("V Z baro: {:?}", params.v_z_baro);
                 params.alt_msl_baro = altitude;
             });
