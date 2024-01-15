@@ -170,21 +170,21 @@ impl Default for MotorCoeffs {
     }
 }
 
-#[derive(Default)]
-/// For Motor RPM PID
-pub struct MotorPidGroup {
-    pub front_left: PidStateLegacy,
-    pub front_right: PidStateLegacy,
-    pub aft_left: PidStateLegacy,
-    pub aft_right: PidStateLegacy,
-}
-
-impl MotorPidGroup {
-    /// Reset the interator term on all components.
-    pub fn reset_integrator(&mut self) {
-        self.front_left.i = 0.;
-        self.front_right.i = 0.;
-        self.aft_left.i = 0.;
-        self.aft_right.i = 0.;
-    }
-}
+// #[derive(Default)]
+// /// For Motor RPM PID
+// pub struct MotorPidGroup {
+//     pub front_left: PidStateLegacy,
+//     pub front_right: PidStateLegacy,
+//     pub aft_left: PidStateLegacy,
+//     pub aft_right: PidStateLegacy,
+// }
+//
+// impl MotorPidGroup {
+//     /// Reset the interator term on all components.
+//     pub fn reset_integrator(&mut self) {
+//         self.front_left.i = 0.;
+//         self.front_right.i = 0.;
+//         self.aft_left.i = 0.;
+//         self.aft_right.i = 0.;
+//     }
+// }

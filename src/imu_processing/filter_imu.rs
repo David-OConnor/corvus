@@ -5,8 +5,9 @@
 
 use ahrs::ImuReadings;
 use cmsis_dsp_api as dsp_api;
+use dsp_api::iir_new;
 
-use crate::util::{iir_apply, iir_new, IirInstWrapper};
+use crate::util::{iir_apply, IirInstWrapper};
 
 // const BLOCK_SIZE: u32 = crate::FLIGHT_CTRL_IMU_RATIO as u32;
 const BLOCK_SIZE: u32 = 1;
@@ -107,12 +108,12 @@ impl ImuFilters {
     /// Apply the filters to IMU readings, modifying in place. Block size = 1.
     /// Note: Baro is handled separately.
     pub fn apply(&mut self, data: &mut ImuReadings) {
-        data.a_x = filter_one(&mut self.accel_x, data.a_x);
-        data.a_y = filter_one(&mut self.accel_y, data.a_y);
-        data.a_z = filter_one(&mut self.accel_z, data.a_z);
-        data.v_pitch = filter_one(&mut self.gyro_pitch, data.v_pitch);
-        data.v_roll = filter_one(&mut self.gyro_roll, data.v_roll);
-        data.v_yaw = filter_one(&mut self.gyro_yaw, data.v_yaw);
+        data.a_x = iir_apply(&mut self.accel_x, data.a_x);
+        data.a_y = iir_apply(&mut self.accel_y, data.a_y);
+        data.a_z = iir_apply(&mut self.accel_z, data.a_z);
+        data.v_pitch = iir_apply(&mut self.gyro_pitch, data.v_pitch);
+        data.v_roll = iir_apply(&mut self.gyro_roll, data.v_roll);
+        data.v_yaw = iir_apply(&mut self.gyro_yaw, data.v_yaw);
     }
 }
 

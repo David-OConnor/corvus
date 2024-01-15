@@ -25,7 +25,7 @@ use crate::{
 const UPDATE_RATE_IMU: f32 = 8_192.; // From measuring.
 pub const DT_IMU: f32 = 1. / UPDATE_RATE_IMU;
 pub const BARO_RATIO: u32 = 42;
-const DT_BARO: f32 = DT_IMU
+pub const DT_BARO: f32 = DT_IMU
     * NUM_IMU_LOOP_TASKS as f32
     * BARO_RATIO as f32;
 
@@ -127,7 +127,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
         cx.shared.autopilot_status,
         cx.shared.control_channel_data,
         cx.shared.link_stats,
-        cx.shared.motor_pid_state,
+        // cx.shared.motor_pid_state,
         // cx.shared.motor_pid_coeffs,
         cx.shared.user_cfg,
         cx.shared.state_volatile,
@@ -138,7 +138,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
              autopilot_status,
              control_channel_data,
              link_stats,
-             pid_state,
+             // pid_state,
              cfg,
              state,
              system_status| {
@@ -252,7 +252,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     state.alt_baro_commanded = (alt, vv);
 
                                     flight_ctrls::throttle_from_alt_hold(
-                                        params.alt_baro,
+                                        params.alt_msl_baro,
                                         (alt, vv),
                                         state.ctrl_mix.throttle,
                                     )
@@ -267,12 +267,12 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     state.alt_baro_commanded = (alt, vv);
 
                                     flight_ctrls::throttle_from_alt_hold(
-                                        params.alt_baro,
+                                        params.alt_msl_baro,
                                         (alt, vv),
                                         state.ctrl_mix.throttle,
                                     )
                                 }
-                                InputMode::Route => 0,
+                                InputMode::Route => 0.,
                             };
                             state.attitude_commanded.throttle = throttle;
                         }
@@ -427,7 +427,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         current_draw: state.esc_current,
                         alt_msl_baro: params.alt_msl_baro,
                         posit_vel: PositVelEarthUnits::default(),
-                        autopilot: AutopilotData::from_status(autopilot_status),
+                        autopilot: AutopilotData::from_status(&autopilot_status),
                         base_dist_bearing: (
                             0., 0., // todo: Fill these out
                         ),
@@ -504,7 +504,7 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                         timestamp_task_complete - timestamp_fc_complete;
                 } else if (i_compensated - 5) % NUM_IMU_LOOP_TASKS == 0 {
                     // Don't poll the baro too fast; we get DMA anomolies and no data.
-                    if (i_compensated - 5) % (NUM_IMU_LOOP_TASKS * BARO_RATIO) {
+                    if (i_compensated - 5) % (NUM_IMU_LOOP_TASKS * BARO_RATIO) == 0 {
                         // This is a sloppy way of lowering the refresh rate. Bottom line, for quads:
                         // 8khz loop / (11 * 6(num_tasks)) = 32Hz.
                         // This is fragile, ie if we change any of the above params.

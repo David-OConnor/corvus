@@ -463,7 +463,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
             flight_ctrl_filters: Default::default(),
             ext_sensor_active: ExtSensor::Mag,
             pwr_maps: Default::default(),
-            motor_pid_state: Default::default(),
+            // motor_pid_state: Default::default(),
             motor_pid_coeffs: Default::default(),
             // rpm_readings: Default::default(),
             // rpms_commanded: Default::default(),

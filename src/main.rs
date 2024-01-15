@@ -65,7 +65,7 @@ use crate::{
         autopilot::AutopilotStatus,
         ctrl_effect_est::AccelMaps,
         filters::FlightCtrlFilters,
-        pid::{MotorCoeffs, MotorPidGroup},
+        pid::{MotorCoeffs},
     },
     imu_processing::{filter_imu::ImuFilters, imu_shared},
     protocols::{
@@ -183,7 +183,7 @@ mod app {
         // /// shared fields.
         // rpm_readings: RpmReadings,
         // rpms_commanded: MotorRpm,
-        pub motor_pid_state: MotorPidGroup,
+        // pub motor_pid_state: MotorPidGroup,
         /// PID motor coefficients
         pub motor_pid_coeffs: MotorCoeffs,
         pub tick_timer: Timer<TIM5>,
@@ -259,7 +259,7 @@ mod app {
     // #[task(binds = DMA1_STR2,
     #[task(binds = DMA1_CH2,
     shared = [altimeter, ahrs, spi1, i2c1, i2c2, params, control_channel_data, link_stats,
-    autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_state, motor_pid_coeffs,
+    autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_coeffs,
     motor_timer, servo_timer, state_volatile, system_status, tick_timer, uart_osd],
     local = [imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle, time_with_low_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, task_durations], priority = 4)]

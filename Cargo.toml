@@ -46,7 +46,7 @@ packed_struct = {version = "^0.10.1", default_features = false }
 num_enum = { version = "^0.7.0", default_features = false }
 
 dronecan = { path = "../dronecan", optional = true }
-mavlink = { "^0.12.2", default_features = false }
+#mavlink = { version = "^0.12.2", default_features = false }
 anyleaf_usb = { path = "../anyleaf_usb" }
 
 # Use these features to specify GPIO mapping, and which peripherals to use.

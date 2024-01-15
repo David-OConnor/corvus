@@ -282,82 +282,86 @@ impl MotorServoState {
     pub fn set_cmds_from_rpms(
         &mut self,
         rpms_commanded: &MotorRpm,
-        pid_group: &pid::MotorPidGroup,
+        // pid_group: &pid::MotorPidGroup,
         pid_coeffs: &pid::MotorCoeffs,
     ) {
         // todo: DRY
         // Calculate target RPMS, using our PID logic.
-        let p_front_left = match self.rotor_front_left.rpm_reading {
-            Some(reading) => {
-                pid::run(
-                    rpms_commanded.front_left,
-                    reading,
-                    &pid_group.front_left,
-                    pid_coeffs.p_front_left,
-                    pid_coeffs.i_front_left,
-                    0.,
-                    None,
-                    DT_FLIGHT_CTRLS,
-                )
-                .out()
-                    + self.rotor_front_left.cmd.power()
-            }
-            None => 0.,
-        };
-
-        let p_front_right = match self.rotor_front_right.rpm_reading {
-            Some(reading) => {
-                pid::run(
-                    rpms_commanded.front_right,
-                    reading,
-                    &pid_group.front_right,
-                    pid_coeffs.p_front_right,
-                    pid_coeffs.i_front_right,
-                    0.,
-                    None,
-                    DT_FLIGHT_CTRLS,
-                )
-                .out()
-                    + self.rotor_front_right.cmd.power()
-            }
-            None => 0.,
-        };
-
-        let p_aft_left = match self.rotor_aft_left.rpm_reading {
-            Some(reading) => {
-                pid::run(
-                    rpms_commanded.aft_left,
-                    reading,
-                    &pid_group.aft_left,
-                    pid_coeffs.p_aft_left,
-                    pid_coeffs.i_aft_left,
-                    0.,
-                    None,
-                    DT_FLIGHT_CTRLS,
-                )
-                .out()
-                    + self.rotor_aft_left.cmd.power()
-            }
-            None => 0.,
-        };
-
-        let p_aft_right = match self.rotor_aft_right.rpm_reading {
-            Some(reading) => {
-                pid::run(
-                    rpms_commanded.aft_right,
-                    reading,
-                    &pid_group.aft_right,
-                    pid_coeffs.p_aft_right,
-                    pid_coeffs.i_aft_right,
-                    0.,
-                    None,
-                    DT_FLIGHT_CTRLS,
-                )
-                .out()
-                    + self.rotor_aft_right.cmd.power()
-            }
-            None => 0.,
-        };
+        // let p_front_left = match self.rotor_front_left.rpm_reading {
+        //     Some(reading) => {
+        //         pid::run(
+        //             rpms_commanded.front_left,
+        //             reading,
+        //             &pid_group.front_left,
+        //             pid_coeffs.p_front_left,
+        //             pid_coeffs.i_front_left,
+        //             0.,
+        //             None,
+        //             DT_FLIGHT_CTRLS,
+        //         )
+        //         .out()
+        //             + self.rotor_front_left.cmd.power()
+        //     }
+        //     None => 0.,
+        // };
+        //
+        // let p_front_right = match self.rotor_front_right.rpm_reading {
+        //     Some(reading) => {
+        //         pid::run(
+        //             rpms_commanded.front_right,
+        //             reading,
+        //             &pid_group.front_right,
+        //             pid_coeffs.p_front_right,
+        //             pid_coeffs.i_front_right,
+        //             0.,
+        //             None,
+        //             DT_FLIGHT_CTRLS,
+        //         )
+        //         .out()
+        //             + self.rotor_front_right.cmd.power()
+        //     }
+        //     None => 0.,
+        // };
+        //
+        // let p_aft_left = match self.rotor_aft_left.rpm_reading {
+        //     Some(reading) => {
+        //         pid::run(
+        //             rpms_commanded.aft_left,
+        //             reading,
+        //             &pid_group.aft_left,
+        //             pid_coeffs.p_aft_left,
+        //             pid_coeffs.i_aft_left,
+        //             0.,
+        //             None,
+        //             DT_FLIGHT_CTRLS,
+        //         )
+        //         .out()
+        //             + self.rotor_aft_left.cmd.power()
+        //     }
+        //     None => 0.,
+        // };
+        //
+        // let p_aft_right = match self.rotor_aft_right.rpm_reading {
+        //     Some(reading) => {
+        //         pid::run(
+        //             rpms_commanded.aft_right,
+        //             reading,
+        //             &pid_group.aft_right,
+        //             pid_coeffs.p_aft_right,
+        //             pid_coeffs.i_aft_right,
+        //             0.,
+        //             None,
+        //             DT_FLIGHT_CTRLS,
+        //         )
+        //         .out()
+        //             + self.rotor_aft_right.cmd.power()
+        //     }
+        //     None => 0.,
+        // };
+        let p_front_left = 0.;
+        let p_front_right= 0.;
+        let p_aft_left = 0.;
+        let p_aft_right = 0.;
 
         self.rotor_front_left.cmd = MotorCmd::Rpm(RpmCmd {
             rpm_cmd: rpms_commanded.front_left,

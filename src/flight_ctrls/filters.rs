@@ -1,8 +1,9 @@
 //! THis module contains code for digitally filtering data involved in flight controls.
 
 use cmsis_dsp_api as dsp_api;
+use dsp_api::iir_new;
 
-use crate::util::{iir_apply, iir_new, IirInstWrapper};
+use crate::util::{iir_apply, IirInstWrapper};
 
 // static mut FILTER_STATE_CTRL_EFFECTIVENESS: [f32; 4] = [0.; 4];
 static mut FILTER_STATE_DRAG_COEFF_PITCH: [f32; 4] = [0.; 4];
@@ -101,9 +102,9 @@ impl FlightCtrlFilters {
         d_term_z: f32,
     ) -> (f32, f32, f32) {
         (
-            filter_one(&mut self.d_term_x, d_term_x),
-            filter_one(&mut self.d_term_y, d_term_y),
-            filter_one(&mut self.d_term_z, d_term_z),
+            iir_apply(&mut self.d_term_x, d_term_x),
+            iir_apply(&mut self.d_term_y, d_term_y),
+            iir_apply(&mut self.d_term_z, d_term_z),
         )
     }
 }
@@ -125,16 +126,17 @@ impl Default for RpmPidFilters {
         unsafe {
             Self {
                 rpm_front_left: IirInstWrapper {
-                    inner: iir_new(&COEFFS_D, &mut FILTER_STATE_FRONT_LEFT),
+                    // todo: QC these coeffs; you likely need a different one from the IMU filters.
+                    inner: iir_new(&COEFFS_D_TERM, &mut FILTER_STATE_FRONT_LEFT),
                 },
                 rpm_front_right: IirInstWrapper {
-                    inner: iir_new(&COEFFS_D, &mut FILTER_STATE_FRONT_RIGHT),
+                    inner: iir_new(&COEFFS_D_TERM, &mut FILTER_STATE_FRONT_RIGHT),
                 },
                 rpm_aft_left: IirInstWrapper {
-                    inner: iir_new(&COEFFS_D, &mut FILTER_STATE_AFT_LEFT),
+                    inner: iir_new(&COEFFS_D_TERM, &mut FILTER_STATE_AFT_LEFT),
                 },
                 rpm_aft_right: IirInstWrapper {
-                    inner: iir_new(&COEFFS_D, &mut FILTER_STATE_AFT_RIGHT),
+                    inner: iir_new(&COEFFS_D_TERM, &mut FILTER_STATE_AFT_RIGHT),
                 },
             }
         }

@@ -5,7 +5,9 @@ use defmt::println;
 use lin_alg2::f32::Quaternion;
 use num_traits::float::Float; // For sqrt.
 
-use super::{ctrl_effect_est::AccelMaps, filters::FlightCtrlFilters};
+use ahrs::Params;
+
+use super::{ctrl_effect_est::AccelMaps, filters::FlightCtrlFilters, common::CtrlMix};
 use crate::{
     controller_interface::ChannelData,
     flight_ctrls::{

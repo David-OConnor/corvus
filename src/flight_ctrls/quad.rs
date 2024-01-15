@@ -183,4 +183,5 @@ pub fn throttle_from_alt_hold(
     alt_vv_cmd: (f32, f32),
     throttle_current: f32,
 ) -> f32 {
+    0.
 }
