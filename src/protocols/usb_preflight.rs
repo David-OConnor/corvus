@@ -129,6 +129,7 @@ pub enum MsgType {
     Config = 22,
     ReqConfig = 23,
     SaveConfig = 24,
+    CalibrateAccel = 25,
 }
 
 impl MessageType for MsgType {
@@ -164,6 +165,7 @@ impl MessageType for MsgType {
             Self::Config => CONFIG_SIZE,
             Self::ReqConfig => 0,
             Self::SaveConfig => CONFIG_SIZE,
+            Self::CalibrateAccel => 0,
         }
     }
 }
@@ -434,6 +436,7 @@ pub fn handle_rx(
     motor_servo_state: &mut MotorServoState,
     preflight_motors_running: &mut bool,
     flash: &mut Flash,
+    calibrating_accel: &mut bool,
 ) {
     if rx_buf[0] != MSG_START {
         println!("Invalid start byte rec");
@@ -700,6 +703,10 @@ pub fn handle_rx(
             *config =
                 UserConfig::from_bytes(&rx_buf[PAYLOAD_START_I..PAYLOAD_START_I + CONFIG_SIZE]);
             config.save(flash);
+        }
+        MsgType::CalibrateAccel => {
+            println!("Calibrate accel request received");
+            *calibrating_accel = true;
         }
     }
 }

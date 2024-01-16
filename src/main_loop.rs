@@ -1,10 +1,10 @@
 //! This module cnotains the main loop. It is likely triggered by either
 //! IMU data being ready, or at a regular interval determined by a timer etc.
 
-use core::sync::atomic::Ordering;
+use core::sync::atomic::{AtomicU16, Ordering};
 
 use ahrs::{self, ppks::PositVelEarthUnits, ImuReadings};
-use lin_alg2::f32::Quaternion;
+use lin_alg2::f32::{Quaternion, Vec3};
 use num_traits::Float;
 use rtic::mutex_prelude::*;
 
@@ -25,9 +25,7 @@ use crate::{
 const UPDATE_RATE_IMU: f32 = 8_192.; // From measuring.
 pub const DT_IMU: f32 = 1. / UPDATE_RATE_IMU;
 pub const BARO_RATIO: u32 = 42;
-pub const DT_BARO: f32 = DT_IMU
-    * NUM_IMU_LOOP_TASKS as f32
-    * BARO_RATIO as f32;
+pub const DT_BARO: f32 = DT_IMU * NUM_IMU_LOOP_TASKS as f32 * BARO_RATIO as f32;
 
 pub const DT_FLIGHT_CTRLS: f32 = 1. / UPDATE_RATE_FLIGHT_CTRLS;
 
@@ -58,6 +56,13 @@ pub const NUM_IMU_LOOP_TASKS: u32 = 6; // We cycle through lower-priority tasks 
 // in quaternion commanded, to compensate. A higher value will be more resistant
 // to numerical precision problems, but may cause sluggish behavior.
 pub const ATT_CMD_UPDATE_RATIO: u32 = 20;
+
+// todo: DRY with GNSS CAN
+static ACC_CAL_VALS_LOGGED: AtomicU16 = AtomicU16::new(0);
+const NUM_ACC_CAL_VALS: u16 = 1_000;
+// Ie to prevent the initiation click etc from interfereing with readings.
+const ACC_CAL_CYCLES_TO_SKIP: u16 = 8_000;
+static mut ACC_CAL_TOTAL: Vec3 = Vec3::new_zero();
 
 /// Used to track the duration of main loop tasks. Times are in seconds
 #[derive(Default)]
@@ -164,6 +169,93 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     // todo: We probably don't need to update AHRS each IMU update, but that's what
                     // todo we're currently doing, since that's updated in `update_from_imu_readings`.
                     params.update_from_imu_readings(&imu_data, None, ahrs);
+                });
+
+                // todo: Find a home for this.
+                let acc_up = params.attitude.rotate_vec(params.accel_linear).z; // todo: QC.
+                static mut J: u32 = 0;
+                unsafe {
+                    J += 1;
+                    if J % 400 == 0 {
+                        // println!("Acc up: {:?}", acc_up);
+                    }
+                }
+                // return;
+                unsafe { crate::VV_IMU += acc_up * DT_IMU };
+
+                // todo: Delegate to a fn!
+                // todo: DRY with gnss can
+                cx.shared.calibrating_accel.lock(|calibrating_accel| {
+                    if *calibrating_accel {
+                        // Actually all loops since start, including the skipped ones.
+                        let vals = ACC_CAL_VALS_LOGGED.fetch_add(1, Ordering::Relaxed);
+
+                        println!("Acc call vals: {:?}", vals);
+                        if vals > (NUM_ACC_CAL_VALS + ACC_CAL_CYCLES_TO_SKIP) {
+                            // todo: It seems the non-multiple-locks-in-same-ISR issue we have in RTIC
+                            // todo has to due with the tuples construct; hence this mess.
+
+                            let x = unsafe { ACC_CAL_TOTAL.x } / NUM_ACC_CAL_VALS as f32;
+                            let y = unsafe { ACC_CAL_TOTAL.y } / NUM_ACC_CAL_VALS as f32;
+                            let z = unsafe { ACC_CAL_TOTAL.z } / NUM_ACC_CAL_VALS as f32 - ahrs::G;
+
+                            let mut msg_type = anyleaf_usb::MsgType::Success;
+
+                            const CAL_THRESH: f32 = 0.4; // m/s^2
+                            if x.abs() < CAL_THRESH
+                                && y.abs() < CAL_THRESH
+                                && (z - ahrs::G).abs() < CAL_THRESH
+                            {
+                                cfg.acc_cal_bias.0 = x;
+                                cfg.acc_cal_bias.1 = y;
+                                cfg.acc_cal_bias.2 = z;
+
+                                println!(
+                                    "\n\n\nAcc cal complete. Vals: x{} y{} z{}\n\n\n",
+                                    cfg.acc_cal_bias.0,
+                                    cfg.acc_cal_bias.1,
+                                    cfg.acc_cal_bias.2
+                                );
+                                cx.shared.flash_onboard.lock(|flash| {
+                                    cfg.save(flash);
+                                });
+                            } else {
+                                println!("Acc cal failed due to out of bounds value");
+                                msg_type = anyleaf_usb::MsgType::Error;
+                            }
+
+                            // todo: Add this in.
+                            // cx.shared.usb_serial.lock(|usb_serial| {
+                            //     usb_preflight::send_payload::<{ PAYLOAD_START_I + CRC_LEN }>(
+                            //         msg_type,
+                            //         &[],
+                            //         usb_serial,
+                            //     );
+                            // });
+
+                            *calibrating_accel = false;
+
+                            ACC_CAL_VALS_LOGGED.store(0, Ordering::Release);
+                            *calibrating_accel = false;
+                        } else if vals > ACC_CAL_CYCLES_TO_SKIP {
+                            let acc_data = Vec3::new(imu_data.a_x, imu_data.a_y, imu_data.a_z);
+
+                            // If any value is above the thresh, ommit it.
+                            // todo: You still need to fail the calibration if there are too many failures etc.
+                            const CAL_THRESH: f32 = 0.6; // m/s^2
+                            if acc_data.x.abs() < CAL_THRESH
+                                && acc_data.y.abs() < CAL_THRESH
+                                && (acc_data.z - ahrs::G).abs() < CAL_THRESH
+                            {
+                                unsafe {
+                                    ACC_CAL_TOTAL += acc_data;
+                                }
+                            } else {
+                                // DOn't count this towards the number of logged values.
+                                ACC_CAL_VALS_LOGGED.store(vals - 1, Ordering::Release);
+                            }
+                        }
+                    }
                 });
 
                 // handle_rpm_readings(

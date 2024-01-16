@@ -2,6 +2,7 @@
 //! `setup` module as required.
 
 use ahrs::{Ahrs, DeviceOrientation};
+use lin_alg2::f32::Vec3;
 use stm32_hal2::{
     adc::{self, Adc, AdcConfig, AdcDevice},
     clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
@@ -347,11 +348,11 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // let mut ahrs = Ahrs::new(DT_IMU, user_cfg.orientation); // todo
 
     // todo: Set up cal bias in foncif
-    // ahrs.cal.acc_bias = Vec3::new(
-    //     user_cfg.acc_cal_bias.0,
-    //     user_cfg.acc_cal_bias.1,
-    //     user_cfg.acc_cal_bias.2,
-    // );
+    ahrs.cal.acc_bias = Vec3::new(
+        user_cfg.acc_cal_bias.0,
+        user_cfg.acc_cal_bias.1,
+        user_cfg.acc_cal_bias.2,
+    );
     //
     // ahrs.cal.hard_iron = user_cfg.hard_iron;
     // ahrs.cal.soft_iron = user_cfg.soft_iron.clone();
@@ -472,6 +473,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
             fix: Default::default(),
             posit_inertial: Default::default(),
             ahrs,
+            calibrating_accel: true,
         },
         Local {
             // update_timer,

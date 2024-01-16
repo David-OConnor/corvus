@@ -359,7 +359,7 @@ impl MotorServoState {
         //     None => 0.,
         // };
         let p_front_left = 0.;
-        let p_front_right= 0.;
+        let p_front_right = 0.;
         let p_aft_left = 0.;
         let p_aft_right = 0.;
 

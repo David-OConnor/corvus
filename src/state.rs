@@ -132,6 +132,8 @@ pub struct UserConfig {
     pub motor_pole_count: u8,
     pub base_pt: PositVelEarthUnits,
     pub pid_coeffs: PidCoeffs,
+    /// This is a dupe from AHRS, but here for storing/loading in config.
+    pub acc_cal_bias: (f32, f32, f32),
 }
 
 impl Default for UserConfig {
@@ -193,6 +195,7 @@ impl Default for UserConfig {
             motor_pole_count: 14,
             base_pt: Default::default(),
             pid_coeffs: Default::default(),
+            acc_cal_bias: (0., 0., 0.),
         }
     }
 }

@@ -6,8 +6,10 @@ use lin_alg2::f32::Quaternion;
 use num_traits::Float;
 
 use super::common::{CtrlMix, InputMap};
-use crate::main_loop::{ATT_CMD_UPDATE_RATIO, DT_FLIGHT_CTRLS, FLIGHT_CTRL_IMU_RATIO};
-use crate::controller_interface::ChannelData;
+use crate::{
+    controller_interface::ChannelData,
+    main_loop::{ATT_CMD_UPDATE_RATIO, DT_FLIGHT_CTRLS, FLIGHT_CTRL_IMU_RATIO},
+};
 
 // todo: This DEADZONE is to prevent f32(?) drift. We probably need a better way.
 // todo: This works for now though, at least when the stick is idle.

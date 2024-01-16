@@ -62,10 +62,8 @@ use crate::{
     controller_interface::ChannelData,
     drivers::{baro_dps310 as baro, imu_icm426xx as imu, osd, tof_vl53l1 as tof},
     flight_ctrls::{
-        autopilot::AutopilotStatus,
-        ctrl_effect_est::AccelMaps,
-        filters::FlightCtrlFilters,
-        pid::{MotorCoeffs},
+        autopilot::AutopilotStatus, ctrl_effect_est::AccelMaps, filters::FlightCtrlFilters,
+        pid::MotorCoeffs,
     },
     imu_processing::{filter_imu::ImuFilters, imu_shared},
     protocols::{
@@ -141,6 +139,9 @@ static mut CAN_BUF_RX: [u8; 64] = [0; 64];
 //// The time, in ms, to wait during initializing to allow the ESC and RX to power up and initialize.
 // const WARMUP_TIME: u32 = 100;
 
+// todo: Static mut for this is temp.
+static mut VV_IMU: f32 = 0.;
+
 // todo: Bit flags that display as diff colored LEDs, and OSD items
 
 #[rtic::app(device = pac, peripherals = false)]
@@ -191,6 +192,7 @@ mod app {
         pub fix: Fix,
         pub ahrs: Ahrs,
         pub posit_inertial: PositInertial,
+        pub calibrating_accel: bool,
     }
 
     #[local]
@@ -260,7 +262,7 @@ mod app {
     #[task(binds = DMA1_CH2,
     shared = [altimeter, ahrs, spi1, i2c1, i2c2, params, control_channel_data, link_stats,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_coeffs,
-    motor_timer, servo_timer, state_volatile, system_status, tick_timer, uart_osd],
+    motor_timer, servo_timer, state_volatile, system_status, tick_timer, uart_osd, calibrating_accel, flash_onboard],
     local = [imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle, time_with_low_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, task_durations], priority = 4)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {
@@ -285,7 +287,7 @@ mod app {
     // #[task(binds = OTG_FS,
     #[task(binds = USB_LP,
     shared = [usb_dev, usb_serial, params, control_channel_data, flash_onboard,
-    link_stats, user_cfg, state_volatile, system_status, autopilot_status, motor_timer, servo_timer],
+    link_stats, user_cfg, state_volatile, system_status, autopilot_status, motor_timer, servo_timer, calibrating_accel],
     local = [], priority = 10)]
     /// This ISR handles interaction over the USB serial port, eg for configuring using a desktop
     /// application. It should be a high priority, or the host may disconnect the device for not responding
@@ -308,6 +310,7 @@ mod app {
             cx.shared.motor_timer,
             cx.shared.servo_timer,
             cx.shared.flash_onboard,
+            cx.shared.calibrating_accel,
             // cx.shared.rpm_readings,
         )
             .lock(
@@ -323,6 +326,7 @@ mod app {
                  motor_timer,
                  servo_timer,
                  flash,
+                 calibrating_accel,
                  // rpm_readings
                 | {
                     if !usb_dev.poll(&mut [usb_serial]) {
@@ -356,6 +360,7 @@ mod app {
                                 &mut state.motor_servo_state,
                                 &mut state.preflight_motors_running,
                                 flash,
+                                calibrating_accel,
                             );
                         }
                         Err(_) => {
@@ -737,8 +742,14 @@ mod app {
                 // todo: We apply a low-pass filter here, since the readings are low-resolution; otherwise
                 // VV would appear as mostly 0, with bursts of activity.
                 // todo: Linear kalman instead?
-                params.v_z_baro = (altitude - params.alt_msl_baro) /main_loop::DT_BARO;
-                // println!("V Z baro: {:?}", params.v_z_baro);
+                params.v_z_baro = (altitude - params.alt_msl_baro) / main_loop::DT_BARO;
+                println!(
+                    "Alt: {:?}, Raw: {:?}, VZ baro: {:?}, VV IMU: {}",
+                    altitude,
+                    altitude_raw,
+                    params.v_z_baro,
+                    unsafe { VV_IMU }
+                );
                 params.alt_msl_baro = altitude;
             });
 
