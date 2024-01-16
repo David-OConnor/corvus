@@ -3,7 +3,8 @@
 
 use core::sync::atomic::{AtomicU16, Ordering};
 
-use ahrs::{self, ppks::PositVelEarthUnits, ImuReadings};
+use ahrs::{self, ppks::PositVelEarthUnits, CalResult, ImuReadings};
+use anyleaf_usb::{CRC_LEN, PAYLOAD_START_I};
 use lin_alg2::f32::{Quaternion, Vec3};
 use num_traits::Float;
 use rtic::mutex_prelude::*;
@@ -58,11 +59,9 @@ pub const NUM_IMU_LOOP_TASKS: u32 = 6; // We cycle through lower-priority tasks 
 pub const ATT_CMD_UPDATE_RATIO: u32 = 20;
 
 // todo: DRY with GNSS CAN
-static ACC_CAL_VALS_LOGGED: AtomicU16 = AtomicU16::new(0);
 const NUM_ACC_CAL_VALS: u16 = 1_000;
 // Ie to prevent the initiation click etc from interfereing with readings.
 const ACC_CAL_CYCLES_TO_SKIP: u16 = 8_000;
-static mut ACC_CAL_TOTAL: Vec3 = Vec3::new_zero();
 
 /// Used to track the duration of main loop tasks. Times are in seconds
 #[derive(Default)]
@@ -186,75 +185,43 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 // todo: Delegate to a fn!
                 // todo: DRY with gnss can
                 cx.shared.calibrating_accel.lock(|calibrating_accel| {
-                    if *calibrating_accel {
-                        // Actually all loops since start, including the skipped ones.
-                        let vals = ACC_CAL_VALS_LOGGED.fetch_add(1, Ordering::Relaxed);
+                    match ahrs::cal_accel(
+                        calibrating_accel,
+                        NUM_ACC_CAL_VALS,
+                        ACC_CAL_CYCLES_TO_SKIP,
+                        &imu_data,
+                    ) {
+                        CalResult::Success(cal_data) => {
+                            (&mut cx.shared.flash_onboard, &mut cx.shared.usb_serial).lock(
+                                |flash, usb_serial| {
+                                    cfg.acc_cal_bias = cal_data;
 
-                        println!("Acc call vals: {:?}", vals);
-                        if vals > (NUM_ACC_CAL_VALS + ACC_CAL_CYCLES_TO_SKIP) {
-                            // todo: It seems the non-multiple-locks-in-same-ISR issue we have in RTIC
-                            // todo has to due with the tuples construct; hence this mess.
+                                    println!(
+                                        "\n\n\nAcc cal complete. Vals: x{} y{} z{}\n\n\n",
+                                        cfg.acc_cal_bias.0, cfg.acc_cal_bias.1, cfg.acc_cal_bias.2
+                                    );
+                                    // let msg_type = anyleaf_usb::MsgType::Success;
+                                    // protocol_usb::send_payload::<{ PAYLOAD_START_I + CRC_LEN }>(
+                                    //     msg_type,
+                                    //     &[],
+                                    //     usb_serial,
+                                    // );
 
-                            let x = unsafe { ACC_CAL_TOTAL.x } / NUM_ACC_CAL_VALS as f32;
-                            let y = unsafe { ACC_CAL_TOTAL.y } / NUM_ACC_CAL_VALS as f32;
-                            let z = unsafe { ACC_CAL_TOTAL.z } / NUM_ACC_CAL_VALS as f32 - ahrs::G;
-
-                            let mut msg_type = anyleaf_usb::MsgType::Success;
-
-                            const CAL_THRESH: f32 = 0.4; // m/s^2
-                            if x.abs() < CAL_THRESH
-                                && y.abs() < CAL_THRESH
-                                && (z - ahrs::G).abs() < CAL_THRESH
-                            {
-                                cfg.acc_cal_bias.0 = x;
-                                cfg.acc_cal_bias.1 = y;
-                                cfg.acc_cal_bias.2 = z;
-
-                                println!(
-                                    "\n\n\nAcc cal complete. Vals: x{} y{} z{}\n\n\n",
-                                    cfg.acc_cal_bias.0,
-                                    cfg.acc_cal_bias.1,
-                                    cfg.acc_cal_bias.2
-                                );
-                                cx.shared.flash_onboard.lock(|flash| {
                                     cfg.save(flash);
-                                });
-                            } else {
-                                println!("Acc cal failed due to out of bounds value");
-                                msg_type = anyleaf_usb::MsgType::Error;
-                            }
-
-                            // todo: Add this in.
+                                },
+                            );
+                        }
+                        CalResult::Fail => {
+                            // let msg_type = anyleaf_usb::MsgType::Error;
                             // cx.shared.usb_serial.lock(|usb_serial| {
-                            //     usb_preflight::send_payload::<{ PAYLOAD_START_I + CRC_LEN }>(
+                            //     protocol_usb::send_payload::<{ PAYLOAD_START_I + CRC_LEN }>(
                             //         msg_type,
                             //         &[],
                             //         usb_serial,
                             //     );
                             // });
-
-                            *calibrating_accel = false;
-
-                            ACC_CAL_VALS_LOGGED.store(0, Ordering::Release);
-                            *calibrating_accel = false;
-                        } else if vals > ACC_CAL_CYCLES_TO_SKIP {
-                            let acc_data = Vec3::new(imu_data.a_x, imu_data.a_y, imu_data.a_z);
-
-                            // If any value is above the thresh, ommit it.
-                            // todo: You still need to fail the calibration if there are too many failures etc.
-                            const CAL_THRESH: f32 = 0.6; // m/s^2
-                            if acc_data.x.abs() < CAL_THRESH
-                                && acc_data.y.abs() < CAL_THRESH
-                                && (acc_data.z - ahrs::G).abs() < CAL_THRESH
-                            {
-                                unsafe {
-                                    ACC_CAL_TOTAL += acc_data;
-                                }
-                            } else {
-                                // DOn't count this towards the number of logged values.
-                                ACC_CAL_VALS_LOGGED.store(vals - 1, Ordering::Release);
-                            }
                         }
+                        _ => (),
                     }
                 });
 

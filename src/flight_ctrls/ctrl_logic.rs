@@ -13,7 +13,7 @@ use crate::{
         motor_servo::RotationDir,
         pid::{PidCoeffs, PidStateRate},
     },
-    util::{self, clamp, map_linear, IirInstWrapper},
+    util::{self, map_linear, IirInstWrapper},
 };
 
 // This should be on the order of the error term (Roughly radians)
@@ -113,18 +113,9 @@ pub fn ctrl_mix_from_att(
     // This cap mainly applies to non-continuous attitude commands.
     const MAX_ATT_CORRECTION_ω: f32 = 12.;
 
-    clamp(
-        &mut pitch_rate_cmd,
-        (-MAX_ATT_CORRECTION_ω, MAX_ATT_CORRECTION_ω),
-    );
-    clamp(
-        &mut roll_rate_cmd,
-        (-MAX_ATT_CORRECTION_ω, MAX_ATT_CORRECTION_ω),
-    );
-    clamp(
-        &mut yaw_rate_cmd,
-        (-MAX_ATT_CORRECTION_ω, MAX_ATT_CORRECTION_ω),
-    );
+    pitch_rate_cmd = pitch_rate_cmd.clamp(-MAX_ATT_CORRECTION_ω, MAX_ATT_CORRECTION_ω);
+    roll_rate_cmd = roll_rate_cmd.clamp(-MAX_ATT_CORRECTION_ω, MAX_ATT_CORRECTION_ω);
+    yaw_rate_cmd = yaw_rate_cmd.clamp(-MAX_ATT_CORRECTION_ω, MAX_ATT_CORRECTION_ω);
 
     // The I-term builds up if corrections are unable to expeditiously converge.
     // An example of when this can happen is when the aircraft is on the ground.

@@ -91,7 +91,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // Improves performance, at a cost of slightly increased power use.
     // Note that these enable fns should automatically invalidate prior.
 
-    // Todo: Enable these caches once the program basicallyw orks on H7; don't want
+    // Todo: Enable these caches once the program basically works on H7; don't want
     // todo subtle concurrency bugs from the caches confusing things.
     // #[cfg(feature = "h7")]
     // cp.SCB.enable_icache();

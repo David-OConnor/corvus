@@ -62,11 +62,11 @@ impl MotorCmd {
     pub fn clamp(&mut self) {
         match self {
             Self::Power(c) => {
-                util::clamp(c, (MOTOR_CMD_MIN, MOTOR_CMD_MAX));
+                *c = c.clamp(MOTOR_CMD_MIN, MOTOR_CMD_MAX);
             }
             Self::Rpm(c) => {
-                util::clamp(&mut c.rpm_cmd, (MOTOR_RPM_MIN, MOTOR_RPM_MAX));
-                util::clamp(&mut c.pwr_calculated, (MOTOR_CMD_MIN, MOTOR_CMD_MAX));
+                c.rpm_cmd = c.rpm_cmd.clamp(MOTOR_RPM_MIN, MOTOR_RPM_MAX);
+                c.pwr_calculated = c.pwr_calculated.clamp(MOTOR_CMD_MIN, MOTOR_CMD_MAX);
             }
         }
     }
@@ -105,7 +105,7 @@ pub struct ServoState {
 
 impl ServoState {
     pub fn clamp(&mut self) {
-        util::clamp(&mut self.posit_cmd, (SERVO_CMD_MIN, SERVO_CMD_MAX));
+        self.posit_cmd = self.posit_cmd.clamp(SERVO_CMD_MIN, SERVO_CMD_MAX);
     }
 }
 

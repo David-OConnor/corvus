@@ -262,7 +262,8 @@ mod app {
     #[task(binds = DMA1_CH2,
     shared = [altimeter, ahrs, spi1, i2c1, i2c2, params, control_channel_data, link_stats,
     autopilot_status, imu_filters, flight_ctrl_filters, user_cfg, motor_pid_coeffs,
-    motor_timer, servo_timer, state_volatile, system_status, tick_timer, uart_osd, calibrating_accel, flash_onboard],
+    motor_timer, servo_timer, state_volatile, system_status, tick_timer, uart_osd, calibrating_accel,
+    flash_onboard, usb_serial],
     local = [imu_isr_loop_i, cs_imu, params_prev, time_with_high_throttle, time_with_low_throttle,
     arm_signals_received, disarm_signals_received, batt_curr_adc, task_durations], priority = 4)]
     fn imu_tc_isr(mut cx: imu_tc_isr::Context) {

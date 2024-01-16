@@ -125,10 +125,10 @@ pub struct CtrlMix {
 
 impl CtrlMix {
     pub fn clamp(&mut self) {
-        util::clamp(&mut self.pitch, PITCH_IN_RNG);
-        util::clamp(&mut self.roll, ROLL_IN_RNG);
-        util::clamp(&mut self.yaw, YAW_IN_RNG);
-        util::clamp(&mut self.throttle, THROTTLE_IN_RNG);
+        self.pitch = self.pitch.clamp(PITCH_IN_RNG.0, PITCH_IN_RNG.1);
+        self.roll = self.roll.clamp(ROLL_IN_RNG.0, ROLL_IN_RNG.1);
+        self.yaw = self.yaw.clamp(YAW_IN_RNG.0, YAW_IN_RNG.1);
+        self.throttle = self.throttle.clamp(THROTTLE_IN_RNG.0, THROTTLE_IN_RNG.1);
     }
 }
 

@@ -369,15 +369,13 @@ impl AutopilotStatus {
 
                         // todo: Remove 0.5 limit eventually; it's there for safety currently.
                         // todo: Swithc it to 1, and the lower end to our user_cfg idle.
-                        util::clamp(&mut throttle_command, (0.02, 0.5));
+                        throttle_command = throttle_command.clamp(0.02, 0.5);
 
                         Some(throttle_command)
                     };
 
-                    util::clamp(
-                        &mut integral_vertical_velocity,
-                        (-MAX_I_WINDUP, MAX_I_WINDUP),
-                    );
+                    integral_vertical_velocity = integral_vertical_velocity.clamp(-MAX_I_WINDUP, MAX_I_WINDUP);
+
                     if autopilot_commands.throttle.unwrap_or(0.) < 0.10 {
                         integral_vertical_velocity = 0.;
                     }

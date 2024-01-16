@@ -13,8 +13,7 @@ use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_api::iir_new;
 
 use crate::{
-    flight_ctrls::filters,
-    util::{self, clamp, iir_apply, IirInstWrapper},
+    util::{iir_apply, IirInstWrapper},
 };
 
 cfg_if! {
@@ -73,7 +72,7 @@ impl PidState {
 
         self.i += self.p * dt;
 
-        clamp(&mut self.i, (-coeffs.max_i_windup, coeffs.max_i_windup));
+        self.i = self.i.clamp(-coeffs.max_i_windup, coeffs.max_i_windup);
 
         coeffs.p * self.p + coeffs.i * self.i + coeffs.d * d_error
     }
