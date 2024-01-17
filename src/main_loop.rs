@@ -171,12 +171,19 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                 });
 
                 // todo: Find a home for this.
-                let acc_up = params.attitude.rotate_vec(params.accel_linear).z; // todo: QC.
+                // todo: Linear acc from AHRS would be ideal, but it seems to be coming out wrong here.
+                // todo: Thkn about this.
+
+                // let acc_up = params.attitude.rotate_vec(params.accel_linear).z; // todo: QC.
+                let acc_up = params.attitude.rotate_vec(Vec3::new(params.a_x, params.a_y, params.a_z - ahrs::G)).z; // todo: QC.
+
+                // let t = params.accel_linear; // todo: QC.
                 static mut J: u32 = 0;
                 unsafe {
                     J += 1;
                     if J % 400 == 0 {
                         // println!("Acc up: {:?}", acc_up);
+                        // println!("lin: x{} y{} z{}", t.x, t.y, t.z);
                     }
                 }
                 // return;
@@ -208,6 +215,12 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     // );
 
                                     cfg.save(flash);
+                                    // todo: Update the ahrs with the new bias.
+                                    // ahrs.cal.acc_bias = Vec3::new(
+                                    //     user_cfg.acc_cal_bias.0,
+                                    //     user_cfg.acc_cal_bias.1,
+                                    //     user_cfg.acc_cal_bias.2,
+                                    // );
                                 },
                             );
                         }

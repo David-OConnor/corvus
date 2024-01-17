@@ -332,7 +332,10 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // todo avoid wear on a given sector from erasing each time. Note that you can still probably get 10k
     // todo erase/write cycles per sector, so this is low priority.
     let mut flash_onboard = Flash::new(dp.FLASH);
+
     let mut user_cfg = UserConfig::load(&mut flash_onboard);
+
+    println!("Loaded acc cal: x{} y{} z{}", user_cfg.acc_cal_bias.0, user_cfg.acc_cal_bias.1, user_cfg.acc_cal_bias.2);
 
     // For the initial config (Eg on a new device), 0xff in flash indicates the config
     // hasn't been saved yet.
@@ -473,7 +476,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
             fix: Default::default(),
             posit_inertial: Default::default(),
             ahrs,
-            calibrating_accel: true,
+            calibrating_accel: false,
         },
         Local {
             // update_timer,

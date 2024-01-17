@@ -210,8 +210,16 @@ impl UserConfig {
             att_ttc: f32::from_be_bytes(buf[12..16].try_into().unwrap()),
             max_i_windup: 1., // todo
         };
+
+        let acc_cal_bias = (
+            f32::from_be_bytes(buf[20..24].try_into().unwrap()),
+            f32::from_be_bytes(buf[24..28].try_into().unwrap()),
+            f32::from_be_bytes(buf[28..32].try_into().unwrap()),
+        );
+
         Self {
             pid_coeffs,
+            acc_cal_bias,
             ..Default::default()
         }
     }
@@ -224,6 +232,10 @@ impl UserConfig {
         result[4..8].clone_from_slice(&self.pid_coeffs.i.to_be_bytes());
         result[8..12].clone_from_slice(&self.pid_coeffs.d.to_be_bytes());
         result[12..16].clone_from_slice(&self.pid_coeffs.att_ttc.to_be_bytes());
+        result[16..20].clone_from_slice(&self.pid_coeffs.max_i_windup.to_be_bytes());
+        result[20..24].clone_from_slice(&self.acc_cal_bias.0.to_be_bytes());
+        result[24..28].clone_from_slice(&self.acc_cal_bias.1.to_be_bytes());
+        result[28..32].clone_from_slice(&self.acc_cal_bias.2.to_be_bytes());
 
         result
     }
