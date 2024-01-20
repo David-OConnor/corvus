@@ -11,7 +11,7 @@
 
 use stm32_hal2::{delay_us, gpio::Pin, spi};
 
-use crate::setup::{SpiImu, AHB_FREQ};
+use crate::{board_config::AHB_FREQ, setup::SpiImu};
 
 const DEVICE_ID: u8 = 0x47;
 

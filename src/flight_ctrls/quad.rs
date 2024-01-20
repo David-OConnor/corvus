@@ -179,9 +179,27 @@ pub fn set_input_mode(
 }
 
 pub fn throttle_from_alt_hold(
+    alt_cmd: f32,
     alt_current: f32,
-    alt_vv_cmd: (f32, f32),
+    // alt_vv_cmd: (f32, f32),
+    alt_vv_cmd: f32,
+    vv_baro: f32,
+    // vv_imu: f32,
     throttle_current: f32,
 ) -> f32 {
-    0.
+    // todo: For now, a simple P controller.
+    let p_term = 0.1;
+
+    let diff = alt_vv_cmd - vv_baro;
+    // let diff = alt_cmd - alt_current;
+    let result = throttle_current + p_term * diff;
+
+    static mut i: u32 = 0;
+    unsafe {
+        i += 1;
+        if i % 2000 == 0 {
+            println!("T: {:?}", result);
+        }
+    }
+    result
 }

@@ -257,8 +257,7 @@ impl Packet {
         let frame_type: FrameType = match buf[2].try_into() {
             Ok(f) => f,
             Err(_) => {
-                // todo: This is coming back jan 2024. Commented out so I can work on other things.
-                // println!("Frame type error: {:?}", buf);
+                println!("Frame type error: {:?}", buf);
                 return Err(DecodeError {});
             }
         };

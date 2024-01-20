@@ -92,11 +92,6 @@ pub const MOTORS_DMA_INPUT: DmaInput = DmaInput::Tim3Up;
 // RM register table, and dividing by 4.
 pub const DSHOT_BASE_DIR_OFFSET: u8 = 0x34 / 4;
 
-#[cfg(feature = "g4")]
-pub const AHB_FREQ: u32 = 170_000_000;
-#[cfg(feature = "h7")]
-pub const AHB_FREQ: u32 = 240_000_000; // todo: Check this!
-
 // Update frequency: 600kHz
 // 170Mhz tim clock on G4.
 // 240Mhz tim clock on H743

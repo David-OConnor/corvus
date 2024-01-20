@@ -168,26 +168,33 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                     // todo: We probably don't need to update AHRS each IMU update, but that's what
                     // todo we're currently doing, since that's updated in `update_from_imu_readings`.
                     params.update_from_imu_readings(&imu_data, None, ahrs);
-                });
 
-                // todo: Find a home for this.
-                // todo: Linear acc from AHRS would be ideal, but it seems to be coming out wrong here.
-                // todo: Thkn about this.
+                    // todo: Find a home for this.
+                    // todo: Linear acc from AHRS would be ideal, but it seems to be coming out wrong here.
+                    // todo: Thkn about this.
 
-                // let acc_up = params.attitude.rotate_vec(params.accel_linear).z; // todo: QC.
-                let acc_up = params.attitude.rotate_vec(Vec3::new(params.a_x, params.a_y, params.a_z - ahrs::G)).z; // todo: QC.
+                    // let acc_up = params.attitude.rotate_vec(params.accel_linear).z;
+                    let acc_up = params
+                        .attitude
+                        .inverse()
+                        .rotate_vec(Vec3::new(params.a_x, params.a_y, params.a_z))
+                        .z
+                        - ahrs.cal.acc_len_at_rest;
 
-                // let t = params.accel_linear; // todo: QC.
-                static mut J: u32 = 0;
-                unsafe {
-                    J += 1;
-                    if J % 400 == 0 {
-                        // println!("Acc up: {:?}", acc_up);
-                        // println!("lin: x{} y{} z{}", t.x, t.y, t.z);
+                    // let t = params.accel_linear; // todo: QC.
+                    static mut J: u32 = 0;
+                    unsafe {
+                        J += 1;
+                        if J % 400 == 0 {
+                            let test =
+                                (params.a_x.powi(2) + params.a_y.powi(2) + params.a_z.powi(2))
+                                    .sqrt();
+                            // println!("Acc up: {:?}. at rest: {}. mag here: {}", acc_up, ahrs.cal.acc_len_at_rest, test);
+                        }
                     }
-                }
-                // return;
-                unsafe { crate::VV_IMU += acc_up * DT_IMU };
+                    // return;
+                    unsafe { crate::VV_IMU += acc_up * DT_IMU };
+                });
 
                 // todo: Delegate to a fn!
                 // todo: DRY with gnss can
@@ -324,8 +331,10 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     state.alt_baro_commanded = (alt, vv);
 
                                     flight_ctrls::throttle_from_alt_hold(
+                                        alt,
                                         params.alt_msl_baro,
-                                        (alt, vv),
+                                        vv,
+                                        params.v_z_baro,
                                         state.ctrl_mix.throttle,
                                     )
                                 }
@@ -339,8 +348,12 @@ pub fn run(mut cx: app::imu_tc_isr::Context) {
                                     state.alt_baro_commanded = (alt, vv);
 
                                     flight_ctrls::throttle_from_alt_hold(
+                                        alt,
                                         params.alt_msl_baro,
-                                        (alt, vv),
+                                        vv,
+                                        params.v_z_baro,
+                                        // params.alt_msl_baro,
+                                        // (alt, vv),
                                         state.ctrl_mix.throttle,
                                     )
                                 }

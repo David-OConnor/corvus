@@ -17,6 +17,7 @@ use usbd_serial::{self, SerialPort};
 
 use crate::{
     app::{self, Local, Shared},
+    board_config::{CAN_CLOCK, CRS_SYNC_SRC},
     main_loop::{self, DT_IMU},
     protocols::{crsf, dshot},
     sensors_shared::{ExtSensor, V_A_ADC_READ_BUF},
@@ -58,6 +59,9 @@ use fdcan::{
     FdCan, Mailbox, NormalOperationMode, ReceiveOverrun,
 };
 use stm32_hal2::{adc::Prescaler, can::Can};
+
+use crate::board_config::AHB_FREQ;
+
 type Can_ = FdCan<Can, NormalOperationMode>;
 
 // todo temp!
@@ -84,6 +88,9 @@ fn can_send(can: &mut Can_, can_id: u32, frame_data: &[u8], frame_data_len: u8, 
     }
 }
 
+// todo temp!!
+use stm32h7xx_hal::{adc as adcx, delay::Delay, pac as pacx, prelude::*};
+
 pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     let cp = cx.core;
     let dp = pac::Peripherals::take().unwrap();
@@ -98,11 +105,58 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // #[cfg(feature = "h7")]
     // cp.SCB.enable_dcache(&mut cp.CPUID);
 
+    // todo temp!
+    // let dp2 = unsafe { pac::Peripherals::steal() };
+    // let pwr = dp2.PWR.constrain();
+    // let pwrcfg = pwr.freeze();
+    // let rcc = dp2.RCC.constrain();
+
+    // let ccdr = rcc
+    //     .sys_ck(400.MHz())
+    //     .pll2_p_ck(10.MHz()) // Default adc_ker_ck_input
+    //     .freeze(pwrcfg, &dp2.SYSCFG);
+    // println!("H7xx clocks complete");
+
+    // let adc_cfg = AdcConfig {
+    //     // With non-timing-critical continuous reads, we can set a long sample time.
+    //     // sample_time: adc::SampleTime::T601,
+    //     // operation_mode: adc::OperationMode::Continuous, // todo: Put back
+    //
+    //     // todo TS
+    //     prescaler: Prescaler::D2,
+    //
+    //     ..Default::default()
+    // };
+    // let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, AHB_FREQ);
+    //
+    // // todo temp while we sort out HAL. We've fudged this to make the number come out correctly.
+    // batt_curr_adc.vdda_calibrated = 3.6;
+    //
+    // unsafe {
+    //     let rcc = unsafe { &(*pac::RCC::ptr()) };
+    //     let adcsel = rcc.d3ccipr.read().adcsel().bits();
+    //     println!("ADCSEL: {:?}", adcsel);
+    //     let pll2p = rcc.pllcfgr.read().divp2en().bit_is_set();
+    //     let pll2pen = rcc.cr.read().pll2on().bit_is_set();
+    //     println!("PLL 2 on: {:?}", pll2pen);
+    // }
+
+    // let adcr = unsafe { &(*pac::RCC::ptr()) };
+    // loop {
+    //     // todo temp
+    //     let batt = batt_curr_adc.read(18);
+    //     let batt_v2 = batt_curr_adc.reading_to_voltage(batt);
+    //     println!("BATT raw: {}, V: {:?}", batt, batt_v2);
+    //     delay_ms(500, AHB_FREQ);
+    // }
+
+    // todo: End h7xx code for here.
+
     let pll_src = PllSrc::Hse(16_000_000);
     cfg_if! {
         if #[cfg(feature = "h7")] {
             let clock_cfg = Clocks {
-                // Config for H723 at 520Mhz, or H743 at 480Mhz.
+                // Config for H723 at 520Mhz, or H743 at 400Mhz.
                 // Note: to get H723 working at 550Mhz. You'll need to increase divn to 275,
                 // and set CPU_FREQ_BOOST: "The CPU frequency boost can be enabled through the
                 // CPUFREQ_BOOST option byte in the FLASH_OPTSR2_PRG register."
@@ -115,14 +169,11 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
                 // We use PLL2P as the (default) ADC clock.
                 pll2: PllCfg {
                     divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
-                    // todo: What's an ideal ADC clock speed?
                     divn: 80, // Keep the speed under 80Mhz. (Currently 20)
-                    divp: 8,
+                    divp: 8, // With divn=80, sets ADC clock to 10.
                     ..Default::default()
                 },
                 hsi48_on: true,
-                // todo: Why is full speed not always working?
-                // ..Clocks::full_speed()
                 ..Default::default()
             };
         } else {
@@ -137,11 +188,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     clock_cfg.setup().unwrap();
 
     // Enable the Clock Recovery System, which improves HSI48 accuracy.
-
-    #[cfg(feature = "h7")]
-    clocks::enable_crs(CrsSyncSrc::OtgHs);
-    #[cfg(feature = "g4")]
-    clocks::enable_crs(CrsSyncSrc::Usb);
+    clocks::enable_crs(CRS_SYNC_SRC);
 
     // Set up pins with appropriate modes.
     setup::setup_pins();
@@ -171,15 +218,8 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // #[cfg(feature = "g4")]
     let spi_flash_pac = dp.SPI2;
 
-    // 100 Mhz if 400Mhz core. 120 if 480.
-    #[cfg(feature = "h7")]
-    // let can_clock = dronecan::hardware::CanClock::Mhz120;
-    let can_clock = dronecan::hardware::CanClock::Mhz100;
-
-    #[cfg(feature = "g4")]
-    let can_clock = dronecan::hardware::CanClock::Mhz170;
-
-    let can = dronecan::hardware::setup_can(dp.FDCAN1, can_clock, dronecan::CanBitrate::B1m);
+    // todo: Update relevant DC code for 100Mhz CAN clock; set this to 5M.
+    let can = dronecan::hardware::setup_can(dp.FDCAN1, CAN_CLOCK, dronecan::CanBitrate::B2m);
 
     #[cfg(feature = "h7")]
     can::set_message_ram_layout(); // Must be called explicitly; for H7.
@@ -212,40 +252,33 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // We use the ADC to measure battery voltage and ESC current.
     let adc_cfg = AdcConfig {
         // With non-timing-critical continuous reads, we can set a long sample time.
-        // sample_time: adc::SampleTime::T601,
-        sample_time: adc::SampleTime::T181, // todo t!
+        // sample_time: adc::SampleTime::T181, // todo t!
         operation_mode: adc::OperationMode::Continuous,
-
         // todo TS
-        prescaler: Prescaler::D128,
-
+        // prescaler: Prescaler::D2,
         ..Default::default()
     };
 
     #[cfg(feature = "h7")]
-    // let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
-    let batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, &clock_cfg);
+    let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, AHB_FREQ);
 
     #[cfg(feature = "g4")]
-    let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, &clock_cfg);
-
-    // todo: Which edge should it be?
-    batt_curr_adc.set_trigger(adc::Trigger::Tim6Trgo, adc::TriggerEdge::HardwareRising);
+    let mut batt_curr_adc = Adc::new_adc2(dp.ADC2, AdcDevice::Two, adc_cfg, AHB_FREQ);
 
     // todo temp while we sort out HAL. We've fudged this to make the number come out correctly.
     batt_curr_adc.vdda_calibrated = 3.6;
 
-    // let _ = stm32_hal2::gpio::Pin::new(stm32_hal2::gpio::Port::A, 2, stm32_hal2::gpio::PinMode::Input);
-    // loop {
-    //     // todo temp
-    //     println!("d");
-    //     let batt_v = batt_curr_adc.read(18);
-    //     println!("2");
-    //     // let batt_v = batt_curr_adc.read(14);
-    //     let batt_v2 = batt_curr_adc.reading_to_voltage(batt_v);
-    //     println!("BATT raw: {}, V: {:?}", batt_v, batt_v2);
-    //     delay_ms(500, 200_000_000);
-    // }
+    let adcr = unsafe { &(*pac::RCC::ptr()) };
+    loop {
+        // println!("Adc en: {}", batt_curr_adc.regs.cr.read().aden().bit_is_set());
+        let batt = batt_curr_adc.read(18);
+        let batt_v2 = batt_curr_adc.reading_to_voltage(batt);
+        println!("BATT raw: {}, V: {:?}", batt, batt_v2);
+        delay_ms(500, AHB_FREQ);
+    }
+
+    // todo: Which edge should it be?
+    batt_curr_adc.set_trigger(adc::Trigger::Tim6Trgo, adc::TriggerEdge::HardwareRising);
 
     // let mut update_timer = Timer::new_tim15(
     //     dp.TIM15,
@@ -335,7 +368,10 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
 
     let mut user_cfg = UserConfig::load(&mut flash_onboard);
 
-    println!("Loaded acc cal: x{} y{} z{}", user_cfg.acc_cal_bias.0, user_cfg.acc_cal_bias.1, user_cfg.acc_cal_bias.2);
+    println!(
+        "Loaded acc cal: x{} y{} z{}",
+        user_cfg.acc_cal_bias.0, user_cfg.acc_cal_bias.1, user_cfg.acc_cal_bias.2
+    );
 
     // For the initial config (Eg on a new device), 0xff in flash indicates the config
     // hasn't been saved yet.

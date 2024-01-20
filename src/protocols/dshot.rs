@@ -32,7 +32,10 @@ use stm32_hal2::{
     timer::{CountDir, OutputCompare, Polarity},
 };
 
-use crate::setup::{self, MotorTimer, AHB_FREQ, DSHOT_SPEED, TIM_CLK_SPEED};
+use crate::{
+    board_config::AHB_FREQ,
+    setup::{self, MotorTimer, DSHOT_SPEED, TIM_CLK_SPEED},
+};
 
 // Enable bidirectional DSHOT, which returns RPM data
 pub const BIDIR_EN: bool = false;

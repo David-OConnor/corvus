@@ -374,7 +374,8 @@ impl AutopilotStatus {
                         Some(throttle_command)
                     };
 
-                    integral_vertical_velocity = integral_vertical_velocity.clamp(-MAX_I_WINDUP, MAX_I_WINDUP);
+                    integral_vertical_velocity =
+                        integral_vertical_velocity.clamp(-MAX_I_WINDUP, MAX_I_WINDUP);
 
                     if autopilot_commands.throttle.unwrap_or(0.) < 0.10 {
                         integral_vertical_velocity = 0.;

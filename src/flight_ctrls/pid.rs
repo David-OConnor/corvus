@@ -12,9 +12,7 @@ use cfg_if::cfg_if;
 use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_api::iir_new;
 
-use crate::{
-    util::{iir_apply, IirInstWrapper},
-};
+use crate::util::{iir_apply, IirInstWrapper};
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
