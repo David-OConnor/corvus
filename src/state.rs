@@ -3,7 +3,7 @@
 use ahrs::ppks::PositVelEarthUnits;
 use cfg_if::cfg_if;
 use lin_alg2::f32::Quaternion;
-use stm32_hal2::flash::{Bank, Flash};
+use hal::flash::{Bank, Flash};
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {

@@ -4,7 +4,7 @@
 
 use core::{ops::Deref, ptr};
 
-use stm32_hal2::{
+use hal::{
     dma::{self, ChannelCfg, Dma, DmaChannel},
     pac::{self, dma1 as dma_p, DMA1},
     spi::{BaudRate, Error, SlaveSelect, SpiCommMode, SpiConfig, SpiInterrupt},

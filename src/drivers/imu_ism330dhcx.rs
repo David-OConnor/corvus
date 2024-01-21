@@ -8,7 +8,7 @@
 
 // todo: Consider hardware notch filter.
 
-use stm32_hal2::{gpio::Pin, pac::SPI1, spi::Spi};
+use hal::{gpio::Pin, pac::SPI1, spi::Spi};
 
 use crate::imu_shared::_ImuReadingsRaw;
 

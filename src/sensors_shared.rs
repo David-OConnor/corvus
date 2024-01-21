@@ -1,7 +1,7 @@
 //! This module contains code shared between sensors. Currently this is
 //! regarding DMA operations on the barometer and external sensors I2C lines.
 
-use stm32_hal2::dma;
+use hal::dma;
 
 use crate::{
     baro,

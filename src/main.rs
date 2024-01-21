@@ -26,7 +26,7 @@ use defmt::println;
 use defmt_rtt as _;
 use panic_probe as _;
 use rtic::app;
-use stm32_hal2::{
+use hal::{
     self,
     adc::Adc,
     dma::{self, ChannelCfg, DmaInterrupt},
@@ -78,20 +78,20 @@ use crate::{
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
-        use stm32_hal2::{
+        use hal::{
             // todo: USB1 on H723; USB2 on H743.
             usb::{Usb2, UsbBus, Usb2BusType as UsbBusType},
             // pac::QUADSPI,
             // qspi::{Qspi},
         };
         // This USART alias is made pub here, so we don't repeat this line in other modules.
-        pub use stm32_hal2::pac::{ADC1 as ADC};
+        pub use hal::pac::{ADC1 as ADC};
     } else if #[cfg(feature = "g4")] {
-        use stm32_hal2::{
+        use hal::{
             usb::{ UsbBusType},
         };
 
-        pub use stm32_hal2::pac::{UART4, ADC2 as ADC};
+        pub use hal::pac::{UART4, ADC2 as ADC};
     }
 }
 
@@ -148,7 +148,7 @@ static mut VV_IMU: f32 = 0.;
 #[rtic::app(device = pac, peripherals = false)]
 mod app {
     use ahrs::ppks::PositInertial;
-    use stm32_hal2::dma::DmaPeriph;
+    use hal::dma::DmaPeriph;
 
     use super::*;
 

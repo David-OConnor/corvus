@@ -11,7 +11,7 @@
 //! todo: What DTED Level? Likely DTED 0, ie 30 arc second post separation (1km). Option to go
 //! todo higher res for areas of interest.
 
-use stm32_hal2::flash::{Flash};
+use hal::flash::{Flash};
 
 /// A single point of elevation data
 struct DtedPost {

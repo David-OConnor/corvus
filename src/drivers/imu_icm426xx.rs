@@ -9,7 +9,7 @@
 // todo: Robust fault detection: regularly check IMU's fault registers, and put that in the init
 // todo script. Use the `Fault` status etc as required.
 
-use stm32_hal2::{delay_us, gpio::Pin, spi};
+use hal::{delay_us, gpio::Pin, spi};
 
 use crate::{board_config::AHB_FREQ, setup::SpiImu};
 

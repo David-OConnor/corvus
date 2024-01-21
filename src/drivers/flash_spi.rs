@@ -1,7 +1,7 @@
 //! This module contains setup code for W25 SPI flash.
 //! We use normal SPI on G4, and quad spi on H7.
 
-use stm32_hal2::{gpio::Pin, spi};
+use hal::{gpio::Pin, spi};
 
 use crate::setup::SpiFlash;
 

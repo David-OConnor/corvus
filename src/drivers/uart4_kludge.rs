@@ -17,7 +17,7 @@ use embedded_hal::{
 };
 #[cfg(feature = "embedded-hal")]
 use nb;
-use stm32_hal2::{
+use hal::{
     clocks::Clocks,
     pac,
     usart::{IrdaMode, OverSampling, Parity, UsartConfig, UsartInterrupt},

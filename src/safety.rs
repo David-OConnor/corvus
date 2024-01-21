@@ -17,7 +17,7 @@ use cfg_if::cfg_if;
 use defmt::println;
 use num_traits::Float;
 #[cfg(feature = "fixed-wing")]
-use stm32_hal2::{
+use hal::{
     gpio::{self, Port},
     pac,
 };

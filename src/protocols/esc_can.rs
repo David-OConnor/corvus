@@ -1,6 +1,6 @@
 //! Module for interacting with the "next-gen" CAN ESCs.
 
-// use stm32_hal2::{
+// use hal::{
 //     can_fd,
 //     pac::{CAN_FD},
 // };

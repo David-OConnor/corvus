@@ -2,7 +2,7 @@
 //! layouts.
 
 use dronecan::hardware::CanClock;
-use stm32_hal2::clocks::CrsSyncSrc;
+use hal::clocks::CrsSyncSrc;
 
 // 100 Mhz if 400Mhz core. 120 if 480.
 #[cfg(feature = "h7")]

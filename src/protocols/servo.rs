@@ -2,7 +2,7 @@
 //! This are used by fixed-wing, eg for use with elevons.
 
 use cfg_if::cfg_if;
-use stm32_hal2::timer::TimChannel;
+use hal::timer::TimChannel;
 
 use crate::{setup::ServoTimer, util};
 

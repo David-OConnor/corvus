@@ -25,7 +25,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use cfg_if::cfg_if;
 use cortex_m::delay::Delay;
 use defmt::println;
-use stm32_hal2::{
+use hal::{
     delay_ms,
     dma::{self, ChannelCfg, Priority},
     pac,

@@ -1,7 +1,7 @@
 //! This module contains device-agnostic IMU code, including parsing IMU readings from a static
 //! DMA buffer.
 
-use stm32_hal2::{
+use hal::{
     dma::{ChannelCfg, DmaPeriph, Priority},
     gpio::{self, Port},
 };

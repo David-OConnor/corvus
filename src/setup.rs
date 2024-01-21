@@ -9,10 +9,10 @@ use ahrs::{ppks::PositVelEarthUnits, Params};
 use cfg_if::cfg_if;
 use fdcan::{FdCan, NormalOperationMode};
 // #[cfg(feature = "h7")]
-// use stm32_hal2::qspi::{Qspi, QspiConfig};
+// use hal::qspi::{Qspi, QspiConfig};
 #[cfg(feature = "fixed-wing")]
-use stm32_hal2::timer::OutputCompare;
-use stm32_hal2::{
+use hal::timer::OutputCompare;
+use hal::{
     can::Can,
     clocks::Clocks,
     delay_ms,
@@ -31,7 +31,7 @@ cfg_if! {
     }
 }
 use defmt::println;
-use stm32_hal2::usart::UsartInterrupt;
+use hal::usart::UsartInterrupt;
 
 #[cfg(feature = "g4")]
 use crate::drivers::{spi2_kludge::Spi2, uart4_kludge::Usart4};
@@ -119,10 +119,10 @@ cfg_if! {
 cfg_if! {
     if #[cfg(feature = "h7")] {
         // todo: USB2 on H743; USB1 on H723.
-        // use stm32_hal2::usb_otg::Usb1BusType as UsbBusType;
-        pub use stm32_hal2::usb_otg::Usb2BusType as UsbBusType;
+        // use hal::usb_otg::Usb1BusType as UsbBusType;
+        pub use hal::usb_otg::Usb2BusType as UsbBusType;
     } else {
-        pub use stm32_hal2::usb::UsbBusType;
+        pub use hal::usb::UsbBusType;
     }
 }
 

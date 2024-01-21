@@ -7,7 +7,7 @@
 // MSP requires a free serial port, and its speed defaults to 115200 baud.
 // SERIAL2_PROTOCOL = 33
 
-use stm32_hal2::{pac::USART2, usart::Usart};
+use hal::{pac::USART2, usart::Usart};
 
 use crate::{lin_alg, protocols::msp, util};
 

@@ -15,9 +15,8 @@ cortex-m-rt = "^0.7.3"
 
 rtic = { version = "^2.0.1", features = ["thumbv7-backend"] }
 
-stm32-hal2 = { path = "../../stm32-hal", optional = true}
+hal = { package = "stm32-hal2", path = "../../stm32-hal", optional = true}
 #hal = { path = "../../stm32-hal", optional = true}
-stm32h7xx-hal = {version = "^0.15.1", features = ["stm32h743v", "rt"] } # todo temp ADC TS!!
 
 # CMSIS-DSP, for FFTs, FIR etc. C lib wrapped with FFI.
 # Trouble with LIBCLANG. See this: https://github.com/rust-lang/rust-bindgen/blob/master/book/src/requirements.md

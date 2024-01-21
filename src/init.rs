@@ -3,7 +3,7 @@
 
 use ahrs::{Ahrs, DeviceOrientation};
 use lin_alg2::f32::Vec3;
-use stm32_hal2::{
+use hal::{
     adc::{self, Adc, AdcConfig, AdcDevice},
     clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
     delay_ms,
@@ -28,7 +28,7 @@ use crate::{
 
 cfg_if! {
     if #[cfg(feature = "h7")] {
-        use stm32_hal2::{
+        use hal::{
             can,
             clocks::{PllCfg, VosRange},
             // todo: USB1 on H723; USB2 on H743.
@@ -39,7 +39,7 @@ cfg_if! {
             // qspi::{Qspi},
         };
     } else if #[cfg(feature = "g4")] {
-        use stm32_hal2::{
+        use hal::{
             usb::{self, UsbBus, UsbBusType},
         };
     }
@@ -58,7 +58,7 @@ use fdcan::{
     id::{ExtendedId, Id},
     FdCan, Mailbox, NormalOperationMode, ReceiveOverrun,
 };
-use stm32_hal2::{adc::Prescaler, can::Can};
+use hal::{adc::Prescaler, can::Can};
 
 use crate::board_config::AHB_FREQ;
 
@@ -88,9 +88,6 @@ fn can_send(can: &mut Can_, can_id: u32, frame_data: &[u8], frame_data_len: u8, 
     }
 }
 
-// todo temp!!
-use stm32h7xx_hal::{adc as adcx, delay::Delay, pac as pacx, prelude::*};
-
 pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     let cp = cx.core;
     let dp = pac::Peripherals::take().unwrap();
@@ -104,53 +101,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // cp.SCB.enable_icache();
     // #[cfg(feature = "h7")]
     // cp.SCB.enable_dcache(&mut cp.CPUID);
-
-    // todo temp!
-    // let dp2 = unsafe { pac::Peripherals::steal() };
-    // let pwr = dp2.PWR.constrain();
-    // let pwrcfg = pwr.freeze();
-    // let rcc = dp2.RCC.constrain();
-
-    // let ccdr = rcc
-    //     .sys_ck(400.MHz())
-    //     .pll2_p_ck(10.MHz()) // Default adc_ker_ck_input
-    //     .freeze(pwrcfg, &dp2.SYSCFG);
-    // println!("H7xx clocks complete");
-
-    // let adc_cfg = AdcConfig {
-    //     // With non-timing-critical continuous reads, we can set a long sample time.
-    //     // sample_time: adc::SampleTime::T601,
-    //     // operation_mode: adc::OperationMode::Continuous, // todo: Put back
-    //
-    //     // todo TS
-    //     prescaler: Prescaler::D2,
-    //
-    //     ..Default::default()
-    // };
-    // let mut batt_curr_adc = Adc::new_adc1(dp.ADC1, AdcDevice::One, adc_cfg, AHB_FREQ);
-    //
-    // // todo temp while we sort out HAL. We've fudged this to make the number come out correctly.
-    // batt_curr_adc.vdda_calibrated = 3.6;
-    //
-    // unsafe {
-    //     let rcc = unsafe { &(*pac::RCC::ptr()) };
-    //     let adcsel = rcc.d3ccipr.read().adcsel().bits();
-    //     println!("ADCSEL: {:?}", adcsel);
-    //     let pll2p = rcc.pllcfgr.read().divp2en().bit_is_set();
-    //     let pll2pen = rcc.cr.read().pll2on().bit_is_set();
-    //     println!("PLL 2 on: {:?}", pll2pen);
-    // }
-
-    // let adcr = unsafe { &(*pac::RCC::ptr()) };
-    // loop {
-    //     // todo temp
-    //     let batt = batt_curr_adc.read(18);
-    //     let batt_v2 = batt_curr_adc.reading_to_voltage(batt);
-    //     println!("BATT raw: {}, V: {:?}", batt, batt_v2);
-    //     delay_ms(500, AHB_FREQ);
-    // }
-
-    // todo: End h7xx code for here.
 
     let pll_src = PllSrc::Hse(16_000_000);
     cfg_if! {
@@ -166,11 +116,11 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
                     pllq_en: true, // PLLQ for Spi1 and CAN clocks. Its default div of 8 is fine.
                     ..Default::default()
                 },
-                // We use PLL2P as the (default) ADC clock.
+                // We use PLL2P as the (default) ADC clock. Keep the speed under 80Mhz.
                 pll2: PllCfg {
                     divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
-                    divn: 80, // Keep the speed under 80Mhz. (Currently 20)
-                    divp: 8, // With divn=80, sets ADC clock to 10.
+                    divn: 80,
+                    divp: 2, // Sets ADC clock to 80 (400Mhz sysclock)
                     ..Default::default()
                 },
                 hsi48_on: true,
@@ -252,10 +202,8 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // We use the ADC to measure battery voltage and ESC current.
     let adc_cfg = AdcConfig {
         // With non-timing-critical continuous reads, we can set a long sample time.
-        // sample_time: adc::SampleTime::T181, // todo t!
-        operation_mode: adc::OperationMode::Continuous,
-        // todo TS
-        // prescaler: Prescaler::D2,
+        sample_time: adc::SampleTime::T601,
+        // operation_mode: adc::OperationMode::Continuous, // todo: Put back
         ..Default::default()
     };
 

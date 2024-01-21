@@ -27,7 +27,7 @@ use core::sync::atomic::AtomicBool;
 
 use defmt::println;
 use num_enum::TryFromPrimitive; // Enum from integer
-use stm32_hal2::{dma::DmaChannel, usart::UsartInterrupt};
+use hal::{dma::DmaChannel, usart::UsartInterrupt};
 
 use crate::util;
 

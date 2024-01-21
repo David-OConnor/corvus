@@ -10,7 +10,7 @@
 
 use cortex_m::delay::Delay;
 use defmt::println;
-use stm32_hal2::{delay_ms, i2c};
+use hal::{delay_ms, i2c};
 
 use crate::{atmos_model::AltitudeCalPt, board_config::AHB_FREQ, setup::I2cBaro};
 

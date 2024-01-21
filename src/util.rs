@@ -7,7 +7,7 @@ use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as dsp_sys;
 use defmt::println;
 use num_traits::float::FloatCore;
-use stm32_hal2::{
+use hal::{
     pac::{self, TIM5},
     timer::Timer,
 };
