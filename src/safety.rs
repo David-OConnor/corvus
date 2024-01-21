@@ -15,12 +15,12 @@ use cfg_if::cfg_if;
 //     }
 // }
 use defmt::println;
-use num_traits::Float;
 #[cfg(feature = "fixed-wing")]
 use hal::{
     gpio::{self, Port},
     pac,
 };
+use num_traits::Float;
 
 use crate::{
     flight_ctrls::{autopilot::AutopilotStatus, common::AltType},

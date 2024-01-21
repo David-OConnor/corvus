@@ -2,22 +2,22 @@
 //! `setup` module as required.
 
 use ahrs::{Ahrs, DeviceOrientation};
-use lin_alg2::f32::Vec3;
 use hal::{
     adc::{self, Adc, AdcConfig, AdcDevice},
-    clocks::{self, Clocks, CrsSyncSrc, InputSrc, PllSrc},
+    clocks::{self, Clocks, InputSrc, PllSrc},
     delay_ms,
     dma::{self, ChannelCfg, Dma},
     flash::Flash,
     iwdg, pac,
     timer::{Timer, TimerConfig, TimerInterrupt},
 };
+use lin_alg2::f32::Vec3;
 use usb_device::{bus::UsbBusAllocator, prelude::*};
 use usbd_serial::{self, SerialPort};
 
 use crate::{
     app::{self, Local, Shared},
-    board_config::{CAN_CLOCK, CRS_SYNC_SRC},
+    board_config::{BATT_ADC_CH, CAN_CLOCK, CRS_SYNC_SRC, CURR_ADC_CH, DSHOT_ARR_READ},
     main_loop::{self, DT_IMU},
     protocols::{crsf, dshot},
     sensors_shared::{ExtSensor, V_A_ADC_READ_BUF},
@@ -52,41 +52,9 @@ use defmt::println;
 // In practice, we only mutate it at initialization.
 static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 
-// todo temp!!
-use fdcan::{
-    frame::{FrameFormat, RxFrameInfo, TxFrameHeader},
-    id::{ExtendedId, Id},
-    FdCan, Mailbox, NormalOperationMode, ReceiveOverrun,
-};
 use hal::{adc::Prescaler, can::Can};
 
 use crate::board_config::AHB_FREQ;
-
-type Can_ = FdCan<Can, NormalOperationMode>;
-
-// todo temp!
-fn can_send(can: &mut Can_, can_id: u32, frame_data: &[u8], frame_data_len: u8, fd_mode: bool) {
-    let id = Id::Extended(ExtendedId::new(can_id).unwrap());
-
-    let frame_header = TxFrameHeader {
-        len: frame_data_len,
-        frame_format: FrameFormat::Standard,
-        id,
-        bit_rate_switching: false,
-        marker: None,
-    };
-
-    while !can.is_transmitter_idle() {}
-
-    match can.transmit(frame_header, frame_data) {
-        Ok(_) => {
-            println!("test OK");
-        }
-        Err(_e) => {
-            println!("test Error ");
-        }
-    }
-}
 
 pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     let cp = cx.core;
@@ -258,7 +226,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     let mut dshot_read_timer = Timer::new_tim2(dp.TIM2, 1., Default::default(), &clock_cfg);
 
     dshot_read_timer.set_prescaler(dshot::PSC_DSHOT);
-    dshot_read_timer.set_auto_reload(setup::DSHOT_ARR_READ);
+    dshot_read_timer.set_auto_reload(DSHOT_ARR_READ);
     dshot_read_timer.enable_interrupt(TimerInterrupt::Update);
 
     let (ctrl_coeff_adj_timer, mut tick_timer, mut adc_timer) =
@@ -271,7 +239,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     unsafe {
         batt_curr_adc.read_dma(
             &mut V_A_ADC_READ_BUF,
-            &[setup::BATT_ADC_CH, setup::CURR_ADC_CH],
+            &[BATT_ADC_CH, CURR_ADC_CH],
             setup::BATT_CURR_DMA_CH,
             ChannelCfg {
                 circular: dma::Circular::Enabled,

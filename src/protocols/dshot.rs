@@ -23,7 +23,6 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 // Article: https://brushlesswhoop.com/betaflight-rpm-filter/
 // todo: Basically, you set up a notch filter at rotor RPM. (I think; QC this)
 use cfg_if::cfg_if;
-use cortex_m::delay::Delay;
 use defmt::println;
 use hal::{
     delay_ms,
@@ -33,8 +32,8 @@ use hal::{
 };
 
 use crate::{
-    board_config::AHB_FREQ,
-    setup::{self, MotorTimer, DSHOT_SPEED, TIM_CLK_SPEED},
+    board_config::{AHB_FREQ, DSHOT_SPEED, TIM_CLK_SPEED},
+    setup::{self, MotorTimer},
 };
 
 // Enable bidirectional DSHOT, which returns RPM data
@@ -181,8 +180,6 @@ pub fn stop_all(timer: &mut MotorTimer) {
 /// (at least for now). The intended use case is to run this only at init, and during Preflight,
 /// if adjusting motor mapping.
 pub fn setup_motor_dir(motors_reversed: (bool, bool, bool, bool), timer: &mut MotorTimer) {
-    // A blocking delay.
-
     // Throttle must have been commanded to 0 a certain number of timers,
     // and the telemetry bit must be bit set to use commands.
     // Setting the throttle twice (with 1ms delay) doesn't work; 10x works. The required value is evidently between

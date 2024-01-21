@@ -2,8 +2,8 @@
 //! specific to the current flight, and cleared when power is removed.
 use ahrs::ppks::PositVelEarthUnits;
 use cfg_if::cfg_if;
-use lin_alg2::f32::Quaternion;
 use hal::flash::{Bank, Flash};
+use lin_alg2::f32::Quaternion;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {

@@ -6,11 +6,11 @@ use ahrs::Params;
 use cmsis_dsp_api as dsp_api;
 use cmsis_dsp_sys as dsp_sys;
 use defmt::println;
-use num_traits::float::FloatCore;
 use hal::{
     pac::{self, TIM5},
     timer::Timer,
 };
+use num_traits::float::FloatCore;
 
 use crate::{
     controller_interface::ChannelData,

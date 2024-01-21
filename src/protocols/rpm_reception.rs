@@ -59,9 +59,9 @@ use defmt::println;
 use num_traits::float::FloatCore; // round
 
 use crate::{
+    board_config::{DSHOT_SPEED, TIM_CLK_SPEED},
     dshot::{self, calc_crc, REC_BUF_LEN},
     flight_ctrls::motor_servo::RpmReadings,
-    setup::{DSHOT_SPEED, TIM_CLK_SPEED},
 };
 
 // Number of counter ticks per bit.

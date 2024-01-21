@@ -24,8 +24,6 @@ use cmsis_dsp_api as dsp_api;
 use cortex_m::{self, asm};
 use defmt::println;
 use defmt_rtt as _;
-use panic_probe as _;
-use rtic::app;
 use hal::{
     self,
     adc::Adc,
@@ -39,6 +37,8 @@ use hal::{
     timer::{Timer, TimerInterrupt, TICK_OVERFLOW_COUNT},
     usart::UsartInterrupt,
 };
+use panic_probe as _;
+use rtic::app;
 use usb_device::prelude::*;
 use usbd_serial::{self, SerialPort};
 

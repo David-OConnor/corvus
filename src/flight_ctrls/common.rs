@@ -6,7 +6,7 @@ use core::f32::consts::TAU;
 use defmt::println;
 use lin_alg2::f32::Quaternion;
 
-use crate::util::{self, map_linear};
+use crate::util::map_linear;
 
 // Our input ranges for the 4 controls. rad/s
 const PITCH_IN_RNG: (f32, f32) = (-1., 1.);

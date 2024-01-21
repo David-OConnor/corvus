@@ -1,11 +1,11 @@
 //! This module contains code that updates commanded attitude and altitude from
 //! control inputs.
 
-use ahrs::{Params, FORWARD, RIGHT, UP};
+use ahrs::{FORWARD, RIGHT, UP};
 use lin_alg2::f32::Quaternion;
 use num_traits::Float;
 
-use super::common::{CtrlMix, InputMap};
+use super::common::InputMap;
 use crate::{
     controller_interface::ChannelData,
     main_loop::{ATT_CMD_UPDATE_RATIO, DT_FLIGHT_CTRLS, FLIGHT_CTRL_IMU_RATIO},

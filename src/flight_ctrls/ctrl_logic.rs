@@ -4,16 +4,11 @@ use ahrs::Params;
 use cfg_if::cfg_if;
 use defmt::println;
 use lin_alg2::f32::Quaternion;
-use num_traits::float::Float; // For sqrt.
 
 use super::{common::CtrlMix, ctrl_effect_est::AccelMaps, filters::FlightCtrlFilters};
-use crate::{
-    controller_interface::ChannelData,
-    flight_ctrls::{
-        motor_servo::RotationDir,
-        pid::{PidCoeffs, PidStateRate},
-    },
-    util::{self, map_linear, IirInstWrapper},
+use crate::flight_ctrls::{
+    motor_servo::RotationDir,
+    pid::{PidCoeffs, PidStateRate},
 };
 
 // This should be on the order of the error term (Roughly radians)

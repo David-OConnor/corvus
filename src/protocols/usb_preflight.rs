@@ -16,8 +16,8 @@ use ahrs::ppks::PositVelEarthUnits;
 use anyleaf_usb::{self, MessageType, CRC_LEN, DEVICE_CODE_CORVUS, MSG_START, PAYLOAD_START_I};
 use cfg_if::cfg_if;
 use defmt::println;
-use lin_alg2::f32::Quaternion;
 use hal::flash::Flash;
+use lin_alg2::f32::Quaternion;
 
 use crate::{
     controller_interface::ChannelData,

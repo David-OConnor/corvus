@@ -15,13 +15,13 @@ use embedded_hal::{
     blocking,
     serial::{Read, Write},
 };
-#[cfg(feature = "embedded-hal")]
-use nb;
 use hal::{
     clocks::Clocks,
     pac,
     usart::{IrdaMode, OverSampling, Parity, UsartConfig, UsartInterrupt},
 };
+#[cfg(feature = "embedded-hal")]
+use nb;
 
 #[cfg(any(feature = "f3", feature = "l4"))]
 use crate::dma::DmaInput;
