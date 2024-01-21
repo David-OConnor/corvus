@@ -79,6 +79,7 @@ enum EscData {
 }
 
 #[derive(Clone, Copy)]
+#[allow(unused)]
 // todo: These could hold a value
 enum EscTelemType {
     Temp,

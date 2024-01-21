@@ -29,10 +29,6 @@ pub struct IirInstWrapper {
 
 unsafe impl Send for IirInstWrapper {}
 
-pub fn abs(x: f32) -> f32 {
-    f32::from_bits(x.to_bits() & 0x7FFF_FFFF)
-}
-
 /// Utility function to linearly map an input value to an output
 pub fn map_linear(val: f32, range_in: (f32, f32), range_out: (f32, f32)) -> f32 {
     // todo: You may be able to optimize calls to this by having the ranges pre-store

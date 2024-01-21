@@ -23,9 +23,6 @@ use core::{
 use ahrs::ppks::PositVelEarthUnits;
 use defmt::println;
 use hal::dma::DmaChannel;
-// todo temp
-use hal::pac::UART4;
-use num_traits::Float; // allows float rounding
 
 use crate::{
     flight_ctrls::autopilot::{self, AutopilotStatus},

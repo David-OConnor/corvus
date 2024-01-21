@@ -54,3 +54,30 @@ cfg_if! {
         pub const CURR_ADC_CH: u8 = 12;
     }
 }
+
+// Choose PSC and ARR to get a target frequency. For example,  300 or 500Hz.
+// Generally you can go up to a maximum value. Pulse high time is the predominant
+// factor in servo rotation. Higher pulses generally correspond to CCW motion.
+
+// 170Mhz tim clock on G4.
+// 240Mhz or 240Mhz tim clock on H743
+// 260Mhz tim clock on H723 @ 520Mhz. 275Mhz @ 550Mhz
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        // 240Mhz tim clock.
+        // pub const PSC_SERVOS: u16 = 7;
+        // pub const ARR_SERVOS: u32 = 59_999;
+        // 200Mhz tim clock.
+        pub const PSC_SERVOS: u16 = 7;
+        pub const ARR_SERVOS: u32 = 49_999;
+        // 260Mhz tim clock.
+        // pub const PSC_SERVOS: u16 = 7;
+        // pub const ARR_SERVOS: u32 = 64_999;
+        // 275Mhz tim clock.
+        // pub const PSC_SERVOS: u16 = 8;
+        // pub const ARR_SERVOS: u32 = 61_110;
+    } else if #[cfg(feature = "g4")] {
+        pub const PSC_SERVOS: u16 = 6;
+        pub const ARR_SERVOS: u32 = 48_570;
+    }
+}

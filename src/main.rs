@@ -20,7 +20,6 @@ use core::sync::atomic::Ordering;
 
 use ahrs::{Ahrs, Fix, Params};
 use cfg_if::cfg_if;
-use cmsis_dsp_api as dsp_api;
 use cortex_m::{self, asm};
 use defmt::println;
 use defmt_rtt as _;

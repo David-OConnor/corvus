@@ -8,8 +8,6 @@
 
 #![allow(dead_code)]
 
-use cortex_m::delay::Delay;
-use defmt::println;
 use hal::{delay_ms, i2c};
 
 use crate::{atmos_model::AltitudeCalPt, board_config::AHB_FREQ, setup::I2cBaro};
@@ -216,8 +214,6 @@ impl Altimeter {
 
         // It appears we need a sizable delay between setup and the first reading to set up the base
         // pressure. 300ms seems to work reliably. 100ms doesn't.
-        let cp = unsafe { cortex_m::Peripherals::steal() };
-
         delay_ms(300, AHB_FREQ);
 
         let (mut pressure, mut temp) = result.read_pressure_temp(i2c)?;
