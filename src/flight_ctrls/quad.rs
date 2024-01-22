@@ -10,6 +10,8 @@ use core::f32::consts::TAU;
 use ahrs::Params;
 use defmt::println;
 
+use num_traits::Float;
+
 use super::common::InputMap;
 use crate::{
     controller_interface::InputModeSwitch,
@@ -121,7 +123,7 @@ pub fn enroute_speed_ver(dist: f32, max_v: f32, z_agl: f32) -> f32 {
         }
     }
 
-    let dist_abs = util::abs(dist);
+    let dist_abs = dist.abs();
 
     let mut result = if dist_abs > 20. {
         max_v

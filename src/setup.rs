@@ -8,24 +8,21 @@
 use ahrs::{ppks::PositVelEarthUnits, Params};
 use cfg_if::cfg_if;
 use fdcan::{FdCan, NormalOperationMode};
-// #[cfg(feature = "h7")]
-// use hal::qspi::{Qspi, QspiConfig};
 #[cfg(feature = "fixed-wing")]
 use hal::timer::OutputCompare;
 use hal::{
     can::Can,
     clocks::Clocks,
-    delay_ms,
     dma::{self, DmaChannel, DmaInput, DmaInterrupt, DmaPeriph},
     gpio::{Edge, OutputSpeed, OutputType, Pin, PinMode, Port, Pull},
     i2c::{I2c, I2cConfig, I2cSpeed},
     pac::{self, I2C1, I2C2, SPI1},
     spi::{BaudRate, Spi, SpiConfig, SpiMode},
     timer::{BasicTimer, MasterModeSelection, TimChannel, Timer, TimerConfig, TimerInterrupt},
-    usart::{Usart, UsartConfig},
+    usart::{Usart, UsartConfig, UsartInterrupt},
 };
 
-use crate::board_config::IMU_BAUD_DIV;
+use crate::board_config::*;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
@@ -33,7 +30,6 @@ cfg_if! {
     }
 }
 use defmt::println;
-use hal::usart::UsartInterrupt;
 
 #[cfg(feature = "g4")]
 use crate::drivers::{spi2_kludge::Spi2, uart4_kludge::Usart4};
@@ -46,7 +42,6 @@ use crate::{
         // tof_vl53l1 as tof,
         imu_icm426xx as imu,
     },
-    // flight_ctrls::common::Motor,
     protocols::{
         dshot::{self, Motor},
         msp, servo,
@@ -119,16 +114,12 @@ cfg_if! {
     if #[cfg(feature = "h7")] {
         pub type UartCrsfRegs = pac::UART7;
         pub type UartOsdRegs = pac::USART2;
-        // type SpiPacFlash = pac::OCTOSPI1;
-        // pub type SpiPacFlash = pac::QUADSPI;
-        // pub type SpiFlash = Qspi;
         pub type SpiFlash = Spi<SpiPacFlash>;
         pub type UartCrsf = Usart<pac::UART7>;
         pub type UartOsd = Usart<pac::USART2>;
     } else {
         pub type UartCrsfRegs = pac::USART2;
         type UartOsdRegs = pac::UART4;
-        // pub type SpiPacFlash = pac::SPI2;
         pub type SpiFlash = Spi2<SpiPacFlash>;
         pub type UartCrsf = Usart<pac::USART2>;
         pub type UartOsd = Usart4<pac::UART4>;
@@ -307,52 +298,22 @@ pub fn setup_pins() {
     miso1.output_speed(spi_gpiospeed);
     mosi1.output_speed(spi_gpiospeed);
 
-    // todo TS batt ADC on H7 board.
-    // let batt_v_adc = Pin::new(Port::A, 4, PinMode::Input); // ADC12, channel 18
-    // loop {
-    //     println!("High: {:?}", batt_v_adc.is_high());
-    //     delay_ms(500, 200_000_000);
-    // }
+    let _batt_v_adc = Pin::new(PIN_BATT_ADC.0, PIN_BATT_ADC.1, PinMode::Analog);
+    let _current_sense_adc = Pin::new(PIN_CURR_ADC.0, PIN_CURR_ADC.1, PinMode::Analog);
+
+    let mut sck2 = Pin::new(PIN_SCK2.0, PIN_SCK2.1, PinMode::Alt(5));
+    let mut miso2 = Pin::new(PIN_MISO2.0, PIN_MISO2.1, PinMode::Alt(5));
+    let mut mosi2 = Pin::new(PIN_MOSI2.0, PIN_MOSI2.1, PinMode::Alt(5));
+
+    sck2.output_speed(spi_gpiospeed);
+    miso2.output_speed(spi_gpiospeed);
+    mosi2.output_speed(spi_gpiospeed);
+
+    let mut uart_crsf_tx = Pin::new(PIN_CRSF_TX.0, PIN_CRSF_TX.1, PinMode::Alt(PIN_CRSF_TX.2));
+    let mut uart_crsf_rx = Pin::new(PIN_CRSF_RX.0, PIN_CRSF_RX.1, PinMode::Alt(PIN_CRSF_RX.2));
 
     cfg_if! {
-        if #[cfg(feature = "h7")] {
-            let _batt_v_adc = Pin::new(Port::A, 4, PinMode::Analog); // ADC12, channel 18
-            let _current_sense_adc = Pin::new(Port::A, 0, PinMode::Analog); // ADC1, channel 16
-
-            // let qspi_sck = Pin::new(Port::B, 2, PinMode::Alt(9));
-            // let qspi_nss = Pin::new(Port::E, 11, PinMode::Alt(11));
-            // let io0 = Pin::new(Port::D, 11, PinMode::Alt(9));
-            // let io1 = Pin::new(Port::D, 12, PinMode::Alt(9));
-            // let io2 = Pin::new(Port::E, 2, PinMode::Alt(9));
-            // let io3 = Pin::new(Port::D, 13, PinMode::Alt(9));
-
-            let mut sck2 = Pin::new(Port::A, 9, PinMode::Alt(5));
-            let mut miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
-            let mut mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
-
-            sck2.output_speed(spi_gpiospeed);
-            miso2.output_speed(spi_gpiospeed);
-            mosi2.output_speed(spi_gpiospeed);
-        } else {
-            let _batt_v_adc = Pin::new(Port::A, 1, PinMode::Analog); // ADC12, channel 1
-            let _current_sense_adc = Pin::new(Port::B, 2, PinMode::Analog); // ADC2, channel 12
-
-            let mut sck2 = Pin::new(Port::B, 13, PinMode::Alt(5));
-            let mut miso2 = Pin::new(Port::B, 14, PinMode::Alt(5));
-            let mut mosi2 = Pin::new(Port::B, 15, PinMode::Alt(5));
-
-            sck2.output_speed(spi_gpiospeed);
-            miso2.output_speed(spi_gpiospeed);
-            mosi2.output_speed(spi_gpiospeed);
-        }
-    }
-
-    cfg_if! {
-        if #[cfg(feature = "h7")] {
-            // We use Uart 7 for the onboard ELRS MCU.
-            let _uart_crsf_tx = Pin::new(Port::B, 4, PinMode::Alt(11));
-            let mut uart_crsf_rx = Pin::new(Port::B, 3, PinMode::Alt(11));
-        } else {
+        if #[cfg(feature = "g4")] {
             let pwr = unsafe { &(*pac::PWR::ptr()) };
             let rcc = unsafe { &(*pac::RCC::ptr()) };
 
@@ -362,10 +323,6 @@ pub fn setup_pins() {
             rcc.apb1enr1.modify(|_, w| w.pwren().set_bit());
             rcc.apb1enr2.modify(|_, w| w.ucpd1en().set_bit());
             pwr.cr3.modify(|_, w| w.ucpd1_dbdis().set_bit());
-
-            // We use UART 2 for ELRS on G4.
-            let mut uart_crsf_tx = Pin::new(Port::B, 3, PinMode::Alt(7));
-            let mut uart_crsf_rx = Pin::new(Port::B, 4, PinMode::Alt(7));
 
             // Undo settings on PB3 and PB4 that are due to initial debug-pin config.
             uart_crsf_tx.pull(Pull::Floating);
@@ -380,8 +337,8 @@ pub fn setup_pins() {
     // module isn't connected.
     uart_crsf_rx.pull(Pull::Up);
 
-    let _uart_osd_tx = Pin::new(Port::C, 10, PinMode::Alt(5));
-    let mut uart_osd_rx = Pin::new(Port::C, 11, PinMode::Alt(5));
+    let _uart_osd_tx = Pin::new(PIN_OSD_TX.0, PIN_OSD_TX.1, PinMode::Alt(PIN_OSD_TX.2));
+    let mut uart_osd_rx = Pin::new(PIN_OSD_RX.0, PIN_OSD_RX.1, PinMode::Alt(PIN_OSD_RX.2));
 
     uart_osd_rx.pull(Pull::Up);
 

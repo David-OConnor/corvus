@@ -3,7 +3,10 @@
 
 use cfg_if::cfg_if;
 use dronecan::hardware::CanClock;
-use hal::{clocks::CrsSyncSrc, spi::BaudRate};
+use hal::{clocks::CrsSyncSrc, spi::BaudRate, gpio::{Port::{self, A, B, C, D,E, F, G}}};
+
+type PortPin = (Port, u8);
+type PortPinAlt = (Port, u8, u8);
 
 // 100 Mhz if 400Mhz core. 120 if 480.
 #[cfg(feature = "h7")]
@@ -92,3 +95,33 @@ cfg_if! {
         pub const IMU_BAUD_DIV: BaudRate = BaudRate::Div8;
     }
 }
+
+// Pins
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        pub const PIN_BATT_ADC: PortPin = (A, 4); // ADC12, channel 18
+        pub const PIN_CURR_ADC: PortPin = (A, 0);  // ADC1, channel 16
+
+        pub const PIN_SCK2: PortPin = (A, 9);
+
+        pub const PIN_CRSF_TX: PortPinAlt = (B, 4, 11); // UART 7
+        pub const PIN_CRSF_RX: PortPinAlt = (B, 3, 11);
+
+        pub const PIN_OSD_TX: PortPinAlt = (A, 2, 7); // UART 2
+        pub const PIN_OSD_RX: PortPinAlt = (A, 3, 7);
+    } else {
+        pub const PIN_BATT_ADC: PortPin = (A, 1);  // ADC12, channel 1
+        pub const PIN_CURR_ADC: PortPin = (B, 2);  // ADC2, channel 12
+
+        pub const PIN_SCK2: PortPin = (B, 13);
+
+        pub const PIN_CRSF_TX: PortPinAlt = (B, 3, 7); // UART 2
+        pub const PIN_CRSF_RX: PortPinAlt = (B, 4, 7);
+
+        pub const PIN_OSD_TX: PortPinAlt = (C, 10, 5);  // UART 4
+        pub const PIN_OSD_RX: PortPinAlt = (C, 11, 5);
+    }
+}
+
+pub const PIN_MISO2: PortPin = (B, 14);
+pub const PIN_MOSI2: PortPin = (B, 15);
