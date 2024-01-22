@@ -25,6 +25,8 @@ use hal::{
     usart::{Usart, UsartConfig},
 };
 
+use crate::board_config::IMU_BAUD_DIV;
+
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
         use crate::protocols::servo::ServoWing;
@@ -525,21 +527,8 @@ pub fn setup_busses(
             // todo: Temp config of USB pins on H743. We don't need this on G4 or H723
             let _usb_dm = Pin::new(Port::A, 11, PinMode::Alt(10));
             let _usb_dp = Pin::new(Port::A, 12, PinMode::Alt(10));
-
-            // On H7, we run PLLQ1 as the SPI1 clock (default).
-            // Configured with Divq=8. H743: 120Mhz SPI clock if core clock is 480Mhz. 100Mhz if @400Mhz.
-            // 120Mhz/8 = 15Mhz. 100Mhz / 8 = 12.5Mhz
-            // For H723, using PLLQ1 with PLLQ = DIV8: (And DIVN = 260; we lower DIVP in this case)
-            // 68.75Mhz at 550Mhz, and 65Mhz SPI at 520Mhz core. /16 = 17Mhz and 16Mhz respectively.
-            // If H723 @ 400Mhz, use same settings as H743.
-            // 120Mhz/8 = 15Mhz. 65Mhz/4 = 16.25Mhz. 68.75/4 = 17.2Mhz.
-            let imu_baud_div = BaudRate::Div8; // H743
-            // let imu_baud_div = BaudRate::Div4;  // H723 (Assuming not @ 400Mhz; if that, use Div8)
         } else {
             let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
-
-            // for ICM426xx, for 24Mhz limit. 170Mhz / 8 = ~21Mhz.
-            let imu_baud_div = BaudRate::Div8;
         }
     }
 
@@ -551,7 +540,7 @@ pub fn setup_busses(
         ..Default::default()
     };
 
-    let spi_imu = Spi::new(spi1_pac, imu_spi_cfg, imu_baud_div);
+    let spi_imu = Spi::new(spi1_pac, imu_spi_cfg, IMU_BAUD_DIV);
 
     // We use I2C1 for the GPS, magnetometer, and TOF sensor. Some details:
     // The U-BLOX GPS' max speed is 400kHz.
@@ -578,44 +567,10 @@ pub fn setup_busses(
     // We use I2C2 for the onboard barometer (altimeter).
     let i2c2 = I2c::new(i2c2_pac, i2c_baro_cfg, clock_cfg);
 
-    // We use SPI2 for SPI flash on G4. On H7, we use octospi instead.
-    // Max speed: 104Mhz (single, dual, or quad) for 8M variant, and 133Mhz for
-    // 16M variant.
-    // W25 flash chips use SPI mode 0 or 3.
-    // cfg_if! {
-    //     if #[cfg(feature = "h7")] {
-    //         let flash_config = QspiConfig {
-    //             // 240Mhz / 4 = 60Mhz.
-    //             // clock_division: 4,
-    //             clock_division: 16, // todo: TS by using a slower speed
-    //             ..Default::default()
-    //         };
-    //         let mut spi_flash = Qspi::new(spi_flash_pac, flash_config, clock_cfg);
-    //
-    //         let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output); // todo temp
-    //         // Enable QSPI, in status regiver 2.
-    //         cs_flash.set_high();
-    //
-    //         cs_flash.set_low();
-    //         spi_flash.write_indirect(0x31, &[0b0000_0010]);
-    //         cs_flash.set_high();
-    //
-    //         let mut read_buf = [0x9f, 0, 0, 0];
-    //         // let mut read_buf = [0, 0, 0, 0];
-    //         cs_flash.set_low();
-    //         spi_flash.read_indirect(0x9f, &mut read_buf);
-    //         // spi_flash.read_indirect(0x35, &mut read_buf);
-    //         cs_flash.set_high();
-    //
-    //         println!("Read buf from QSPI flash: {:?}", read_buf);
-    //
-    //     } else {
     #[cfg(feature = "g4")]
     let spi_flash = Spi2::new(spi_flash_pac, Default::default(), BaudRate::Div2);
     #[cfg(feature = "h7")]
     let spi_flash = Spi::new(spi_flash_pac, Default::default(), BaudRate::Div2);
-    // }
-    // }
 
     #[cfg(feature = "h7")]
     let mut cs_flash = Pin::new(Port::E, 11, PinMode::Output);

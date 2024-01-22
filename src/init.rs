@@ -81,7 +81,11 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
                 pll_src,
                 pll1: PllCfg {
                     divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
-                    pllq_en: true, // PLLQ for Spi1 and CAN clocks. Its default div of 8 is fine.
+                    // PLLQ for Spi1 and CAN clocks. We set it to 80Mhz, which is convenient for
+                    // CAN timings. For example, setting to 100Mhz or 120Mhz doesn't allow 5Mbps,
+                    // among other speeds.
+                    pllq_en: true,
+                    divq: 10, // (Sets to 80Mhz, assuming divn = 400.
                     ..Default::default()
                 },
                 // We use PLL2P as the (default) ADC clock. Keep the speed under 80Mhz.
@@ -136,8 +140,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // #[cfg(feature = "g4")]
     let spi_flash_pac = dp.SPI2;
 
-    // todo: Update relevant DC code for 100Mhz CAN clock; set this to 5M.
-    let can = dronecan::hardware::setup_can(dp.FDCAN1, CAN_CLOCK, dronecan::CanBitrate::B2m);
+    let can = dronecan::hardware::setup_can(dp.FDCAN1, CAN_CLOCK, dronecan::CanBitrate::B5m);
 
     #[cfg(feature = "h7")]
     can::set_message_ram_layout(); // Must be called explicitly; for H7.
@@ -183,15 +186,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
 
     // todo temp while we sort out HAL. We've fudged this to make the number come out correctly.
     batt_curr_adc.vdda_calibrated = 3.6;
-
-    let adcr = unsafe { &(*pac::RCC::ptr()) };
-    loop {
-        // println!("Adc en: {}", batt_curr_adc.regs.cr.read().aden().bit_is_set());
-        let batt = batt_curr_adc.read(18);
-        let batt_v2 = batt_curr_adc.reading_to_voltage(batt);
-        println!("BATT raw: {}, V: {:?}", batt, batt_v2);
-        delay_ms(500, AHB_FREQ);
-    }
 
     // todo: Which edge should it be?
     batt_curr_adc.set_trigger(adc::Trigger::Tim6Trgo, adc::TriggerEdge::HardwareRising);

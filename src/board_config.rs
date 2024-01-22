@@ -3,7 +3,7 @@
 
 use cfg_if::cfg_if;
 use dronecan::hardware::CanClock;
-use hal::clocks::CrsSyncSrc;
+use hal::{clocks::CrsSyncSrc, spi::BaudRate};
 
 // 100 Mhz if 400Mhz core. 120 if 480.
 #[cfg(feature = "h7")]
@@ -79,5 +79,16 @@ cfg_if! {
     } else if #[cfg(feature = "g4")] {
         pub const PSC_SERVOS: u16 = 6;
         pub const ARR_SERVOS: u32 = 48_570;
+    }
+}
+
+// Set the IMU bad to the highest convenient speed under 24Mhz.
+cfg_if! {
+    if #[cfg(feature = "h7")] {
+        // On H7, we run PLLQ1 as the SPI1 clock (default). We configure it to run at 80Mhz.
+        pub const IMU_BAUD_DIV: BaudRate = BaudRate::Div4;
+    } else {
+        // for ICM426xx, for 24Mhz limit. 170Mhz / 8 = ~21Mhz.
+        pub const IMU_BAUD_DIV: BaudRate = BaudRate::Div8;
     }
 }
