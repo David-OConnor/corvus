@@ -4,8 +4,7 @@
 use ahrs::{Ahrs, DeviceOrientation};
 use hal::{
     adc::{self, Adc, AdcConfig, AdcDevice},
-    clocks::{self, Clocks, InputSrc, PllSrc},
-    delay_ms,
+    clocks::{self, Clocks, PllSrc},
     dma::{self, ChannelCfg, Dma},
     flash::Flash,
     iwdg, pac,
@@ -18,7 +17,7 @@ use usbd_serial::{self, SerialPort};
 use crate::{
     app::{self, Local, Shared},
     board_config::{BATT_ADC_CH, CAN_CLOCK, CRS_SYNC_SRC, CURR_ADC_CH, DSHOT_ARR_READ},
-    main_loop::{self, DT_IMU},
+    main_loop::DT_IMU,
     protocols::{crsf, dshot},
     sensors_shared::{ExtSensor, V_A_ADC_READ_BUF},
     setup,
@@ -31,16 +30,13 @@ cfg_if! {
         use hal::{
             can,
             clocks::{PllCfg, VosRange},
-            // todo: USB1 on H723; USB2 on H743.
-            // usb::{Usb1, UsbBus, Usb1BusType as UsbBusType},
+            // USB1 on H723; USB2 on H743.
             usb::{Usb2, UsbBus, Usb2BusType as UsbBusType},
-            // pac::OCTOSPI1,
-            // pac::QUADSPI,
-            // qspi::{Qspi},
         };
     } else if #[cfg(feature = "g4")] {
         use hal::{
             usb::{self, UsbBus, UsbBusType},
+            clocks::InputSrc,
         };
     }
 }
@@ -51,8 +47,6 @@ use defmt::println;
 // Due to the way the USB serial lib is set up, the USB bus must have a static lifetime.
 // In practice, we only mutate it at initialization.
 static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
-
-use hal::{adc::Prescaler, can::Can};
 
 use crate::board_config::AHB_FREQ;
 
@@ -85,7 +79,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
                     // CAN timings. For example, setting to 100Mhz or 120Mhz doesn't allow 5Mbps,
                     // among other speeds.
                     pllq_en: true,
-                    divq: 10, // (Sets to 80Mhz, assuming divn = 400.
+                    divq: 10, // Sets to 80Mhz, assuming divn = 400.
                     ..Default::default()
                 },
                 // We use PLL2P as the (default) ADC clock. Keep the speed under 80Mhz.
@@ -134,10 +128,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         }
     }
 
-    // #[cfg(feature = "h7")]
-    // // let spi_flash_pac = dp.OCTOSPI1;
-    // let spi_flash_pac = dp.QUADSPI;
-    // #[cfg(feature = "g4")]
     let spi_flash_pac = dp.SPI2;
 
     let can = dronecan::hardware::setup_can(dp.FDCAN1, CAN_CLOCK, dronecan::CanBitrate::B5m);
@@ -166,9 +156,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         uart_crsf_pac,
         &clock_cfg,
     );
-
-    // We use the RTC to assist with power use measurement.
-    // let rtc = Rtc::new(dp.RTC, Default::default());
 
     // We use the ADC to measure battery voltage and ESC current.
     let adc_cfg = AdcConfig {
@@ -296,16 +283,11 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     let mut ahrs = Ahrs::new(DT_IMU, DeviceOrientation::default());
     // let mut ahrs = Ahrs::new(DT_IMU, user_cfg.orientation); // todo
 
-    // todo: Set up cal bias in foncif
     ahrs.cal.acc_bias = Vec3::new(
         user_cfg.acc_cal_bias.0,
         user_cfg.acc_cal_bias.1,
         user_cfg.acc_cal_bias.2,
     );
-    //
-    // ahrs.cal.hard_iron = user_cfg.hard_iron;
-    // ahrs.cal.soft_iron = user_cfg.soft_iron.clone();
-    //
 
     let mut params = Default::default();
 
@@ -330,9 +312,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         system_status.tof == SensorStatus::Pass,
         system_status.osd == SensorStatus::Pass,
     );
-
-    // Allow ESC to warm up and the radio to connect before starting the main loop.
-    // delay_ms(WARMUP_TIME, AHB_FREQ);
 
     // We must set up the USB device after the warmup delay, since its long blocking delay
     // leads the host (PC) to terminate the connection. The (short, repeated) blocking delays

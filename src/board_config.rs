@@ -8,11 +8,10 @@ use hal::{clocks::CrsSyncSrc, spi::BaudRate, gpio::{Port::{self, A, B, C, D,E, F
 type PortPin = (Port, u8);
 type PortPinAlt = (Port, u8, u8);
 
-// 100 Mhz if 400Mhz core. 120 if 480.
 #[cfg(feature = "h7")]
-pub const CAN_CLOCK: CanClock = CanClock::Mhz100;
+pub const CAN_CLOCK: CanClock = CanClock::Mhz80;
 #[cfg(feature = "g4")]
-pub const CAN_CLOCK: CanClock = CanClock::Mhz170; // todo: 160Mhz A/R.
+pub const CAN_CLOCK: CanClock = CanClock::Mhz170;
 
 #[cfg(feature = "h7")]
 pub const CRS_SYNC_SRC: CrsSyncSrc = CrsSyncSrc::OtgHs;
@@ -109,6 +108,8 @@ cfg_if! {
 
         pub const PIN_OSD_TX: PortPinAlt = (A, 2, 7); // UART 2
         pub const PIN_OSD_RX: PortPinAlt = (A, 3, 7);
+
+        pub const PIN_CS_IMU: PortPin = (C, 4);
     } else {
         pub const PIN_BATT_ADC: PortPin = (A, 1);  // ADC12, channel 1
         pub const PIN_CURR_ADC: PortPin = (B, 2);  // ADC2, channel 12
@@ -120,6 +121,8 @@ cfg_if! {
 
         pub const PIN_OSD_TX: PortPinAlt = (C, 10, 5);  // UART 4
         pub const PIN_OSD_RX: PortPinAlt = (C, 11, 5);
+
+        pub const PIN_CS_IMU: PortPin = (B, 12);
     }
 }
 

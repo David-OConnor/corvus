@@ -339,7 +339,6 @@ pub fn setup_pins() {
 
     let _uart_osd_tx = Pin::new(PIN_OSD_TX.0, PIN_OSD_TX.1, PinMode::Alt(PIN_OSD_TX.2));
     let mut uart_osd_rx = Pin::new(PIN_OSD_RX.0, PIN_OSD_RX.1, PinMode::Alt(PIN_OSD_RX.2));
-
     uart_osd_rx.pull(Pull::Up);
 
     // We use UARTs for misc external devices, including ESC telemetry,
@@ -479,16 +478,13 @@ pub fn setup_busses(
 
     cfg_if! {
         if #[cfg(feature = "h7")] {
-            let mut cs_imu = Pin::new(Port::C, 4, PinMode::Output);
-
-            // todo: Temp config of USB pins on H743. We don't need this on G4 or H723
+            // Config of USB pins on H743. We don't need this on G4 or H723
             let _usb_dm = Pin::new(Port::A, 11, PinMode::Alt(10));
             let _usb_dp = Pin::new(Port::A, 12, PinMode::Alt(10));
-        } else {
-            let mut cs_imu = Pin::new(Port::B, 12, PinMode::Output);
         }
     }
 
+    let mut cs_imu = Pin::new(PIN_CS_IMU.0, PIN_CS_IMU.1, PinMode::Output);
     cs_imu.set_high();
 
     let imu_spi_cfg = SpiConfig {

@@ -6,7 +6,10 @@ use hal::{
     gpio::{self, Port},
 };
 
-use crate::setup::{SpiImu, IMU_RX_CH, IMU_TX_CH};
+use crate::{
+    board_config::PIN_CS_IMU,
+    setup::{SpiImu, IMU_RX_CH, IMU_TX_CH},
+};
 
 const G: f32 = 9.8; // m/s
 
@@ -33,7 +36,7 @@ pub fn read_imu(starting_addr: u8, spi: &mut SpiImu, periph: DmaPeriph) {
         WRITE_BUF[0] = starting_addr;
     }
 
-    gpio::set_low(Port::B, 12);
+    gpio::set_low(PIN_CS_IMU.0, PIN_CS_IMU.1);
 
     unsafe {
         spi.transfer_dma(
