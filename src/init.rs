@@ -69,9 +69,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
         if #[cfg(feature = "h7")] {
             let clock_cfg = Clocks {
                 // Config for H723 at 520Mhz, or H743 at 400Mhz.
-                // Note: to get H723 working at 550Mhz. You'll need to increase divn to 275,
-                // and set CPU_FREQ_BOOST: "The CPU frequency boost can be enabled through the
-                // CPUFREQ_BOOST option byte in the FLASH_OPTSR2_PRG register."
                 pll_src,
                 pll1: PllCfg {
                     divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
@@ -86,9 +83,10 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
                 pll2: PllCfg {
                     divm: 8, // To compensate with 16Mhz HSE instead of 64Mhz HSI
                     divn: 80,
-                    divp: 2, // Sets ADC clock to 80 (400Mhz sysclock)
+                    divp: 2, // Sets ADC clock to 80Mhz (400Mhz sysclock)
                     ..Default::default()
                 },
+                // todo: When you get a chance: Why is Cube showing DIVP3EN, DIVQ3en and r all = 1...
                 hsi48_on: true,
                 ..Default::default()
             };

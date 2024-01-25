@@ -33,10 +33,10 @@ use crate::util;
 
 // For the receiver, 420k baud is hard set.
 pub const BAUD: u32 = 420_000;
-
+//
 // This buf shift allows us to read messages that we didn't start reading immediately.
 // Note that the most we generally see is 3, but we use a higher value conservatively.
-const MAX_BUF_SHIFT: usize = 0;
+const MAX_BUF_SHIFT: usize = 1;
 
 const CRC_POLY: u8 = 0xd5;
 const CRC_LUT: [u8; 256] = util::crc_init(CRC_POLY);
@@ -237,14 +237,23 @@ struct Packet {
 
 impl Packet {
     /// Decode a packet, from the rx buffer.
-    pub fn from_buf(buf: &[u8]) -> Result<Self, DecodeError> {
+    pub fn from_buf(mut buf: &[u8]) -> Result<Self, DecodeError> {
         let dest_addr: DestAddr = match buf[0].try_into() {
             Ok(d) => d,
             Err(_) => {
-                // println!("Dest Addr error");
-                return Err(DecodeError {});
+                if buf[1] == DestAddr::FlightController as u8 {
+                    // todo: Getting a right shift by one on H7.
+                    // todo: Come back to this and see if it's required after we fix
+                    buf = &buf[1..];
+                    DestAddr::FlightController
+                } else {
+                    // println!("Dest Addr error");
+                    return Err(DecodeError {});
+                }
             }
         };
+
+        println!("BUF: {:?}", buf);
 
         // Byte 1 (`len` var below) is the length of bytes to follow, ie type (1 byte),
         // payload (determined by this), and crc (1 byte)
@@ -385,8 +394,8 @@ pub fn handle_packet(rx_chan: DmaChannel, rx_fault: &mut bool) -> Option<PacketD
         Ok(p) => p,
         Err(_) => {
             *rx_fault = true;
-            // println!("Error Parsing CRSF packet");
-            // println!("BUF: {:?}", buf);
+            println!("Error Parsing CRSF packet");
+            println!("BUF: {:?}", buf);
             return None;
         }
     };

@@ -87,7 +87,6 @@ fn fix_int_sign(val: &mut i32, num_bits: u8) {
 fn read_one(reg: Reg, i2c: &mut I2cBaro) -> Result<u8, BaroNotConnectedError> {
     let mut buf = [0];
     i2c.write_read(ADDR, &[reg as u8], &mut buf)?;
-    // println!("Baro Buf: {:?}", buf);
     Ok(buf[0])
 }
 

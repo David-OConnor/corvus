@@ -595,6 +595,7 @@ pub fn setup_busses(
         UsartConfig {
             // We're having a struggle with overruns. Must leave disabled.
             overrun_disabled: true,
+            fifo_enabled: false, // todo TS
             ..Default::default()
         },
         clock_cfg,
@@ -608,13 +609,11 @@ pub fn setup_busses(
 /// Set up misc timers.
 pub fn setup_timers(
     tim1_pac: pac::TIM1,
-    // tim17_pac: pac::TIM17,
     tim5_pac: pac::TIM5,
     tim6_pac: pac::TIM6,
     clock_cfg: &Clocks,
 ) -> (
     Timer<pac::TIM1>,
-    // Timer<pac::TIM17>,
     Timer<pac::TIM5>,
     BasicTimer<pac::TIM6>,
 ) {

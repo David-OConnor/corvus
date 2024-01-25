@@ -148,6 +148,7 @@ static mut VV_IMU: f32 = 0.;
 mod app {
     use ahrs::ppks::PositInertial;
     use hal::dma::DmaPeriph;
+    use crate::imu_processing::imu_shared::IMU_READINGS;
 
     use super::*;
 
@@ -243,8 +244,6 @@ mod app {
         gpio::clear_exti_interrupt(12); // PB12
         #[cfg(feature = "g4")]
         gpio::clear_exti_interrupt(13); // PC13
-
-        // println!("IMU r");
 
         cx.shared.spi1.lock(|spi| {
             imu_shared::read_imu(imu::READINGS_START_ADDR, spi, setup::IMU_DMA_PERIPH);
@@ -540,8 +539,6 @@ mod app {
     // todo: Evaluate priority.
     #[task(binds = UART7,
     // #[task(binds = USART2,
-// shared = [control_channel_data, link_stats, system_status,
-//], local = [uart_crsf], priority = 8)]
     shared = [], local = [uart_crsf], priority = 8)]
     /// This ISR handles CRSF reception. It handles, in an alternating fashion, message starts,
     /// and message ends. For message starts, it begins a DMA transfer. For message ends, it
@@ -568,7 +565,12 @@ mod app {
         // to the variable message sizies.
         dma::stop(setup::CRSF_DMA_PERIPH, setup::CRSF_RX_CH);
 
+        // todo ts
+        uart.clear_interrupt(UsartInterrupt::ReadNotEmpty);
+
         let transfer_in_prog = crsf::TRANSFER_IN_PROG.load(Ordering::Acquire);
+
+        println!("Uart status: {:?}", uart.read_status());
 
         // Not sure why we need the additional message start check here.
         if transfer_in_prog == false && start_of_message {
@@ -579,6 +581,9 @@ mod app {
             uart.disable_interrupt(UsartInterrupt::CharDetect(None));
 
             unsafe {
+                // todo: TS note: Clearing the buffer here doesn'et resolve it; then we just get 0s.
+                // todo: Nor does dis/enabling. Also note: It appears to be something about UART or DMA; not
+                // todo the buffer itself.
                 uart.read_dma(
                     &mut crsf::RX_BUFFER,
                     setup::CRSF_RX_CH,
@@ -643,7 +648,6 @@ mod app {
                 osd::make_arm_status_buf(state.arm_status == safety::MOTORS_ARMED);
             });
 
-            // todo: Put back
             unsafe {
                 uart.write_dma(
                     &osd::OSD_ARM_BUF,

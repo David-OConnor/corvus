@@ -15,6 +15,8 @@ use crate::{board_config::AHB_FREQ, setup::SpiImu};
 
 const DEVICE_ID: u8 = 0x47;
 
+use defmt::println;
+
 // todo: Check this out:
 // https://github.com/betaflight/betaflight/pull/12444/files
 
@@ -132,12 +134,17 @@ pub const READINGS_START_ADDR: u8 = 0x80 | 0x1F; // (AccelDataX1)
 
 // https://github.com/pms67/Attitude-Estimation
 
+
 /// Utility function to read a single byte.
 pub fn read_one(reg: Reg, spi: &mut SpiImu, cs: &mut Pin) -> Result<u8, ImuError> {
     let mut buf = [reg.read_addr(), 0];
 
+    // todo: Delays are to tS on H7
+
     cs.set_low();
+    // delay_us(100, 400_000_000);
     spi.transfer(&mut buf)?;
+    // delay_us(100, 400_000_000);
     cs.set_high();
 
     Ok(buf[1])
@@ -221,20 +228,16 @@ fn setup_aa_filters(spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
     Ok(())
 }
 
+
 /// Configure the device.
 pub fn setup(spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
-    // Leave default of SPI mode 0 and 3.
-
     // todo: Without self-test, we'll use a WHOAMI read to verify if the IMU is connected. Note that
     // todo the SPI bus will still not fail if the IMU isn't present. HAL error?
     // todo: Better sanity check than WHOAMI.
 
-    // loop {
-    //     write_one(Reg::Bank0(RegBank0::PwrMgmt0), 0b0111_0101, spi, cs).ok();
-    //     delay_ms(10, AHB_FREQ);
-    // }
-
     let device_id = read_one(Reg::Bank0(RegBank0::WhoAmI), spi, cs)?;
+
+    println!("Device ID SPI: {}", device_id);
 
     if device_id != DEVICE_ID {
         return Err(ImuError::NotConnected);

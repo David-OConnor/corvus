@@ -328,9 +328,6 @@ pub fn print_status(
 
     let uart_regs = unsafe { &(*pac::USART2::ptr()) };
 
-    // println!("USart en: {}", uart_regs.cr1.read().ue().bit_is_set());
-    // println!("USart SR: {:b}", uart_regs.isr.read().bits());
-
     #[cfg(feature = "quad")]
     println!(
         "RPMs: FL {}, FR: {}, AL: {}, AR: {}\n",

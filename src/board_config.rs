@@ -25,7 +25,7 @@ pub const AHB_FREQ: u32 = 400_000_000;
 
 // Update frequency: 600kHz
 // 170Mhz tim clock on G4.
-// 240Mhz tim clock on H743
+// 240Mhz or 200Mhz tim clock on H743
 // 260Mhz tim clock on H723 @ 520Mhz. 275Mhz @ 550Mhz
 
 cfg_if! {
