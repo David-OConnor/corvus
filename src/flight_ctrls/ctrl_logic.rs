@@ -3,7 +3,7 @@
 use ahrs::Params;
 use cfg_if::cfg_if;
 use defmt::println;
-use lin_alg2::f32::Quaternion;
+use lin_alg::f32::Quaternion;
 
 use super::{common::CtrlMix, ctrl_effect_est::AccelMaps, filters::FlightCtrlFilters};
 use crate::flight_ctrls::{

@@ -3,11 +3,11 @@
 use ahrs::ppks::PositVelEarthUnits;
 use cfg_if::cfg_if;
 use hal::flash::{Bank, Flash};
-use lin_alg2::f32::Quaternion;
+use lin_alg::f32::Quaternion;
 
 cfg_if! {
     if #[cfg(feature = "fixed-wing")] {
-        use lin_alg2::f32::Vec3;
+        use lin_alg::f32::Vec3;
     } else {
         use crate::flight_ctrls::InputMode;
     }

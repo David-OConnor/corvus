@@ -253,7 +253,7 @@ impl Packet {
             }
         };
 
-        println!("BUF: {:?}", buf);
+        // println!("BUF: {:?}", buf);
 
         // Byte 1 (`len` var below) is the length of bytes to follow, ie type (1 byte),
         // payload (determined by this), and crc (1 byte)

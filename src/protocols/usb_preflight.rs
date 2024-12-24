@@ -17,7 +17,7 @@ use anyleaf_usb::{self, MessageType, CRC_LEN, DEVICE_CODE_CORVUS, MSG_START, PAY
 use cfg_if::cfg_if;
 use defmt::println;
 use hal::flash::Flash;
-use lin_alg2::f32::Quaternion;
+use lin_alg::f32::Quaternion;
 
 use crate::{
     controller_interface::ChannelData,

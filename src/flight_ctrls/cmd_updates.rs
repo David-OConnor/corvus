@@ -2,7 +2,7 @@
 //! control inputs.
 
 use ahrs::{FORWARD, RIGHT, UP};
-use lin_alg2::f32::Quaternion;
+use lin_alg::f32::Quaternion;
 use num_traits::Float;
 
 use super::common::InputMap;

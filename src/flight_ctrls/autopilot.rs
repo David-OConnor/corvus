@@ -44,7 +44,7 @@ cfg_if! {
 // todo: FOr various autopilot modes, check if variou sensors are connected like GPS, TOF, and MAG!
 
 use cmsis_dsp_sys::{arm_cos_f32, arm_sin_f32};
-use lin_alg2::f32::Vec3;
+use lin_alg::f32::Vec3;
 
 use crate::flight_ctrls::motor_servo::MotorServoState;
 

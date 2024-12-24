@@ -306,7 +306,6 @@ pub fn handle_crsf_data(
     if let Some(crsf_data) = crsf::handle_packet(setup::CRSF_RX_CH, &mut rx_fault) {
         match crsf_data {
             crsf::PacketData::ChannelData(data_crsf) => {
-                println!("1");
                 *control_channel_data = Some(ChannelData::from_channel_data(&data_crsf));
 
                 crsf::NEW_PACKET_RECEIVED.store(false, Ordering::Release);
@@ -318,7 +317,6 @@ pub fn handle_crsf_data(
             }
 
             crsf::PacketData::LinkStats(stats) => {
-                println!("2");
                 *link_stats = stats;
             }
         }

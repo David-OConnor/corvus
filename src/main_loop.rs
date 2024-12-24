@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicU16, Ordering};
 
 use ahrs::{self, ppks::PositVelEarthUnits, CalResult, ImuReadings};
 use anyleaf_usb::{CRC_LEN, PAYLOAD_START_I};
-use lin_alg2::f32::{Quaternion, Vec3};
+use lin_alg::f32::{Quaternion, Vec3};
 use num_traits::Float;
 use rtic::mutex_prelude::*;
 

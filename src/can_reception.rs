@@ -19,6 +19,8 @@ pub fn run(mut cx: app::can_isr::Context) {
 
         let rx_result = can.receive0(rx_buf);
 
+        println!("Can msg: {:?}", rx_buf);
+
         match dronecan::get_frame_info(rx_result) {
             Ok(frame_info) => {
                 let id = match frame_info.id {

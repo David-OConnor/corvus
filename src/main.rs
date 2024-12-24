@@ -409,7 +409,7 @@ mod app {
         });
     }
 
-    #[task(binds = EXTI9_5, priority = 10)]
+    #[task(binds = EXTI9_5, priority = 8)]
     /// We use this to read RPM status on motor 1 on G4, or any motor on H7.
     /// Triggers on rising and falling edges.
     /// High priority since this is time-sensitive, and fast-to-execute.
@@ -448,7 +448,7 @@ mod app {
         }
     }
 
-    #[task(binds = EXTI4, priority = 10)]
+    #[task(binds = EXTI4, priority = 8)]
     /// Similar to `rpm_read_m1`, but for M2, on G4 only.
     fn rpm_read_m2(_cx: rpm_read_m2::Context) {
         gpio::clear_exti_interrupt(4);
@@ -457,7 +457,7 @@ mod app {
         dshot::update_rec_buf_2(&dshot::M2_RPM_I);
     }
 
-    #[task(binds = EXTI0, priority = 10)]
+    #[task(binds = EXTI0, priority = 8)]
     /// Similar to `rpm_read_m1`, but for M3, on G4 only.
     fn rpm_read_m3(_cx: rpm_read_m3::Context) {
         gpio::clear_exti_interrupt(0);
@@ -465,7 +465,7 @@ mod app {
         dshot::update_rec_buf_3(&dshot::M3_RPM_I);
     }
 
-    #[task(binds = EXTI1, priority = 10)]
+    #[task(binds = EXTI1, priority = 8)]
     /// Similar to `rpm_read_m1`, but for M4, on G4 only.
     fn rpm_read_m4(_cx: rpm_read_m4::Context) {
         gpio::clear_exti_interrupt(1);
@@ -473,7 +473,7 @@ mod app {
         dshot::update_rec_buf_4(&dshot::M4_RPM_I);
     }
 
-    #[task(binds = TIM2, shared = [], local = [dshot_read_timer], priority = 9)]
+    #[task(binds = TIM2, shared = [], local = [dshot_read_timer], priority = 7)]
     /// This interrupt fires slightly after the last bit of RPM data is received.
     /// Its timer is started once power setting is transmitted.
     /// In this ISR, we disable reception, and return the DSHOT lines to an output
@@ -570,7 +570,10 @@ mod app {
 
         let transfer_in_prog = crsf::TRANSFER_IN_PROG.load(Ordering::Acquire);
 
-        println!("Uart status: {:?}", uart.read_status());
+        // println!("Uart status: {:?}", uart.read_status());
+
+        static mut i: u32 = 0;
+        unsafe { i += 1};
 
         // Not sure why we need the additional message start check here.
         if transfer_in_prog == false && start_of_message {
@@ -581,9 +584,6 @@ mod app {
             uart.disable_interrupt(UsartInterrupt::CharDetect(None));
 
             unsafe {
-                // todo: TS note: Clearing the buffer here doesn'et resolve it; then we just get 0s.
-                // todo: Nor does dis/enabling. Also note: It appears to be something about UART or DMA; not
-                // todo the buffer itself.
                 uart.read_dma(
                     &mut crsf::RX_BUFFER,
                     setup::CRSF_RX_CH,
@@ -595,6 +595,7 @@ mod app {
                     setup::CRSF_DMA_PERIPH,
                 );
             }
+            // uart.read(unsafe { &mut crsf::RX_BUFFER });
         } else if transfer_in_prog == true {
             crsf::TRANSFER_IN_PROG.store(false, Ordering::Release);
             // Line is idle.
@@ -603,8 +604,16 @@ mod app {
             uart.enable_interrupt(UsartInterrupt::CharDetect(None));
 
             crsf::NEW_PACKET_RECEIVED.store(true, Ordering::Release);
+
+            // todo ts
+            // for _ in 0..8 {
+                // while uart.regs.isr.read().rxne().bit_is_set() {
+                //     println!("a");
+                // uart.regs.rdr.read().rdr().bits();
+            // }
+            // uart.regs.cr3.modify(|_, w| w.dmar().clear_bit());
         } else {
-            // println!("Spurious IDLE on CRSF reception");
+            println!("Spurious IDLE on CRSF reception");
         }
     }
 
@@ -766,9 +775,9 @@ mod app {
         });
     }
 
-    #[task(binds = FDCAN1_IT1,
+    #[task(binds = FDCAN1_IT0,
     // #[task(binds = FDCAN1_INTR0_IT,
-    shared = [can, fix], priority = 4)]
+    shared = [can, fix], priority = 14)] // todo temp high pr
     /// Ext sensors write complete; start read of the next sensor in sequence.
     fn can_isr(cx: can_isr::Context) {
         can_reception::run(cx);

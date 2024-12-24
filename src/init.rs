@@ -10,7 +10,7 @@ use hal::{
     iwdg, pac,
     timer::{Timer, TimerConfig, TimerInterrupt},
 };
-use lin_alg2::f32::Vec3;
+use lin_alg::f32::Vec3;
 use usb_device::{bus::UsbBusAllocator, prelude::*};
 use usbd_serial::{self, SerialPort};
 
@@ -51,7 +51,7 @@ static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
 use crate::board_config::AHB_FREQ;
 
 pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
-    let cp = cx.core;
+    let mut cp = cx.core;
     let dp = pac::Peripherals::take().unwrap();
 
     // Improves performance, at a cost of slightly increased power use.
@@ -61,8 +61,8 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     // todo subtle concurrency bugs from the caches confusing things.
     // #[cfg(feature = "h7")]
     // cp.SCB.enable_icache();
-    // #[cfg(feature = "h7")]
-    // cp.SCB.enable_dcache(&mut cp.CPUID);
+    #[cfg(feature = "h7")]
+    cp.SCB.disable_dcache(&mut cp.CPUID);
 
     let pll_src = PllSrc::Hse(16_000_000);
     cfg_if! {
@@ -86,7 +86,6 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
                     divp: 2, // Sets ADC clock to 80Mhz (400Mhz sysclock)
                     ..Default::default()
                 },
-                // todo: When you get a chance: Why is Cube showing DIVP3EN, DIVQ3en and r all = 1...
                 hsi48_on: true,
                 ..Default::default()
             };
@@ -129,6 +128,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     let spi_flash_pac = dp.SPI2;
 
     let can = dronecan::hardware::setup_can(dp.FDCAN1, CAN_CLOCK, dronecan::CanBitrate::B5m);
+    // let can = dronecan::hardware::setup_can(dp.FDCAN1, CAN_CLOCK, dronecan::CanBitrate::B1m); // todo 1m temp
 
     #[cfg(feature = "h7")]
     can::set_message_ram_layout(); // Must be called explicitly; for H7.
@@ -159,7 +159,7 @@ pub fn run(mut cx: app::init::Context) -> (Shared, Local) {
     let adc_cfg = AdcConfig {
         // With non-timing-critical continuous reads, we can set a long sample time.
         sample_time: adc::SampleTime::T601,
-        // operation_mode: adc::OperationMode::Continuous, // todo: Put back
+        operation_mode: adc::OperationMode::Continuous,
         ..Default::default()
     };
 
