@@ -9,7 +9,6 @@ use core::f32::consts::TAU;
 
 use ahrs::Params;
 use defmt::println;
-
 use num_traits::Float;
 
 use super::common::InputMap;

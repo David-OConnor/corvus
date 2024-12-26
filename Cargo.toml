@@ -15,15 +15,16 @@ cortex-m-rt = "^0.7.3"
 
 rtic = { version = "^2.0.1", features = ["thumbv7-backend"] }
 
-hal = { package = "stm32-hal2", path = "../../stm32-hal", optional = true}
+#hal = { package = "stm32-hal2", path = "../../stm32-hal", optional = true}
+hal = { package = "stm32-hal2", version = "^1.8.5", optional = true}
 
 # CMSIS-DSP, for FFTs, FIR etc. C lib wrapped with FFI.
 # Trouble with LIBCLANG. See this: https://github.com/rust-lang/rust-bindgen/blob/master/book/src/requirements.md
 cmsis-dsp-sys = "^0.3.1"
 cmsis-dsp-api = { git = "https://github.com/David-OConnor/cmsis-dsp-api"}
 
-lin_alg = { package = "lin-alg2", path = "../../lin_alg", features = ["no_std"] }
-ahrs = { path = "../../ahrs" }
+lin_alg = { package = "lin-alg2", version = "^1.0.0", features = ["no_std"] }
+ahrs = { git = "https://github.com/David-OConnor/ahrs" }
 
 num-traits = { version = "^0.2.15", default_features = false } # Absolute value, powers etc.
 

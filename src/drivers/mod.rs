@@ -1,7 +1,6 @@
 //! This module contains drivers for various hardware peripherals, each in its own sub-module.
 
 pub mod baro_dps310;
-// pub mod camera_gimbal;
 pub mod gnss_can;
 pub mod imu_icm426xx;
 // pub mod imu_ism330dhcx;

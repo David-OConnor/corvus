@@ -46,8 +46,7 @@ use crate::{
         dshot::{self, Motor},
         msp, servo,
     },
-    safety,
-    sensors_shared,
+    safety, sensors_shared,
     system_status::{SensorStatus, SystemStatus},
 };
 
@@ -612,11 +611,7 @@ pub fn setup_timers(
     tim5_pac: pac::TIM5,
     tim6_pac: pac::TIM6,
     clock_cfg: &Clocks,
-) -> (
-    Timer<pac::TIM1>,
-    Timer<pac::TIM5>,
-    BasicTimer<pac::TIM6>,
-) {
+) -> (Timer<pac::TIM1>, Timer<pac::TIM5>, BasicTimer<pac::TIM6>) {
     let ctrl_coeff_adj_timer = Timer::new_tim1(
         tim1_pac,
         1. / crate::CTRL_COEFF_ADJ_TIMEOUT,

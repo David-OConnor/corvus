@@ -3,7 +3,11 @@
 
 use cfg_if::cfg_if;
 use dronecan::hardware::CanClock;
-use hal::{clocks::CrsSyncSrc, spi::BaudRate, gpio::{Port::{self, A, B, C, D,E, F, G}}};
+use hal::{
+    clocks::CrsSyncSrc,
+    gpio::Port::{self, A, B, C, D, E, F, G},
+    spi::BaudRate,
+};
 
 type PortPin = (Port, u8);
 type PortPinAlt = (Port, u8, u8);

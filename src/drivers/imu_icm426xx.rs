@@ -134,7 +134,6 @@ pub const READINGS_START_ADDR: u8 = 0x80 | 0x1F; // (AccelDataX1)
 
 // https://github.com/pms67/Attitude-Estimation
 
-
 /// Utility function to read a single byte.
 pub fn read_one(reg: Reg, spi: &mut SpiImu, cs: &mut Pin) -> Result<u8, ImuError> {
     let mut buf = [reg.read_addr(), 0];
@@ -227,7 +226,6 @@ fn setup_aa_filters(spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {
 
     Ok(())
 }
-
 
 /// Configure the device.
 pub fn setup(spi: &mut SpiImu, cs: &mut Pin) -> Result<(), ImuError> {

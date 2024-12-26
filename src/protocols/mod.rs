@@ -1,7 +1,6 @@
 //! This module contains communications protocols
 
 pub mod crsf;
-pub mod dronecan;
 pub mod dshot;
 pub mod esc_can;
 pub mod msp;

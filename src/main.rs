@@ -148,9 +148,9 @@ static mut VV_IMU: f32 = 0.;
 mod app {
     use ahrs::ppks::PositInertial;
     use hal::dma::DmaPeriph;
-    use crate::imu_processing::imu_shared::IMU_READINGS;
 
     use super::*;
+    use crate::imu_processing::imu_shared::IMU_READINGS;
 
     #[shared]
     pub struct Shared {
@@ -573,7 +573,7 @@ mod app {
         // println!("Uart status: {:?}", uart.read_status());
 
         static mut i: u32 = 0;
-        unsafe { i += 1};
+        unsafe { i += 1 };
 
         // Not sure why we need the additional message start check here.
         if transfer_in_prog == false && start_of_message {
@@ -607,9 +607,9 @@ mod app {
 
             // todo ts
             // for _ in 0..8 {
-                // while uart.regs.isr.read().rxne().bit_is_set() {
-                //     println!("a");
-                // uart.regs.rdr.read().rdr().bits();
+            // while uart.regs.isr.read().rxne().bit_is_set() {
+            //     println!("a");
+            // uart.regs.rdr.read().rdr().bits();
             // }
             // uart.regs.cr3.modify(|_, w| w.dmar().clear_bit());
         } else {
