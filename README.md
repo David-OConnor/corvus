@@ -15,7 +15,7 @@ This firmware is tied to specific hardware configurations. It runs on STM32G4 an
  - ELRS (CRSF) controls
  - WIP support for CAN GPS, external AHRS, and controls
 
-It is in either a flyable, or close to flyable state if paired with copmatible hardware, using acro mode only. Code is written for semi-autonomous flight modes, but these are not working.
+It is in either a flyable, or close to flyable state if paired with compatible hardware, using acro mode only. Code is written for semi-autonomous flight modes, but these are not working.
 
 Its primary flight control model is attitude-based. Its acro mode is based on this as well, setting the attitude target based on rate controls, vice direct gyro reads. This results in higher latency compared to traditional gyro-based acro modes, but is less sensitive to tuning. It decouples control inputs from response.
 
@@ -23,5 +23,7 @@ See the [accompanying Preflight repo](https://github.com/David-OConnor/preflight
 
 See [the accompanying AHRS library](https://github.com/David-OConnor/ahrs), which it uses as a dependency,
 for the attitude heading-reference system.
+
+See [this DroneCAN library](https://github.com/David-OConnor/dronecan) for interaction with CAN peripherals.
 
 See descriptions in individual modules for their function.
