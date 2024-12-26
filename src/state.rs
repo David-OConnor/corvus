@@ -25,7 +25,6 @@ use crate::{
         common::{AttitudeCommanded, CtrlInputs, CtrlMix, InputMap},
         ctrl_effect_est::AccelMaps,
         ctrl_logic::{CtrlCoeffs, DragCoeffs},
-        // ControlMapping,
         motor_servo::MotorServoState,
         pid::PidCoeffs,
     },

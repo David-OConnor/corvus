@@ -4,6 +4,9 @@ todo: Fill out this README
 
 This mainly exists as a code demo, although is mostly functional for quadcopter rate-control ("acro") flight, when paired with specific hardware. There is nascent code to support fixed-wing flight, but it is incomplete and untested.
 
+It uses[RTIC](https://rtic.rs/2/book/en/) to manage control flow, via interrupts.
+
+
 ## Overview
 This firmware is tied to specific hardware configurations. It runs on STM32G4 and STM32H743 flight controllers. (AnyLeaf boards). It requires specific hardware, currently:
 
