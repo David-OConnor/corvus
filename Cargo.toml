@@ -19,6 +19,7 @@ hal = { package = "stm32-hal2", version = "^1.8.5", optional = true}
 
 # CMSIS-DSP, for FFTs, FIR etc. C lib wrapped with FFI.
 # Trouble with LIBCLANG? See this: https://github.com/rust-lang/rust-bindgen/blob/master/book/src/requirements.md
+# Note: This library currently requires LLVM v15 to be installed; newer versions cause a compile error containing `sqrtf`.
 cmsis-dsp-sys = "^0.3.1"
 cmsis-dsp-api = { git = "https://github.com/David-OConnor/cmsis-dsp-api"}
 
@@ -29,6 +30,7 @@ num-traits = { version = "^0.2.15", default_features = false } # Absolute value,
 
 cfg-if = "^1.0.0"  # if/else blocks for feature-gating based on flight controller and MCU layout
 
+# USB support
 stm32-usbd = { version = "^0.6.0", optional = true}
 synopsys-usb-otg = { version = "^0.3.0", optional = true}
 usb-device = "^0.2.9"
@@ -46,7 +48,6 @@ num_enum = { version = "^0.7.0", default_features = false }
 
 # todo: Update this to use the crate.
 dronecan = { git = "https://github.com/David-OConnor/dronecan", optional = true }
-#mavlink = { version = "^0.12.2", default_features = false }
 anyleaf_usb = { git = "https://github.com/David-OConnor/anyleaf_usb" }
 
 # Use these features to specify GPIO mapping, and which peripherals to use.
@@ -57,6 +58,7 @@ h7 = ["hal/h7rt", "hal/h743v", "hal/usbotg_hs", "hal/can_fd_h", "synopsys-usb-ot
 
 quad = [] # For quadcopter aircraft
 fixed-wing = [] # For fixed-wing aircraft
+
 # Periodically print the status of various sytems and sensor data to console. For debugging.
 print-status = []
 

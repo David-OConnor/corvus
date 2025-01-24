@@ -22,7 +22,6 @@ use crate::{
     util,
 };
 
-// const UPDATE_RATE_IMU: f32 = 8_000.;
 const UPDATE_RATE_IMU: f32 = 8_192.; // From measuring.
 pub const DT_IMU: f32 = 1. / UPDATE_RATE_IMU;
 pub const BARO_RATIO: u32 = 42;
